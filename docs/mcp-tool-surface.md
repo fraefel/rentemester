@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 95 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 98 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -186,7 +186,7 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 - **Write-reversible**: 11
 - **Write-irreversible**: 41
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **95**
+- **Total**: **98**
 
 ## Read-tools
 
@@ -227,7 +227,9 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 | `reconcile_bank` | `reconcile bank` | `{ company, from, to, status?, textMatch?, amount?, account? }` | Bygger bank-afstemningsrapport for periode. |
 | `recurring_invoice_list` | `recurring-invoice list` | `{ company, includeInactive? }` | Lister gentagende fakturaskabeloner. |
 | `retention_status` | `retention status` | `{ company, asOf? }` | Viser opbevaringsfrister og udløbet materiale. |
-| `system_backup_destination_list` | `system backup-destinations` | `{ company }` | Lister konfigurerede backup-destinationer med attestering. |
+| `gdpr_discover` | `gdpr discover` | `{ company, cvr?, name? }` | Find alle rækker der indeholder persondata om en registreret. |
+| `gdpr_export` | `gdpr export` | `{ company, cvr?, name?, asOf? }` | Komplet data-subject access report med opbevaringsfrister. |
+| `gdpr_audit_log` | `gdpr audit-log` | `{ company, since?, until?, asOf? }` | Eksportér alle GDPR-hændelser fra audit-loggen. || `system_backup_destination_list` | `system backup-destinations` | `{ company }` | Lister konfigurerede backup-destinationer med attestering. |
 | `system_backup_governance` | `system backup-governance` | `{ company, asOf? }` | Samlet backup-status: forfald, lås, destinationer, sikker placering. |
 | `system_backup_status` | `system backup-status` | `{ company, asOf? }` | Tjekker om backup-pligten er opfyldt. |
 | `system_healthcheck` | `system healthcheck` | `{ company }` | Tjekker virksomhedsmappens integritet. |

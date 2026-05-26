@@ -1,7 +1,7 @@
 /**
  * Central tools-registrering for Rentemester-MCP-serveren.
  *
- * `registerAllTools` registrerer hele tool-surface'en — 95 tools fordelt
+ * `registerAllTools` registrerer hele tool-surface'en — 98 tools fordelt
  * på de domæne-funktioner der kaldes herunder. Den autoritative liste
  * (klassifikation, inputs, CLI-mapping) står i docs/mcp-tool-surface.md;
  * driv en kørende server med `tools/list` for den faktiske, aktuelle liste.
@@ -51,6 +51,7 @@ import { registerJournalTools } from "./tools/journal";
 import { registerPeppolTools } from "./tools/peppol";
 import { registerPeriodTools } from "./tools/period";
 import { registerRetentionTools } from "./tools/retention";
+import { registerGdprTools } from "./tools/gdpr";
 import { registerSystemTools } from "./tools/system";
 import { registerVatTools } from "./tools/vat";
 import { registerVendorTools } from "./tools/vendor";
@@ -162,6 +163,7 @@ export function registerAllTools(server: McpServer): void {
   registerPeppolTools(server);
   registerPeriodTools(server);
   registerRetentionTools(server);
+  registerGdprTools(server);
   registerSystemTools(server);
   registerVatTools(server);
   registerVendorTools(server);

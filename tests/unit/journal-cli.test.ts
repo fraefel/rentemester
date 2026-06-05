@@ -114,6 +114,10 @@ describe("journal post CLI", () => {
         ...process.env,
         USER: "",
         LOGNAME: "",
+        // USERNAME is the Windows OS-user source (#325); it must be scrubbed
+        // too, or the inherited Windows account name would derive an actor and
+        // this "no actor can be inferred" case would not actually hold there.
+        USERNAME: "",
         OPENCLAW_AGENT: "",
         RENTEMESTER_AGENT: "",
         RENTEMESTER_USER: "",

@@ -16,7 +16,7 @@ import {
  * still be clearly attributable, so the actor policy is enforced here, in the
  * handler, mirroring `enforceMutationActorPolicy`: an explicit `--actor` must
  * be canonical and in `config/policy.yaml`; otherwise an inferred actor
- * (USER/LOGNAME/OPENCLAW_AGENT) must exist. The resolved actor is exported via
+ * (USER/LOGNAME/USERNAME/OPENCLAW_AGENT) must exist. The resolved actor is exported via
  * `RENTEMESTER_ACTOR` so the core audit log attributes the reopen correctly.
  */
 function enforceReopenActor(ctx: CommandContext, root: string): void {
@@ -42,7 +42,7 @@ function enforceReopenActor(ctx: CommandContext, root: string): void {
   }
   if (!inferredMutationActor()) {
     ctx.fatal(
-      "actor required for mutations: pass --actor <user:...|agent:...|system:...> or run with USER/LOGNAME/OPENCLAW_AGENT set",
+      "actor required for mutations: pass --actor <user:...|agent:...|system:...> or run with USER/LOGNAME/USERNAME/OPENCLAW_AGENT set",
     );
   }
 }

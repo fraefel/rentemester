@@ -15,7 +15,7 @@ actor.
 En muterende kommando uden actor afvises med:
 
 ```
-actor required for mutations: pass --actor <user:...|agent:...|system:...> or run with USER/LOGNAME/OPENCLAW_AGENT set
+actor required for mutations: pass --actor <user:...|agent:...|system:...> or run with USER/LOGNAME/USERNAME/OPENCLAW_AGENT set
 ```
 
 Actoren bestemmes i denne rækkefølge:
@@ -33,6 +33,7 @@ Actoren bestemmes i denne rækkefølge:
    - `RENTEMESTER_USER` → `user:<værdi>`
    - `USER` → `user:<værdi>`
    - `LOGNAME` → `user:<værdi>`
+   - `USERNAME` → `user:<værdi>` (Windows har hverken `USER` eller `LOGNAME`)
 
 Findes ingen af delene, fejler kommandoen før den rører virksomhedsdata.
 

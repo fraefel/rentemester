@@ -109,6 +109,10 @@ export function seedAccounts(db: Database) {
     // --- Income (1xxx) ---
     ["1000", "Omsætning, ydelser", "income", "credit", null],
     ["1010", "Gebyr- og kompensationsindtægter", "income", "credit", null],
+    // Realiseret valutakursgevinst på debitorer/kreditorer i fremmed valuta:
+    // når en fordring/gæld indfries til en anden kurs end den, den blev bogført
+    // til, er forskellen en finansiel gevinst (kredit) — modposten til 3320.
+    ["1020", "Valutakursgevinst (realiseret)", "income", "credit", null],
     ["1100", "Debitorer", "asset", "debit", null],
     ["1200", "Salgsmoms", "vat", "credit", null],
     // Periodeafgrænsningspost: forudbetalte omkostninger (asset). A prepaid
@@ -138,6 +142,10 @@ export function seedAccounts(db: Database) {
     ["3200", "Porto og fragt", "expense", "debit", "DK_PURCHASE_25"],
     ["3300", "Gebyrer, bank og betalingskort", "expense", "debit", null],
     ["3310", "Renteudgifter", "expense", "debit", null],
+    // Realiseret valutakurstab på debitorer/kreditorer i fremmed valuta — det
+    // finansielle modstykke til 1020. Bogføres når en fordring/gæld indfries
+    // til en ringere kurs end bogføringskursen.
+    ["3320", "Valutakurstab (realiseret)", "expense", "debit", null],
     // --- Staff costs (3xxx, 3500-3599) ---
     ["3500", "Lønninger", "expense", "debit", null],
     ["3510", "Pension", "expense", "debit", null],

@@ -48,6 +48,28 @@ describe("authority export", () => {
       ingested.documentId!,
     );
 
+    // The audit rows that issueInvoice/postJournalEntry above emit are stamped
+    // with CURRENT_TIMESTAMP (wall clock), so once the real date passes the
+    // period end they fall outside the 2026-05 export window and the audit-log
+    // count drops to zero. Seed explicit period-dated audit rows here — exactly
+    // as the exceptions above are seeded — so the export's period filter is
+    // exercised deterministically, independent of the calendar. Includes a
+    // 'journal_post' event because the assertions below require one.
+    for (const [eventType, entityType, message, createdAt] of [
+      ["document_issue", "document", "Issued invoice booked", "2026-05-16 10:00:00"],
+      ["invoice_post", "journal_entry", "Invoice posted to ledger", "2026-05-16 10:00:01"],
+      ["document_ingest", "document", "Vendor invoice ingested", "2026-05-16 10:00:02"],
+      ["journal_post", "journal_entry", "Expense journal posted", "2026-05-16 10:00:03"],
+    ] as const) {
+      db.run(
+        `INSERT INTO audit_log (event_type, entity_type, message, actor, created_at) VALUES (?, ?, ?, 'system', ?)`,
+        eventType,
+        entityType,
+        message,
+        createdAt,
+      );
+    }
+
     const first = exportAuthorityPackage(db, companyRoot, {
       periodStart: "2026-05-01",
       periodEnd: "2026-05-31",

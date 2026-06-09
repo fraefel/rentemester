@@ -1,4 +1,4 @@
-version: dk-invoices-v0.0.10
+version: dk-invoices-v0.0.11
 sources:
   - DK-MOMSBEKENDTGORELSEN-2023-1435
   - DK-MOMSLOVEN-2024-209
@@ -502,6 +502,21 @@ rules:
       forbid:
         - payment_application_above_open_balance
     explanation: Rentemester must track which issued invoice a payment settles, how much was applied, and whether any balance remains open.
+  - rule_id: DK-INVOICE-FX-REALISED-001
+    name: Realised exchange gain or loss on a foreign-currency settlement must reach the result, not strand on the receivable
+    category: invoice_lifecycle
+    source_id: DK-BOGFORINGSLOVEN-2022-700
+    provisions:
+      - ref: "§ 9, stk. 1"
+        text_hash: "sha256:75acd88eca28d81d86de2d14ed3c3871304f3e4da3cffc0920be43322a96153a"
+    severity: hard_stop
+    machine_rule:
+      require:
+        - receivable_relieved_at_invoice_date_rate
+        - realised_fx_difference_booked_to_result
+      forbid:
+        - residual_fx_difference_stranded_on_receivable
+    explanation: When a foreign-currency invoice is settled at a payment-date rate that differs from the invoice-date rate, Rentemester must relieve the receivable at the rate it was booked at and book the difference versus the DKK actually received as a realised exchange gain (account 1020) or loss (account 3320), so the receivable nets to zero per invoice and the exchange difference reaches the result.
   - rule_id: DK-INVOICE-CORRECTION-BALANCE-001
     name: Open invoice balance must reflect linked credit notes as well as payments
     category: invoice_lifecycle

@@ -116,6 +116,10 @@ export function InvoiceIssueModal({
 
   // Check up-front whether the company has payment details — an invoice with
   // no bank account carries no "BETALING" block, so the human is warned (#284).
+  // The same settings response carries the company's own CVR, which we use to
+  // prefill the Sælger CVR field so the owner does not retype it every time.
+  // The field stays editable for the rare one-off where a different seller VAT
+  // applies.
   useEffect(() => {
     let cancelled = false;
     api
@@ -131,6 +135,11 @@ export function InvoiceIssueModal({
               payment.iban),
         );
         setMissingPayment(!hasPayment);
+        // Prefill the seller CVR from company settings, but never clobber a
+        // value the owner has already typed before the fetch resolves.
+        if (settings.cvr) {
+          setSellerVat((prev) => (prev.trim() ? prev : settings.cvr ?? ""));
+        }
       })
       .catch(() => {
         // A failed settings lookup must not block invoicing — skip the warning.

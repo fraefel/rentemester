@@ -18,13 +18,24 @@ export type PostIssuedInvoiceInput = {
 
 function issuedInvoiceJournalLines(doc: { invoice_no: string }, payload: any, grossAmount: number, netAmount: number, vatAmount: number, input: PostIssuedInvoiceInput) {
   const vatTreatment = payload?.vatTreatment ?? "standard";
-  const isReverseCharge = vatTreatment === "domestic_reverse_charge" || vatTreatment === "foreign_reverse_charge";
+  const isDomesticReverseCharge = vatTreatment === "domestic_reverse_charge";
+  const isForeignReverseCharge = vatTreatment === "foreign_reverse_charge";
+  const isReverseCharge = isDomesticReverseCharge || isForeignReverseCharge;
+  // JUR-2/KODE-2: domestic and foreign reverse charge are both VAT-exempt
+  // sales but file in DIFFERENT momsangivelse rubrikker. Foreign (EU B2B,
+  // momsloven §46 / momsdirektivet art. 196/199) → rubrik B + EU sales list
+  // (VIES). Domestic §46 (mobiltelefoner, CPU'er, metalskrot) → rubrik C
+  // ("værdi af andet salg uden moms"), and must stay OFF the VIES list. They
+  // therefore carry distinct vat codes so buildVatReport can split the bases.
+  // Source: SKAT Den juridiske vejledning A.B.3.3.1.5; rubrik C confirmed for
+  // domestic §46 reverse charge.
+  const reverseChargeVatCode = isDomesticReverseCharge ? "DOMESTIC_REVERSE_CHARGE_EXEMPT" : "REVERSE_CHARGE_EXEMPT";
   const lines: Array<{ accountNo: string; debitAmount?: number; creditAmount?: number; vatCode?: string; text: string }> = [
     { accountNo: input.receivableAccountNo ?? "1100", debitAmount: grossAmount, text: `Receivable ${doc.invoice_no}` },
     {
       accountNo: input.revenueAccountNo ?? "1000",
       creditAmount: netAmount,
-      vatCode: isReverseCharge ? "REVERSE_CHARGE_EXEMPT" : "DK_SALE_25",
+      vatCode: isReverseCharge ? reverseChargeVatCode : "DK_SALE_25",
       text: `Revenue ${doc.invoice_no}`
     },
   ];

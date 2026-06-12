@@ -156,6 +156,8 @@ function buildFixture(): DashboardInput {
       purchaseBase25: 7500,
       salesBase25: 32500,
       reverseChargeSalesBase: 0,
+      foreignReverseChargeSalesBase: 0,
+      domesticReverseChargeSalesBase: 0,
       reverseChargePurchaseBase: 0,
       representationPurchaseBase: 0,
       badDebtReliefBase25: 0,

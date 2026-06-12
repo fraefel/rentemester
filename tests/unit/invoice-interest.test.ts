@@ -1099,3 +1099,94 @@ describe("invoice late interest – multi-half-year statutory segmentation (JUR-
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe("invoice late interest – correction reconstructs a TABLE claim with the SAME half-year segmentation (JUR-7)", () => {
+  function overdueInvoiceDue(dueDate: string) {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-interest-corr-seg-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    const issueYear = Number(dueDate.slice(0, 4)) - 1;
+    const issueDate = `${issueYear}-12-15`;
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate,
+      dueDate,
+      invoiceNumber: `${issueYear}-0001`,
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    return { root, db, documentId: issued.documentId! };
+  }
+
+  test("no false over-claim: a posted table claim across half-years recomputes lawful with the SAME segmented rates", () => {
+    // Claim 1 registered+posted on the full 1.250, due 2024-02-01, as-of 2026-06-12.
+    // It was BILLED with the half-year-segmented statutory rates = 315,39 kr (the
+    // amount the JUR-7 calc produces). With NOTHING back-dated, the correction's
+    // lawful recompute must ALSO use the segmented rates → 315,39, so over-claim 0
+    // and no spurious proposal. The pre-fix single-rate recompute gave 287,83 →
+    // a phantom 27,56 over-claim.
+    const { root, db, documentId } = overdueInvoiceDue("2024-02-01");
+    expect(registerInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-06-12" }).ok).toBe(true);
+    expect(postInvoiceLateInterestToLedger(db, { invoiceDocumentId: documentId }).ok).toBe(true);
+
+    const proposal = proposeInterestCorrection(db, { invoiceDocumentId: documentId });
+    expect(proposal.ok).toBe(true);
+    expect(proposal.postedInterest).toBe(315.39);
+    expect(proposal.lawfulInterest).toBe(315.39);
+    expect(proposal.overClaimedAmount).toBe(0);
+    expect(proposal.hasProposal).toBe(false);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("real over-claim is measured with the segmented rates, not a single as-of rate", () => {
+    // Same posted claim (billed 315,39 with segmented rates). A 625 payment is then
+    // back-dated to 2025-01-01 (a half-year boundary inside the window), lowering
+    // the principal for the later half-years. The lawful date-aware + segmented
+    // figure is 224,31, so the over-claim is 315,39 − 224,31 = 91,08. The pre-fix
+    // single-rate recompute would have produced 199,84 lawful → 115,55 over-claim
+    // (too high), reversing genuinely owed interest.
+    const { root, db, documentId } = overdueInvoiceDue("2024-02-01");
+    expect(registerInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-06-12" }).ok).toBe(true);
+    expect(postInvoiceLateInterestToLedger(db, { invoiceDocumentId: documentId }).ok).toBe(true);
+    expect(applyInvoicePayment(db, { invoiceDocumentId: documentId, paymentDate: "2025-01-01", amount: 625, note: "Bagud-dateret afdrag" }).ok).toBe(true);
+
+    const proposal = proposeInterestCorrection(db, { invoiceDocumentId: documentId });
+    expect(proposal.ok).toBe(true);
+    expect(proposal.postedInterest).toBe(315.39);
+    expect(proposal.lawfulInterest).toBe(224.31);
+    expect(proposal.overClaimedAmount).toBe(91.08);
+    expect(proposal.hasProposal).toBe(true);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a MANUAL-rate claim is reconstructed with its single stored rate (no segmentation)", () => {
+    // The user registered claim 1 with an explicit reference rate 1,75 over the
+    // same multi-half-year window → billed 287,83 (single rate, unchanged). With
+    // nothing back-dated the correction must reconstruct that SAME single rate, so
+    // lawful 287,83, over-claim 0. (A manual rate equal to the table value is the
+    // boundary case — it must still behave as one continuous rate, matching how it
+    // was billed.)
+    const { root, db, documentId } = overdueInvoiceDue("2024-02-01");
+    expect(
+      registerInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-06-12", referenceRatePercent: 1.75 }).ok,
+    ).toBe(true);
+    expect(postInvoiceLateInterestToLedger(db, { invoiceDocumentId: documentId }).ok).toBe(true);
+
+    const proposal = proposeInterestCorrection(db, { invoiceDocumentId: documentId });
+    expect(proposal.ok).toBe(true);
+    expect(proposal.postedInterest).toBe(287.83);
+    expect(proposal.lawfulInterest).toBe(287.83);
+    expect(proposal.overClaimedAmount).toBe(0);
+    expect(proposal.hasProposal).toBe(false);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+});

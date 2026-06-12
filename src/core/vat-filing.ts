@@ -231,14 +231,23 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
 
   // Rubrik A: value of goods/services purchased abroad without Danish VAT.
   const rubrikA = vatReport.reverseChargePurchaseBase;
-  // Rubrik B: value of goods/services sold abroad without Danish VAT.
-  const rubrikB = vatReport.reverseChargeSalesBase;
-  // Rubrik C: value of other VAT-exempt sales (momsloven §13), now derived
-  // from real ledger data — revenue lines booked with the DK_SALE_EXEMPT VAT
-  // code. OSS consumer sales (OSS_EU_CONSUMER) are deliberately NOT part of
-  // rubrik C: they belong on the separate OSS return, so buildVatReport keeps
-  // them in their own base and they never reach this momsangivelse.
-  const rubrikC = vatReport.exemptSalesBase;
+  // Rubrik B (JUR-2/KODE-2): value of goods/services SOLD ABROAD without Danish
+  // VAT — cross-border EU B2B reverse-charge sales ONLY. This is the figure
+  // cross-checked against the EU sales list (VIES), so only the FOREIGN reverse-
+  // charge base belongs here. Domestic §46 omvendt betalingspligt is explicitly
+  // excluded (it would otherwise inflate rubrik B and break the VIES reconciliation).
+  const rubrikB = vatReport.foreignReverseChargeSalesBase;
+  // Rubrik C: value of other VAT-exempt sales. Two sources, both derived from
+  // real ledger data:
+  //   1. §13-exempt domestic sales (DK_SALE_EXEMPT), and
+  //   2. domestic §46 omvendt betalingspligt sales (DOMESTIC_REVERSE_CHARGE_EXEMPT,
+  //      e.g. mobiltelefoner, CPU'er, metalskrot). SKAT Den juridiske vejledning
+  //      A.B.3.3.1.5 places these in rubrik C ("værdi af andet salg uden moms"),
+  //      NOT rubrik B.
+  // OSS consumer sales (OSS_EU_CONSUMER) are deliberately NOT part of rubrik C:
+  // they belong on the separate OSS return, so buildVatReport keeps them in their
+  // own base and they never reach this momsangivelse.
+  const rubrikC = addDkk(vatReport.exemptSalesBase, vatReport.domesticReverseChargeSalesBase);
 
   return {
     ok: true,

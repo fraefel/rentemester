@@ -301,14 +301,17 @@ export function vatRubrikkerForPeriod(
     kobsmoms,
     momstilsvar,
     rubrikA: report.reverseChargePurchaseBase,
-    rubrikB: report.reverseChargeSalesBase,
-    // Rubrik C — value of VAT-exempt domestic sales (momsloven §13). Derived
-    // from the same `exemptSalesBase` the CLI's `vat momsangivelse` uses
-    // (core/vat-filing.ts), so the cockpit and the terminal report the
-    // identical rubrik C and an owner can file straight from either surface.
-    // A stale hardcoded 0 here understated rubrik C for any period with
-    // §13-exempt sales.
-    rubrikC: report.exemptSalesBase,
+    // Rubrik B (JUR-2/KODE-2) — FOREIGN reverse-charge sales only (EU B2B,
+    // cross-checked against the VIES EU sales list). Domestic §46 omvendt
+    // betalingspligt goes to rubrik C below, never here.
+    rubrikB: report.foreignReverseChargeSalesBase,
+    // Rubrik C — value of other VAT-exempt sales: §13-exempt domestic sales
+    // (DK_SALE_EXEMPT) PLUS domestic §46 reverse-charge sales
+    // (DOMESTIC_REVERSE_CHARGE_EXEMPT), per SKAT A.B.3.3.1.5. Derived from the
+    // same bases the CLI's `vat momsangivelse` uses (core/vat-filing.ts), so the
+    // cockpit and the terminal report the identical rubrik C and an owner can
+    // file straight from either surface.
+    rubrikC: addDkk(report.exemptSalesBase, report.domesticReverseChargeSalesBase),
   };
 }
 

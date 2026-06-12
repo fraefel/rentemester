@@ -20,7 +20,28 @@ export type VatPeriodReport = {
   netVatPayable: number;
   purchaseBase25: number;
   salesBase25: number;
+  /**
+   * Combined value of all VAT-exempt reverse-charge sales (domestic + foreign).
+   * Kept for backwards compatibility and human display ("Salg med omvendt
+   * betalingspligt"). For the momsangivelse the two must be split — see
+   * foreignReverseChargeSalesBase / domesticReverseChargeSalesBase below.
+   */
   reverseChargeSalesBase: number;
+  /**
+   * JUR-2/KODE-2: value of FOREIGN reverse-charge sales — cross-border EU B2B
+   * sales without Danish VAT (vat_code REVERSE_CHARGE_EXEMPT). These feed rubrik
+   * B of the momsangivelse and are cross-checked against the EU sales list (VIES).
+   */
+  foreignReverseChargeSalesBase: number;
+  /**
+   * JUR-2/KODE-2: value of DOMESTIC reverse-charge sales — Danish §46 omvendt
+   * betalingspligt (mobiltelefoner, CPU'er, metalskrot; vat_code
+   * DOMESTIC_REVERSE_CHARGE_EXEMPT). These carry no Danish output VAT and feed
+   * rubrik C ("værdi af andet salg uden moms"), NOT rubrik B, and must never
+   * appear on the VIES EU sales list. Source: SKAT Den juridiske vejledning
+   * A.B.3.3.1.5.
+   */
+  domesticReverseChargeSalesBase: number;
   reverseChargePurchaseBase: number;
   /**
    * Output VAT actually booked on account 1200 by EU service reverse-charge
@@ -250,6 +271,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       purchaseBase25: 0,
       salesBase25: 0,
       reverseChargeSalesBase: 0,
+      foreignReverseChargeSalesBase: 0,
+      domesticReverseChargeSalesBase: 0,
       reverseChargePurchaseBase: 0,
       reverseChargePurchaseOutputVat: 0,
       representationPurchaseBase: 0,
@@ -292,7 +315,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   let inputVat = 0;
   let purchaseBase25 = 0;
   let salesBase25 = 0;
-  let reverseChargeSalesBase = 0;
+  let foreignReverseChargeSalesBase = 0;
+  let domesticReverseChargeSalesBase = 0;
   let reverseChargePurchaseBase = 0;
   let representationPurchaseBase = 0;
   // Reverse-charge output VAT is booked per purchase on account 1200, øre-
@@ -349,7 +373,10 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
 
     if (row.vat_code === "DK_PURCHASE_25") { purchaseBase25 += debit - credit; inputVatBaseLines += 1; }
     if (row.vat_code === "DK_SALE_25") { salesBase25 += credit - debit; outputVatBaseLines += 1; }
-    if (row.vat_code === "REVERSE_CHARGE_EXEMPT") reverseChargeSalesBase += credit - debit;
+    // JUR-2/KODE-2: keep the two reverse-charge sales bases apart so the
+    // momsangivelse can route foreign → rubrik B (VIES) and domestic → rubrik C.
+    if (row.vat_code === "REVERSE_CHARGE_EXEMPT") foreignReverseChargeSalesBase += credit - debit;
+    if (row.vat_code === "DOMESTIC_REVERSE_CHARGE_EXEMPT") domesticReverseChargeSalesBase += credit - debit;
     if (row.vat_code === "EU_SERVICE_REVERSE_CHARGE") {
       reverseChargePurchaseBase += debit - credit;
       reverseChargeEntryIds.add(row.entry_id);
@@ -374,7 +401,9 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   inputVat = roundDkk(inputVat);
   purchaseBase25 = roundDkk(purchaseBase25);
   salesBase25 = roundDkk(salesBase25);
-  reverseChargeSalesBase = roundDkk(reverseChargeSalesBase);
+  foreignReverseChargeSalesBase = roundDkk(foreignReverseChargeSalesBase);
+  domesticReverseChargeSalesBase = roundDkk(domesticReverseChargeSalesBase);
+  const reverseChargeSalesBase = addDkk(foreignReverseChargeSalesBase, domesticReverseChargeSalesBase);
   reverseChargePurchaseBase = roundDkk(reverseChargePurchaseBase);
   // Booked reverse-charge output VAT: the 1200 net booked on exactly the
   // entries that carry a reverse-charge base line. Summed as the øre-rounded
@@ -434,6 +463,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     purchaseBase25,
     salesBase25,
     reverseChargeSalesBase,
+    foreignReverseChargeSalesBase,
+    domesticReverseChargeSalesBase,
     reverseChargePurchaseBase,
     reverseChargePurchaseOutputVat,
     representationPurchaseBase,

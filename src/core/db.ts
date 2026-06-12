@@ -150,6 +150,16 @@ export function migrate(db: Database) {
   if (!hasColumn(db, "bank_transactions", "raw_json")) db.exec("ALTER TABLE bank_transactions ADD COLUMN raw_json TEXT;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_bank_transactions_account ON bank_transactions(bank_account_id);");
   // ===== END BANK CLUSTER (#186-189,#182) =====
+  // JUR-7: persist whether an interest claim's reference rate came from the
+  // statutory table or a manual override, so proposeInterestCorrection can
+  // reconstruct the lawful interest with the SAME half-year segmentation it was
+  // billed with. Legacy rows default to 'manual-override' (single stored rate,
+  // reconstructed exactly as before — never retroactively re-segmented).
+  if (!hasColumn(db, "invoice_interest_claims", "reference_rate_source")) {
+    db.exec(
+      "ALTER TABLE invoice_interest_claims ADD COLUMN reference_rate_source TEXT NOT NULL DEFAULT 'manual-override' CHECK(reference_rate_source IN ('statutory-table', 'manual-override'));",
+    );
+  }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_payments_journal_entry ON invoice_payments(journal_entry_id) WHERE journal_entry_id IS NOT NULL;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_accounting_periods_covering_date ON accounting_periods(period_start, period_end, status);");
   backfillRetentionDeadlines(db);

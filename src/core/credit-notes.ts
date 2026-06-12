@@ -154,12 +154,20 @@ function creditNoteLinesFromOriginalJournal(db: Database, originalInvoiceDocumen
 
 function fallbackCreditNoteLines(originalInvoiceNo: string, payload: any, grossAmount: number, netAmount: number, vatAmount: number) {
   const vatTreatment = payload?.vatTreatment ?? "standard";
-  const isReverseCharge = vatTreatment === "domestic_reverse_charge" || vatTreatment === "foreign_reverse_charge";
+  const isDomesticReverseCharge = vatTreatment === "domestic_reverse_charge";
+  const isReverseCharge = isDomesticReverseCharge || vatTreatment === "foreign_reverse_charge";
+  // JUR-2/KODE-2: mirror invoice-booking.ts — domestic §46 reverse charge uses
+  // DOMESTIC_REVERSE_CHARGE_EXEMPT (rubrik C), foreign EU reverse charge uses
+  // REVERSE_CHARGE_EXEMPT (rubrik B + VIES). A credit note reverses the same
+  // base, so it must carry the same code to net out of the correct rubrik.
+  // (When the original invoice was posted, creditNoteLinesFromOriginalJournal
+  // copies the booked vat_code verbatim; this fallback covers the unposted case.)
+  const reverseChargeVatCode = isDomesticReverseCharge ? "DOMESTIC_REVERSE_CHARGE_EXEMPT" : "REVERSE_CHARGE_EXEMPT";
   const lines: Array<{ accountNo: string; debitAmount?: number; creditAmount?: number; vatCode?: string; text: string }> = [
     {
       accountNo: "1000",
       debitAmount: netAmount,
-      vatCode: isReverseCharge ? "REVERSE_CHARGE_EXEMPT" : "DK_SALE_25",
+      vatCode: isReverseCharge ? reverseChargeVatCode : "DK_SALE_25",
       text: `Revenue reversal ${originalInvoiceNo}`
     },
     { accountNo: "1100", creditAmount: grossAmount, text: `Receivable reversal ${originalInvoiceNo}` },

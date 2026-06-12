@@ -6,6 +6,15 @@ export const MUTATING_COMMANDS = new Set([
   "customer create",
   "customer validate-vat",
   "vendor create",
+  // Audit 2026-06-11 (AGENT-2): `company sync-cvr` skriver CVR-stamdata til
+  // company-tabellen — MCP-pendanten `company_sync_cvr` er write-reversible
+  // + confirm-gated, så CLI-navnet skal være actor-gated, ikke read-only.
+  "company sync-cvr",
+  // Audit 2026-06-11 (AGENT-3): `company set-profile` skriver navn, CVR,
+  // adresse, payment_terms_days, bank og VAT-periode til company-db'en via
+  // setCompanyProfile + setCompanyVatPeriodType (src/cli/company.ts) — samme
+  // bug-klasse som `company sync-cvr`. Den skal være actor-gated.
+  "company set-profile",
   "system backup",
   "system backup-archive",
   "system backup-add-destination",
@@ -16,6 +25,11 @@ export const MUTATING_COMMANDS = new Set([
   "system restore-backup",
   "system export-authority",
   "system export-accountant",
+  // Audit 2026-06-11 (AGENT-3): `system export-saft` skriver en
+  // `saft_export`-række til audit_log (insertAuditLog i src/core/saft-export.ts)
+  // — præcis som export-authority/export-accountant ovenfor, der allerede er
+  // gated. Samme actor-attribuerede skrivning skal gates ens.
+  "system export-saft",
   "invoice issue",
   // #265: `invoice create` is the guided path that issues a real, locked,
   // immutable invoice through the SAME core as `invoice issue` — it MUST be
@@ -75,9 +89,20 @@ export const MUTATING_COMMANDS = new Set([
   // ===== END EMAIL DELIVERY (#180) =====
   // ===== GDPR (#184) =====
   "gdpr erase",
+  // Audit 2026-06-11 (AGENT-1): `gdpr forget` er det kanoniske navn for
+  // samme runEraser som legacy-aliaset `gdpr erase` — et alias og dets
+  // kanoniske navn SKAL have samme governance-klasse, ellers kan den ene
+  // stavemåde mutere uden actor-gate (og listes som read-only i hjælpen).
+  "gdpr forget",
   // ===== END GDPR (#184) =====
   // ===== IMPORT FRAMEWORK (#185) =====
   "import run",
+  // Audit 2026-06-11 (AGENT-3): `import contacts` lander en Dinero-kontakt-CSV
+  // i customer/vendor-master-data via createCustomer/createVendor
+  // (src/core/import/dinero-contacts.ts → insertAuditLog). De enkeltvise
+  // `customer create`/`vendor create` er gated, så bulk-import-stien skal
+  // også være det.
+  "import contacts",
   // ===== END IMPORT FRAMEWORK (#185) =====
   // ===== RUNTIME AGENT (#183) =====
   "agent run",
@@ -196,6 +221,68 @@ function howToAddActorHint(actor: string): string {
   );
 }
 
+/** Outcome of the shared allowlist gate. */
+export type ActorAllowlistDecision =
+  | { allowed: true }
+  | { allowed: false; reason: string };
+
+/**
+ * SEC-2 / SEC-3 (Audit 2026-06-11): the transport-agnostic CORE of the actor
+ * allowlist gate. The CLI (`enforceMutationActorPolicy`) and the MCP write
+ * path (`withCompanyDbConfirmed`) BOTH call this, so a confirmed write is held
+ * to the same allowlist no matter which surface issued it. Previously the
+ * allowlist was enforced only in the CLI, so an agent over MCP could perform
+ * any confirmed write regardless of the policy.
+ *
+ * The caller is responsible for having already validated the actor's canonical
+ * format (`isCanonicalActorId`); this function only answers "is this actor in
+ * the policy?".
+ *
+ * SEC-3 fail-closed: an EMPTY allowlist means there is no `config/policy.yaml`
+ * to enforce against (uninitialised path, or a deleted/absent policy). The old
+ * behaviour accepted ANY actor in that case — fail-OPEN — which let an explicit
+ * `--actor user:<human>` through against a company that has no policy at all.
+ *
+ * We now fail closed for `user:` actors specifically: a human identity asserts
+ * personal authorship into the append-only audit trail, and accepting it
+ * against a company that has NO governing policy is exactly the hole the audit
+ * flagged. Onboarding (`init` / `company add`) always seeds the allowlist (see
+ * `buildDefaultPolicyYaml`), so a real, initialised single-user company always
+ * has a non-empty allowlist and is unaffected — only a policy-less company
+ * rejects a `user:` actor here.
+ *
+ * `agent:` / `system:` actors are still allowed through an empty allowlist:
+ * those are deliberate machine identities used during bootstrap (and the
+ * build-phase default for the MCP transport, where no per-company policy may
+ * exist yet). Once a policy DOES exist, every actor — including agents — is
+ * matched against it.
+ */
+export function checkActorAllowlist(root: string, actor: string): ActorAllowlistDecision {
+  const allowlist = loadActorAllowlist(root);
+  if (allowlist.size === 0) {
+    const [kind] = actor.split(":", 1);
+    if (kind === "user") {
+      return {
+        allowed: false,
+        reason:
+          `no actor_allowlist found in config/policy.yaml for this company — ` +
+          `refusing user actor '${actor}' (fail-closed). Run onboarding (\`init\` / ` +
+          `\`company add\`) so the allowlist is seeded, then add '${actor}' if needed.`,
+      };
+    }
+    return { allowed: true };
+  }
+  if (!actorMatchesAllowlist(actor, allowlist)) {
+    return {
+      allowed: false,
+      reason:
+        `actor '${actor}' is not in config/policy.yaml actor_allowlist. ` +
+        howToAddActorHint(actor),
+    };
+  }
+  return { allowed: true };
+}
+
 export function enforceMutationActorPolicy(
   commandKey: string,
   root: string,
@@ -230,13 +317,8 @@ export function enforceMutationActorPolicy(
         process.env.RENTEMESTER_ACTOR_VIA = "rentemester-cli";
       return;
     }
-    const allowlist = loadActorAllowlist(root);
-    if (!actorMatchesAllowlist(explicitActor, allowlist)) {
-      fatal(
-        `actor '${explicitActor}' is not in config/policy.yaml actor_allowlist. ` +
-          howToAddActorHint(explicitActor),
-      );
-    }
+    const decision = checkActorAllowlist(root, explicitActor);
+    if (!decision.allowed) fatal(decision.reason);
     process.env.RENTEMESTER_ACTOR = explicitActor;
     if (cliActorVia) process.env.RENTEMESTER_ACTOR_VIA = cliActorVia;
     else if (!trimToNull(process.env.RENTEMESTER_ACTOR_VIA))
@@ -258,17 +340,24 @@ export function enforceMutationActorPolicy(
       "actor required for mutations: pass --actor <user:...|agent:...|system:...> or run with USER/LOGNAME/OPENCLAW_AGENT set",
     );
   }
-  const allowlist = loadActorAllowlist(root);
-  // An EMPTY allowlist means there is no policy file (no `config/policy.yaml`)
-  // — this happens e.g. when a mutating command runs from a path that has not
-  // yet been initialised. There is nothing to enforce against, so the existing
-  // command-specific error (missing ledger / missing config) speaks for itself
-  // and we don't pile on with an allowlist hint that wouldn't make sense.
-  if (allowlist.size === 0) return;
-  if (!actorMatchesAllowlist(derivedActor, allowlist)) {
-    fatal(
-      `actor '${derivedActor}' is not in config/policy.yaml actor_allowlist. ` +
-        howToAddActorHint(derivedActor),
-    );
+  // #283 / SEC-3: `system restore-backup` recreates a company from a backup,
+  // so its `--target-company` is normally brand new and cannot yet hold a
+  // `config/policy.yaml`. The explicit-actor branch above already carves this
+  // out; the derived path needs the identical carve-out, otherwise a restore
+  // without `--actor` fail-closes against the absent target policy (the SEC-3
+  // tightening would reject a derived `user:` actor here). A restore into an
+  // EXISTING company (which does have a policy) is still fully enforced below.
+  if (
+    commandKey === "system restore-backup" &&
+    !existsSync(join(companyPaths(root).config, "policy.yaml"))
+  ) {
+    return;
   }
+  // SEC-3 (Audit 2026-06-11): the derived path is held to the SAME shared gate
+  // as the explicit path, INCLUDING the fail-closed empty-allowlist rule. An
+  // un-initialised company (no `config/policy.yaml`) used to fail OPEN here —
+  // any derived OS username silently passed. Now a derived actor against an
+  // absent policy is rejected, exactly like an explicit one.
+  const decision = checkActorAllowlist(root, derivedActor);
+  if (!decision.allowed) fatal(decision.reason);
 }

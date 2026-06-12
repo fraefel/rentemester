@@ -29,7 +29,7 @@ import {
 import { discoverWorkspaceCompanies } from "../discovery";
 import { ApiError } from "../errors";
 import { currentFiscalYear, roundKroner, todayIsoDate } from "./shared";
-import { actualBankBalanceAsOf } from "./bank";
+import { actualBankBalanceAsOf, bankStatementStatusAsOf } from "./bank";
 import { selectVatPeriod } from "./vat";
 import { groupExceptions, type ExceptionGroup } from "./exceptions";
 
@@ -65,6 +65,13 @@ export type CompanySummary = {
    * app shows. Null when no statement balance is known for the company.
    */
   actualBankBalance: number | null;
+  /**
+   * Why `actualBankBalance` is or is not known (EJER-12). Lets the portfolio
+   * card distinguish "no statement imported" from "a statement WAS imported but
+   * its CSV had no balance column" — so it never wrongly says "intet kontoudtog
+   * importeret" for a company whose import simply lacked a balance column.
+   */
+  bankStatementStatus: "known" | "no-balance-column" | "none";
   /** Current half-year VAT position + deadline; null when unknown. */
   vat: CompanyVatSummary | null;
   /** Open tasks — open exceptions, grouped into Danish summary lines. */
@@ -99,6 +106,7 @@ function summariseCompany(
       resultat: 0,
       omsaetning: 0,
       actualBankBalance: null,
+      bankStatementStatus: "none",
       vat: null,
       openTaskCount: 0,
       taskGroups: [],
@@ -127,6 +135,7 @@ function summariseCompany(
       resultat: 0,
       omsaetning: 0,
       actualBankBalance: null,
+      bankStatementStatus: "none",
       vat: null,
       openTaskCount: 0,
       taskGroups: [],
@@ -149,8 +158,11 @@ function summariseCompany(
     // Resultat + omsætning — the same P&L the per-company Overblik renders.
     const pl = buildProfitAndLoss(db, yearStart, yearEnd);
 
-    // Actual bank balance from the imported statement (what the bank shows).
+    // Actual bank balance from the imported statement (what the bank shows),
+    // plus WHY it is (or is not) known so the card never wrongly claims "intet
+    // kontoudtog importeret" for a balance-column-less import (EJER-12).
     const actualBankBalance = actualBankBalanceAsOf(db, yearEnd);
+    const bankStatementStatus = bankStatementStatusAsOf(db, yearEnd);
 
     // VAT: the booked position for the company's actual VAT period — the
     // period (month / quarter / half-year, per `vatPeriodType`) that is due
@@ -171,9 +183,12 @@ function summariseCompany(
       })),
     );
 
-    // Legacy figures retained for older consumers.
+    // Legacy figures retained for older consumers. Overdue is judged against
+    // TODAY (the canonical clock, via `buildOverdueInvoiceList`'s default) —
+    // not the fiscal year end — so the portfolio card and every other surface
+    // share one overdue definition (EJER-1).
     const invoices = buildInvoiceList(db, { status: "open", asOfDate: yearEnd });
-    const overdue = buildOverdueInvoiceList(db, { asOfDate: yearEnd });
+    const overdue = buildOverdueInvoiceList(db, {});
     const unlinked = listBankTransactions(db, { status: "unmatched" });
     const audit = verifyAuditChain(db);
 
@@ -187,6 +202,7 @@ function summariseCompany(
       resultat: pl.result,
       omsaetning: pl.totalIncome,
       actualBankBalance,
+      bankStatementStatus,
       vat,
       openTaskCount: exceptions.count,
       taskGroups,

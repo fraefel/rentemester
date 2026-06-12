@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatKroner, formatPercent } from "../lib/format";
+import { formatKroner, formatPercent, parseDanishAmount } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type {
   CompanyBudget,
@@ -178,13 +178,13 @@ function BudgetGrid({
         <table className="data statement-table budget-grid">
           <thead>
             <tr>
-              <th>Konto</th>
+              <th scope="col">Konto</th>
               {data.periods.map((p) => (
                 <th key={p} className="num" scope="col">
                   {periodLabel(p)}
                 </th>
               ))}
-              <th className="num">Total</th>
+              <th className="num" scope="col">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -290,8 +290,8 @@ function BudgetAmountInput({
       setValue(lastSaved);
       return;
     }
-    const parsed = Number(trimmed.replace(",", "."));
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    const parsed = parseDanishAmount(trimmed);
+    if (parsed === null || parsed < 0) {
       setError("Beløb skal være et tal ≥ 0");
       return;
     }
@@ -355,13 +355,12 @@ function AddBudgetLineForm({
     e.preventDefault();
     setError(null);
     const trimmedAcc = accountNo.trim();
-    const trimmedAmt = amount.trim().replace(",", ".");
     if (!trimmedAcc) {
       setError("Kontonr. er påkrævet");
       return;
     }
-    const parsed = Number(trimmedAmt);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    const parsed = parseDanishAmount(amount);
+    if (parsed === null || parsed < 0) {
       setError("Beløb skal være et tal ≥ 0");
       return;
     }
@@ -479,12 +478,12 @@ function BudgetVsActualTable({
         <table className="data statement-table">
           <thead>
             <tr>
-              <th>Konto</th>
-              <th>Måned</th>
-              <th className="num">Budget</th>
-              <th className="num">Faktisk</th>
-              <th className="num">Afvigelse</th>
-              <th className="num">Afvigelse %</th>
+              <th scope="col">Konto</th>
+              <th scope="col">Måned</th>
+              <th className="num" scope="col">Budget</th>
+              <th className="num" scope="col">Faktisk</th>
+              <th className="num" scope="col">Afvigelse</th>
+              <th className="num" scope="col">Afvigelse %</th>
             </tr>
           </thead>
           <tbody>

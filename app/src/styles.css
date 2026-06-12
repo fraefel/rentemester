@@ -616,6 +616,25 @@ td.num,
   flex-direction: column;
   gap: var(--space-md);
 }
+/* A `.card` rendered inside `.modal-overlay` (AssetsView's wider forms).
+   Without the max-width the flex-centered card would stretch to the full
+   overlay width on large screens. Audit UI-1. */
+.modal-card {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 2 * var(--space-md));
+  overflow-y: auto;
+}
+/* Title row with a Luk button on the right (MileageRegisterModal). */
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.modal-head h3 {
+  margin: 0;
+}
 .modal-title {
   margin: 0;
   font-size: var(--text-size-lg);

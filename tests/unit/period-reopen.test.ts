@@ -32,6 +32,10 @@ describe("period reopen (#247)", () => {
       periodEnd: "2026-06-30",
       kind: "vat_quarter",
       createdBy: "user:ejer",
+      // EJER-6: this period ends in the (harness-clock) future, so closing it
+      // requires the explicit force bypass — the test is about reopen, not the
+      // future-close guard.
+      force: true,
     });
     expect(closed.ok).toBe(true);
 
@@ -80,7 +84,7 @@ describe("period reopen (#247)", () => {
   test("a re-close locks the reopened period again", () => {
     const { root, db } = freshDb("rentemester-reopen-reclose-");
 
-    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter" });
+    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter", force: true });
     reopenAccountingPeriod(db, {
       periodStart: "2026-04-01",
       periodEnd: "2026-06-30",
@@ -96,6 +100,7 @@ describe("period reopen (#247)", () => {
       periodEnd: "2026-06-30",
       kind: "vat_quarter",
       createdBy: "user:ejer",
+      force: true,
     });
     expect(reclosed.ok).toBe(true);
     expect(validateJournalTransactionDate(db, "2026-05-15")).toEqual([
@@ -164,7 +169,7 @@ describe("period reopen (#247)", () => {
     expect(missing.errors[0]).toContain("no vat_quarter period");
 
     // Period exists, closed, then reopened — reopening again is a no-op error.
-    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter" });
+    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter", force: true });
     reopenAccountingPeriod(db, {
       periodStart: "2026-04-01",
       periodEnd: "2026-06-30",

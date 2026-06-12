@@ -9,10 +9,130 @@ const RULE_ID = "DK-INVOICE-LATE-INTEREST-001";
 const REGISTER_RULE_ID = "DK-INVOICE-LATE-INTEREST-REGISTER-001";
 const BOOKKEEPING_RULE_ID = "DK-INVOICE-LATE-INTEREST-BOOKKEEPING-001";
 
+// Statutory surcharge added to the reference rate to get the annual morarente
+// (renteloven § 5, stk. 1). 8 pct since 2013-03-01 (7 pct before).
+const STATUTORY_SURCHARGE_PERCENT = 8;
+
+// morarente = reference rate + statutory surcharge (renteloven § 5, stk. 1),
+// rounded to two decimals the same way the headline annualInterestRatePercent is.
+function rateFromReference(referencePercent: number): number {
+  return roundDkk(addDkk(referencePercent, STATUTORY_SURCHARGE_PERCENT));
+}
+
+// Versioned half-yearly reference-rate table (renteloven § 5, stk. 1 & 2). The
+// reference rate is Danmarks Nationalbanks official lending rate (udlånsrente)
+// in effect on 1 January / 1 July; it is FIXED for the whole following half-year
+// regardless of intra-period rate moves, so the table only ever changes on those
+// two dates. Each entry is `effectiveFrom` (inclusive) → referencePercent; the
+// applicable rate for a given date is the latest entry whose effectiveFrom is on
+// or before it. morarente = referencePercent + STATUTORY_SURCHARGE_PERCENT.
+//
+// Sources (verified 2026-06):
+//   - renteloven § 5: https://danskelove.dk/renteloven/5
+//   - Nationalbanken official interest rates:
+//     https://www.nationalbanken.dk/en/what-we-do/stable-prices-monetary-policy-and-the-danish-economy/official-interest-rates
+//   - morarente history (referencesats = morarente − 8 pct):
+//     https://forbrug.dk/regler/opslagsvaerk-forbrugerleksikon/morarenten
+//
+//   period        morarente   referencePercent (morarente − 8)
+//   2023-01-01    9.90 %      1.90
+//   2023-07-01   11.25 %      3.25
+//   2024-01-01   11.75 %      3.75
+//   2024-07-01   11.50 %      3.50
+//   2025-01-01   10.75 %      2.75
+//   2025-07-01    9.75 %      1.75
+//   2026-01-01    9.75 %      1.75
+const REFERENCE_RATE_TABLE: ReadonlyArray<{ effectiveFrom: string; referencePercent: number }> = [
+  { effectiveFrom: "2023-01-01", referencePercent: 1.9 },
+  { effectiveFrom: "2023-07-01", referencePercent: 3.25 },
+  { effectiveFrom: "2024-01-01", referencePercent: 3.75 },
+  { effectiveFrom: "2024-07-01", referencePercent: 3.5 },
+  { effectiveFrom: "2025-01-01", referencePercent: 2.75 },
+  { effectiveFrom: "2025-07-01", referencePercent: 1.75 },
+  { effectiveFrom: "2026-01-01", referencePercent: 1.75 },
+];
+
+// Tolerance (in percentage points) within which a manually supplied reference
+// rate is accepted silently. A larger deviation from the table for the relevant
+// half-year is flagged with a warning but NOT rejected — the human bookkeeper may
+// knowingly override (e.g. a contractually agreed rate, or a not-yet-tabled
+// period). Human-in-the-loop is preserved; we only surface the discrepancy.
+const REFERENCE_RATE_SANITY_TOLERANCE_PCT = 0.25;
+
+/**
+ * The statutory reference rate (Nationalbankens udlånsrente per renteloven § 5)
+ * in effect for the half-year containing `asOfDate`, or null when the date falls
+ * before the earliest tabled period (no default available — the caller must
+ * supply a rate explicitly). Picks the latest entry whose effectiveFrom ≤ asOfDate.
+ */
+export function lookupStatutoryReferenceRate(asOfDate: string): number | null {
+  let match: number | null = null;
+  for (const entry of REFERENCE_RATE_TABLE) {
+    if (entry.effectiveFrom <= asOfDate) match = entry.referencePercent;
+    else break;
+  }
+  return match;
+}
+
+/**
+ * The half-yearly statutory rate-change dates (1 January / 1 July) strictly
+ * inside the open window (from, to) — i.e. from < boundary < to. The reference
+ * rate is fixed per half-year (renteloven § 5, stk. 2), so a window crossing
+ * one of these dates must be split there and each part forrentes at its own
+ * half-year's reference rate. Returns the ascending list of crossing dates;
+ * empty when the whole window lies inside a single half-year.
+ */
+function statutoryRateBoundariesBetween(from: string, to: string): string[] {
+  const boundaries: string[] = [];
+  for (let year = Number(from.slice(0, 4)); year <= Number(to.slice(0, 4)); year++) {
+    for (const date of [`${year}-01-01`, `${year}-07-01`]) {
+      if (date > from && date < to) boundaries.push(date);
+    }
+  }
+  return boundaries;
+}
+
+/**
+ * The ordered rate-windows for ONE claim window [from, to], used identically by
+ * the late-interest calculation (when it bills a claim) and by the correction
+ * proposal (when it reconstructs that claim's lawful interest) — so the two can
+ * never diverge on the multi-half-year case.
+ *
+ * - A statutory-table claim is split at every half-yearly reference-rate change
+ *   (1/1, 1/7) strictly inside the window, each part forrentet at THAT half-year's
+ *   reference rate + 8 (renteloven § 5). `fallbackRate` is used only on the
+ *   hypothetical pre-table day the table cannot cover.
+ * - A manual-override claim is one deliberate rate (`singleAnnualRate`) for the
+ *   whole window — the human-in-the-loop choice is never re-segmented.
+ */
+function claimRateWindows(
+  from: string,
+  to: string,
+  source: "statutory-table" | "manual-override",
+  singleAnnualRate: number,
+  fallbackRate: number,
+): Array<{ end: string; annualRatePercent: number }> {
+  if (source !== "statutory-table") return [{ end: to, annualRatePercent: singleAnnualRate }];
+  const windows: Array<{ end: string; annualRatePercent: number }> = [];
+  let segmentStart = from;
+  for (const boundary of statutoryRateBoundariesBetween(from, to)) {
+    const segmentRate = lookupStatutoryReferenceRate(segmentStart);
+    windows.push({ end: boundary, annualRatePercent: rateFromReference(segmentRate ?? fallbackRate) });
+    segmentStart = boundary;
+  }
+  const lastRate = lookupStatutoryReferenceRate(segmentStart);
+  windows.push({ end: to, annualRatePercent: rateFromReference(lastRate ?? fallbackRate) });
+  return windows;
+}
+
 export type CalculateInvoiceLateInterestInput = {
   invoiceDocumentId: number;
   asOfDate: string;
-  referenceRatePercent: number;
+  // The reference rate (Nationalbankens udlånsrente, renteloven § 5). Optional:
+  // when omitted, the statutory table value for asOfDate's half-year is used as
+  // the default. A manually supplied value is honoured (human-in-the-loop) but a
+  // large deviation from the table for the relevant period yields a warning.
+  referenceRatePercent?: number;
 };
 
 export type CalculateInvoiceLateInterestResult = {
@@ -30,7 +150,16 @@ export type CalculateInvoiceLateInterestResult = {
   // overdueDays for a first claim; the incremental window for a later one.
   claimableDays?: number;
   principalOpenBalance?: number;
+  // The reference rate in effect AT the as-of date. For a statutory-table window
+  // that crosses one or more half-yearly rate changes, the underlying accrual
+  // uses each half-year's own reference rate (see totalInterestToDate); this
+  // single field reports the as-of-date rate as the representative headline (the
+  // least confusing summary), NOT the only rate applied. A manual override is one
+  // rate for the whole window, so the field is exactly that rate.
   referenceRatePercent?: number;
+  // Annual morarente at the as-of date = referenceRatePercent + 8 (renteloven § 5).
+  // Same multi-half-year caveat as referenceRatePercent: a long statutory window
+  // accrues per half-year, so this is the as-of-date headline, not the sole rate.
   annualInterestRatePercent?: number;
   // The interest claimable NOW — the incremental amount for the period since the
   // last claim. For a first claim this equals the full overdue window. Computed
@@ -48,6 +177,13 @@ export type CalculateInvoiceLateInterestResult = {
   // retroactively lowered the principal under an already-issued claim. A signal
   // that a correcting credit may be due; never auto-applied. 0 in the normal case.
   overClaimedInterest?: number;
+  // Whether the reference rate used came from the statutory table (default) or
+  // was supplied by the caller. Lets the human see when an override is in effect.
+  referenceRateSource?: "statutory-table" | "manual-override";
+  // Non-fatal advisories — e.g. a manual reference rate that deviates materially
+  // from the statutory table for the relevant half-year. The calculation still
+  // proceeds (human-in-the-loop); the warning only surfaces the discrepancy.
+  warnings?: string[];
   appliedRules: string[];
   errors: string[];
 };
@@ -162,14 +298,45 @@ export function calculateInvoiceLateInterest(db: Database, input: CalculateInvoi
   const errors: string[] = [];
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) errors.push("invoiceDocumentId must be a positive integer");
   if (!looksLikeIsoDate(input.asOfDate)) errors.push("asOfDate must be YYYY-MM-DD");
-  if (!Number.isFinite(input.referenceRatePercent)) errors.push("referenceRatePercent must be a finite number");
+  // A manually supplied rate must be finite; when omitted we fall back to the
+  // statutory table for the as-of half-year (validated below once asOfDate is known).
+  const manualRate = input.referenceRatePercent;
+  if (manualRate !== undefined && !Number.isFinite(manualRate)) errors.push("referenceRatePercent must be a finite number when provided");
+  if (manualRate !== undefined && Number.isFinite(manualRate) && manualRate < 0) errors.push("referenceRatePercent must not be negative");
   if (errors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors };
+
+  // Resolve the reference rate: caller override, else the statutory table.
+  const warnings: string[] = [];
+  const tableRate = lookupStatutoryReferenceRate(input.asOfDate);
+  let referenceRatePercent: number;
+  let referenceRateSource: "statutory-table" | "manual-override";
+  if (manualRate === undefined) {
+    if (tableRate === null) {
+      return {
+        ok: false,
+        appliedRules: [RULE_ID],
+        errors: [`no statutory reference rate is tabled for ${input.asOfDate}; supply referenceRatePercent explicitly`],
+      };
+    }
+    referenceRatePercent = tableRate;
+    referenceRateSource = "statutory-table";
+  } else {
+    referenceRatePercent = manualRate;
+    referenceRateSource = "manual-override";
+    // Sanity-bound: flag (do not reject) a manual rate that deviates materially
+    // from the statutory table for the relevant half-year.
+    if (tableRate !== null && Math.abs(roundDkk(subtractDkk(manualRate, tableRate))) > REFERENCE_RATE_SANITY_TOLERANCE_PCT) {
+      warnings.push(
+        `manual reference rate ${roundDkk(manualRate)} pct deviates from the statutory rate ${roundDkk(tableRate)} pct for the half-year containing ${input.asOfDate} (renteloven § 5); verify the override is intended`,
+      );
+    }
+  }
 
   const status = getInvoiceStatus(db, input.invoiceDocumentId, input.asOfDate);
   if (!status.ok) return { ok: false, appliedRules: [RULE_ID], errors: status.errors };
 
   const overdueDays = Number(status.overdueDays ?? 0);
-  const annualInterestRatePercent = roundDkk(addDkk(Number(input.referenceRatePercent), 8));
+  const annualInterestRatePercent = rateFromReference(referenceRatePercent);
   const effectiveDueDate = status.effectiveDueDate;
 
   // Morarente accrues continuously, day by day, on the UNPAID principal from the
@@ -242,7 +409,20 @@ export function calculateInvoiceLateInterest(db: Database, input: CalculateInvoi
     }
   }
   if (claimableDays > 0) {
-    windows.push({ end: input.asOfDate, annualRatePercent: annualInterestRatePercent });
+    // This claim's NEW increment runs [interestFromDate, asOfDate). When the rate
+    // comes from the statutory table, that window is split at every half-yearly
+    // reference-rate change (1/1, 1/7) and each part forrentes at THAT half-year's
+    // reference rate + 8 (renteloven § 5) — otherwise a window crossing a rate
+    // change would unlawfully bill the whole span at the as-of half-year's rate.
+    // A MANUAL override is never segmented: the human knowingly chose one rate for
+    // the whole window (human-in-the-loop), so it stays a single window.
+    if (referenceRateSource === "statutory-table" && interestFromDate) {
+      windows.push(
+        ...claimRateWindows(interestFromDate, input.asOfDate, "statutory-table", annualInterestRatePercent, referenceRatePercent),
+      );
+    } else {
+      windows.push({ end: input.asOfDate, annualRatePercent: annualInterestRatePercent });
+    }
   }
   // Net off any booked corrections (over-claimed interest already reversed): the
   // baseline is what was EFFECTIVELY billed, so a later claim re-bills the days a
@@ -283,42 +463,51 @@ export function calculateInvoiceLateInterest(db: Database, input: CalculateInvoi
     interestFromDate,
     claimableDays,
     principalOpenBalance,
-    referenceRatePercent: roundDkk(Number(input.referenceRatePercent)),
+    referenceRatePercent: roundDkk(referenceRatePercent),
     annualInterestRatePercent,
     accruedInterestAmount,
     priorClaimedInterest,
     totalInterestToDate,
     overClaimedInterest,
+    referenceRateSource,
+    warnings,
     appliedRules: [RULE_ID],
     errors: [],
   };
 }
 
 export function registerInvoiceLateInterest(db: Database, input: RegisterInvoiceLateInterestInput): RegisterInvoiceLateInterestResult {
-  // Concurrency note: the anchor (latest existing claim) is read inside
-  // calculateInvoiceLateInterest and the new claim is inserted below in separate
-  // statements. This assumes a single writer per company ledger — the supported
-  // model (one MCP server / one CLI invocation at a time); bun:sqlite serialises
-  // statements within a process. It is NOT safe against two *separate processes*
-  // registering interest on the SAME invoice concurrently: both could read the
-  // same anchor before either inserts and bill overlapping windows. The same is
-  // true of the sibling reminder/compensation register paths; serialising all of
-  // them (BEGIN IMMEDIATE) is a ledger-wide change, out of scope here.
+  // Concurrency: the anchor (latest existing claim) is read inside
+  // calculateInvoiceLateInterest and the new claim is inserted afterwards. Two
+  // *separate processes* registering interest on the SAME invoice could both read
+  // the same anchor before either inserts and bill overlapping windows. Wrapping
+  // the read-then-write in a BEGIN IMMEDIATE transaction takes the write lock up
+  // front, so the second process blocks until the first commits and then reads the
+  // freshly inserted claim as its anchor — no overlap. (KODE-5)
+  return db.transaction(() => registerInvoiceLateInterestTxn(db, input)).immediate();
+}
+
+function registerInvoiceLateInterestTxn(db: Database, input: RegisterInvoiceLateInterestInput): RegisterInvoiceLateInterestResult {
   const calculation = calculateInvoiceLateInterest(db, input);
   if (!calculation.ok) return { ...calculation, appliedRules: [...new Set([...(calculation.appliedRules ?? []), REGISTER_RULE_ID])] };
+  // The effective reference rate (caller override OR statutory-table default) is
+  // resolved inside the calculation; the duplicate check and insert below must
+  // use THAT, not the raw (possibly omitted) input — otherwise a table-defaulted
+  // claim would never match an existing row and could be double-registered.
+  const effectiveReferenceRate = roundDkk(Number(calculation.referenceRatePercent));
   // Reject an exact duplicate (same as-of date AND reference rate) BEFORE the
   // positive-amount check below: re-registering the identical claim should
   // report "already registered" rather than the zero-increment "must be
   // positive" message it would otherwise hit (its incremental window is 0 days).
   const existing = db.query(
     `SELECT id FROM invoice_interest_claims WHERE invoice_document_id = ? AND claim_date = ? AND reference_rate_percent = ? LIMIT 1`
-  ).get(input.invoiceDocumentId, input.asOfDate, roundDkk(Number(input.referenceRatePercent))) as { id: number } | null;
+  ).get(input.invoiceDocumentId, input.asOfDate, effectiveReferenceRate) as { id: number } | null;
   if (existing) {
     return {
       ...calculation,
       ok: false,
       appliedRules: [RULE_ID, REGISTER_RULE_ID],
-      errors: [`late interest for invoice ${input.invoiceDocumentId} is already registered for ${input.asOfDate} at reference rate ${roundDkk(Number(input.referenceRatePercent))}`],
+      errors: [`late interest for invoice ${input.invoiceDocumentId} is already registered for ${input.asOfDate} at reference rate ${effectiveReferenceRate}`],
     };
   }
 
@@ -340,14 +529,20 @@ export function registerInvoiceLateInterest(db: Database, input: RegisterInvoice
   const inserted = db.query(
     `INSERT INTO invoice_interest_claims (
       invoice_document_id, claim_date, reference_rate_percent, annual_interest_rate_percent,
-      overdue_days, principal_open_balance, amount_dkk, note
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      reference_rate_source, overdue_days, principal_open_balance, amount_dkk, note
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     RETURNING id`
   ).get(
     input.invoiceDocumentId,
     input.asOfDate,
-    roundDkk(Number(input.referenceRatePercent)),
+    effectiveReferenceRate,
     roundDkk(Number(calculation.annualInterestRatePercent)),
+    // Record whether the rate came from the statutory table or a manual override,
+    // so proposeInterestCorrection later reconstructs the lawful interest with the
+    // SAME half-year segmentation this claim was billed with (JUR-7). A table claim
+    // whose window crossed a 1/1 or 1/7 change billed multiple rates; a manual one
+    // is a single deliberate rate — the stored rate alone cannot tell them apart.
+    calculation.referenceRateSource ?? "manual-override",
     // Store the days THIS claim covers (the incremental segment). amount_dkk is
     // the rounded-cumulative delta (see calculateInvoiceLateInterest), so it is
     // reproducible from the full claim sequence, not the single row in isolation.
@@ -549,13 +744,21 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
   // anchor each posted claim's incremental window: a claim's amount_dkk covers
   // [previous claim, its own date], whichever claim precedes it, posted or not.
   const claims = db.query(
-    `SELECT c.claim_date, c.annual_interest_rate_percent, c.amount_dkk,
+    `SELECT c.claim_date, c.reference_rate_percent, c.annual_interest_rate_percent,
+            c.reference_rate_source, c.amount_dkk,
             (p.id IS NOT NULL) AS posted
      FROM invoice_interest_claims c
      LEFT JOIN invoice_interest_postings p ON p.interest_claim_id = c.id
      WHERE c.invoice_document_id = ?
      ORDER BY c.claim_date ASC, c.id ASC`,
-  ).all(input.invoiceDocumentId) as Array<{ claim_date: string; annual_interest_rate_percent: number; amount_dkk: number; posted: number }>;
+  ).all(input.invoiceDocumentId) as Array<{
+    claim_date: string;
+    reference_rate_percent: number;
+    annual_interest_rate_percent: number;
+    reference_rate_source: "statutory-table" | "manual-override";
+    amount_dkk: number;
+    posted: number;
+  }>;
 
   const effectiveDueDate = status.effectiveDueDate;
   // A correction credits the receivable, so it can only be booked against the
@@ -593,7 +796,27 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
   let prevDate = effectiveDueDate;
   for (const claim of claims) {
     if (claim.posted) {
-      postedSegments.push(...timeline.windowSegments(prevDate, claim.claim_date, Number(claim.annual_interest_rate_percent)));
+      // Reconstruct this claim's lawful interest the SAME way it was billed
+      // (JUR-7): a statutory-table claim whose window [prevDate, claim_date]
+      // crossed a half-yearly rate change was billed with each half-year's own
+      // rate, so it must be re-segmented here too — accruing it at the single
+      // stored as-of rate would invent a phantom over- (or under-) claim. A
+      // manual-override claim stays one deliberate rate for the whole window.
+      if (claim.reference_rate_source === "statutory-table" && prevDate) {
+        let segStart = prevDate;
+        for (const w of claimRateWindows(
+          prevDate,
+          claim.claim_date,
+          "statutory-table",
+          Number(claim.annual_interest_rate_percent),
+          Number(claim.reference_rate_percent),
+        )) {
+          postedSegments.push(...timeline.windowSegments(segStart, w.end, w.annualRatePercent));
+          segStart = w.end;
+        }
+      } else {
+        postedSegments.push(...timeline.windowSegments(prevDate, claim.claim_date, Number(claim.annual_interest_rate_percent)));
+      }
       postedInterest = addDkk(postedInterest, Number(claim.amount_dkk));
       throughDate = claim.claim_date;
     }

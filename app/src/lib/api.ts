@@ -52,11 +52,7 @@ export type {
 import { accountantApi } from "./api/accountant";
 import { accountsApi } from "./api/accounts";
 import { accrualsApi } from "./api/accruals";
-import {
-  agentSuggestionsApi,
-  exceptionsApi,
-  exceptionsApiLegacy,
-} from "./api/exceptions";
+import { agentSuggestionsApi, exceptionsApi } from "./api/exceptions";
 import { annualReportApi } from "./api/annual-report";
 import { assetsApi } from "./api/assets";
 import { bankApi } from "./api/bank";
@@ -71,28 +67,25 @@ import { integrityApi } from "./api/integrity";
 import { invoicesApi } from "./api/invoices";
 import { mileageApi } from "./api/mileage";
 import { payablesApi } from "./api/payables";
-import { periodsApi, periodsApiLegacy } from "./api/periods";
+import { periodsApi } from "./api/periods";
 import { retentionApi } from "./api/retention";
 import { statementsApi } from "./api/statements";
 import { systemApi } from "./api/system";
 import { vatApi } from "./api/vat";
 
-// The spread order below mirrors the original property order inside the
-// single object literal so duplicate-key shadowing (last wins) is preserved
-// exactly: the legacy `closePeriod` / `reopenPeriod` / `resolveException`
-// versions appear first; the current versions appear later and win.
+// One method per key — the earlier legacy `closePeriod` / `reopenPeriod` /
+// `resolveException` duplicates (#UI-9) have been deleted, so no spread-order
+// shadowing is load-bearing any more.
 export const api = {
   ...systemApi,
   ...retentionApi,
   ...integrityApi,
   ...accountsApi,
-  ...exceptionsApiLegacy,
   ...annualReportApi,
   ...accrualsApi,
   ...gdprApi,
   ...bilagsmailApi,
   ...bankApi,
-  ...periodsApiLegacy,
   ...companiesApi,
   ...dashboardApi,
   ...statementsApi,
@@ -102,7 +95,6 @@ export const api = {
   ...contactsApi,
   ...mileageApi,
   ...budgetApi,
-  // current (winning) versions of the duplicated keys
   ...periodsApi,
   ...exceptionsApi,
   ...accountantApi,

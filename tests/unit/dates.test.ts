@@ -1,6 +1,6 @@
 // Tests: src/core/dates.ts
 import { describe, expect, test } from "bun:test";
-import { isValidIsoDate, addDays, diffDays, daysBetween, todayIsoDate } from "../../src/core/dates";
+import { isValidIsoDate, addDays, diffDays, daysBetween, todayIsoDate, isoDateInTimeZone } from "../../src/core/dates";
 
 describe("ISO date validation", () => {
   test("accepts real calendar dates including leap day", () => {
@@ -94,5 +94,37 @@ describe("todayIsoDate", () => {
     } finally {
       if (previous !== undefined) process.env.RENTEMESTER_TODAY = previous;
     }
+  });
+
+  test("without override, today equals the Copenhagen calendar date, not the UTC one (KODE-11)", () => {
+    const previous = process.env.RENTEMESTER_TODAY;
+    delete process.env.RENTEMESTER_TODAY;
+    try {
+      expect(todayIsoDate()).toBe(isoDateInTimeZone(new Date(), "Europe/Copenhagen"));
+    } finally {
+      if (previous !== undefined) process.env.RENTEMESTER_TODAY = previous;
+    }
+  });
+});
+
+describe("isoDateInTimeZone (KODE-11 — 'i dag' i dansk tid, ikke UTC)", () => {
+  test("just before UTC midnight in summer (CEST, UTC+2) Copenhagen is already on the next day", () => {
+    expect(isoDateInTimeZone(new Date("2026-06-11T22:30:00Z"), "Europe/Copenhagen")).toBe("2026-06-12");
+  });
+
+  test("just before UTC midnight in winter (CET, UTC+1) Copenhagen is already on the next day", () => {
+    expect(isoDateInTimeZone(new Date("2026-01-15T23:30:00Z"), "Europe/Copenhagen")).toBe("2026-01-16");
+  });
+
+  test("mid-day the Copenhagen date and the UTC date agree", () => {
+    expect(isoDateInTimeZone(new Date("2026-06-11T10:00:00Z"), "Europe/Copenhagen")).toBe("2026-06-11");
+  });
+
+  test("crosses a year boundary on New Year's Eve", () => {
+    expect(isoDateInTimeZone(new Date("2025-12-31T23:30:00Z"), "Europe/Copenhagen")).toBe("2026-01-01");
+  });
+
+  test("defaults to Europe/Copenhagen when no timezone is given", () => {
+    expect(isoDateInTimeZone(new Date("2026-06-11T22:30:00Z"))).toBe("2026-06-12");
   });
 });

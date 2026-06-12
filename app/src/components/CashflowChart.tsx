@@ -22,6 +22,7 @@ import {
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import type { CashflowMonth } from "../lib/types";
+import { CHART_AXIS_NUMBER, CHART_CURRENCY } from "./chart-format";
 
 // The generic <Chart> component does not auto-register controllers, so this
 // mixed bar+line chart registers everything it needs itself — self-contained,
@@ -44,18 +45,6 @@ const INCOME = "#2e5e4e"; // --color-success
 const EXPENSE = "#a6332a"; // --color-accent
 const BALANCE = "#2d5673"; // --color-info (sober blue)
 const BORDER = "#d8d2c6"; // --color-border
-
-// Full currency formatting — used for tooltips ("18.000 kr.").
-const CURRENCY = new Intl.NumberFormat("da-DK", {
-  style: "currency",
-  currency: "DKK",
-  maximumFractionDigits: 0,
-});
-
-// Plain number with a Danish thousands separator ("18.000") — axis ticks.
-const AXIS_NUMBER = new Intl.NumberFormat("da-DK", {
-  maximumFractionDigits: 0,
-});
 
 /**
  * `months` drives the ind/ud bars; `balanceByMonth` is the bank balance at the
@@ -127,7 +116,7 @@ export function CashflowChart({
           label: (ctx) => {
             const value = ctx.parsed.y;
             if (value === null || value === undefined) return "";
-            return `${ctx.dataset.label}: ${CURRENCY.format(Number(value))}`;
+            return `${ctx.dataset.label}: ${CHART_CURRENCY.format(Number(value))}`;
           },
         },
       },
@@ -152,7 +141,7 @@ export function CashflowChart({
         ticks: {
           color: INK_MUTED,
           font: { family: "IBM Plex Mono", size: 11 },
-          callback: (value) => AXIS_NUMBER.format(Number(value)),
+          callback: (value) => CHART_AXIS_NUMBER.format(Number(value)),
         },
       },
       yBalance: {
@@ -164,7 +153,7 @@ export function CashflowChart({
         ticks: {
           color: BALANCE,
           font: { family: "IBM Plex Mono", size: 11 },
-          callback: (value) => AXIS_NUMBER.format(Number(value)),
+          callback: (value) => CHART_AXIS_NUMBER.format(Number(value)),
         },
       },
     },

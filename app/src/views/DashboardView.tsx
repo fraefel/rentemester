@@ -11,7 +11,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatKroner, formatPercent } from "../lib/format";
+import { formatDateDa, formatKroner, formatPercent } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type {
   CompanyOverview,
@@ -72,7 +72,7 @@ export function DashboardView() {
       <p className="period-head muted">
         Regnskabsår {o.selectedYear} ·{" "}
         {o.lastPostedDate
-          ? `Senest bogført pr. ${o.lastPostedDate}`
+          ? `Senest bogført pr. ${formatDateDa(o.lastPostedDate)}`
           : "Ingen posteringer bogført endnu"}
       </p>
 

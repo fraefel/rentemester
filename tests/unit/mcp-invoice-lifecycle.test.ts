@@ -15,7 +15,7 @@
 //      `errors` mention `invoice_post` — not just a downstream balance error.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCompany } from "../../src/core/company";
@@ -134,6 +134,15 @@ beforeAll(async () => {
   initWorkspace(workspaceRoot);
   const created = createCompany(workspaceRoot, { name: "Acme ApS" });
   companyRoot = companyRootForSlug(workspaceRoot, created.slug);
+  // SEC-2 (Audit 2026-06-11): confirmed MCP writes now pass the actor
+  // allowlist. The default seeded policy does not know this test's MCP client
+  // (`agent:rentemester-lifecycle-tests/0.0.1`), so allowlist it explicitly
+  // under the `agents:` section — exactly what an operator would do for a new
+  // agent.
+  appendFileSync(
+    join(companyRoot, "config", "policy.yaml"),
+    "  agents:\n    - agent:rentemester-lifecycle-tests/0.0.1\n",
+  );
 
   client = new StdioMcpClient();
   const initResponse = await client.send("initialize", {

@@ -70,8 +70,18 @@ describe("invoice payments", () => {
     expect(second.ok).toBe(true);
     expect(second.openBalance).toBe(0);
 
-    const status2 = getInvoiceStatus(db, issued.documentId!);
-    expect(status2.asOfDate).toBe("2026-06-15");
+    // Without an explicit as-of, the status is judged as of TODAY — pinned
+    // here via the RENTEMESTER_TODAY override for determinism (EJER-1).
+    const previousToday = process.env.RENTEMESTER_TODAY;
+    process.env.RENTEMESTER_TODAY = "2026-06-16";
+    let status2;
+    try {
+      status2 = getInvoiceStatus(db, issued.documentId!);
+    } finally {
+      if (previousToday === undefined) delete process.env.RENTEMESTER_TODAY;
+      else process.env.RENTEMESTER_TODAY = previousToday;
+    }
+    expect(status2.asOfDate).toBe("2026-06-16");
     expect(status2.status).toBe("paid");
     expect(status2.paidAmount).toBe(1250);
     expect(status2.openBalance).toBe(0);
@@ -81,7 +91,11 @@ describe("invoice payments", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("defaults invoice status comparisons to persisted invoice dates instead of wall-clock time", () => {
+  // EJER-1: the old default compared the due date against itself, so an
+  // invoice was NEVER overdue on the default path while `--as-of` (today!)
+  // said it was. The default is now today's canonical date — deterministic in
+  // tests via the RENTEMESTER_TODAY override.
+  test("defaults invoice status comparisons to today's date (RENTEMESTER_TODAY-overridable)", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-status-deterministic-"));
     const db = openDb(ensureCompanyDirs(root).db);
     migrate(db);
@@ -101,11 +115,27 @@ describe("invoice payments", () => {
     });
     expect(issued.ok).toBe(true);
 
-    const status = getInvoiceStatus(db, issued.documentId!);
-    expect(status.ok).toBe(true);
-    expect(status.asOfDate).toBe("2026-06-15");
-    expect(status.isOverdue).toBe(false);
-    expect(status.overdueDays).toBe(0);
+    const previousToday = process.env.RENTEMESTER_TODAY;
+    try {
+      // Before the due date: not overdue.
+      process.env.RENTEMESTER_TODAY = "2026-06-11";
+      const before = getInvoiceStatus(db, issued.documentId!);
+      expect(before.ok).toBe(true);
+      expect(before.asOfDate).toBe("2026-06-11");
+      expect(before.isOverdue).toBe(false);
+      expect(before.overdueDays).toBe(0);
+
+      // Two days past the due date: 2 days overdue — WITHOUT any as-of arg.
+      process.env.RENTEMESTER_TODAY = "2026-06-17";
+      const after = getInvoiceStatus(db, issued.documentId!);
+      expect(after.ok).toBe(true);
+      expect(after.asOfDate).toBe("2026-06-17");
+      expect(after.isOverdue).toBe(true);
+      expect(after.overdueDays).toBe(2);
+    } finally {
+      if (previousToday === undefined) delete process.env.RENTEMESTER_TODAY;
+      else process.env.RENTEMESTER_TODAY = previousToday;
+    }
 
     db.close();
     rmSync(root, { recursive: true, force: true });

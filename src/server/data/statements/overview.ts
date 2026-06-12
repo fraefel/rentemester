@@ -23,7 +23,11 @@ import {
   roundKroner,
   todayIsoDate,
 } from "../shared";
-import { bankBalanceAsOf, actualBankBalanceAsOf } from "../bank";
+import {
+  bankBalanceAsOf,
+  actualBankBalanceAsOf,
+  bankStatementStatusAsOf,
+} from "../bank";
 import { selectVatPeriod } from "../vat";
 import { groupExceptions, type ExceptionGroup } from "../exceptions";
 import {
@@ -222,7 +226,12 @@ export function buildCompanyOverview(
           months,
         },
         // Live-only sections — no archived data exists, so N/A rather than 0.
-        bank: { balance: 0, actualBalance: null, difference: null },
+        bank: {
+          balance: 0,
+          actualBalance: null,
+          difference: null,
+          bankStatementStatus: "none" as const,
+        },
         receivables: { openCount: 0, openTotal: 0 },
         vat: null,
         exceptions: {
@@ -328,6 +337,10 @@ export function buildCompanyOverview(
     const actualBalance = actualBankBalanceAsOf(db, yearEnd);
     const bankDifference =
       actualBalance === null ? null : roundKroner(bookedBalance - actualBalance);
+    // EJER-12: WHY the actual balance is null — distinguishes "no statement
+    // imported" from "imported without a balance column" so the dashboard
+    // never wrongly says "intet kontoudtog importeret".
+    const bankStatementStatus = bankStatementStatusAsOf(db, yearEnd);
 
     // Receivables (debitorer): money owed TO the company — the still-open
     // balance of issued sales invoices as of the year end. `buildInvoiceList`
@@ -390,6 +403,7 @@ export function buildCompanyOverview(
         balance: bookedBalance,
         actualBalance,
         difference: bankDifference,
+        bankStatementStatus,
       },
       receivables,
       vat: vatBlock as OverviewVat | null,

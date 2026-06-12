@@ -108,6 +108,140 @@ export function todayIso(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * Parses a Danish-entered amount string into a number, or `null` if the input
+ * is ambiguous or not a number (#UI-5).
+ *
+ * Danish convention uses `.` as the thousands separator and `,` as the decimal
+ * separator — the exact opposite of JS `Number()`. A raw `Number("1.234")`
+ * silently reads `1,234`, a 1000× error in a bookkeeping field. This is the one
+ * canonical parser every amount input must use.
+ *
+ * Accepted forms (after trimming, dropping a single leading sign and spaces):
+ *   "1234"        → 1234         (plain integer)
+ *   "1234,56"     → 1234.56      (comma decimal)
+ *   "1.234,56"    → 1234.56      (dot thousands + comma decimal)
+ *   "1.234.567"   → 1234567      (dot thousands, no decimals)
+ *   "1234.56"     → 1234.56      (a lone dot with 1–2 trailing digits is read
+ *                                 as a decimal point — a pragmatic concession to
+ *                                 users who type the en-US way)
+ *
+ * Rejected (returns `null`) — anything genuinely ambiguous or malformed:
+ *   ""            → null         (empty)
+ *   "abc"         → null         (not a number)
+ *   "1,234,56"    → null         (two commas)
+ *   "1.23.456"    → null         (dot groups that aren't 3-digit thousands)
+ *   "1,2345"      → null         (more than 2 decimals after the comma)
+ */
+export function parseDanishAmount(raw: string): number | null {
+  let s = raw.trim().replace(/\s/g, "");
+  if (s === "") return null;
+  let sign = "";
+  if (s[0] === "+" || s[0] === "-") {
+    sign = s[0] === "-" ? "-" : "";
+    s = s.slice(1);
+  }
+  if (s === "" || /[^0-9.,]/.test(s)) return null;
+
+  const commas = (s.match(/,/g) ?? []).length;
+  if (commas > 1) return null;
+
+  let normalized: string;
+  if (commas === 1) {
+    // Comma is the decimal separator. Everything before it may carry `.`
+    // thousands separators; the fraction must be 1–2 digits.
+    const [intPart, fracPart] = s.split(",");
+    if (!/^[0-9.]*$/.test(intPart) || !/^[0-9]{1,2}$/.test(fracPart)) return null;
+    const intDigits = stripDanishThousands(intPart);
+    if (intDigits === null) return null;
+    normalized = `${intDigits === "" ? "0" : intDigits}.${fracPart}`;
+  } else if (s.includes(".")) {
+    // No comma. A trailing `.dd` (1–2 digits) is treated as a decimal point;
+    // otherwise the dots must be valid 3-digit thousands groups.
+    const lastDot = s.lastIndexOf(".");
+    const tail = s.slice(lastDot + 1);
+    const beforeTail = s.slice(0, lastDot);
+    if (
+      !beforeTail.includes(".") &&
+      tail.length >= 1 &&
+      tail.length <= 2 &&
+      /^[0-9]+$/.test(beforeTail) &&
+      /^[0-9]+$/.test(tail)
+    ) {
+      normalized = `${beforeTail}.${tail}`;
+    } else {
+      const intDigits = stripDanishThousands(s);
+      if (intDigits === null) return null;
+      normalized = intDigits === "" ? "0" : intDigits;
+    }
+  } else {
+    normalized = s;
+  }
+
+  const num = Number(`${sign}${normalized}`);
+  return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * Collapses a string of digits grouped by `.` thousands separators ("1.234.567")
+ * into bare digits ("1234567"). Returns `null` if the grouping is not valid
+ * Danish thousands (each group after the first must be exactly 3 digits).
+ */
+function stripDanishThousands(part: string): string | null {
+  if (part === "") return "";
+  if (!part.includes(".")) return /^[0-9]+$/.test(part) ? part : null;
+  const groups = part.split(".");
+  if (!/^[0-9]{1,3}$/.test(groups[0])) return null;
+  for (let i = 1; i < groups.length; i += 1) {
+    if (!/^[0-9]{3}$/.test(groups[i])) return null;
+  }
+  return groups.join("");
+}
+
+const DA_DATE_FORMAT = new Intl.DateTimeFormat("da-DK", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/**
+ * Formats an ISO date (YYYY-MM-DD, optionally with a time part) as a Danish
+ * running-text date — "27. feb. 2026" (#UI-8). Use this in prose, headings and
+ * banners where a raw ISO string reads as machine output.
+ *
+ * Deliberately NOT used in table columns: there, the sortable, fixed-width ISO
+ * form (YYYY-MM-DD) carries meaning a localized string would lose. Returns "—"
+ * for null/empty/unparseable input rather than an "Invalid Date".
+ */
+export function formatDateDa(iso: string | null | undefined): string {
+  if (iso == null || iso === "") return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return "—";
+  const [, y, mo, d] = m;
+  // Build from UTC parts to keep the day stable regardless of the runner's
+  // timezone — a local `new Date("2026-02-27")` can roll back a day west of UTC.
+  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (Number.isNaN(date.getTime())) return "—";
+  return DA_DATE_FORMAT.format(date);
+}
+
+/**
+ * Formats a kroner amount as a raw SKAT TastSelv-compatible number string: NO
+ * thousand separator, NO currency suffix (#UI-10). Decimal øre — if any — are
+ * emitted with a comma (the convention TastSelv accepts); whole-kroner amounts
+ * are bare integers ("4457", not "4457,00").
+ *
+ * Shared because the display formatter's `.`-grouped output ("52.317,00 kr.")
+ * must NEVER reach the clipboard — the thousand separator corrupts the field.
+ */
+export function tastSelvNumber(kroner: number): string {
+  // Round to 2 decimals to avoid floating-point noise like 4456.9999999.
+  const rounded = Math.round(kroner * 100) / 100;
+  if (Number.isInteger(rounded)) return String(rounded);
+  const [intPart, fracPart = ""] = rounded.toFixed(2).split(".");
+  return `${intPart},${fracPart}`;
+}
+
 export type AttentionLevel = "critical" | "warning" | "ok";
 
 export type AttentionFlag = {

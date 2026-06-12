@@ -1,4 +1,4 @@
-version: dk-peppol-v0.0.2
+version: dk-peppol-v0.0.4
 sources:
   - DK-OFFENTLIGE-BETALINGER-2007-798
 rules:
@@ -10,6 +10,11 @@ rules:
     machine_rule:
       require:
         - oioubl_handoff_artifact_valid
+        # Peppol BIS Billing 3.0 / EN16931 conformance (JUR-9):
+        - buyer_reference_present_for_public_recipient   # PEPPOL-EN16931-R003
+        - tax_category_derived_from_vat_treatment        # S / E / AE, not hardcoded
+        - exemption_reason_for_exempt_or_reverse_charge  # BR-AE-10 / BR-E-10 (BT-120/BT-121)
+        - seller_endpoint_id_danish_cvr_8_digits         # schemeID 0184, no "DK"
         - access_point_config_present
         - deterministic_submission_envelope
         - append_only_submission_record
@@ -20,4 +25,8 @@ rules:
         - submission_mutating_original_invoice_payload
         - access_point_credentials_in_bookkeeping_state
         - duplicate_submission_record_for_same_idempotency_key
-    explanation: Rentemester may record a direct PEPPOL submission attempt for a public-customer invoice, but only on top of a valid OIOUBL handoff artifact. The submission envelope must be deterministic and idempotent on a derived key, the submission record append-only and audit-linked, and the original immutable invoice payload must never be mutated. Access-point credentials and access-point configuration stay outside core bookkeeping state — Rentemester prepares and records the attempt, it does not perform the transport itself.
+        - hardcoded_tax_category_for_exempt_or_reverse_charge_lines
+        - exempt_or_reverse_charge_tax_category_without_exemption_reason  # BR-AE-10 / BR-E-10
+    explanation: >-
+      Rentemester may record a direct PEPPOL submission attempt for a public-customer invoice, but only on top of a valid OIOUBL handoff artifact. The submission envelope must be deterministic and idempotent on a derived key, the submission record append-only and audit-linked, and the original immutable invoice payload must never be mutated. Access-point credentials and access-point configuration stay outside core bookkeeping state — Rentemester prepares and records the attempt, it does not perform the transport itself.
+      The generated UBL VAT breakdown (cac:TaxCategory / BG-23) must carry a VAT exemption reason for the reverse-charge (AE, BR-AE-10) and exempt (E, BR-E-10) categories — either a reason code (BT-121 cbc:TaxExemptionReasonCode) or a reason text (BT-120 cbc:TaxExemptionReason) — or a receiving Peppol access point rejects the invoice in schematron validation. Category AE uses the only AE-valid VATEX code, VATEX-EU-AE (Peppol PINT EU aligned tax-exemption code list), plus a free-text reason carrying the documented reverse-charge basis; category E uses a free-text reason. The standard category (S) must never carry an exemption reason (BR-S-09 / BR-S-10).

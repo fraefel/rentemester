@@ -1,4 +1,4 @@
-import { closeSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, basename, join } from "node:path";
 
@@ -30,6 +30,12 @@ export function writeTempFileFor(finalPath: string, content: string | Uint8Array
     }
     try {
       writeSync(fd, typeof content === "string" ? Buffer.from(content) : Buffer.from(content));
+      // KODE-7: flush the file's data+metadata to stable storage BEFORE close,
+      // so a power loss after the subsequent rename cannot resurrect a
+      // zero-length or partially-written file. Without this, write()+rename()
+      // only orders the operations in the page cache — the bytes may still be
+      // in flight when the crash hits, leaving an empty manifest/signature/tar.
+      fsyncSync(fd);
     } finally {
       closeSync(fd);
     }
@@ -38,8 +44,33 @@ export function writeTempFileFor(finalPath: string, content: string | Uint8Array
   throw new Error(`failed to create exclusive temp file for ${finalPath}`);
 }
 
+// fsync the directory that contains `path`, so a rename/create within it is
+// itself durable. A file's own fsync persists its bytes; only the parent
+// directory's fsync persists the directory entry that names it (KODE-7).
+// Best-effort: some platforms (notably Windows) reject opening a directory for
+// fsync, and that must not fail an otherwise-successful atomic write.
+function fsyncDir(path: string) {
+  let dirFd: number;
+  try {
+    dirFd = openSync(dirname(path), "r");
+  } catch {
+    return;
+  }
+  try {
+    fsyncSync(dirFd);
+  } catch {
+    // best effort — directory fsync is unsupported on some platforms
+  } finally {
+    closeSync(dirFd);
+  }
+}
+
 export function promoteTempFile(tempPath: string, finalPath: string) {
   renameSync(tempPath, finalPath);
+  // KODE-7: persist the rename. The temp file's bytes were already fsync'd in
+  // writeTempFileFor; this makes the directory entry pointing at finalPath
+  // durable too, so a crash right after the rename cannot lose the file.
+  fsyncDir(finalPath);
 }
 
 // Write `content` to `finalPath` atomically: stage into an exclusively-created

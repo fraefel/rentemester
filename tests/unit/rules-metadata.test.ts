@@ -53,7 +53,7 @@ describe("rule and source metadata consistency", () => {
     expect(bundleVersion).toContain("documents=dk-documents-v0.0.3");
     expect(bundleVersion).toContain("gdpr=dk-gdpr-v0.0.1");
     expect(bundleVersion).toContain("invoices=dk-invoices-v0.0.11");
-    expect(bundleVersion).toContain("peppol=dk-peppol-v0.0.2");
-    expect(bundleVersion).toContain("vat=dk-vat-v0.0.3");
+    expect(bundleVersion).toContain("peppol=dk-peppol-v0.0.4");
+    expect(bundleVersion).toContain("vat=dk-vat-v0.0.4");
   });
 });

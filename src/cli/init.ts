@@ -166,7 +166,7 @@ export function register(dispatch: CommandDispatch): void {
 
     ctx.emitResult({
       ok: true,
-      message: `Initialized Rentemester company at ${root}`,
+      message: `Rentemester-virksomhed oprettet i ${root}`,
       companyRoot: root,
       ledger: companyPaths(root).db,
       accountCount: summary.accountCount,

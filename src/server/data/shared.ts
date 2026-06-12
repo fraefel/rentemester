@@ -14,6 +14,7 @@ import type { Database } from "bun:sqlite";
 import { companyPaths } from "../../core/paths";
 import { openDb, migrate } from "../../core/db";
 import { getCompanySettings, type CompanySettings } from "../../core/company";
+import { todayIsoDate } from "../../core/dates";
 import { fiscalYearForDate } from "../../core/fiscal-year";
 import {
   companyRootForSlug,
@@ -24,14 +25,11 @@ import { ApiError } from "../errors";
 
 export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Today as YYYY-MM-DD (UTC). The clock lives here, not in core. */
-export function todayIsoDate(): string {
-  const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(now.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
+// "Today" comes from the ONE canonical clock in core (`core/dates.ts`):
+// Danish calendar date, RENTEMESTER_TODAY-overridable. The cockpit used to
+// keep its own UTC clock here, which ignored the override and disagreed with
+// the CLI/dashboard around midnight (EJER-1/KODE-11).
+export { todayIsoDate };
 
 /** Validates an optional `?as-of=` query value, defaulting to today. */
 export function resolveAsOfDate(raw: string | null | undefined): string {

@@ -341,7 +341,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
         appliedRules: [RULE_ID, ...journal.appliedRules],
         errors: [],
       } satisfies RegisterPayableResult;
-    })();
+    }, { immediate: true })();
   } catch (error) {
     const parsed = parseTransactionError(error);
     return {
@@ -503,7 +503,7 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
         appliedRules: [PAYMENT_RULE_ID, ...journal.appliedRules],
         errors: [],
       } satisfies PayPayableResult;
-    })();
+    }, { immediate: true })();
   } catch (error) {
     const parsed = parseTransactionError(error);
     return {

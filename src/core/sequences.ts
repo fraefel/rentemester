@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { getCompanySettings } from "./company";
+import { todayIsoDate } from "./dates";
 import { fiscalYearForDate } from "./fiscal-year";
 
 export function companySequenceScope(db: Database, fiscalScope: string) {
@@ -27,6 +28,9 @@ export function currentSequenceValue(db: Database, kind: string, scope: string, 
 }
 
 export function reserveSequenceValue(db: Database, kind: string, scope: string, requestedValue: number, currentFloor = 0) {
+  // KODE-10: immediate so the read of currentSequenceValue and the conditional
+  // write below take the write lock up front, avoiding a SQLITE_BUSY_SNAPSHOT
+  // when two issuers race to reserve the next number in the same scope.
   return db.transaction(() => {
     const currentValue = currentSequenceValue(db, kind, scope, currentFloor);
     const expectedValue = currentValue + 1;
@@ -39,7 +43,7 @@ export function reserveSequenceValue(db: Database, kind: string, scope: string, 
        ON CONFLICT(kind, scope) DO UPDATE SET value = excluded.value`
     ).run(kind, scope, requestedValue);
     return { ok: true as const, expectedValue, currentValue };
-  })();
+  }, { immediate: true })();
 }
 
 export function fiscalYearLabelFromDate(db: Database, dateText: string) {
@@ -47,7 +51,14 @@ export function fiscalYearLabelFromDate(db: Database, dateText: string) {
   return fiscalYearForDate(dateText, company.fiscalYearStartMonth, company.fiscalYearLabelStrategy).identifierLabel;
 }
 
-export function currentUtcIsoDate(db: Database) {
-  const row = db.query(`SELECT strftime('%Y-%m-%d', CURRENT_TIMESTAMP) AS iso_date`).get() as { iso_date: string };
-  return row.iso_date;
+/**
+ * Today's date (YYYY-MM-DD) for ledger-side defaults (document dating,
+ * retention as-of, GDPR as-of). Delegates to the ONE canonical clock in
+ * `core/dates.ts`: the Danish calendar date, RENTEMESTER_TODAY-overridable
+ * (KODE-11). The name is historical — it used to read SQLite's
+ * CURRENT_TIMESTAMP, which is UTC and ignored the test override. The unused
+ * `db` parameter is kept so existing call sites stay source-compatible.
+ */
+export function currentUtcIsoDate(_db: Database) {
+  return todayIsoDate();
 }

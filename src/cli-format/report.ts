@@ -159,7 +159,7 @@ function humanReportTitle(kind: HumanReportKind): string {
     case "invoice-validate":
       return "Fakturavalidering";
     case "exceptions-list":
-      return "Exceptions-kø";
+      return "Undtagelser";
     case "report-trial-balance":
       return "Saldobalance";
     case "report-profit-loss":

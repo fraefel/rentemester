@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
@@ -21,6 +21,12 @@ export type RestoreSystemBackupInput = {
   // resolved from inside the backup must match it or restore fails closed
   // (issue #132). Backward-compatible: omitted -> previous behaviour.
   publicKeyHint?: string;
+  // KODE-8: explicit opt-in to overwrite a target directory that already exists
+  // and is NOT empty (but holds no ledger db). Without it, restore refuses to
+  // recursively delete a non-empty ledger-less directory — it might be the
+  // user's own files, pointed at by mistake. An empty or non-existent target is
+  // always fine and needs no flag.
+  allowNonEmptyTarget?: boolean;
 };
 
 export type RestoreSystemBackupResult = {
@@ -485,6 +491,29 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
     // (checked above); if an empty placeholder dir exists, drop it so the
     // rename lands cleanly.
     if (existsSync(resolvedTarget)) {
+      // KODE-8: re-check for a live company IMMEDIATELY before the destructive
+      // rmSync — the earlier check ran before the (slow) staging build, and a
+      // ledger could have been created in the target during that window. Never
+      // recursively wipe a directory that now holds a ledger.
+      if (targetHoldsLiveCompany(resolvedTarget)) {
+        rmSync(stagingRoot, { recursive: true, force: true });
+        return { ok: false, appliedRules: [RULE_ID], errors: [`targetCompanyRoot already contains a company ledger; refusing to overwrite: ${input.targetCompanyRoot}`] };
+      }
+      // KODE-8: refuse to recursively delete a NON-EMPTY ledger-less directory
+      // unless the caller explicitly opted in. The target might be the user's
+      // own files pointed at by mistake; an empty placeholder is safe to drop.
+      const entries = readdirSync(resolvedTarget);
+      if (entries.length > 0 && !input.allowNonEmptyTarget) {
+        rmSync(stagingRoot, { recursive: true, force: true });
+        return {
+          ok: false,
+          appliedRules: [RULE_ID],
+          errors: [
+            `targetCompanyRoot exists and is not empty (no ledger db): ${input.targetCompanyRoot}. ` +
+              `Refusing to recursively delete it — restore into an empty/new directory, or set allowNonEmptyTarget to overwrite deliberately.`,
+          ],
+        };
+      }
       rmSync(resolvedTarget, { recursive: true, force: true });
     } else {
       mkdirSync(dirname(resolvedTarget), { recursive: true });

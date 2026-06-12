@@ -59,10 +59,13 @@ export const DEADLINE_HORIZON_DAYS = 45;
  * straight to a P&L expense account (#223).
  *
  * The sourced reference point is the Danish small-asset (straksafskrivning)
- * threshold `STRAKSAFSKRIVNING_THRESHOLD_DKK` (33.100 DKK, see
- * `src/core/assets.ts`, rule `DK-ASSET-WRITEOFF-001`): a purchase below it may
- * be eligible for immediate write-off, one above it generally has to be
- * capitalised and depreciated. Either way — small-asset write-off or
+ * threshold, which is set per income year (afskrivningsloven § 6) — see the
+ * year-based table `STRAKSAFSKRIVNING_THRESHOLDS_BY_YEAR` and
+ * `straksafskrivningThresholdForYear()` in `src/core/assets.ts`, rule
+ * `DK-ASSET-WRITEOFF-001` (e.g. 33.100 DKK for 2024, 36.000 DKK for 2026): a
+ * purchase below the year's grænse may be eligible for immediate write-off, one
+ * above it generally has to be capitalised and depreciated. Either way —
+ * small-asset write-off or
  * capitalisation — is a tax/asset judgement the deterministic loop cannot make,
  * so the loop never books such a purchase silently as an operating expense.
  *

@@ -1,4 +1,4 @@
-version: dk-vat-v0.0.3
+version: dk-vat-v0.0.4
 sources:
   - DK-MOMSLOVEN-2024-209
   - DK-MOMSBEKENDTGORELSEN-2023-1435
@@ -13,6 +13,12 @@ vat_codes:
     rate: 0.25
     reverse_charge: false
     deductible_percentage: 1.0
+  # LIMITATION (JUR-5): EU GOODS acquisitions (momsloven §11, erhvervelsesmoms,
+  # "Moms af varekøb i udlandet") are NOT modelled — there is no goods-import VAT
+  # code. The only EU-purchase code below is EU_SERVICE_REVERSE_CHARGE (services,
+  # §46). buildVatFiling sets momsAfVarekobUdland = 0 and warns whenever a period
+  # has EU reverse-charge purchases, so an EU goods purchase is never silently
+  # booked as a service. Full §11 erhvervelsesmoms flow is out of scope for now.
   - code: EU_SERVICE_REVERSE_CHARGE
     type: purchase
     rate: 0.25
@@ -32,6 +38,24 @@ vat_codes:
     type: sale
     rate: 0.0
     reverse_charge: false
+    deductible_percentage: 1.0
+  # JUR-2/KODE-2: FOREIGN reverse-charge sales (EU B2B, momsloven §46 /
+  # momsdirektivet art. 196/199). VAT-exempt; feeds rubrik B + the VIES EU
+  # sales list. Booked with vat_code REVERSE_CHARGE_EXEMPT.
+  - code: REVERSE_CHARGE_EXEMPT
+    type: sale
+    rate: 0.0
+    reverse_charge: true
+    deductible_percentage: 1.0
+  # JUR-2/KODE-2: DOMESTIC reverse-charge sales — Danish §46 omvendt
+  # betalingspligt (mobiltelefoner, CPU'er, metalskrot). VAT-exempt; feeds
+  # rubrik C ("værdi af andet salg uden moms"), NOT rubrik B, and must stay
+  # OFF the VIES EU sales list. Source: SKAT Den juridiske vejledning
+  # A.B.3.3.1.5. Booked with vat_code DOMESTIC_REVERSE_CHARGE_EXEMPT.
+  - code: DOMESTIC_REVERSE_CHARGE_EXEMPT
+    type: sale
+    rate: 0.0
+    reverse_charge: true
     deductible_percentage: 1.0
   - code: OSS_EU_CONSUMER
     type: sale

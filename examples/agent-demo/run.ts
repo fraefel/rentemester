@@ -269,10 +269,17 @@ async function ensureCompanyInitialized(company: string) {
   if (existsSync(company)) {
     rmSync(company, { recursive: true, force: true });
   }
-  const init = Bun.spawn(["bun", CLI_PATH, "init", "--company", company], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  // SEC-2 (Audit 2026-06-11): confirmed MCP writes pass the actor allowlist.
+  // The demo's MCP client identifies as `agent:rentemester-agent-demo/0.0.1`
+  // (see `client.initialize("rentemester-agent-demo")`), so seed that exact
+  // agent into the company's allowlist at onboarding via `init --actor`.
+  const init = Bun.spawn(
+    ["bun", CLI_PATH, "init", "--company", company, "--actor", "agent:rentemester-agent-demo/0.0.1"],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   await init.exited;
   if (init.exitCode !== 0) {
     const stderr = await new Response(init.stderr).text();

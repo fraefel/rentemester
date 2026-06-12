@@ -401,7 +401,13 @@ function summarizeVat(journalEntries: JournalEntryRow[]): VatSummaryRow[] {
   return [...byCode.values()].sort((a, b) => a.taxCode.localeCompare(b.taxCode));
 }
 
-function buildReadme(input: { periodStart: string; periodEnd: string; generatedAt: string }) {
+function buildReadme(input: { periodStart: string; periodEnd: string; generatedAt: string; generatedAtExplicit: boolean }) {
+  // EJER-14: when no real generation time is supplied the stamp is a
+  // deterministic value derived from the period end — say so rather than
+  // printing a bare "Generated at: <future>" that looks like a wall-clock time.
+  const generatedLine = input.generatedAtExplicit
+    ? `Generated at: ${input.generatedAt}`
+    : `Generated at (deterministic, derived from period end — not a real wall-clock time): ${input.generatedAt}`;
   return [
     "Rentemester SAF-T export (third deterministic slice)",
     "",
@@ -411,7 +417,7 @@ function buildReadme(input: { periodStart: string; periodEnd: string; generatedA
     `Profile: ${PROFILE_ID}`,
     `AuditFileVersion: ${AUDIT_FILE_VERSION}`,
     `Period: ${input.periodStart}..${input.periodEnd}`,
-    `Generated at: ${input.generatedAt}`,
+    generatedLine,
     "",
     "Included:",
     "- Header/company metadata",
@@ -640,7 +646,9 @@ export function exportSaftPackage(db: Database, companyRoot: string, input: Expo
   if (!looksLikeIsoDate(input.periodEnd)) errors.push("periodEnd must be YYYY-MM-DD");
   if (typeof input.outputDir !== "string" || input.outputDir.trim().length === 0) errors.push("outputDir is required");
   if (errors.length === 0 && input.periodStart > input.periodEnd) errors.push("periodStart cannot be after periodEnd");
-  const generatedAt = resolveIsoDateTime(input.generatedAt) ?? normalizeExportTimestamp(input.periodEnd);
+  const resolvedGeneratedAt = resolveIsoDateTime(input.generatedAt);
+  const generatedAtExplicit = resolvedGeneratedAt !== null;
+  const generatedAt = resolvedGeneratedAt ?? normalizeExportTimestamp(input.periodEnd);
   if (input.generatedAt && !resolveIsoDateTime(input.generatedAt)) errors.push("generatedAt must be a valid ISO-8601 datetime when provided");
 
   const company = fetchCompany(db);
@@ -705,12 +713,14 @@ export function exportSaftPackage(db: Database, companyRoot: string, input: Expo
     companyRoot,
   });
   recordWrittenText(exportDir, saftXmlPath, xml, outputs);
-  recordWrittenText(exportDir, readmePath, `${buildReadme({ periodStart: input.periodStart, periodEnd: input.periodEnd, generatedAt })}\n`, outputs);
+  recordWrittenText(exportDir, readmePath, `${buildReadme({ periodStart: input.periodStart, periodEnd: input.periodEnd, generatedAt, generatedAtExplicit })}\n`, outputs);
 
   const manifest = {
     packageType: "saft_export",
     profileId: PROFILE_ID,
     generatedAt,
+    // false => generatedAt is a deterministic period-derived stamp (EJER-14).
+    generatedAtExplicit,
     periodStart: input.periodStart,
     periodEnd: input.periodEnd,
     sourceCompanyRootName: basename(companyRoot),

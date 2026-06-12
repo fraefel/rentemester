@@ -127,16 +127,27 @@ describe("buildTaxReturn (oplysningsskema preparation, micro-ApS)", () => {
     expect(result.preparedBy).toBe("Rentemester");
     expect(result.disclaimer.toLowerCase()).toContain("oplysningsskema");
 
+    // Acontoskat deadlines for the income year are surfaced as information
+    // (JUR-14): the two ordinary installments fall on 20 March and 20 November
+    // of the income year (here 2025).
+    expect(result.acontoTaxDeadlines).toEqual([
+      { installment: 1, dueDate: "2025-03-20" },
+      { installment: 2, dueDate: "2025-11-20" },
+    ]);
+
     db.close();
     cleanup(root, inbox);
   });
 
-  test("adds back non-deductible representation as a deterministic adjustment", () => {
+  test("adds back 75% of the booked representation cost (ligningsloven § 8, stk. 4)", () => {
     const { root, inbox, db } = newCompany("rentemester-tax-repr-");
     postYear(db, root, inbox);
-    // Representation purchase: net 1000, 25% VAT = 250, only 25% deductible.
-    // Non-deductible VAT = 250 * 0.75 = 187.50 is expensed (account 3070) and
-    // is not tax-deductible -> it must be added back.
+    // Representation purchase: net 1000, 25% VAT = 250. VAT-wise only 25% of
+    // the VAT is deductible, so the booked P&L expense is the net base plus
+    // the non-deductible VAT: 1000 + 187.50 = 1187.50 (account 3070).
+    // Tax-wise (ligningsloven § 8, stk. 4) representation costs are only 25%
+    // deductible, so 75% of the ENTIRE booked cost must be added back:
+    // 75% x 1187.50 = 890.625 -> 890.63 oere-rounded.
     const reprDoc = ingestDoc(db, root, inbox, "repr");
     const repr = postRepresentationPurchase(db, {
       transactionDate: "2025-08-01",
@@ -149,14 +160,80 @@ describe("buildTaxReturn (oplysningsskema preparation, micro-ApS)", () => {
 
     const result = buildTaxReturn(db, "2025-01-01", "2025-12-31");
     expect(result.ok).toBe(true);
-    // One deterministic adjustment: the non-deductible representation VAT.
+    // One deterministic adjustment: the non-deductible 75% of representation.
     const addBack = result.adjustments.find((a) => a.kind === "non_deductible_representation");
     expect(addBack).toBeDefined();
-    expect(addBack!.amount).toBe(187.5);
-    expect(result.totalAdjustments).toBe(187.5);
+    expect(addBack!.amount).toBe(890.63);
+    expect(result.totalAdjustments).toBe(890.63);
     // Bookkept result drops by the expensed representation (base 1000 + non-deductible
-    // VAT 187.50 hit the P&L); taxable income adds the non-deductible VAT back.
-    expect(result.taxableIncome).toBe(result.bookkeptResult + 187.5);
+    // VAT 187.50 hit the P&L); taxable income adds the non-deductible 75% back.
+    expect(result.taxableIncome).toBe(result.bookkeptResult + 890.63);
+
+    db.close();
+    cleanup(root, inbox);
+  });
+
+  test("representation add-back: base 10000 -> add-back 8906.25 (75% of 11875)", () => {
+    const { root, inbox, db } = newCompany("rentemester-tax-repr10k-");
+    postYear(db, root, inbox);
+    // Net 10000 -> full VAT 2500, non-deductible VAT 1875, booked P&L cost
+    // 10000 + 1875 = 11875. Add-back = 75% x 11875 = 8906.25 exactly.
+    const reprDoc = ingestDoc(db, root, inbox, "repr10k");
+    const repr = postRepresentationPurchase(db, {
+      transactionDate: "2025-08-01",
+      text: "Stor kundemiddag",
+      documentId: reprDoc,
+      netAmount: 10000,
+    });
+    expect(repr.ok).toBe(true);
+    lockYear(db);
+
+    const result = buildTaxReturn(db, "2025-01-01", "2025-12-31");
+    expect(result.ok).toBe(true);
+    const addBack = result.adjustments.find((a) => a.kind === "non_deductible_representation");
+    expect(addBack).toBeDefined();
+    expect(addBack!.amount).toBe(8906.25);
+    expect(result.taxableIncome).toBe(result.bookkeptResult + 8906.25);
+
+    db.close();
+    cleanup(root, inbox);
+  });
+
+  test("representation add-back is øre-identical to the actually booked cost (odd-øre base, TAX-1)", () => {
+    const { root, inbox, db } = newCompany("rentemester-tax-repr-odd-");
+    postYear(db, root, inbox);
+    // Net 10.00 -> full VAT 2.50. The BOOKED non-deductible VAT is
+    // fullVat - round(fullVat*25%) = 2.50 - 0.63 = 1.87 (see
+    // postRepresentationPurchase), so the booked P&L cost on account 3070 is
+    // 10.00 + 1.87 = 11.87. The add-back must be 75% of the SAME 11.87 that was
+    // booked: round(11.87 * 0.75) = 8.90 — not 8.91 from a separately rounded
+    // 75%-of-VAT path.
+    const reprDoc = ingestDoc(db, root, inbox, "reprodd");
+    const repr = postRepresentationPurchase(db, {
+      transactionDate: "2025-08-01",
+      text: "Lille kundekaffe",
+      documentId: reprDoc,
+      netAmount: 10.0,
+    });
+    expect(repr.ok).toBe(true);
+
+    // Read the actually booked representation P&L cost (account 3070 debits).
+    const booked = db.query(
+      `SELECT COALESCE(SUM(jl.debit_amount), 0) - COALESCE(SUM(jl.credit_amount), 0) AS net
+         FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+         JOIN journal_entries je ON je.id = jl.journal_entry_id
+        WHERE a.account_no = '3070' AND je.transaction_date = '2025-08-01'`,
+    ).get() as { net: number };
+    // Raw SQL SUM can carry binary-float drift; the booked cost is 11.87 øre-exact.
+    expect(booked.net).toBeCloseTo(11.87, 2);
+
+    lockYear(db);
+    const result = buildTaxReturn(db, "2025-01-01", "2025-12-31");
+    expect(result.ok).toBe(true);
+    const addBack = result.adjustments.find((a) => a.kind === "non_deductible_representation");
+    expect(addBack).toBeDefined();
+    // 75% of the booked 11.87 = 8.9025 -> 8.90 (øre-identical to the booking).
+    expect(addBack!.amount).toBe(8.9);
 
     db.close();
     cleanup(root, inbox);

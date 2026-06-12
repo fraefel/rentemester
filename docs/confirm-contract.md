@@ -43,24 +43,25 @@ Hver række er én logisk mutation. **Kræves** betyder afvisning uden samtykke.
 | Krediter faktura | `invoice_credit_note` / `POST /invoices/credit-note` / `invoice credit-note` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Afskriv tab på debitor | `invoice_write_off_bad_debt` / *(N/A)* / `invoice write-off-bad-debt` | `confirm: true` | N/A | Ikke krævet |
 | Send faktura på e-mail | `invoice_send_email` / `POST /invoices/send` / `invoice send` | `confirm: true` | `confirm: true` | Ikke krævet |
-| Send rykker | `invoice_remind` / *(N/A)* / `invoice remind` | `confirm: true` | N/A | Ikke krævet |
+| Send rykker | `invoice_remind` / `POST /invoices/send-reminder` / `invoice remind` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Importer bank-CSV | `bank_import` / `POST /bank/import` / `bank import` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Ingester bilag | `documents_ingest` / `POST /documents/ingest` / `documents ingest` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Bogfør finanspostering | `journal_post` / *(N/A)* / `journal post` | `confirm: true` | N/A | Ikke krævet |
-| Modpost finanspostering | `journal_reverse` / *(N/A)* / `journal post --reverse-of` | `confirm: true` | N/A | Ikke krævet |
+| Modpost finanspostering | `journal_reverse` / *(N/A)* / `journal reverse` | `confirm: true` | N/A | Ikke krævet |
 | Bogfør udgift | `expense_book` / *(N/A)* / `expense book` | `confirm: true` | N/A | Ikke krævet |
 | Luk periode | `period_close` / `POST /periods/close` / `period close` | `confirm: true` | `confirm: true` | Ikke krævet |
-| Genåbn periode | *(CLI-only)* / *(N/A)* / `period reopen` | N/A | N/A | Ikke krævet |
+| Genåbn periode | *(ingen MCP-tool)* / `POST /periods/reopen` / `period reopen` | N/A | `confirm: true` | Ikke krævet |
 | Ryd undtagelse | `exception_resolve` / `POST /exceptions/:id/resolve` / `exceptions resolve` | `confirm: true` | **Ikke krævet** (kun status flippes) | Ikke krævet |
 | Generér tilbagevendende faktura | `recurring_invoice_generate` / `POST /recurring-invoices/generate` / `recurring-invoice generate` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Registrer aktiv | `asset_register` / *(N/A)* / `asset register` | `confirm: true` | N/A | Ikke krævet |
 | Straksafskriv aktiv | `asset_write_off` / *(N/A)* / `asset write-off` | `confirm: true` | N/A | **`--confirm yes`** (matcher det MCP-felt der hedder `confirmImmediateWriteOff`) |
 | Tag backup | `system_backup` / *(N/A)* / `system backup` | `confirm: true` | N/A | Ikke krævet |
 | Genskab fra backup | `system_restore_backup` (**destructive**) / *(N/A)* / `system restore-backup` | `confirm: true` **+ `confirmText: "RESTORE <targetCompany>"`** | N/A | **`--confirm yes`** |
-| GDPR-slet kunde/leverandør | `gdpr_erase_contact` / *(N/A)* / `gdpr erase` | `confirm: true` | N/A | Ikke krævet |
+| GDPR-slet persondata | *(ingen `gdpr_*` MCP-tools — bevidst CLI-only)* / *(N/A)* / `gdpr forget` (legacy alias: `gdpr erase`) | N/A | N/A | Ikke `--confirm yes`, men **`--after-retention-expiry`** (eksplicit flag; exit `2` uden) + actor — kommandoen er actor-gatet muterende |
 | Slet kontakt fra cockpittet | *(N/A)* / `DELETE /contacts/:id` / *(N/A)* | N/A | `confirm: true` | N/A |
 
-(Tabellen er ikke udtømmende for **alle** 95 MCP-tools; den dækker de
+(Tabellen er ikke udtømmende for alle 101 MCP-tools — heraf er 54
+confirm-gatede (53 writes + 1 destructive); den dækker de
 business-operationer der har en konflikt eller en afvigelse mellem stakke.
 For den fulde liste pr. tool, se `annotations` i `docs/mcp-tool-surface.md`.)
 
@@ -79,10 +80,21 @@ slut-bruger). En agent der string-matcher skal håndtere begge:
 | CLI — `asset write-off` | `Re-run with --confirm yes to proceed.` *(suffix; output i `errors[]`)* |
 | CLI — `system restore-backup` | `Re-run with --confirm yes to proceed.` *(suffix; output i `errors[]`)* |
 
-**Anbefaling for en string-matchende agent:** match MCP på prefix
-`confirm: true required for ` (fanger både `write tool` og `destructive
-tool`). Match cockpit på eksakt streng. Match CLI på suffix
-`Re-run with --confirm yes to proceed.`. Match ikke på sprog — beskederne
+**Anbefaling — branch på `code`, ikke på strengen.** På MCP bærer
+afvisnings-konvolutten en stabil, maskinlæsbar `code`-markør, og det er
+den en agent skal branche på:
+
+| Envelope-`code` | Betydning |
+|---|---|
+| `CONFIRM_REQUIRED` | `confirm: true` manglede — sættes for **både** write- og destructive-tools (dækker begge tekst-varianter ovenfor). |
+| `CONFIRMTEXT_MISMATCH` | `confirmText` manglede/var forkert på `system_restore_backup`. |
+| `BACKUP_LOCKED` | Bogførings-låsen blokerede en write (ikke en confirm-fejl, men samme konvolut-mekanisme). |
+
+Streng-matching på `errors[]` (fx prefixet `confirm: true required for `,
+der fanger både `write tool` og `destructive tool`) er kun en fallback for
+klienter der ikke læser `code`. Cockpit og CLI har ingen `code`-markør:
+match cockpit på den eksakte danske streng og CLI på suffixet
+`Re-run with --confirm yes to proceed.`. Match aldrig på sprog — beskederne
 skifter sprog mellem stakke.
 
 ## `invoice_issue` vs. `POST /invoices/issue` — afvigelsen er bevidst
@@ -93,8 +105,9 @@ Samme business-operation, modsat regel — og det er **med vilje**:
   shell-prompt; en eksplicit `confirm` er det eneste signal en agent kan
   give om at den ikke kalder ved et uheld. Selv om `invoice_issue` kun
   producerer en kladde (intet journal-entry endnu), kræver kontrakten
-  alligevel `confirm` — det er ensartet på tværs af alle 95 write-tools,
-  så agenten ikke skal huske undtagelser.
+  alligevel `confirm` — det er ensartet på tværs af alle 54 confirm-gatede
+  tools (53 writes + det destruktive restore), så agenten ikke skal huske
+  undtagelser.
 - **Cockpittets `POST /invoices/issue` kræver det IKKE.** Den multi-linje
   faktura-modal i SPA'en *er* samtykket — at trykke "Udsted faktura"-knappen
   efter at have udfyldt linjerne er den menneskelige beslutning.
@@ -118,9 +131,12 @@ Slå op her, eller læs hver rutes egen kontrakt-side.
 
 Manglende `confirm` returneres som
 `confirm: true required for destructive tool system_restore_backup` — bemærk
-ordet `destructive`, **ikke** `write`. En agent der kun matcher
-`required for write tool` springer denne fejl over. Match på prefix
-`confirm: true required for ` for at fange begge.
+ordet `destructive`, **ikke** `write`. Konvolutten bærer dog samme stabile
+`code: "CONFIRM_REQUIRED"` som write-tools, så en agent der brancher på
+`code` rammer begge uden videre. En streng-matchende agent der kun matcher
+`required for write tool` springer denne fejl over; match i så fald på
+prefixet `confirm: true required for ` for at fange begge.
+`confirmText`-fejlen bærer `code: "CONFIRMTEXT_MISMATCH"`.
 
 CLI's pendant er `system restore-backup --confirm yes` (suppleret med
 `--target-company <path>` og `--actor`). Det er CLI-konventionen — der er
@@ -141,7 +157,7 @@ Det er **dokumenteret som ækvivalent** med MCP/cockpit's `confirm: true`
 - **MCP:** `confirmField` + `withCompanyDbConfirmed` + `withDestructiveConfirm`
   i `src/mcp/tool-runtime.ts`.
 - **Cockpit:** `requireConfirm: true` option på `withCompanyMutation` i
-  `src/server/mutations.ts` (gate-trin 3).
+  `src/server/mutations.ts` (confirm-gate-trinnet i write-pipelinen).
 - **CLI:** Pr. kommando i `src/cli/system.ts` (`restore-backup`),
   `src/cli/asset.ts` (`write-off`). `ctx.arg("--confirm")` læses som streng
   og sammenlignes mod `"yes"`.

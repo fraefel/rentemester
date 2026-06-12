@@ -28,6 +28,7 @@ import {
   type SmtpConfig,
 } from "../../core/email";
 import { companyPaths } from "../../core/paths";
+import { todayIsoDate } from "../../core/dates";
 import { migrate, openDb } from "../../core/db";
 import {
   companyRootForSlug,
@@ -840,10 +841,11 @@ export async function handleInvoiceSendReminder(
       }
       const transport = createSmtpTransport(smtp);
 
-      // Reminder date is "today" in ISO form (UTC slice) — the core enforces
-      // the "10 days since previous reminder" rule and refuses anything that
-      // would breach the statutory series.
-      const reminderDate = new Date().toISOString().slice(0, 10);
+      // Reminder date is "today" — the calendar date in Danish time (KODE-11),
+      // not the UTC date — the core enforces the "10 days since previous
+      // reminder" rule and refuses anything that would breach the statutory
+      // series.
+      const reminderDate = todayIsoDate();
 
       // (1) Register the reminder + fee. The core enforces:
       //     - the invoice must exist and be an issued_invoice,

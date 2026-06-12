@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
+import { todayIso } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type {
   AccountingPeriodKind,
@@ -199,9 +200,20 @@ function ClosePeriodModal({
   const [kind, setKind] = useState<AccountingPeriodKind>("vat_quarter");
   const [reference, setReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // #301 — a period whose end lies in the future is not over yet. Require a
+  // second, explicit acknowledgement before such a close can go through, the
+  // same guard VatView's close-modal has.
+  const [futureEndAcknowledged, setFutureEndAcknowledged] = useState(false);
+  const periodEndsInFuture = periodEnd !== "" && periodEnd > todayIso();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (periodEndsInFuture && !futureEndAcknowledged) {
+      onError(
+        "Bekræft først at du vil lukke en periode der ikke er afsluttet endnu — sæt flueben i feltet nedenfor.",
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       await api.closePeriod(slug, {
@@ -220,7 +232,7 @@ function ClosePeriodModal({
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
+    <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal">
         <h3>Luk periode</h3>
         <form onSubmit={submit}>
@@ -262,11 +274,35 @@ function ClosePeriodModal({
               placeholder="fx Q1 2026 momsangivelse"
             />
           </label>
+          {/* #301: a future period-end means the period is not over yet. Warn
+              clearly and require a second, explicit acknowledgement before the
+              close can go through. */}
+          {periodEndsInFuture && (
+            <>
+              <div className="callout danger" role="alert">
+                Perioden er <strong>ikke afsluttet endnu</strong> — slutdatoen{" "}
+                {periodEnd} ligger i fremtiden. Lukker du nu, blokeres bogføring
+                med dato i perioden. Luk normalt først perioden, når den er
+                forbi. En periode lukket ved en fejl kan genåbnes herfra.
+              </div>
+              <label className="confirm-ack">
+                <input
+                  type="checkbox"
+                  checked={futureEndAcknowledged}
+                  onChange={(e) => setFutureEndAcknowledged(e.target.checked)}
+                />
+                Jeg forstår at perioden ikke er afsluttet, og vil lukke den
+                alligevel.
+              </label>
+            </>
+          )}
           <div className="row-actions">
             <button
               type="submit"
               className="btn primary"
-              disabled={submitting}
+              disabled={
+                submitting || (periodEndsInFuture && !futureEndAcknowledged)
+              }
             >
               {submitting ? "Lukker …" : "Luk periode"}
             </button>
@@ -316,7 +352,7 @@ function ReopenPeriodModal({
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
+    <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal">
         <h3>Genåbn periode</h3>
         <p className="muted">

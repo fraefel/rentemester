@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Database } from "bun:sqlite";
 import { companyPaths } from "../core/paths";
+import { todayIsoDate } from "../core/dates";
 import { openDb, migrate } from "../core/db";
 import { getCompanySettings } from "../core/company";
 import { verifyAuditChain } from "../core/ledger";
@@ -21,10 +22,6 @@ import { renderComplianceReport, complianceReportFingerprint } from "../core/com
 import type { CommandDispatch } from "../cli-dispatch";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function shortCommitSha(): string {
   try {

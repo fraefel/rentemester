@@ -222,3 +222,50 @@ describe("mileage log core", () => {
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe("mileage rate-ceiling warning (Skatterådet 2026 max, warning-only)", () => {
+  test("warns when the user-supplied rate exceeds the 2026 Skatterådet maximum (3,94 kr/km)", () => {
+    const { root, db } = freshCompany("rentemester-mileage-ceiling-");
+    const result = createMileageEntry(db, {
+      ...validEntry,
+      ratePerKm: 4.5, // above the 2026 high-rate ceiling of 3,94 kr/km
+      rateBasis: "Egen sats — bekræftet af bruger",
+    });
+    // Warning-only: the entry is still created (human-in-the-loop owns the rate).
+    expect(result.ok).toBe(true);
+    expect(result.mileageEntryId).toBeGreaterThan(0);
+    expect((result.warnings ?? []).some((w) => w.includes("3,94"))).toBe(true);
+    // The entry stores the user-supplied rate unchanged (no hardcoded rate used).
+    const stored = db.query("SELECT rate_per_km FROM mileage_entries WHERE id = ?").get(result.mileageEntryId!) as { rate_per_km: number };
+    expect(stored.rate_per_km).toBe(4.5);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("does not warn when the rate is at or below the 2026 maximum", () => {
+    const { root, db } = freshCompany("rentemester-mileage-ok-");
+    const result = createMileageEntry(db, { ...validEntry, ratePerKm: 3.94 });
+    expect(result.ok).toBe(true);
+    expect(result.warnings ?? []).toEqual([]);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("still warns for a year with no table entry by falling back to the latest known ceiling (JUR-13)", () => {
+    // 2027 has no entry yet (the official rate is published in arrears). The
+    // ceiling "sticks" to the latest known year (2026, 3,94 kr/km) so a blatantly
+    // excessive rate (99 kr/km) for a future year still fires the advisory rather
+    // than silently passing. The check uses the latest table year's ceiling.
+    const { root, db } = freshCompany("rentemester-mileage-futureyear-");
+    const result = createMileageEntry(db, {
+      ...validEntry,
+      tripDate: "2027-03-10",
+      ratePerKm: 99,
+      rateBasis: "Egen sats — bekræftet af bruger",
+    });
+    expect(result.ok).toBe(true);
+    expect((result.warnings ?? []).length).toBeGreaterThan(0);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+});

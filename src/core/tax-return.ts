@@ -14,8 +14,9 @@
 //
 // CONSERVATIVE BY DESIGN. This slice computes only the adjustments that follow
 // deterministically from data the system already holds:
-//   - the non-deductible representation VAT add-back (75% of representation VAT
-//     is expensed but is not tax-deductible).
+//   - the representation add-back: representation costs are only 25% tax-
+//     deductible (ligningsloven § 8, stk. 4), so 75% of the entire booked
+//     representation cost (net base + non-deductible VAT) is added back.
 // Everything that cannot be derived deterministically — tax depreciation
 // (saldoafskrivning is the company's choice, not derivable from book linear
 // depreciation), loss carry-forward (fremført underskud from prior years),
@@ -28,7 +29,7 @@ import { buildAnnualReport, type AnnualReport } from "./annual-report";
 import { buildVatReport } from "./vat";
 import { buildAssetRegisterReport } from "./assets";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { addDkk, percentOfDkk, roundDkk } from "./money";
+import { addDkk, percentOfDkk, roundDkk, subtractDkk } from "./money";
 
 // A derived-report identifier (workflow guardrail), not a normative ledger
 // rule keyed against a single statutory provision. It appears in
@@ -47,6 +48,19 @@ export const CORPORATE_TAX_RATE = 0.22;
 /** Company-form values (case-insensitive) that this slice treats as a micro-ApS. */
 const APS_FORMS = new Set(["aps", "anpartsselskab"]);
 
+/**
+ * Ordinary acontoskat installment deadlines for the income year that ends on
+ * `fiscalYearEnd`. The two ordinary rates are due 20 March and 20 November of
+ * the income year. Pure/deterministic — derived from the year of fiscalYearEnd.
+ */
+function acontoTaxDeadlinesForIncomeYear(fiscalYearEnd: string): AcontoTaxDeadline[] {
+  const incomeYear = fiscalYearEnd.slice(0, 4);
+  return [
+    { installment: 1, dueDate: `${incomeYear}-03-20` },
+    { installment: 2, dueDate: `${incomeYear}-11-20` },
+  ];
+}
+
 /** A skattemæssig regulering Rentemester can apply deterministically. */
 export type TaxAdjustment = {
   /** Stable adjustment identifier. */
@@ -57,6 +71,19 @@ export type TaxAdjustment = {
   amount: number;
   /** Short Danish explanation of why the adjustment applies. */
   explanation: string;
+};
+
+/**
+ * An ordinary acontoskat (corporate tax on account) installment deadline,
+ * surfaced as information. Selskaber pay acontoskat in two ordinary
+ * installments due 20 March and 20 November of the income year (selskabs-
+ * skatteloven § 29 A). Source (2026): https://www.bdo.dk/da-dk/faglig-info/skat-og-moms/skat-og-moms-2026/acontoskat-for-selskaber-2026
+ */
+export type AcontoTaxDeadline = {
+  /** 1 = first ordinary installment (March), 2 = second (November). */
+  installment: 1 | 2;
+  /** Due date YYYY-MM-DD. */
+  dueDate: string;
 };
 
 /** A figure that the slice deliberately does NOT compute — flagged for review. */
@@ -97,6 +124,13 @@ export type TaxReturn = {
   corporateTax: number | null;
   /** Figures the slice deliberately did not compute — for owner/advisor review. */
   needsReview: TaxNeedsReview[];
+  /**
+   * Ordinary acontoskat installment deadlines for the income year (20 March and
+   * 20 November). Informational — Rentemester does not compute or schedule the
+   * acontoskat payment; it surfaces the deadlines so the owner does not miss
+   * them.
+   */
+  acontoTaxDeadlines: AcontoTaxDeadline[];
   /** Conservative claim: who prepared the figures. */
   preparedBy: "Rentemester";
   /** Conservative-language disclaimer (Danish). */
@@ -106,10 +140,10 @@ export type TaxReturn = {
 
 const DISCLAIMER =
   "Rentemester forbereder tallene til oplysningsskemaet (selskabets skattepligtige " +
-  "indkomst) ud fra det lukkede regnskabsaar og de skattemaessige reguleringer " +
-  "systemet kan se deterministisk. Ejer eller revisor gennemgaar tallene, afklarer " +
+  "indkomst) ud fra det lukkede regnskabsår og de skattemæssige reguleringer " +
+  "systemet kan se deterministisk. Ejer eller revisor gennemgår tallene, afklarer " +
   "needs-review-punkterne og indberetter selv via TastSelv Erhverv. Dette er ikke " +
-  "en fuldstaendig skatteberegning.";
+  "en fuldstændig skatteberegning.";
 
 function failure(
   fiscalYearStart: string,
@@ -130,6 +164,7 @@ function failure(
     corporateTaxRate: CORPORATE_TAX_RATE,
     corporateTax: null,
     needsReview: [],
+    acontoTaxDeadlines: looksLikeIsoDate(fiscalYearEnd) ? acontoTaxDeadlinesForIncomeYear(fiscalYearEnd) : [],
     preparedBy: "Rentemester",
     disclaimer: DISCLAIMER,
     errors,
@@ -179,25 +214,37 @@ export function buildTaxReturn(
 
   const bookkeptResult = roundDkk(annualReport.aretsResultat);
 
-  // 3. Deterministic skattemæssig regulering: non-deductible representation.
-  // postRepresentationPurchase books 75% of the representation VAT as a
-  // non-deductible expense (account 3070). That portion sits in the bookkept
-  // result but is not tax-deductible, so it is added back. The base is
-  // `representationPurchaseBase` from the VAT report for the fiscal year:
-  //   non-deductible VAT = base × 25% (full VAT) × 75% (non-deductible share).
+  // 3. Deterministic skattemæssig regulering: non-deductible representation
+  // (ligningsloven § 8, stk. 4 — representation costs are only 25% tax-
+  // deductible). postRepresentationPurchase books the net base PLUS the
+  // non-deductible 75% of the VAT as the P&L expense (account 3070), so the
+  // bookkept representation cost is base + base × 25% × 75%. Of that entire
+  // booked cost only 25% is deductible — the remaining 75% is added back:
+  //   booked cost     = base + (base × 25% (full VAT) × 75% (non-deductible share))
+  //   add-back        = booked cost × 75%.
   const adjustments: TaxAdjustment[] = [];
   const vatReport = buildVatReport(db, fiscalYearStart, fiscalYearEnd);
   if (vatReport.ok && vatReport.representationPurchaseBase > 0) {
     const fullVat = percentOfDkk(vatReport.representationPurchaseBase, 25);
-    const nonDeductibleVat = roundDkk(percentOfDkk(fullVat, 75));
-    if (nonDeductibleVat > 0) {
+    // Mirror postRepresentationPurchase exactly (TAX-1): the non-deductible VAT
+    // booked to the P&L is fullVat − deductibleVat where deductibleVat =
+    // round(fullVat × 25%). Computing it the same way (rather than a separately
+    // rounded round(fullVat × 75%)) keeps the booked cost — and the add-back
+    // derived from it — øre-identical to what actually hit account 3070.
+    const deductibleVat = percentOfDkk(fullVat, 25);
+    const nonDeductibleVat = subtractDkk(fullVat, deductibleVat);
+    const bookedRepresentationCost = addDkk(vatReport.representationPurchaseBase, nonDeductibleVat);
+    const nonDeductibleShare = roundDkk(percentOfDkk(bookedRepresentationCost, 75));
+    if (nonDeductibleShare > 0) {
       adjustments.push({
         kind: "non_deductible_representation",
-        label: "Ikke-fradragsberettiget repraesentationsmoms",
-        amount: nonDeductibleVat,
+        label: "Ikke-fradragsberettiget andel af repraesentation (75%, ligningsloven § 8, stk. 4)",
+        amount: nonDeductibleShare,
         explanation:
-          "75% af repraesentationsmomsen er bogfoert som en udgift, men er ikke " +
-          "skattemaessigt fradragsberettiget og laegges derfor til den skattepligtige indkomst.",
+          "Repraesentationsudgifter er kun 25% skattemaessigt fradragsberettigede " +
+          "(ligningsloven § 8, stk. 4). 75% af den bogfoerte repraesentationsomkostning " +
+          "(netto-beloeb plus ikke-fradragsberettiget moms) laegges derfor til den " +
+          "skattepligtige indkomst.",
       });
     }
   }
@@ -223,10 +270,10 @@ export function buildTaxReturn(
   if (bookDepreciation > 0) {
     needsReview.push({
       kind: "depreciation_difference",
-      label: "Forskel mellem regnskabsmaessige og skattemaessige afskrivninger",
+      label: "Forskel mellem regnskabsmæssige og skattemæssige afskrivninger",
       requiredAction:
-        "Opgoer de skattemaessige afskrivninger (saldoafskrivning) og reguler for " +
-        "forskellen til de regnskabsmaessige (lineaere) afskrivninger.",
+        "Opgør de skattemæssige afskrivninger (saldoafskrivning) og reguler for " +
+        "forskellen til de regnskabsmæssige (lineære) afskrivninger.",
       bookDepreciation,
     });
   }
@@ -276,6 +323,7 @@ export function buildTaxReturn(
     corporateTaxRate: CORPORATE_TAX_RATE,
     corporateTax,
     needsReview,
+    acontoTaxDeadlines: acontoTaxDeadlinesForIncomeYear(fiscalYearEnd),
     preparedBy: "Rentemester",
     disclaimer: DISCLAIMER,
     errors: [],

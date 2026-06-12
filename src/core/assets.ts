@@ -34,11 +34,55 @@ const DEFAULT_ACCUMULATED_DEPRECIATION_ACCOUNT = "5810";
 const DEFAULT_DEPRECIATION_EXPENSE_ACCOUNT = "5820";
 
 /**
- * Conservative small-asset (straksafskrivning) threshold used as a workflow
- * guardrail. This is a configurable assist value — the user/advisor owns the
- * actual tax-law determination and must supply a source for the rule applied.
+ * Year-based small-asset (straksafskrivning) threshold table, keyed by income
+ * year (indkomstår). The grænse is set in afskrivningsloven § 6, stk. 1, nr. 2
+ * and adjusted yearly. These are conservative workflow guardrails — the
+ * user/advisor owns the actual tax-law determination and must supply a source
+ * for the rule applied.
+ *
+ * Sources (verified 2026-06):
+ *   - 2024: 33.100 kr
+ *   - 2025: 34.400 kr
+ *   - 2026: 36.000 kr
+ *   skm.dk: https://skm.dk/tal-og-metode/satser/satser-og-beloebsgraenser-i-lovgivningen/afskrivningsloven
+ *   SKAT C.C.2.4.2.4.2.5: https://info.skat.dk/data.aspx?oid=2060787
  */
-export const STRAKSAFSKRIVNING_THRESHOLD_DKK = 33100;
+export const STRAKSAFSKRIVNING_THRESHOLDS_BY_YEAR: ReadonlyArray<{ year: number; thresholdDkk: number }> = [
+  { year: 2024, thresholdDkk: 33100 },
+  { year: 2025, thresholdDkk: 34400 },
+  { year: 2026, thresholdDkk: 36000 },
+];
+
+/**
+ * Resolve the straksafskrivning threshold for an income year. Years before the
+ * earliest table entry clamp to the earliest known sats; years after the latest
+ * entry (no published sats yet) clamp to the latest known — both conservative:
+ * an unknown future year never silently relaxes the guardrail beyond the last
+ * confirmed value.
+ */
+export function straksafskrivningThresholdForYear(year: number): number {
+  const table = STRAKSAFSKRIVNING_THRESHOLDS_BY_YEAR;
+  const first = table[0]!;
+  const last = table[table.length - 1]!;
+  if (year <= first.year) return first.thresholdDkk;
+  if (year >= last.year) return last.thresholdDkk;
+  // Pick the entry for the exact year, or the most recent entry on/before it.
+  let chosen = first.thresholdDkk;
+  for (const row of table) {
+    if (row.year <= year) chosen = row.thresholdDkk;
+    else break;
+  }
+  return chosen;
+}
+
+/**
+ * Backwards-compatible default threshold (current income year 2026 = 36.000 kr).
+ * Kept exported for callers that reference a single representative grænse;
+ * year-sensitive logic must use {@link straksafskrivningThresholdForYear}.
+ */
+export const STRAKSAFSKRIVNING_THRESHOLD_DKK = straksafskrivningThresholdForYear(
+  STRAKSAFSKRIVNING_THRESHOLDS_BY_YEAR[STRAKSAFSKRIVNING_THRESHOLDS_BY_YEAR.length - 1]!.year,
+);
 
 export type DepreciationMethod = "linear";
 
@@ -470,6 +514,12 @@ export function postImmediateWriteOff(db: Database, input: ImmediateWriteOffInpu
 
   const cost = roundDkk(input.cost);
 
+  // The straksafskrivning grænse is set per income year (afskrivningsloven
+  // § 6). Use the acquisition year's sats so a 2026 acquisition is measured
+  // against the 2026 grænse, not a stale prior-year value.
+  const acquisitionYear = Number(input.acquisitionDate.slice(0, 4));
+  const thresholdDkk = straksafskrivningThresholdForYear(acquisitionYear);
+
   // Missing documentation: queue an exception for advisor review and block.
   const document = db.query("SELECT id FROM documents WHERE id = ?").get(input.purchaseDocumentId) as { id: number } | null;
   if (!document) {
@@ -489,19 +539,19 @@ export function postImmediateWriteOff(db: Database, input: ImmediateWriteOffInpu
 
   // Uncertain eligibility: cost above the small-asset threshold. Queue an
   // exception so an advisor decides whether to capitalise/depreciate instead.
-  if (cost > STRAKSAFSKRIVNING_THRESHOLD_DKK) {
+  if (cost > thresholdDkk) {
     recordException(db, {
       type: "ASSET_WRITEOFF_ELIGIBILITY_UNCERTAIN",
       severity: "high",
       relatedDocumentId: input.purchaseDocumentId,
-      message: `Immediate write-off for "${input.name.trim()}" (cost ${cost}) exceeds the small-asset threshold ${STRAKSAFSKRIVNING_THRESHOLD_DKK}`,
+      message: `Immediate write-off for "${input.name.trim()}" (cost ${cost}) exceeds the small-asset threshold ${thresholdDkk} for income year ${acquisitionYear}`,
       requiredAction: "Advisor must confirm straksafskrivning eligibility or capitalise and depreciate the asset instead.",
-      sourceEvidence: { name: input.name.trim(), cost, thresholdDkk: STRAKSAFSKRIVNING_THRESHOLD_DKK, thresholdRuleSource },
+      sourceEvidence: { name: input.name.trim(), cost, thresholdDkk, acquisitionYear, thresholdRuleSource },
     });
     return {
       ok: false,
       appliedRules: [WRITEOFF_RULE_ID],
-      errors: [`cost ${cost} exceeds the small-asset threshold ${STRAKSAFSKRIVNING_THRESHOLD_DKK} — eligibility uncertain, exception queued for advisor review`],
+      errors: [`cost ${cost} exceeds the small-asset threshold ${thresholdDkk} for income year ${acquisitionYear} — eligibility uncertain, exception queued for advisor review`],
     };
   }
 
@@ -545,7 +595,7 @@ export function postImmediateWriteOff(db: Database, input: ImmediateWriteOffInpu
         cost,
         input.purchaseDocumentId,
         input.expenseAccountNo.trim(),
-        STRAKSAFSKRIVNING_THRESHOLD_DKK,
+        thresholdDkk,
         thresholdRuleSource,
         input.note?.trim() || null,
         journal.entryId!,
@@ -564,7 +614,7 @@ export function postImmediateWriteOff(db: Database, input: ImmediateWriteOffInpu
         ...journal,
         writeOffId: writeOff.id,
         cost,
-        thresholdDkk: STRAKSAFSKRIVNING_THRESHOLD_DKK,
+        thresholdDkk,
         appliedRules: [...new Set([WRITEOFF_RULE_ID, ...(journal.appliedRules ?? [])])],
       };
     })();

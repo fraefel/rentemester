@@ -106,7 +106,9 @@ CREATE TABLE IF NOT EXISTS customers (
   phone TEXT,
   website TEXT,
   ean_number TEXT,
-  payment_terms_days INTEGER NOT NULL DEFAULT 30 CHECK(payment_terms_days > 0),
+  -- EJER-3: NULL = ingen eksplicit kundefrist — fakturaen arver virksomhedens
+  -- profilfrist (companies.payment_terms_days) på fakturatidspunktet.
+  payment_terms_days INTEGER CHECK(payment_terms_days IS NULL OR payment_terms_days > 0),
   default_currency TEXT NOT NULL DEFAULT 'DKK',
   notes TEXT,
   archived INTEGER NOT NULL DEFAULT 0,
@@ -340,6 +342,17 @@ CREATE TABLE IF NOT EXISTS invoice_interest_claims (
   claim_date TEXT NOT NULL,
   reference_rate_percent NUMERIC NOT NULL,
   annual_interest_rate_percent NUMERIC NOT NULL,
+  -- Whether reference_rate_percent came from the statutory half-yearly table
+  -- (renteloven § 5) or was a manual human override. A table claim whose window
+  -- crosses a 1/1 or 1/7 rate change was BILLED with each half-year's own rate
+  -- (JUR-7 segmentation); a manual claim is one deliberate rate for the whole
+  -- window. proposeInterestCorrection must reconstruct the lawful interest the
+  -- SAME way it was billed, so it has to know which — the single stored rate is
+  -- not enough to tell a multi-rate table window from a single-rate manual one.
+  -- Legacy rows (pre-JUR-7) default to 'manual-override' so they reconstruct
+  -- exactly as before (one stored rate), never retroactively re-segmented.
+  reference_rate_source TEXT NOT NULL DEFAULT 'manual-override'
+    CHECK(reference_rate_source IN ('statutory-table', 'manual-override')),
   overdue_days INTEGER NOT NULL,
   principal_open_balance NUMERIC NOT NULL,
   amount_dkk NUMERIC NOT NULL CHECK(amount_dkk > 0),

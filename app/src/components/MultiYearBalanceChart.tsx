@@ -12,24 +12,13 @@ import {
 } from "chart.js";
 import { Bar } from "react-chartjs-2";
 import type { MultiYearRow } from "../lib/types";
+import { CHART_AXIS_NUMBER, CHART_CURRENCY } from "./chart-format";
 
 // DESIGN.md palette — kept in sync with app/src/styles.css tokens.
 const INK_MUTED = "#4c4740";
 const ASSETS = "#2d5673"; // --color-info (sober blue)
 const EQUITY = "#2e5e4e"; // --color-success
 const BORDER = "#d8d2c6"; // --color-border
-
-// Full currency formatting — used for tooltips ("18.000 kr.").
-const CURRENCY = new Intl.NumberFormat("da-DK", {
-  style: "currency",
-  currency: "DKK",
-  maximumFractionDigits: 0,
-});
-
-// Plain number with a Danish thousands separator ("18.000") — Y-axis ticks.
-const AXIS_NUMBER = new Intl.NumberFormat("da-DK", {
-  maximumFractionDigits: 0,
-});
 
 export function MultiYearBalanceChart({
   years,
@@ -77,7 +66,7 @@ export function MultiYearBalanceChart({
       tooltip: {
         callbacks: {
           label: (ctx) =>
-            `${ctx.dataset.label}: ${CURRENCY.format(Number(ctx.parsed.y))}`,
+            `${ctx.dataset.label}: ${CHART_CURRENCY.format(Number(ctx.parsed.y))}`,
         },
       },
     },
@@ -100,7 +89,7 @@ export function MultiYearBalanceChart({
         ticks: {
           color: INK_MUTED,
           font: { family: "IBM Plex Mono", size: 11 },
-          callback: (value) => AXIS_NUMBER.format(Number(value)),
+          callback: (value) => CHART_AXIS_NUMBER.format(Number(value)),
         },
       },
     },

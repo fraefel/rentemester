@@ -338,6 +338,36 @@ export function generateIxbrl(report: AnnualReport): GenerateIxbrlResult {
     )
     .join("\n");
 
+  // Prior-year comparison figures (ÅRL §24). Rendered as a plain human-readable
+  // table — they are NOT emitted as ix: facts because the bounded taxonomy
+  // subset declares only the current-year context. A "—" is shown when the
+  // preceding year had no activity (a genuine first-year report).
+  const cmp = report.comparison;
+  const m = (value: number): string => formatAmount(value) ?? "0.00";
+  const cmpCell = (value: number): string => (cmp.available ? escapeXml(m(value)) : "—");
+  const comparisonBlock = [
+    `    <h2>Sammenligningstal (foregaaende regnskabsaar ${escapeXml(cmp.fiscalYearStart)} — ${escapeXml(cmp.fiscalYearEnd)})</h2>`,
+    "    <table>",
+    `    <tr><th>Nettoomsaetning</th><td>${cmpCell(cmp.totalIncome)}</td></tr>`,
+    `    <tr><th>Omkostninger</th><td>${cmpCell(cmp.totalExpense)}</td></tr>`,
+    `    <tr><th>Aarets resultat</th><td>${cmpCell(cmp.aretsResultat)}</td></tr>`,
+    `    <tr><th>Aktiver i alt</th><td>${cmpCell(cmp.totalAssets)}</td></tr>`,
+    `    <tr><th>Egenkapital i alt</th><td>${cmpCell(cmp.equity)}</td></tr>`,
+    `    <tr><th>Passiver i alt</th><td>${cmpCell(cmp.totalLiabilitiesAndEquity)}</td></tr>`,
+    "    </table>",
+  ].join("\n");
+
+  // The average-employees note (ÅRL §24) surfaced explicitly. Sourced from the
+  // notes skeleton so the iXBRL stays in lock-step with the assembled report.
+  const employeesNote = report.notes.find((n) => n.id === "average-employees");
+  const employeesBlock = [
+    "    <h2>Gennemsnitligt antal beskaeftigede</h2>",
+    "    <table>",
+    `    <tr><th>${escapeXml(employeesNote?.title ?? "Gennemsnitligt antal beskaeftigede")}</th>` +
+      `<td>${escapeXml(employeesNote?.body ?? "Udfyldes af ejer eller revisor.")}</td></tr>`,
+    "    </table>",
+  ].join("\n");
+
   // The iXBRL hidden header carries the two xbrli contexts and the DKK unit:
   //  - `duration` spans the fiscal year (income statement, company info);
   //  - `instant` is the balance-sheet date (the fiscal-year end).
@@ -385,8 +415,13 @@ export function generateIxbrl(report: AnnualReport): GenerateIxbrlResult {
     "    <p>Regnskabsklasse B (micro/small). Forberedt af Rentemester; " +
       "ejer eller revisor gennemgar og indberetter.</p>",
     `    <p>iXBRL-taksonomi: ${escapeXml(taxonomy.name)} v${escapeXml(taxonomy.version)} ` +
-      "— et afgraenset udsnit, ikke den fulde Erhvervsstyrelsen-taksonomi.</p>",
+      "— et afgraenset udsnit under det rentemester-lokale `ar:`-namespace, IKKE " +
+      "Erhvervsstyrelsens officielle taksonomi. Dokumentet kan derfor IKKE " +
+      "indberettes digitalt til Erhvervsstyrelsen/Virk endnu; det er en forberedt " +
+      "arsrapport til gennemsyn.</p>",
     sectionBlocks,
+    comparisonBlock,
+    employeesBlock,
     "    <h2>Noter (skelet)</h2>",
     "    <table>",
     noteRows,

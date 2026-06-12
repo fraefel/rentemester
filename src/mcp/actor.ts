@@ -55,6 +55,18 @@ function trim(value: string | null | undefined): string | null {
 /**
  * Bygger en `McpActor` ud fra MCP-klientens handshake-info.
  *
+ * SECURITY — attribution is ADVISORY, not a security boundary (Audit
+ * 2026-06-11 SEC-4): the `name`/`version` come from the MCP client's own
+ * `initialize` handshake (`clientInfo`). A client controls those values and can
+ * present ANY name — including one that happens to be on a company's actor
+ * allowlist. So `deriveMcpActor` answers "who does the client SAY it is", which
+ * is good enough for an honest audit-trail label, but it is NOT proof of
+ * identity. The actor-allowlist gate (`checkActorAllowlist`, enforced for
+ * confirmed writes in `tool-runtime.ts`) is therefore a coarse policy hook on a
+ * trusted, single-user/local transport — not an authentication mechanism on an
+ * untrusted multi-tenant channel. Strong per-caller identity belongs at the
+ * transport/auth layer (cf. `src/server/auth.ts` Phase 2), not here.
+ *
  * @param clientInfo Resultatet af `mcpServer.server.getClientVersion()`.
  *   Kan være `undefined` hvis serveren endnu ikke har modtaget
  *   initialize-handshake (fx ved skarpe restart-races).

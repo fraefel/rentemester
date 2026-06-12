@@ -70,6 +70,50 @@ export function migrate(db: Database) {
   if (!hasColumn(db, "vendors", "email")) db.exec("ALTER TABLE vendors ADD COLUMN email TEXT;");
   if (!hasColumn(db, "vendors", "phone")) db.exec("ALTER TABLE vendors ADD COLUMN phone TEXT;");
   if (!hasColumn(db, "vendors", "website")) db.exec("ALTER TABLE vendors ADD COLUMN website TEXT;");
+  // EJER-3: customers.payment_terms_days became nullable — NULL means "ingen
+  // eksplicit kundefrist; arv virksomhedens profilfrist på fakturatidspunktet".
+  // Older ledgers carry the legacy NOT NULL DEFAULT 30 definition, which SQLite
+  // cannot relax in place, so the table is rebuilt once. Existing rows keep
+  // their stored value: a pre-migration 30 cannot be told apart from a
+  // deliberate 30, so legacy customers stay on their stored frist (documented
+  // backward-compat choice — only customers created WITHOUT a frist after this
+  // migration inherit the profile). No FKs reference customers, so the rebuild
+  // is a plain copy.
+  const customersPaymentTerms = (db.query(`PRAGMA table_info(customers)`).all() as Array<{ name: string; notnull: number }>)
+    .find((col) => col.name === "payment_terms_days");
+  if (customersPaymentTerms && customersPaymentTerms.notnull === 1) {
+    // Wrap the rebuild in an explicit transaction so an abnormal termination
+    // mid-rebuild rolls back cleanly instead of leaving the ledger with a
+    // half-built rebuild table and no `customers`. DROP TABLE IF EXISTS first
+    // makes recovery idempotent: a rebuild table left behind by an earlier
+    // aborted attempt is discarded rather than crashing this migrate() with
+    // "table customers_payment_terms_rebuild already exists".
+    db.transaction(() => {
+      db.exec(`
+      DROP TABLE IF EXISTS customers_payment_terms_rebuild;
+      CREATE TABLE customers_payment_terms_rebuild (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        address TEXT,
+        vat_or_cvr TEXT,
+        email TEXT,
+        phone TEXT,
+        website TEXT,
+        ean_number TEXT,
+        payment_terms_days INTEGER CHECK(payment_terms_days IS NULL OR payment_terms_days > 0),
+        default_currency TEXT NOT NULL DEFAULT 'DKK',
+        notes TEXT,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(vat_or_cvr, name)
+      );
+      INSERT INTO customers_payment_terms_rebuild (id, name, address, vat_or_cvr, email, phone, website, ean_number, payment_terms_days, default_currency, notes, archived, created_at)
+        SELECT id, name, address, vat_or_cvr, email, phone, website, ean_number, payment_terms_days, default_currency, notes, archived, created_at FROM customers;
+      DROP TABLE customers;
+      ALTER TABLE customers_payment_terms_rebuild RENAME TO customers;
+    `);
+    })();
+  }
   // customers/vendors are no longer append-only — drop the legacy guard
   // triggers from ledgers created before that change.
   for (const trigger of [
@@ -106,6 +150,16 @@ export function migrate(db: Database) {
   if (!hasColumn(db, "bank_transactions", "raw_json")) db.exec("ALTER TABLE bank_transactions ADD COLUMN raw_json TEXT;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_bank_transactions_account ON bank_transactions(bank_account_id);");
   // ===== END BANK CLUSTER (#186-189,#182) =====
+  // JUR-7: persist whether an interest claim's reference rate came from the
+  // statutory table or a manual override, so proposeInterestCorrection can
+  // reconstruct the lawful interest with the SAME half-year segmentation it was
+  // billed with. Legacy rows default to 'manual-override' (single stored rate,
+  // reconstructed exactly as before — never retroactively re-segmented).
+  if (!hasColumn(db, "invoice_interest_claims", "reference_rate_source")) {
+    db.exec(
+      "ALTER TABLE invoice_interest_claims ADD COLUMN reference_rate_source TEXT NOT NULL DEFAULT 'manual-override' CHECK(reference_rate_source IN ('statutory-table', 'manual-override'));",
+    );
+  }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_payments_journal_entry ON invoice_payments(journal_entry_id) WHERE journal_entry_id IS NOT NULL;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_accounting_periods_covering_date ON accounting_periods(period_start, period_end, status);");
   backfillRetentionDeadlines(db);

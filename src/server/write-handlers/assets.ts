@@ -12,6 +12,7 @@ import {
   postDepreciationPeriod,
   postImmediateWriteOff,
 } from "../../core/assets";
+import { todayIsoDate } from "../../core/dates";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
 import { withCockpitActor } from "../actor";
@@ -119,8 +120,7 @@ export async function handleAssetDepreciate(
     slug,
     (ctx, body) => {
       const transactionDate =
-        optionalBodyString(body, "transactionDate") ??
-        new Date().toISOString().slice(0, 10);
+        optionalBodyString(body, "transactionDate") ?? todayIsoDate();
 
       let periodIndex: number;
       const explicit = body.periodIndex;

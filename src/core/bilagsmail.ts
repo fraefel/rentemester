@@ -9,9 +9,10 @@
 // gemmes i `companies.mail_alias`-kolonnen, så den kan returneres af
 // /api/companies/:slug og vises i cockpit-views uden ekstra fil-IO.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
+import { writeFileAtomic } from "./atomic-file";
 
 export type BilagsmailImapConfig = {
   host: string;
@@ -61,13 +62,15 @@ export function saveBilagsmailImapConfig(
     password: config.password,
     mailbox: config.mailbox?.trim() || "INBOX",
   };
-  writeFileSync(path, JSON.stringify(normalized, null, 2));
-  // 0600 — only owner can read the password.
-  try {
-    chmodSync(path, 0o600);
-  } catch {
-    // Best-effort; some filesystems (FAT) don't support unix perms.
-  }
+  // SEC-11 (Audit 2026-06-11): write atomically into a freshly-created 0600
+  // temp file, then rename into place. The previous `writeFileSync` (mode 0644)
+  // + `chmodSync(0600)`-after sequence left a world-readable WINDOW during which
+  // the plaintext IMAP password was on disk at 0644 — and the chmod ran in a
+  // failure-swallowing try/catch, so on a filesystem where chmod failed the file
+  // stayed 0644 silently. `writeFileAtomic` creates the inode at 0600 from the
+  // start (the same pattern the backup key files use), so the secret never
+  // touches a loosely-permissioned inode.
+  writeFileAtomic(path, JSON.stringify(normalized, null, 2));
   return { path };
 }
 

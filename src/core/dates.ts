@@ -7,13 +7,39 @@ export function isValidIsoDate(value: unknown): value is string {
 }
 
 /**
+ * The IANA timezone Danish bookkeeping lives in. "I dag" for deadlines,
+ * overdue checks and document dating is the calendar date in Copenhagen —
+ * between 00:00 and 01:00/02:00 Danish time the UTC date is still yesterday,
+ * so deriving "today" from UTC would shift every date-sensitive figure.
+ */
+export const DANISH_TIME_ZONE = "Europe/Copenhagen";
+
+/**
+ * The calendar date (YYYY-MM-DD) of the instant `instant` in `timeZone`
+ * (default {@link DANISH_TIME_ZONE}). Pure function of its inputs — the
+ * timezone conversion itself, separated from the wall clock so it can be
+ * tested deterministically.
+ */
+export function isoDateInTimeZone(instant: Date, timeZone: string = DANISH_TIME_ZONE): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/**
  * Today's date as YYYY-MM-DD. Honours the RENTEMESTER_TODAY override for
- * deterministic tests; otherwise reads the wall clock in UTC.
+ * deterministic tests; otherwise reads the wall clock as the calendar date
+ * in Danish time ({@link DANISH_TIME_ZONE}), not UTC (KODE-11).
  */
 export function todayIsoDate(): string {
   const override = process.env.RENTEMESTER_TODAY;
   if (isValidIsoDate(override)) return override.trim();
-  return new Date().toISOString().slice(0, 10);
+  return isoDateInTimeZone(new Date());
 }
 
 /**

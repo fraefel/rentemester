@@ -9,6 +9,7 @@ import { promoteTempFile, removeIfExists, writeTempFileFor } from "./atomic-file
 import { insertAuditLog } from "./actor";
 import { companySequenceScope, fiscalYearLabelFromDate, reserveSequenceValue, nextSequenceValue } from "./sequences";
 import { retainUntilForDate } from "./retention";
+import { validateJournalTransactionDate } from "./periods";
 import { requireCachedViesValidation } from "./vies";
 import { buildIssuedInvoicePdf } from "./invoice-pdf";
 import {
@@ -34,6 +35,11 @@ export type IssueInvoiceResult = {
   pdfSha256?: string;
   appliedRules: string[];
   errors: string[];
+  // EJER-6: non-blocking advisories. Currently surfaces the case where the
+  // invoice's issue date falls in an already-closed/reported accounting period
+  // — the invoice document is fine, but the journal entry that books it will be
+  // rejected by the period lock, so the owner is warned up front.
+  warnings?: string[];
 };
 
 const RULE_ID = "DK-INVOICE-ISSUE-001";
@@ -85,6 +91,21 @@ function enrichInvoiceFromCompany(db: Database, payload: InvoicePayload): Invoic
   return { ...payload, seller, ...(dueDate !== undefined ? { dueDate } : {}) };
 }
 
+// EJER-6: warn (do not block) when the invoice's issue date falls inside an
+// already-closed/reported accounting period. Reuses the exact period-lock
+// detection postings use (validateJournalTransactionDate), but downgrades the
+// closed-period finding to an advisory: the invoice document is not itself a
+// ledger posting, yet the journal entry that books it later WILL be rejected by
+// the period lock — so the owner should know now. Future-date findings from the
+// same validator are NOT surfaced here (an invoice may legitimately be future-
+// dated); only the closed/reported-period case becomes a warning.
+function closedPeriodIssueWarnings(db: Database, issueDate: string | undefined): string[] {
+  if (!issueDate) return [];
+  return validateJournalTransactionDate(db, issueDate)
+    .filter((message) => message.includes("period"))
+    .map((message) => `Fakturadato ${issueDate} ligger i en lukket periode: ${message}. Fakturaen er udstedt, men bogføringen vil blive afvist af periodelåsen.`);
+}
+
 function deliveryDescription(payload: InvoicePayload) {
   if (payload.deliveryDate) return `Delivery date ${payload.deliveryDate}`;
   if (payload.deliveryPeriodStart && payload.deliveryPeriodEnd) {
@@ -112,9 +133,23 @@ function canonicalInvoiceNumber(scope: string, value: number): InvoiceNumber {
 
 function invoiceSequenceState(db: Database, issueDate: string) {
   const scope = fiscalYearLabelFromDate(db, issueDate);
-  // The GLOB matches the canonical four-digit suffix; `substr(invoice_no, -4)`
-  // then yields exactly that suffix as the numeric floor.
-  const row = db.query(`SELECT COALESCE(MAX(CAST(substr(invoice_no, -4) AS INTEGER)), 0) AS n FROM documents WHERE document_type = 'issued_invoice' AND invoice_no GLOB ?`).get(`${scope}-[0-9][0-9][0-9][0-9]`) as { n: number };
+  // KODE-12: width-robust suffix read. The canonical suffix is four digits
+  // (`2026-0001`), but once a scope issues more than 9 999 invoices in a year
+  // the number simply grows wider (`2026-10000`). A fixed `[0-9]{4}` GLOB +
+  // `substr(-4)` would stop matching those and silently truncate the floor,
+  // re-issuing a colliding number. Anchor the `${scope}-` prefix by length and
+  // require an all-digit suffix instead, so any width matches and parses.
+  const prefix = `${scope}-`;
+  const row = db
+    .query(
+      `SELECT COALESCE(MAX(CAST(substr(invoice_no, ? + 1) AS INTEGER)), 0) AS n
+         FROM documents
+        WHERE document_type = 'issued_invoice'
+          AND substr(invoice_no, 1, ?) = ?
+          AND length(invoice_no) > ?
+          AND substr(invoice_no, ? + 1) NOT GLOB '*[^0-9]*'`,
+    )
+    .get(prefix.length, prefix.length, prefix, prefix.length, prefix.length) as { n: number };
   return { scope, currentFloor: Number(row.n ?? 0), sequenceScope: companySequenceScope(db, scope) };
 }
 
@@ -122,12 +157,14 @@ function invoiceSequenceState(db: Database, issueDate: string) {
 // before the final hyphen, the suffix is one or more decimal digits. The
 // numeric value of the suffix is what is reserved against the sequence.
 //
-// #251: the suffix is always re-padded to the canonical 5-digit form before it
-// is stored, so a manually supplied `2026-0001` and an auto-generated number
-// for the same sequence value both become the identical string `2026-00001`.
-// Without this, `invoice issue` (from example JSON carrying a 4-digit number)
-// and `invoice create` (auto-numbered, 5-digit) produced two different,
-// colliding formats in the same ledger — a fortløbende-nummer compliance fault.
+// #251: the suffix is always re-padded to the canonical four-digit form
+// (INVOICE_NUMBER_DIGITS) before it is stored, so a manually supplied `2026-1`
+// and an auto-generated number for the same sequence value both become the
+// identical string `2026-0001`. Without this, a manual number and an
+// auto-numbered one could be stored in two different, colliding zero-pad widths
+// in the same ledger — a fortløbende-nummer compliance fault. Numbers past
+// 9 999 grow wider than four digits, which invoiceSequenceState reads
+// width-robustly (KODE-12).
 const MANUAL_INVOICE_NUMBER_RE = /^(.+)-([0-9]+)$/;
 
 function validateManualInvoiceNumberScope(db: Database, issueDate: string, invoiceNumber: string) {
@@ -156,9 +193,9 @@ function reserveManualInvoiceNumber(db: Database, issueDate: string, invoiceNumb
       error: `manual invoiceNumber ${invoiceNumber} exceeds næste fortløbende nummer ${canonicalInvoiceNumber(scope, reserved.expectedValue)}`,
     };
   }
-  // #251: store the canonical 5-digit form, never the verbatim manual string,
-  // so the issued series stays one consistent format regardless of how the
-  // number was supplied.
+  // #251: store the canonical four-digit form, never the verbatim manual
+  // string, so the issued series stays one consistent format regardless of how
+  // the number was supplied.
   return { ok: true as const, invoiceNumber: canonicalInvoiceNumber(scope, requestedValue) };
 }
 
@@ -285,9 +322,9 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
       if (explicitInvoiceNumber !== undefined) {
         const reserved = reserveManualInvoiceNumber(db, payload.issueDate!, explicitInvoiceNumber);
         if (!reserved.ok) return { ok: false as const, error: reserved.error };
-        // #251: use the canonicalised 5-digit number, not the verbatim input,
-        // so the persisted snapshot, PDF and documents row all carry the same
-        // consistent format as an auto-numbered invoice.
+        // #251: use the canonicalised four-digit number, not the verbatim
+        // input, so the persisted snapshot, PDF and documents row all carry the
+        // same consistent format as an auto-numbered invoice.
         invoiceNumber = asInvoiceNumber(reserved.invoiceNumber);
       } else {
         invoiceNumber = nextIssuedInvoiceNumber(db, payload.issueDate!);
@@ -394,6 +431,10 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
     if (!result.ok) return { ok: false, appliedRules, errors: [result.error] };
     promoteTempFile(tempPath!, storedPath!);
     promoteTempFile(pdfTempPath!, pdfStoredPath!);
+    // EJER-6: surface (do not block) the advisory that this invoice's issue date
+    // falls in an already-closed/reported period — the document is fine, but the
+    // journal entry that books it will be rejected by the period lock.
+    const warnings = closedPeriodIssueWarnings(db, payload.issueDate);
     return {
       ok: true,
       documentId: result.documentId,
@@ -405,6 +446,7 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
       pdfSha256: result.pdfSha256,
       appliedRules,
       errors: [],
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   } catch (error) {
     if (tempPath) removeIfExists(tempPath);

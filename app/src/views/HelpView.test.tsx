@@ -1,7 +1,8 @@
 // Verifies that HelpView's exit-paths actually lead somewhere real:
 //
-// 1) #445 — "Brugerguide" must not link to `${DOCS_BASE}/docs/`, which is a
-//    404 (www/src/pages/docs/ has no index.astro, only installation.astro).
+// 1) #445 — "Brugerguide" must point at a concrete guide page (e.g.
+//    `${DOCS_BASE}/docs/installation`), never the bare `/docs/` root, which is
+//    not a navigation target the owner should land on.
 // 2) #446 — the "Kom i gang" checklist must not tell the owner to post under
 //    "Posteringer" (which is read-only). Posting receipts lives under "Bilag"
 //    and bank reconciliation under "Bank" — both labels come from CompanyNav.

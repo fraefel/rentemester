@@ -256,15 +256,19 @@ describe("InvoicesView — write actions", () => {
   });
 
   // --------------------------------------------------------------------------
-  // #428 — Send som e-faktura (NemHandel / PEPPOL) from the row.
+  // #428 — Forbered e-faktura (NemHandel / PEPPOL) from the row.
   //
   // An SMB owner that invoices a public-sector buyer (kommune, region,
   // statslig institution) is required by law to deliver the invoice as an
   // e-faktura. Without a Cockpit button the owner has to fall back to the CLI
   // command `invoice submit-public-peppol`, which most owners never discover.
+  //
+  // Audit UI-2/EJER-11: the server only RECORDS the submission envelope
+  // (status `prepared`) — the AS4 transport is not wired in yet. The button
+  // and dialog must therefore say "Forbered"/"registreres", never "Sendes nu".
   // --------------------------------------------------------------------------
 
-  test("Send som e-faktura is offered only for rows whose buyer has an EAN-number", async () => {
+  test("Forbered e-faktura is offered only for rows whose buyer has an EAN-number", async () => {
     mockFetch(
       route({
         invoices: [
@@ -306,11 +310,11 @@ describe("InvoicesView — write actions", () => {
     renderView();
     await screen.findByRole("heading", { name: "Acme ApS" });
     expect(
-      screen.getAllByRole("button", { name: "Send som e-faktura" }),
+      screen.getAllByRole("button", { name: "Forbered e-faktura" }),
     ).toHaveLength(1);
   });
 
-  test("Send som e-faktura is hidden once the invoice has been acknowledged by the access point", async () => {
+  test("Forbered e-faktura is hidden once the invoice has been acknowledged by the access point", async () => {
     mockFetch(
       route({
         invoices: [
@@ -340,22 +344,22 @@ describe("InvoicesView — write actions", () => {
     renderView();
     await screen.findByRole("heading", { name: "Acme ApS" });
     expect(
-      screen.queryByRole("button", { name: "Send som e-faktura" }),
+      screen.queryByRole("button", { name: "Forbered e-faktura" }),
     ).not.toBeInTheDocument();
     // The "Sendt som e-faktura" status flag MUST be shown instead.
     expect(screen.getByText("Sendt som e-faktura")).toBeInTheDocument();
   });
 
-  test("Send som e-faktura is hidden for an archived year (no live ledger)", async () => {
+  test("Forbered e-faktura is hidden for an archived year (no live ledger)", async () => {
     mockFetch(route({ archived: true, selectedYear: "2025", invoices: [] }));
     renderView();
     await screen.findByText(/Fakturaer er ikke tilgængelige for 2025/);
     expect(
-      screen.queryByRole("button", { name: "Send som e-faktura" }),
+      screen.queryByRole("button", { name: "Forbered e-faktura" }),
     ).not.toBeInTheDocument();
   });
 
-  test("Send som e-faktura posts to the send-public route with confirm: true", async () => {
+  test("Forbered e-faktura posts to the send-public route with confirm: true", async () => {
     mockFetch({
       "GET /api/companies/acme-aps/invoices": {
         invoices: invoices({
@@ -396,13 +400,23 @@ describe("InvoicesView — write actions", () => {
     renderView();
     await screen.findByRole("heading", { name: "Acme ApS" });
     await userEvent.click(
-      screen.getByRole("button", { name: "Send som e-faktura" }),
+      screen.getByRole("button", { name: "Forbered e-faktura" }),
     );
     // Dialog body should surface the EAN and kanal so the owner can verify.
     expect(screen.getByText("5790000123456")).toBeInTheDocument();
     expect(screen.getByText(/NemHandel \(PEPPOL\)/)).toBeInTheDocument();
+    // Audit UI-2: the dialog MUST tell the truth — the invoice is only
+    // REGISTERED for dispatch (server status `prepared`); nothing is
+    // transmitted yet. The old "Sendes nu" promise must be gone.
+    expect(
+      screen.getByText("Registreres til afsendelse"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/transmissionen er endnu ikke aktiv/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Sendes nu")).not.toBeInTheDocument();
     await userEvent.click(
-      screen.getByRole("button", { name: "Send e-faktura" }),
+      screen.getByRole("button", { name: "Registrér til afsendelse" }),
     );
 
     await waitFor(() => {
@@ -512,7 +526,8 @@ describe("InvoicesView — write actions", () => {
     );
     renderView();
     await screen.findByRole("heading", { name: "Acme ApS" });
-    expect(screen.getByText(/Sendt 2026-03-20/)).toBeInTheDocument();
+    // #UI-8 — the "Sendt {dato}" badge shows the Danish date form.
+    expect(screen.getByText(/Sendt 20\. mar\. 2026/)).toBeInTheDocument();
   });
 
   test("Send på mail posts to send-email with confirm: true and the recipient", async () => {
@@ -672,7 +687,7 @@ describe("InvoicesView — write actions", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("Send rykker is hidden once the maximum of 3 reminders has been sent", async () => {
+  test("Send rykker is hidden once the maximum of 3 reminders has been registered", async () => {
     mockFetch(
       route({
         invoices: [
@@ -704,8 +719,14 @@ describe("InvoicesView — write actions", () => {
       screen.queryByRole("button", { name: "Send rykker" }),
     ).not.toBeInTheDocument();
     // Badge MUST show the latest reminder count + date so the owner knows
-    // hvor i rykkerforløbet han er.
-    expect(screen.getByText(/3\. rykker sendt 2026-04-30/)).toBeInTheDocument();
+    // hvor i rykkerforløbet han er. Audit EJER-11: the badge says
+    // "registreret", not "sendt" — the server registers the reminder in the
+    // ledger/audit log; an actual e-mail delivery is not guaranteed (SMTP
+    // may run in test mode).
+    expect(
+      screen.getByText(/3\. rykker registreret 30\. apr\. 2026/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/rykker sendt/)).not.toBeInTheDocument();
   });
 
   test("Send rykker posts to send-reminder with the reminder number, fee and confirm: true", async () => {

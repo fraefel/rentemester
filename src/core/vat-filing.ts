@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { buildVatReport, vatFilingDeadline, type VatPeriodReport } from "./vat";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { addDkk, percentOfDkk, subtractDkk } from "./money";
+import { addDkk, subtractDkk } from "./money";
 
 /**
  * Filing-ready momsangivelse (Danish VAT return).
@@ -57,6 +57,35 @@ export type VatFilingReport = {
 };
 
 const FILING_RULE_ID = "DK-VAT-FILING-001";
+
+/**
+ * The standard calendar quarters Rentemester's deadline formula assumes
+ * (vatFilingDeadline = 1st of the third month after period-end). Only a
+ * quarterly afregningsperiode is supported; monthly/half-yearly cadences have
+ * different deadlines and are out of scope.
+ *
+ * The deadline is NOT shifted off weekends/holidays here: SKAT moves a due date
+ * that lands on a non-banking day to the next banking day, which is purely in
+ * the taxpayer's favour (later, never earlier). Surfacing the un-shifted,
+ * conservative (earliest-possible) date is therefore safe — paying by it can
+ * never be late — so the shift is deliberately omitted as cosmetic.
+ */
+const STANDARD_QUARTER_SPANS: ReadonlyArray<{ start: string; end: string }> = [
+  { start: "01-01", end: "03-31" },
+  { start: "04-01", end: "06-30" },
+  { start: "07-01", end: "09-30" },
+  { start: "10-01", end: "12-31" },
+];
+
+/** True when [periodStart, periodEnd] spans exactly one standard calendar quarter. */
+function isStandardCalendarQuarter(periodStart: string, periodEnd: string): boolean {
+  const [startYear] = periodStart.split("-");
+  const [endYear] = periodEnd.split("-");
+  if (startYear !== endYear) return false;
+  const startMd = periodStart.slice(5);
+  const endMd = periodEnd.slice(5);
+  return STANDARD_QUARTER_SPANS.some((q) => q.start === startMd && q.end === endMd);
+}
 
 function emptyRubrikker(): VatFilingRubrikker {
   return {
@@ -131,18 +160,66 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
     );
   }
 
-  // Salgsmoms: output VAT booked on domestic sales and reverse-charge output.
-  // buildVatReport.outputVat already nets bad-debt relief out of output VAT.
-  const salgsmoms = vatReport.outputVat;
-
   // Moms af ydelseskøb i udlandet: reverse charge on EU service purchases.
-  // 25% of the reverse-charge purchase base.
-  const momsAfYdelseskobUdland = percentOfDkk(vatReport.reverseChargePurchaseBase, 25);
+  // Use the VAT *actually booked* on account 1200 per purchase, not
+  // percentOfDkk(summed base, 25). Each purchase's VAT is øre-rounded when
+  // booked, so the booked total can differ from 25%-of-aggregate by up to 1
+  // øre per purchase. Using the booked figure keeps this rubrik equal to what
+  // hit the ledger AND lets salgsmoms below come out as the exact own-sale VAT.
+  const momsAfYdelseskobUdland = vatReport.reverseChargePurchaseOutputVat;
 
-  // Moms af varekøb i udlandet: there is no separate goods-import VAT code in
-  // the ledger today, so foreign-goods VAT is always 0. Kept as an explicit
-  // rubrik so the momsangivelse shape matches the SKAT form.
+  // Salgsmoms: output VAT on own sales only. buildVatReport.outputVat is
+  // account-based (1200) and therefore includes the reverse-charge output VAT
+  // booked by postEuServiceReverseChargePurchase — but on TastSelv that VAT
+  // belongs exclusively in "Moms af ydelseskøb i udlandet" (momsloven §46 jf.
+  // §37). Subtract the exact same ydelseskøb figure so the two rubrikker never
+  // double-count and momstilsvar stays equal to the raw report's netVatPayable.
+  // buildVatReport.outputVat already nets bad-debt relief out of output VAT.
+  const salgsmoms = subtractDkk(vatReport.outputVat, momsAfYdelseskobUdland);
+
+  // Moms af varekøb i udlandet: there is no separate EU goods-acquisition VAT
+  // code in the ledger today (momsloven §11 erhvervelsesmoms is NOT modelled),
+  // so foreign-goods VAT is always 0. Kept as an explicit rubrik so the
+  // momsangivelse shape matches the SKAT form.
+  //
+  // LIMITATION / GUARD: the only EU-purchase mechanism Rentemester books is
+  // EU_SERVICE_REVERSE_CHARGE (ydelseskøb, momsloven §46). An EU *goods*
+  // purchase (varekøb, §11) belongs in "Moms af varekøb i udlandet" + rubrik A
+  // and is NOT supported. If such a purchase were booked as a service it would
+  // silently land in ydelseskøb instead of varekøb — wrong rubrik, even though
+  // the total momstilsvar would coincide. So whenever the period contains EU
+  // reverse-charge purchases, warn loudly that the user must confirm none of
+  // them are GOODS. This is a warning only; it never changes any amount and
+  // never breaks the momstilsvar == netVatPayable invariant.
   const momsAfVarekobUdland = 0;
+  const filingWarnings: string[] = [];
+
+  // Cadence guard (JUR-12): the deadline formula assumes a quarterly
+  // afregningsperiode. If the closed period is not a standard calendar quarter,
+  // the registered cadence is likely monthly or half-yearly — which have
+  // different deadlines Rentemester does not compute. Warn so the user verifies
+  // the filing deadline manually. Warning only: the (conservative, un-shifted)
+  // deadline is still surfaced and the amounts are untouched.
+  if (!isStandardCalendarQuarter(periodStart, periodEnd)) {
+    filingWarnings.push(
+      "Afregningsperioden er ikke et standard-kvartal: Rentemester understøtter " +
+        "kun kvartalsvis momsafregning, og angivelsesfristen (1. i tredje måned " +
+        "efter periodens udløb) er beregnet ud fra denne kadence. Bekræft selskabets " +
+        "registrerede afregningsperiode og den korrekte frist hos SKAT — månedlig " +
+        "eller halvårlig afregning har andre frister.",
+    );
+  }
+
+  const euGoodsWarnings: string[] = [];
+  if (vatReport.reverseChargePurchaseBase > 0) {
+    euGoodsWarnings.push(
+      "EU-varekøb (momsloven §11, erhvervelsesmoms) understøttes ikke: perioden " +
+        "indeholder EU reverse-charge-køb, som alle bogføres som ydelseskøb " +
+        '("Moms af ydelseskøb i udlandet"). "Moms af varekøb i udlandet" er derfor 0. ' +
+        "Bekræft at INGEN af disse køb er varer — et varekøb bogført som ydelse " +
+        "havner i forkert rubrik og skal i stedet føres som varekøb i udlandet + rubrik A.",
+    );
+  }
 
   // Købsmoms: total deductible input VAT (domestic + reverse-charge +
   // representation), already aggregated by buildVatReport.
@@ -154,14 +231,23 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
 
   // Rubrik A: value of goods/services purchased abroad without Danish VAT.
   const rubrikA = vatReport.reverseChargePurchaseBase;
-  // Rubrik B: value of goods/services sold abroad without Danish VAT.
-  const rubrikB = vatReport.reverseChargeSalesBase;
-  // Rubrik C: value of other VAT-exempt sales (momsloven §13), now derived
-  // from real ledger data — revenue lines booked with the DK_SALE_EXEMPT VAT
-  // code. OSS consumer sales (OSS_EU_CONSUMER) are deliberately NOT part of
-  // rubrik C: they belong on the separate OSS return, so buildVatReport keeps
-  // them in their own base and they never reach this momsangivelse.
-  const rubrikC = vatReport.exemptSalesBase;
+  // Rubrik B (JUR-2/KODE-2): value of goods/services SOLD ABROAD without Danish
+  // VAT — cross-border EU B2B reverse-charge sales ONLY. This is the figure
+  // cross-checked against the EU sales list (VIES), so only the FOREIGN reverse-
+  // charge base belongs here. Domestic §46 omvendt betalingspligt is explicitly
+  // excluded (it would otherwise inflate rubrik B and break the VIES reconciliation).
+  const rubrikB = vatReport.foreignReverseChargeSalesBase;
+  // Rubrik C: value of other VAT-exempt sales. Two sources, both derived from
+  // real ledger data:
+  //   1. §13-exempt domestic sales (DK_SALE_EXEMPT), and
+  //   2. domestic §46 omvendt betalingspligt sales (DOMESTIC_REVERSE_CHARGE_EXEMPT,
+  //      e.g. mobiltelefoner, CPU'er, metalskrot). SKAT Den juridiske vejledning
+  //      A.B.3.3.1.5 places these in rubrik C ("værdi af andet salg uden moms"),
+  //      NOT rubrik B.
+  // OSS consumer sales (OSS_EU_CONSUMER) are deliberately NOT part of rubrik C:
+  // they belong on the separate OSS return, so buildVatReport keeps them in their
+  // own base and they never reach this momsangivelse.
+  const rubrikC = addDkk(vatReport.exemptSalesBase, vatReport.domesticReverseChargeSalesBase);
 
   return {
     ok: true,
@@ -182,7 +268,7 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
       rubrikC,
     },
     vatReport,
-    warnings: [...vatReport.warnings],
+    warnings: [...vatReport.warnings, ...filingWarnings, ...euGoodsWarnings],
     errors: [],
   };
 }

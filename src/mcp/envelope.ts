@@ -92,6 +92,40 @@ export const envelopeShape = {
 export const envelopeOutputSchema = z.object(envelopeShape);
 
 /**
+ * Stable, machine-readable codes for the most common cross-cutting business
+ * failures (AGENT-16). Core `{ ok:false, errors:[...] }` results carry only a
+ * Danish/English free-text string; an agent that wants to branch on "the period
+ * is closed" / "a prerequisite is missing" / "the entity does not exist" would
+ * otherwise have to pattern-match prose. `inferEnvelopeCode` recognises the
+ * shared wording each of these failures uses across the core and stamps a
+ * stable `code` so the agent branches on `code` instead. The codes are
+ * documented in docs/mcp-tool-surface.md.
+ *
+ * Order matters: the most specific pattern wins. A failure whose wording does
+ * not match any pattern carries NO code (it stays a per-tool business error,
+ * described only in `errors[]`).
+ */
+function inferEnvelopeCode(errors: string[]): string | undefined {
+  const haystack = errors.join(" ");
+  // A posting whose transaction date lands in a closed/reported accounting
+  // period (the shared `periods.ts` wording: "... falls in closed period ...").
+  if (/falls in (?:closed|reported) period|periode(?:n)? er lukket|in a closed period/i.test(haystack)) {
+    return "PERIOD_CLOSED";
+  }
+  // A lifecycle prerequisite is unmet — e.g. the invoice must be posted before
+  // it can be settled (the `_shared.ts` "Forudsætning ikke opfyldt:" prefix).
+  if (/Forudsætning ikke opfyldt|precondition (?:not met|missing)|must be posted|skal (?:være )?bogf/i.test(haystack)) {
+    return "PRECONDITION_MISSING";
+  }
+  // A referenced entity does not exist (the pervasive "... does not exist" /
+  // "... findes ikke" core wording for documents, invoices, bank rows, …).
+  if (/does not exist|findes ikke|no (?:such|\w+ found)|kunne ikke findes/i.test(haystack)) {
+    return "NOT_FOUND";
+  }
+  return undefined;
+}
+
+/**
  * Wrapper et kerne-resultat i MCP-envelope-format.
  *
  * Kernens results har ofte shape `{ ok, errors, appliedRules, ...payload }`
@@ -106,14 +140,23 @@ export function wrapCoreResult<T extends { ok: boolean; errors?: unknown }>(
     errors?: unknown;
     appliedRules?: unknown;
   };
+  const normalizedErrors = normalizeErrors(errors);
   const envelope: Envelope = {
     ok: Boolean(ok),
-    errors: normalizeErrors(errors),
+    errors: normalizedErrors,
   };
   if (Array.isArray(appliedRules) && appliedRules.length > 0) {
     envelope.appliedRules = appliedRules.map(String);
   }
-  if (envelope.ok) envelope.data = rest;
+  if (envelope.ok) {
+    envelope.data = rest;
+  } else {
+    // AGENT-16: stamp a stable cross-cutting code so an agent branches on
+    // `code` instead of parsing the free-text `errors[]`. Only the recognised
+    // cross-cutting failures get a code; per-tool business errors do not.
+    const code = inferEnvelopeCode(normalizedErrors);
+    if (code) envelope.code = code;
+  }
   return envelope;
 }
 

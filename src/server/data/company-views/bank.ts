@@ -4,7 +4,11 @@ import {
   roundKroner,
   statementCompanyBlock,
 } from "../shared";
-import { bankBalanceAsOf, actualBankBalanceAsOf } from "../bank";
+import {
+  bankBalanceAsOf,
+  actualBankBalanceAsOf,
+  bankStatementStatusAsOf,
+} from "../bank";
 
 // --------------------------------------------------------------------------
 // Per-company bank transactions (Bank, year-aware) — cockpit-redesign it. 3
@@ -114,18 +118,9 @@ export function buildCompanyBank(
     // importeret" for the second case: an owner who just imported a CSV would
     // think the import silently failed. `bankStatementStatus` distinguishes
     // them so the UI can say "banksaldo ukendt — kontoudtoget havde ingen
-    // saldo-kolonne" instead.
-    const hasAnyTransactions =
-      transactions.length > 0 ||
-      (ctx.db
-        .query("SELECT 1 FROM bank_transactions LIMIT 1")
-        .get() as unknown) !== null;
-    const bankStatementStatus: "known" | "no-balance-column" | "none" =
-      actualBalance !== null
-        ? "known"
-        : hasAnyTransactions
-          ? "no-balance-column"
-          : "none";
+    // saldo-kolonne" instead. EJER-12: the shared `bankStatementStatusAsOf`
+    // helper is used so the portfolio card and dashboard tell the same story.
+    const bankStatementStatus = bankStatementStatusAsOf(ctx.db, yearEnd);
 
     return {
       slug: ctx.entry.slug,

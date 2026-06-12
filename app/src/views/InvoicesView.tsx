@@ -24,7 +24,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatKroner, todayIso } from "../lib/format";
+import { formatDateDa, formatKroner, todayIso } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type {
   CompanyInvoiceRow,
@@ -35,6 +35,11 @@ import { ErrorState, Loading } from "../components/Feedback";
 import { CompanyNav, useCompanyYear } from "../components/CompanyNav";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { InvoiceIssueModal } from "../components/InvoiceIssueModal";
+
+// #UI-16 — the statutory late-payment reminder fee (rentel. § 9b), in kroner.
+// One named constant, rendered through `formatKroner`, so the two places that
+// quote it can never drift (was a hardcoded "100,00 kr" vs "100 kr").
+const REMINDER_FEE_KRONER = 100;
 
 /** Human label + flag tone for each settlement status. */
 const STATUS_META: Record<
@@ -63,7 +68,7 @@ export function InvoicesView() {
   const [settling, setSettling] = useState<CompanyInvoiceRow | null>(null);
   // The invoice row whose "Krediter" ConfirmDialog is open, if any (#412).
   const [crediting, setCrediting] = useState<CompanyInvoiceRow | null>(null);
-  // The invoice row whose "Send som e-faktura" ConfirmDialog is open (#428).
+  // The invoice row whose "Forbered e-faktura" ConfirmDialog is open (#428).
   const [sendingPublic, setSendingPublic] = useState<CompanyInvoiceRow | null>(null);
   // The invoice row whose "Send på mail" ConfirmDialog is open (#429).
   const [sendingEmail, setSendingEmail] = useState<CompanyInvoiceRow | null>(null);
@@ -196,20 +201,23 @@ export function InvoicesView() {
         />
       )}
 
-      {/* #428: Send som e-faktura ConfirmDialog. The action is only ever
+      {/* #428: Forbered e-faktura ConfirmDialog. The action is only ever
           offered for rows with an EAN-number on a public-recipient buyer;
           the dialog shows that EAN + the kanal so the owner can sanity-check
           who and where the invoice will be transmitted to. Write-irreversible
           (it records a peppol_submissions row + an audit_log entry), so the
           server requires `confirm: true` — the dialog's primary button maps
-          to that flag. */}
+          to that flag.
+          Audit UI-2: the server only RECORDS the submission envelope (status
+          `prepared`) — the AS4/NemHandel transport is not wired in yet. The
+          dialog must say "forberedes/registreres", never promise "Sendes nu". */}
       {sendingPublic && (
         <ConfirmDialog
-          title="Send faktura som e-faktura"
+          title="Forbered e-faktura"
           body={
             <div>
               <p>
-                Send faktura <strong>{sendingPublic.invoiceNo}</strong> til{" "}
+                Forbered faktura <strong>{sendingPublic.invoiceNo}</strong> til{" "}
                 <strong>{sendingPublic.customerName ?? "modtageren"}</strong> som
                 e-faktura via NemHandel/PEPPOL.
               </p>
@@ -224,15 +232,17 @@ export function InvoicesView() {
                 </div>
                 <div>
                   <dt>Handling</dt>
-                  <dd>Sendes nu</dd>
+                  <dd>Registreres til afsendelse</dd>
                 </div>
               </dl>
               <p className="muted">
-                Afsendelsen registreres i revisionssporet og kan ikke fortrydes.
+                Fakturaen registreres til afsendelse via NemHandel — selve
+                transmissionen er endnu ikke aktiv i denne version.
+                Registreringen indgår i revisionssporet og kan ikke fortrydes.
               </p>
             </div>
           }
-          confirmLabel="Send e-faktura"
+          confirmLabel="Registrér til afsendelse"
           confirmKind="danger"
           onConfirm={async () => {
             await api.sendInvoiceAsEInvoice(slug, {
@@ -345,7 +355,9 @@ export function InvoicesView() {
                   </div>
                   <div>
                     <dt>Rykkergebyr</dt>
-                    <dd>100,00 kr (rentel. § 9b)</dd>
+                    <dd>
+                      {formatKroner(REMINDER_FEE_KRONER, "DKK")} (rentel. § 9b)
+                    </dd>
                   </div>
                 </dl>
                 <label className="modal-checkbox">
@@ -354,7 +366,8 @@ export function InvoicesView() {
                     checked={reminderBookFee}
                     onChange={(e) => setReminderBookFee(e.target.checked)}
                   />{" "}
-                  Bogfør rykkergebyr (100 kr) i ledgeren nu
+                  Bogfør rykkergebyr ({formatKroner(REMINDER_FEE_KRONER, "DKK")}
+                  ) i ledgeren nu
                 </label>
                 <p className="muted">
                   Modtageren kan ændres herunder. Afsendelsen registreres i
@@ -465,7 +478,7 @@ export function InvoicesView() {
                     row.status !== "credited" &&
                     row.status !== "refunded" &&
                     row.status !== "written_off";
-                  // #428: "Send som e-faktura" appears only when the buyer
+                  // #428: "Forbered e-faktura" appears only when the buyer
                   // is a public recipient with a valid EAN-number (the
                   // server-side requirement for a NemHandel/PEPPOL send).
                   // Hidden once the invoice has been acknowledged by the
@@ -530,20 +543,24 @@ export function InvoicesView() {
                             className="flag ok"
                             title={`Sendt på mail ${row.lastEmailedAt}`}
                           >
-                            Sendt {row.lastEmailedAt.slice(0, 10)}
+                            Sendt {formatDateDa(row.lastEmailedAt.slice(0, 10))}
                           </span>
                         )}
                         {/* #434 — surface the reminder sequence + date once
-                            a rykker has been sent, so the owner can see at
-                            a glance hvor i rykkerforløbet han er (1., 2., 3.
-                            rykker) without re-reading the audit log. */}
+                            a rykker has been registered, so the owner can see
+                            at a glance hvor i rykkerforløbet han er (1., 2.,
+                            3. rykker) without re-reading the audit log.
+                            Audit EJER-11: the badge says "registreret", not
+                            "sendt" — the server registers the reminder in
+                            ledger/audit log, but an actual e-mail delivery is
+                            not guaranteed (SMTP may run in test mode). */}
                         {row.lastReminderAt && row.lastReminderSequence > 0 && (
                           <span
                             className="flag warning"
                             title={`Rykker registreret ${row.lastReminderAt}`}
                           >
-                            {row.lastReminderSequence}. rykker sendt{" "}
-                            {row.lastReminderAt.slice(0, 10)}
+                            {row.lastReminderSequence}. rykker registreret{" "}
+                            {formatDateDa(row.lastReminderAt.slice(0, 10))}
                           </span>
                         )}
                         {/* #428 — surface e-faktura status next to settlement
@@ -604,21 +621,22 @@ export function InvoicesView() {
                               Kreditér
                             </button>
                           )}
-                          {/* #428 — "Send som e-faktura" is shown ONLY when
+                          {/* #428 — "Forbered e-faktura" is shown ONLY when
                               the customer has an EAN-number on file (a public
                               buyer). Hidden for archived years and once the
                               invoice has been acknowledged by the access
                               point. The button replaces the missing CLI step
-                              `invoice submit-public-peppol` so SMB owners who
-                              invoice the public sector no longer need a
-                              terminal to get paid. */}
+                              `invoice submit-public-peppol`. Audit UI-2: it
+                              says "Forbered", not "Send" — the server only
+                              records the envelope (status `prepared`); the
+                              AS4 transport is not wired in yet. */}
                           {!inv.archived && canSendPublic && (
                             <button
                               type="button"
                               className="btn secondary"
                               onClick={() => setSendingPublic(row)}
                             >
-                              Send som e-faktura
+                              Forbered e-faktura
                             </button>
                           )}
                           {/* #429 — "Send på mail" is shown ONLY when the

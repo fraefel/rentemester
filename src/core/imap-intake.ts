@@ -191,6 +191,16 @@ export async function pollImapMailbox(
  * settings sourced from env/config. Credentials stay in this object's
  * closure and are never written to the ledger DB.
  */
+/**
+ * SEC-10 (Audit 2026-06-11): hard cap on a single IMAP `{n}` literal. The
+ * server declares the literal size; without a bound a malicious or buggy
+ * server could announce a multi-gigabyte literal and `readBytes` would buffer
+ * the whole thing in memory, OOM-ing the daemon. 64 MiB comfortably exceeds the
+ * #122 `DEFAULT_MAX_EML_SIZE_BYTES` (25 MiB) ceiling for a whole message, so a
+ * legitimate receipt is never rejected here while a hostile literal is.
+ */
+const MAX_IMAP_LITERAL_BYTES = 64 * 1024 * 1024;
+
 export function createImapClient(config: ImapConfig): ImapClient {
   const useTls = config.tls !== false;
   const mailbox = config.mailbox ?? "INBOX";

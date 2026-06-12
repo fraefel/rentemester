@@ -12,6 +12,7 @@
 import { resolveWorkspaceRoot, listWorkspaceCompanies, companyRootForSlug } from "../core/workspace";
 import { resolveServerConfig } from "../server/config";
 import { startCockpitServer } from "../server/app";
+import { describeStaticUiBuild } from "../server/static";
 import { loadBilagsmailImapConfig } from "../core/bilagsmail";
 import { createImapClient, pollImapMailbox, resolveImapConfig } from "../core/imap-intake";
 import { openDb, migrate } from "../core/db";
@@ -112,6 +113,18 @@ export function register(dispatch: CommandDispatch): void {
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
 
+    // EJER-5: say WHICH cockpit-UI build is served. `app/dist` is gitignored
+    // and `serve` never rebuilds it, so without this the operator has no way
+    // to see that the served UI is weeks older than `app/src`.
+    const uiBuild = describeStaticUiBuild(config.staticRoot);
+    if (uiBuild.present) {
+      process.stderr.write(
+        `[serve] Cockpit-UI: ${uiBuild.staticRoot} (bygget ${uiBuild.builtAt}). ${uiBuild.rebuildHint}\n`,
+      );
+    } else {
+      process.stderr.write(`[serve] ${uiBuild.hint}\n`);
+    }
+
     ctx.emitResult({
       ok: true,
       message: `Cockpit backend listening on ${cockpit.url}`,
@@ -120,6 +133,7 @@ export function register(dispatch: CommandDispatch): void {
       port: cockpit.server.port,
       workspace: config.workspaceRoot,
       authRequired: config.authRequired,
+      ui: uiBuild,
     });
     // `Bun.serve` keeps the process alive; the command intentionally does not
     // return until the process is signalled.

@@ -4,6 +4,7 @@ import { getInvoiceStatus } from "./invoice-payments";
 import { currentRuleBundleVersion } from "./rules-metadata";
 import { insertAuditLog, resolveActor } from "./actor";
 import { validateJournalTransactionDate } from "./periods";
+import { verifyAuditLogIntegrity } from "./audit-log";
 import { companySequenceScope, fiscalYearLabelFromDate, nextSequenceValue } from "./sequences";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { retainUntilForDate } from "./retention";
@@ -187,14 +188,40 @@ export function seedAccounts(db: Database) {
     ["7310", "Forudbetalt indtægt (udskudt omsætning)", "liability", "credit", null]
   ];
   const insert = db.prepare("INSERT OR IGNORE INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES (?,?,?,?,?)");
-  db.transaction(() => rows.forEach((r) => insert.run(...r)))();
+  db.transaction(() => rows.forEach((r) => insert.run(...r)), { immediate: true })();
+}
+
+// Minimum entry-number suffix width. Numbers below 100 000 are zero-padded to
+// five digits (`2026-00001`); once a fiscal scope exceeds 99 999 entries the
+// suffix simply grows wider (`2026-100000`). The matcher below must therefore
+// be robust to a VARIABLE suffix width (KODE-12), not assume exactly five.
+const ENTRY_NO_MIN_DIGITS = 5;
+
+// Width-robust max-suffix read for one fiscal scope. The suffix is whatever
+// follows the literal `${scope}-` prefix, so it is extracted by length —
+// `substr(entry_no, length(prefix) + 1)` — instead of a fixed `substr(-5)`
+// that silently truncates a six-digit number to its last five digits. The
+// match anchors the exact prefix and requires the suffix to be all digits
+// (`NOT GLOB '*[^0-9]*'`), so a wider number still matches and still parses.
+function maxEntryNoSuffix(db: Database, scope: string): number {
+  const prefix = `${scope}-`;
+  const row = db
+    .query(
+      `SELECT COALESCE(MAX(CAST(substr(entry_no, ? + 1) AS INTEGER)), 0) AS n
+         FROM journal_entries
+        WHERE substr(entry_no, 1, ?) = ?
+          AND length(entry_no) > ?
+          AND substr(entry_no, ? + 1) NOT GLOB '*[^0-9]*'`,
+    )
+    .get(prefix.length, prefix.length, prefix, prefix.length, prefix.length) as { n: number };
+  return Number(row.n ?? 0);
 }
 
 export function nextEntryNo(db: Database, transactionDate: string) {
   const scope = fiscalYearLabelFromDate(db, transactionDate);
-  const row = db.query(`SELECT COALESCE(MAX(CAST(substr(entry_no, -5) AS INTEGER)), 0) AS n FROM journal_entries WHERE entry_no GLOB ?`).get(`${scope}-[0-9][0-9][0-9][0-9][0-9]`) as { n: number };
-  const nextValue = nextSequenceValue(db, "journal_entry", companySequenceScope(db, scope), Number(row.n ?? 0));
-  return `${scope}-${String(nextValue).padStart(5, "0")}`;
+  const floor = maxEntryNoSuffix(db, scope);
+  const nextValue = nextSequenceValue(db, "journal_entry", companySequenceScope(db, scope), floor);
+  return `${scope}-${String(nextValue).padStart(ENTRY_NO_MIN_DIGITS, "0")}`;
 }
 
 export function previousHash(db: Database) {
@@ -335,6 +362,17 @@ export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
   return { ok: errors.length === 0, appliedRules, errors };
 }
 
+// Thrown when the period-lock re-check inside the write transaction fails: a
+// period covering the transaction date was closed/reported between the initial
+// validateJournalEntry and the insert (KODE-4 TOCTOU). postJournalEntry and
+// reverseJournalEntry translate it back into a normal {ok:false} result.
+class PeriodLockRaceError extends Error {
+  constructor(public readonly periodErrors: string[]) {
+    super(periodErrors.join("; "));
+    this.name = "PeriodLockRaceError";
+  }
+}
+
 // Inserts a validated entry into the append-only chain: journal row, lines,
 // audit log and any bank-exception resolution. MUST run inside a db transaction
 // — postJournalEntry commits it, dryRunJournalEntry rolls it back. The caller is
@@ -344,6 +382,18 @@ function applyJournalEntry(
   payload: JournalEntryInput,
   accounts: ReturnType<typeof accountMap>,
 ): { entryId: JournalEntryId; entryNo: string; previousHash: string; entryHash: string } {
+  // KODE-4: re-validate the period lock HERE, inside the BEGIN IMMEDIATE write
+  // transaction, not only in the caller's earlier validateJournalEntry. The
+  // earlier check runs before the write lock is held, so a period covering this
+  // date could be closed in the gap between validation and insert. Repeating the
+  // check under the held write lock closes that TOCTOU window: a date that has
+  // since fallen into a closed/reported period aborts the post (and, via the
+  // surrounding transaction, rolls back) instead of slipping into a locked
+  // period. dryRunJournalEntry rolls back regardless, so the extra check is a
+  // harmless no-op there.
+  const periodErrors = validateJournalTransactionDate(db, payload.transactionDate);
+  if (periodErrors.length > 0) throw new PeriodLockRaceError(periodErrors);
+
   const entryId = nextEntryId(db);
   const entryNo = nextEntryNo(db, payload.transactionDate);
   const prevHash = previousHash(db);
@@ -439,11 +489,23 @@ export function postJournalEntry(db: Database, payload: JournalEntryInput): Jour
 
   const accounts = accountMap(db);
 
-  const { previousHash: _previousHash, ...result } = db.transaction(
-    () => applyJournalEntry(db, payload, accounts),
-    { immediate: true },
-  )();
+  let applied: ReturnType<typeof applyJournalEntry>;
+  try {
+    applied = db.transaction(
+      () => applyJournalEntry(db, payload, accounts),
+      { immediate: true },
+    )();
+  } catch (error) {
+    // KODE-4: the period-lock re-check inside the transaction lost the race —
+    // the period was closed after validation. Surface it as a normal error
+    // result; the transaction has already rolled back, so nothing was written.
+    if (error instanceof PeriodLockRaceError) {
+      return { ok: false, appliedRules: validation.appliedRules, errors: error.periodErrors };
+    }
+    throw error;
+  }
 
+  const { previousHash: _previousHash, ...result } = applied;
   return { ok: true, appliedRules: validation.appliedRules, errors: [], ...result };
 }
 
@@ -614,7 +676,14 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
 
   const accounts = accountMap(db);
 
-  const result = db.transaction(() => {
+  let result: { entryId: JournalEntryId; entryNo: string; entryHash: string };
+  try {
+    result = db.transaction(() => {
+    // KODE-4: re-check the period lock inside the write transaction, matching
+    // applyJournalEntry — a reversal date that fell into a period closed after
+    // the outer validation must abort here rather than slip into a locked period.
+    const periodErrors = validateJournalTransactionDate(db, reversalPayload.transactionDate);
+    if (periodErrors.length > 0) throw new PeriodLockRaceError(periodErrors);
     const entryId = nextEntryId(db);
     const entryNo = nextEntryNo(db, reversalPayload.transactionDate);
     const prevHash = previousHash(db);
@@ -691,7 +760,13 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
     });
 
     return { entryId: asJournalEntryId(entry.id), entryNo: entry.entry_no, entryHash };
-  }, { immediate: true })();
+    }, { immediate: true })();
+  } catch (error) {
+    if (error instanceof PeriodLockRaceError) {
+      return { ok: false, appliedRules: [...new Set([...appliedRules, ...validation.appliedRules])], errors: error.periodErrors };
+    }
+    throw error;
+  }
 
   return { ok: true, originalEntryId: asJournalEntryId(original.id), appliedRules: [...new Set([...appliedRules, ...validation.appliedRules])], errors: [], ...result };
 }
@@ -776,14 +851,22 @@ export function verifyAuditChain(db: Database) {
   for (const sequence of journalSequences) {
     const fiscalScope = sequence.scope.slice(sequence.scope.lastIndexOf(":") + 1);
     if (!fiscalScope) continue;
-    const glob = `${fiscalScope}-[0-9][0-9][0-9][0-9][0-9]`;
+    // KODE-12: width-robust suffix match. The old fixed `[0-9]{5}` GLOB +
+    // `substr(-5)` silently dropped every six-digit (>99 999) entry, so a scope
+    // that grew past the boundary read MAX=0 and falsely failed "entries are
+    // missing". Anchor the `${scope}-` prefix by length and require the suffix
+    // to be all digits, so any width matches and parses.
+    const prefix = `${fiscalScope}-`;
     const stats = db.query(
-      `SELECT COUNT(*) AS n, COALESCE(MAX(CAST(substr(entry_no, -5) AS INTEGER)), 0) AS max_no
-       FROM journal_entries WHERE entry_no GLOB ?`
-    ).get(glob) as { n: number; max_no: number };
+      `SELECT COUNT(*) AS n, COALESCE(MAX(CAST(substr(entry_no, ? + 1) AS INTEGER)), 0) AS max_no
+         FROM journal_entries
+        WHERE substr(entry_no, 1, ?) = ?
+          AND length(entry_no) > ?
+          AND substr(entry_no, ? + 1) NOT GLOB '*[^0-9]*'`
+    ).get(prefix.length, prefix.length, prefix, prefix.length, prefix.length) as { n: number; max_no: number };
     const expected = Number(sequence.value);
     if (Number(stats.max_no) < expected) {
-      errors.push(`fiscal scope ${fiscalScope}: highest journal entry ${fiscalScope}-${String(stats.max_no).padStart(5, "0")} is below issued sequence value ${expected} — entries are missing`);
+      errors.push(`fiscal scope ${fiscalScope}: highest journal entry ${fiscalScope}-${String(stats.max_no).padStart(ENTRY_NO_MIN_DIGITS, "0")} is below issued sequence value ${expected} — entries are missing`);
     } else if (Number(stats.n) < expected) {
       errors.push(`fiscal scope ${fiscalScope}: ${stats.n} journal entries present but sequence issued ${expected} — entries are missing`);
     }
@@ -851,6 +934,15 @@ export function verifyAuditChain(db: Database) {
       errors.push(`invoice ${invoice.invoice_no ?? invoice.id}: stored status ${stored} does not match ledger status ${status.status} (open balance ${status.openBalance})`);
     }
   }
+
+  // KODE-14: defence-in-depth audit_log tamper-evidence. The audit_log has no
+  // hash chain of its own, so a removed row would otherwise be invisible here.
+  // Fold in the id-gap detection (a hole means a middle row was deleted). The
+  // stronger journal cross-check is left to the standalone verifyAuditLog-
+  // Integrity caller: it assumes every entry was posted through the normal
+  // path, which manually-inserted entries (migrations, fixtures) need not be.
+  const auditLogIntegrity = verifyAuditLogIntegrity(db, { journalCrossCheck: false });
+  errors.push(...auditLogIntegrity.errors);
 
   return { ok: errors.length === 0, entries: entries.length, errors };
 }

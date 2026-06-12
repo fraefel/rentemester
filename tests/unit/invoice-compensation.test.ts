@@ -312,6 +312,76 @@ describe("invoice late compensation", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("accepts a public-sector buyer identified only by EAN as a commercial transaction (JUR-15)", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-comp-ean-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      dueDate: "2026-06-15",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      // Public authority buyer: no CVR on the payload, identified by EAN + flag.
+      buyer: { name: "Aarhus Kommune", address: "Rådhuspladsen 2", eanNumber: "5790000123456", publicRecipient: true },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK"
+    });
+    expect(issued.ok).toBe(true);
+
+    const result = calculateInvoiceLateCompensation(db, {
+      invoiceDocumentId: issued.documentId!,
+      asOfDate: "2026-06-20",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.isCommercialTransaction).toBe(true);
+    expect(result.eligible).toBe(true);
+    expect(result.compensationAmountDkk).toBe(310);
+
+    const registered = registerInvoiceLateCompensation(db, {
+      invoiceDocumentId: issued.documentId!,
+      asOfDate: "2026-06-20",
+    });
+    expect(registered.ok).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("treats a bare EAN without the public-recipient flag as a commercial transaction (JUR-15)", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-comp-ean-bare-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      dueDate: "2026-06-15",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Region Midtjylland", address: "Skottenborg 26", eanNumber: "5790000654321" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK"
+    });
+    expect(issued.ok).toBe(true);
+
+    const result = calculateInvoiceLateCompensation(db, {
+      invoiceDocumentId: issued.documentId!,
+      asOfDate: "2026-06-20",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.isCommercialTransaction).toBe(true);
+    expect(result.eligible).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("does not allow compensation when commercial status is not proven", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-comp-no-buyer-vat-"));
     const db = openDb(ensureCompanyDirs(root).db);

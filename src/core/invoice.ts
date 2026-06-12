@@ -16,6 +16,15 @@ export type InvoiceBuyer = {
   vatOrCvr?: string;
   eanNumber?: string;
   publicRecipient?: boolean;
+  /**
+   * Peppol BIS 3.0 cbc:BuyerReference (BT-10). Mandatory for a public-recipient
+   * e-invoice (PEPPOL-EN16931-R003) — the public authority's own reference
+   * (often an "EAN-/ordrereference"). Without it the access point rejects the
+   * invoice.
+   */
+  buyerReference?: string;
+  /** Optional Peppol cac:OrderReference/cbc:ID (BT-13), the buyer's order id. */
+  orderReference?: string;
 };
 
 export type InvoicePayload = {
@@ -25,7 +34,12 @@ export type InvoicePayload = {
   invoiceNumber?: string;
   seller?: { name?: string; address?: string; vatOrCvr?: string };
   buyer?: InvoiceBuyer;
-  lines?: Array<{ description?: string; quantity?: number; unitPriceExVat?: number; lineTotalExVat?: number }>;
+  /**
+   * Peppol cbc:InvoicedQuantity/@unitCode (UN/ECE Rec 20). Defaults to H87
+   * ("piece") in the e-invoice export; set per payload to override.
+   */
+  unitCode?: string;
+  lines?: Array<{ description?: string; quantity?: number; unitPriceExVat?: number; lineTotalExVat?: number; unitCode?: string }>;
   totals?: {
     netAmount?: number;
     vatRate?: number;

@@ -209,6 +209,11 @@ export type CloseAccountingPeriodInput = {
    * bankposter. The close call now refuses if any open high/medium
    * exception has a date inside the period. Set `force: true` to bypass
    * (the bypass + the open-exception count is logged to the audit chain).
+   *
+   * EJER-4: `force` also bypasses the unreconciled-bank-transactions guard —
+   * the close otherwise refuses when the period contains bank transactions
+   * without a posted journal entry (see `unreconciledBankTransactionsIn`).
+   * A forced bypass is recorded on the period's close audit event.
    */
   force?: boolean;
 };
@@ -278,6 +283,14 @@ export function effectivePeriodState(
 
   let state: EffectivePeriodState = rowStatus;
   for (const ev of events) {
+    // `reported` is TERMINAL (KODE-9): once a period has been submitted to the
+    // authority (SKAT / Erhvervsstyrelsen) it can never be reopened — undoing
+    // an authority filing is not a bookkeeping operation, and reopenAccounting-
+    // Period already refuses it. A `period_reopen` event appended AFTER a
+    // `period_report` (e.g. a raw audit_log INSERT bypassing that guard) must
+    // therefore be ignored, so a reported period cannot be effectively reopened
+    // and have new postings land in it.
+    if (state === "reported") continue;
     if (ev.event_type === "period_report") state = "reported";
     else if (ev.event_type === "period_close") state = "closed";
     else if (ev.event_type === PERIOD_REOPEN_EVENT) state = "open";
@@ -285,6 +298,52 @@ export function effectivePeriodState(
   return state;
 }
 
+
+/**
+ * EJER-4: every bank transaction dated inside [periodStart, periodEnd] that
+ * has NO posted journal entry linked via
+ * `journal_entries.source_bank_transaction_id`. This is the same
+ * "uafstemt" definition the bank reconciliation report
+ * (`core/reconciliation.ts`) and the unmatched-bank exception sync
+ * (`core/exceptions.ts#syncUnmatchedBankTransactionExceptions`) use, so the
+ * close guard agrees byte-for-byte with what the Bank tab shows as
+ * "Uafstemt". Booked internal transfers and settled invoices all carry a
+ * posted journal entry with this link, so they never false-positive here;
+ * a reversed entry correctly makes the transaction unreconciled again.
+ *
+ * Why the close must look here and not only at the exception queue: an
+ * UNMATCHED_BANK_TRANSACTION exception can be "resolved" with a free-text
+ * note WITHOUT booking anything. The open-exceptions guard then passes,
+ * the period locks, the VAT filing is short, and the late booking is
+ * rejected by the period lock — the exact EJER-4 incident.
+ */
+function unreconciledBankTransactionsIn(
+  db: Database,
+  periodStart: string,
+  periodEnd: string,
+): Array<{ id: number; transaction_date: string; text: string; amount: number; currency: string }> {
+  return db.query(
+    `SELECT bt.id, bt.transaction_date, bt.text, bt.amount, bt.currency
+       FROM bank_transactions bt
+       LEFT JOIN journal_entries je
+         ON je.source_bank_transaction_id = bt.id
+        AND je.status = 'posted'
+      WHERE je.id IS NULL
+        AND bt.transaction_date BETWEEN ? AND ?
+      ORDER BY bt.transaction_date ASC, bt.id ASC`,
+  ).all(periodStart, periodEnd) as Array<{
+    id: number;
+    transaction_date: string;
+    text: string;
+    amount: number;
+    currency: string;
+  }>;
+}
+
+/** "1 uafstemt bankpostering" / "3 uafstemte bankposteringer" — Danish count phrase. */
+function uafstemtePhrase(count: number): string {
+  return count === 1 ? "1 uafstemt bankpostering" : `${count} uafstemte bankposteringer`;
+}
 
 function maxFutureDays() {
   const raw = process.env.RENTEMESTER_MAX_FUTURE_DAYS;
@@ -358,6 +417,26 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
 
   if (errors.length > 0) return { ok: false, appliedRules, errors };
 
+  // EJER-6: refuse to close a period that ends in the FUTURE. A period whose
+  // end date has not arrived yet (typically a whole fiscal year closed early)
+  // is not over — legitimate postings can still land on its remaining days, and
+  // locking now would reject them at the period lock. `force: true` bypasses
+  // (the same escape hatch as the other close guards). The future-close note is
+  // recorded on the close audit event below.
+  const today = todayIsoDate();
+  const endsInFuture = periodEnd > today;
+  if (!input.force && endsInFuture) {
+    return {
+      ok: false,
+      appliedRules,
+      errors: [
+        `${kind} period ${periodStart}..${periodEnd} ends in the future (i dag er ${today}) — ` +
+          `regnskabsåret/perioden er ikke omme endnu, så lukning ville afvise senere posteringer i perioden. ` +
+          `Vent til perioden er slut, eller send force:true for at lukke alligevel (bypass audit-logges).`,
+      ],
+    };
+  }
+
   // Round-2 review: refuse to silently hide open high/medium exceptions
   // by closing the period they fall in. The bypass is `force: true`.
   if (!input.force) {
@@ -394,6 +473,38 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
     }
   }
 
+  // EJER-4: refuse to lock a period that still contains unreconciled bank
+  // transactions — money moved in/out of the bank without a posted journal
+  // entry means income/expense (and its VAT) is possibly unbooked, and the
+  // period lock would reject the late booking. This guard reads the
+  // reconciliation model directly, so a note-"resolved" exception cannot
+  // hide the gap. `force: true` bypasses; the bypass is audit-logged below.
+  const unreconciled = unreconciledBankTransactionsIn(db, periodStart, periodEnd);
+  if (!input.force && unreconciled.length > 0) {
+    const example = unreconciled[0];
+    return {
+      ok: false,
+      appliedRules,
+      errors: [
+        `${uafstemtePhrase(unreconciled.length)} i ${kind} ${periodStart}..${periodEnd} uden bogført journalpostering ` +
+          `(fx #${example.id} ${example.transaction_date} ${example.amount} ${example.currency} '${example.text}'). ` +
+          `Indtægter/udgifter i perioden er muligvis ikke bogført — momsangivelsen bliver forkert. ` +
+          `Bogfør eller afstem dem først, eller send force:true for at lukke alligevel (bypass audit-logges).`,
+      ],
+    };
+  }
+  // Recorded on the close audit event so a deliberate bypass is permanent,
+  // attributable evidence — not just a CLI flag that leaves no trace.
+  const bypassNotes: string[] = [];
+  if (input.force && unreconciled.length > 0) {
+    bypassNotes.push(`lukket trods ${uafstemtePhrase(unreconciled.length)} i perioden`);
+  }
+  if (input.force && endsInFuture) {
+    // EJER-6: a deliberately forced future-period close is permanent evidence.
+    bypassNotes.push(`lukket selvom perioden slutter i fremtiden (${periodEnd} > ${today})`);
+  }
+  const forceBypassNote = bypassNotes.length > 0 ? ` — force: ${bypassNotes.join("; ")}` : "";
+
   const overlap = db.query(
     `SELECT id, period_start, period_end, kind, status
        FROM accounting_periods
@@ -418,7 +529,7 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
         entityId: overlap.id,
         message:
           `Re-closed ${kind} period ${periodStart}..${periodEnd}` +
-          `${reference ? ` (${reference})` : ""} after a controlled reopen`,
+          `${reference ? ` (${reference})` : ""} after a controlled reopen${forceBypassNote}`,
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
       });
@@ -460,7 +571,7 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
     eventType: status === "reported" ? "period_report" : "period_close",
     entityType: "accounting_period",
     entityId: inserted.id,
-    message: `${status === "reported" ? "Marked" : "Closed"} ${kind} period ${periodStart}..${periodEnd}${reference ? ` (${reference})` : ""}`,
+    message: `${status === "reported" ? "Marked" : "Closed"} ${kind} period ${periodStart}..${periodEnd}${reference ? ` (${reference})` : ""}${forceBypassNote}`,
     createdBy: input.createdBy,
     createdByProgram: input.createdByProgram,
   });

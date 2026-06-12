@@ -160,8 +160,9 @@ describe("DashboardView — Overblik", () => {
   test("shows the 'Senest bogført pr.' date near the period header", async () => {
     mockFetch(overviewRoute({ lastPostedDate: "2026-04-30" }));
     renderDashboard();
+    // #UI-8 — running text shows the Danish date form, not raw ISO.
     expect(
-      await screen.findByText(/Senest bogført pr\. 2026-04-30/),
+      await screen.findByText(/Senest bogført pr\. 30\. apr\. 2026/),
     ).toBeInTheDocument();
   });
 

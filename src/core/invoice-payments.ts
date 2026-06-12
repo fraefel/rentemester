@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { postJournalEntry } from "./ledger";
 import { insertAuditLog } from "./actor";
-import { isValidIsoDate as looksLikeIsoDate, addDays, diffDays } from "./dates";
+import { isValidIsoDate as looksLikeIsoDate, addDays, diffDays, todayIsoDate } from "./dates";
 import { addDkk, roundDkk, subtractDkk, sumDkk } from "./money";
 
 export type ApplyInvoicePaymentInput = {
@@ -188,9 +188,6 @@ function buildForeignPaymentLines(args: {
   return { lines, fxApplied: fxDelta !== 0 };
 }
 
-function defaultComparisonDate(invoiceDate?: string, effectiveDueDate?: string) {
-  return effectiveDueDate ?? invoiceDate ?? "1970-01-01";
-}
 
 function getIssuedInvoice(db: Database, documentId: number) {
   return db.query(
@@ -279,7 +276,11 @@ export function getInvoiceStatus(db: Database, invoiceDocumentId: number, asOfDa
   const claimOpenBalance = subtractDkk(addDkk(openBalance, totalReminderFees, totalCompensationClaims, totalInterestClaims), totalClaimPayments);
   const dueDate = typeof payload?.dueDate === "string" ? payload.dueDate : undefined;
   const effectiveDueDate = dueDate ?? (invoice.invoice_date ? addDays(invoice.invoice_date, 30) : undefined);
-  const comparisonDate = asOfDate ?? defaultComparisonDate(invoice.invoice_date ?? undefined, effectiveDueDate);
+  // EJER-1: when no as-of date is given, compare against TODAY (canonical
+  // Danish-time clock, RENTEMESTER_TODAY-overridable). The old default
+  // compared the due date against itself, so the default path never saw an
+  // invoice as overdue while the --as-of path did.
+  const comparisonDate = asOfDate ?? todayIsoDate();
   const overdueDays = effectiveDueDate && openBalance > 0 ? Math.max(0, diffDays(effectiveDueDate, comparisonDate)) : 0;
   const isOverdue = overdueDays > 0;
   // Status ladder: a written-off or refunded zero-balance invoice must never be
@@ -480,7 +481,7 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
           : [RULE_ID, CORRECTION_BALANCE_RULE_ID],
         errors: [],
       } satisfies ApplyInvoicePaymentResult;
-    })();
+    }, { immediate: true })();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

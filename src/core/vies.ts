@@ -26,6 +26,13 @@ export type ValidateVatResult = {
 const RULE_ID = "DK-VAT-REVERSE-CHARGE-001";
 const DEFAULT_TTL_DAYS = 90;
 const DEFAULT_VIES_ENDPOINT = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number";
+/**
+ * SEC-5 (Audit 2026-06-11): default timeout for the outgoing VIES request.
+ * Without a bound a hung endpoint would block validation indefinitely; on
+ * timeout the call returns a non-throwing error (the caller may fall back to a
+ * cached validation via `requireCachedViesValidation`).
+ */
+const DEFAULT_VIES_TIMEOUT_MS = 12_000;
 
 // EU member-state VAT country codes recognised by VIES. EU service reverse
 // charge (momsloven §46) applies only to suppliers in *other* EU member
@@ -193,17 +200,35 @@ function parseValidationResponse(json: any, parsed: NormalizedEuVat, validatedAt
   };
 }
 
-export async function validateVatAgainstVies(db: Database, vatOrCvr: string, options: { endpoint?: string; fetchImpl?: typeof fetch } = {}): Promise<ValidateVatResult> {
+export async function validateVatAgainstVies(db: Database, vatOrCvr: string, options: { endpoint?: string; fetchImpl?: typeof fetch; timeoutMs?: number } = {}): Promise<ValidateVatResult> {
   const parsed = normalizeEuVatNumber(vatOrCvr);
   if (!parsed) return { ok: false, appliedRules: [RULE_ID], errors: ["cvr must be a plausible EU VAT number"] };
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const endpoint = options.endpoint ?? process.env.RENTEMESTER_VIES_ENDPOINT ?? DEFAULT_VIES_ENDPOINT;
-  const response = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ countryCode: parsed.countryCode, vatNumber: parsed.vatNumber }),
-  });
+  const timeoutMs = options.timeoutMs ?? DEFAULT_VIES_TIMEOUT_MS;
+  let response: Response;
+  try {
+    response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ countryCode: parsed.countryCode, vatNumber: parsed.vatNumber }),
+      // SEC-5: bound the request so a hung VIES endpoint cannot block forever.
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    const aborted =
+      error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return {
+      ok: false,
+      appliedRules: [RULE_ID],
+      errors: [
+        aborted
+          ? `VIES lookup timed out after ${timeoutMs} ms`
+          : `VIES lookup failed: ${error instanceof Error ? error.message : "network error"}`,
+      ],
+    };
+  }
 
   if (!response.ok) {
     return { ok: false, appliedRules: [RULE_ID], errors: [`VIES lookup failed with HTTP ${response.status}`] };

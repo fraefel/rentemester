@@ -102,6 +102,15 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
            LEFT JOIN import_document_links idl ON idl.document_id = d.id
            LEFT JOIN journal_entries je_link   ON je_link.id = idl.journal_entry_id
            LEFT JOIN journal_entries je_direct ON je_direct.document_id = d.id
+          -- EJER-15: the 'issued_invoice_pdf' row is the invoice's OWN rendered
+          -- PDF — an internal artifact Rentemester writes when it issues a sales
+          -- invoice, NOT an inbound voucher the owner must process. Including it
+          -- made the company's own invoice PDF appear as an "ubehandlet bilag"
+          -- in the list and inflate the unlinked counter. It is excluded here so
+          -- the bilag list/counter only counts real inbound documents. (The
+          -- canonical 'issued_invoice' JSON row and the PDF are still served on
+          -- the invoice's own row via the invoice views.)
+          WHERE d.document_type != 'issued_invoice_pdf'
           ORDER BY d.upload_datetime DESC, d.id DESC`,
       )
       .all() as Array<{

@@ -103,7 +103,8 @@ describe("vat momsangivelse (filing)", () => {
     const docId = ingest(db, root, inbox, "INV-FIL-RC", "DE123456789");
 
     // EU service purchase via reverse charge: net 1000.
-    // Contributes 250 to BOTH salgsmoms (reverse-charge output) and kobsmoms.
+    // The reverse-charge output VAT belongs in "Moms af ydelseskøb i udlandet",
+    // NOT in salgsmoms — salgsmoms on TastSelv is VAT on own sales only.
     const rc = postJournalEntry(db, {
       transactionDate: "2026-03-12",
       text: "EU hosting",
@@ -129,19 +130,223 @@ describe("vat momsangivelse (filing)", () => {
     const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
     expect(filing.ok).toBe(true);
     expect(filing.periodStatus).toBe("reported");
-    // Reverse-charge output VAT lands in salgsmoms.
-    expect(filing.rubrikker.salgsmoms).toBe(250);
+    // Salgsmoms covers VAT on own sales only — the reverse-charge output VAT
+    // is reported in "Moms af ydelseskøb i udlandet", never double-counted
+    // into salgsmoms (momsloven §46 jf. §37).
+    expect(filing.rubrikker.salgsmoms).toBe(0);
     // No physical goods code exists, so foreign-goods VAT is 0.
     expect(filing.rubrikker.momsAfVarekobUdland).toBe(0);
     // EU service reverse charge VAT = 25% of 1000.
     expect(filing.rubrikker.momsAfYdelseskobUdland).toBe(250);
     // Reverse-charge input VAT is also deductible kobsmoms.
     expect(filing.rubrikker.kobsmoms).toBe(250);
-    // momstilsvar = 250 (salg) + 250 (ydelseskob udland) - 250 (kobsmoms)
-    expect(filing.rubrikker.momstilsvar).toBe(250);
+    // momstilsvar = 0 (salg) + 250 (ydelseskob udland) - 250 (kobsmoms) = 0:
+    // a pure reverse-charge purchase is VAT-neutral.
+    expect(filing.rubrikker.momstilsvar).toBe(0);
+    // The filing must agree with the raw VAT report's net payable.
+    expect(filing.rubrikker.momstilsvar).toBe(filing.vatReport.netVatPayable);
     // Rubrik A = value of goods/services purchased abroad.
     expect(filing.rubrikker.rubrikA).toBe(1000);
 
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("does not double-count reverse-charge output VAT into salgsmoms (mixed period)", () => {
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-mixed-");
+    const docId = ingest(db, root, inbox, "INV-FIL-MIX", "DK11223344");
+
+    // Domestic sale: salgsmoms 250 on base 1000.
+    const sale = postJournalEntry(db, {
+      transactionDate: "2026-03-05",
+      text: "Konsulentsalg",
+      documentId: docId,
+      lines: [
+        { accountNo: "2000", debitAmount: 1250 },
+        { accountNo: "1000", creditAmount: 1000, vatCode: "DK_SALE_25" },
+        { accountNo: "1200", creditAmount: 250 },
+      ],
+    });
+    expect(sale.ok).toBe(true);
+
+    // EU service purchase via reverse charge: net 1000 → output 250 + input 250.
+    const rc = postJournalEntry(db, {
+      transactionDate: "2026-03-12",
+      text: "EU hosting",
+      documentId: docId,
+      lines: [
+        { accountNo: "3020", debitAmount: 1000, vatCode: "EU_SERVICE_REVERSE_CHARGE", text: "EU service base" },
+        { accountNo: "4000", debitAmount: 250, text: "Deductible reverse-charge input VAT" },
+        { accountNo: "2000", creditAmount: 1000 },
+        { accountNo: "1200", creditAmount: 250, text: "Reverse-charge output VAT" },
+      ],
+    });
+    expect(rc.ok).toBe(true);
+
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-03-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_quarter",
+      status: "closed",
+      createdBy: "agent:test",
+    });
+    expect(closed.ok).toBe(true);
+
+    const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
+    expect(filing.ok).toBe(true);
+    // Salgsmoms = VAT on own sales only (250) — the reverse-charge output VAT
+    // sits exclusively in momsAfYdelseskobUdland.
+    expect(filing.rubrikker.salgsmoms).toBe(250);
+    expect(filing.rubrikker.momsAfYdelseskobUdland).toBe(250);
+    expect(filing.rubrikker.kobsmoms).toBe(250);
+    // momstilsvar = 250 + 250 - 250 = 250 — and it must equal the raw VAT
+    // report's netVatPayable (the filing re-maps rubrikker, it never changes
+    // the amount owed).
+    expect(filing.rubrikker.momstilsvar).toBe(250);
+    expect(filing.rubrikker.momstilsvar).toBe(filing.vatReport.netVatPayable);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("ydelseskob-udland uses the booked reverse-charge VAT, not 25% of the summed base (rounding)", () => {
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-rc-round-");
+    const docId = ingest(db, root, inbox, "INV-FIL-RC-ROUND", "DE123456789");
+
+    // Two EU service purchases of base 10.02 each. Per booking, the reverse-
+    // charge VAT is rounded per transaction: percentOfDkk(10.02, 25) = 2.51,
+    // so 5.02 in total is booked on account 1200. But 25% of the *summed* base
+    // (20.04) is 5.01. The ydelseskob-udland rubrik must equal the 5.02 that
+    // was actually booked, not the 5.01 the aggregate-base formula yields.
+    for (const i of [1, 2]) {
+      const rc = postJournalEntry(db, {
+        transactionDate: `2026-03-1${i}`,
+        text: `EU hosting ${i}`,
+        documentId: docId,
+        lines: [
+          { accountNo: "3020", debitAmount: 10.02, vatCode: "EU_SERVICE_REVERSE_CHARGE", text: "EU service base" },
+          { accountNo: "4000", debitAmount: 2.51, text: "Deductible reverse-charge input VAT" },
+          { accountNo: "2000", creditAmount: 10.02 },
+          { accountNo: "1200", creditAmount: 2.51, text: "Reverse-charge output VAT" },
+        ],
+      });
+      expect(rc.ok).toBe(true);
+    }
+
+    // Domestic sale: salgsmoms exactly 250.00 on base 1000.
+    const sale = postJournalEntry(db, {
+      transactionDate: "2026-03-05",
+      text: "Konsulentsalg",
+      documentId: docId,
+      lines: [
+        { accountNo: "2000", debitAmount: 1250 },
+        { accountNo: "1000", creditAmount: 1000, vatCode: "DK_SALE_25" },
+        { accountNo: "1200", creditAmount: 250 },
+      ],
+    });
+    expect(sale.ok).toBe(true);
+
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-03-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_quarter",
+      status: "closed",
+      createdBy: "agent:test",
+    });
+    expect(closed.ok).toBe(true);
+
+    const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
+    expect(filing.ok).toBe(true);
+    // Account 1200 holds 250 (own sale) + 2 × 2.51 (RC output) = 255.02.
+    expect(filing.vatReport.outputVat).toBe(255.02);
+    // Salgsmoms must be the true own-sale output VAT: 250.00 exactly.
+    expect(filing.rubrikker.salgsmoms).toBe(250);
+    // Ydelseskob-udland must equal the booked RC output VAT: 5.02 (not 5.01).
+    expect(filing.rubrikker.momsAfYdelseskobUdland).toBe(5.02);
+    // Invariant: momstilsvar must still equal the raw report's netVatPayable.
+    expect(filing.rubrikker.momstilsvar).toBe(filing.vatReport.netVatPayable);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("warns that EU goods acquisitions (momsloven §11) are unsupported when the period has EU reverse-charge purchases", () => {
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-eugoods-");
+    const docId = ingest(db, root, inbox, "INV-FIL-EUG", "DE123456789");
+
+    const rc = postJournalEntry(db, {
+      transactionDate: "2026-03-12",
+      text: "EU purchase",
+      documentId: docId,
+      lines: [
+        { accountNo: "3020", debitAmount: 1000, vatCode: "EU_SERVICE_REVERSE_CHARGE", text: "EU base" },
+        { accountNo: "4000", debitAmount: 250, text: "Deductible reverse-charge input VAT" },
+        { accountNo: "2000", creditAmount: 1000 },
+        { accountNo: "1200", creditAmount: 250, text: "Reverse-charge output VAT" },
+      ],
+    });
+    expect(rc.ok).toBe(true);
+
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-03-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_quarter",
+      status: "closed",
+      createdBy: "agent:test",
+    });
+    expect(closed.ok).toBe(true);
+
+    const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
+    expect(filing.ok).toBe(true);
+    // momsAfVarekobUdland is structurally 0 (no EU goods-acquisition code), so
+    // the filing must warn the user to confirm no EU GOODS purchase was booked
+    // as a service (which would understate erhvervelsesmoms, momsloven §11).
+    expect(filing.rubrikker.momsAfVarekobUdland).toBe(0);
+    expect(
+      filing.warnings.some(
+        (w) => w.toLowerCase().includes("varekøb") || w.toLowerCase().includes("§11") || w.toLowerCase().includes("erhvervelsesmoms"),
+      ),
+    ).toBe(true);
+    // Invariant unchanged: momstilsvar still equals the raw report net payable.
+    expect(filing.rubrikker.momstilsvar).toBe(filing.vatReport.netVatPayable);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("does not emit the EU-goods warning when the period has no EU reverse-charge purchases", () => {
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-noeugoods-");
+    const docId = ingest(db, root, inbox, "INV-FIL-NOEUG", "DK11223344");
+    const sale = postJournalEntry(db, {
+      transactionDate: "2026-03-05",
+      text: "Konsulentsalg",
+      documentId: docId,
+      lines: [
+        { accountNo: "2000", debitAmount: 1250 },
+        { accountNo: "1000", creditAmount: 1000, vatCode: "DK_SALE_25" },
+        { accountNo: "1200", creditAmount: 250 },
+      ],
+    });
+    expect(sale.ok).toBe(true);
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-03-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_quarter",
+      status: "closed",
+      createdBy: "agent:test",
+    });
+    expect(closed.ok).toBe(true);
+    const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
+    expect(filing.ok).toBe(true);
+    expect(
+      filing.warnings.some(
+        (w) => w.toLowerCase().includes("varekøb") || w.toLowerCase().includes("§11") || w.toLowerCase().includes("erhvervelsesmoms"),
+      ),
+    ).toBe(false);
     db.close();
     rmSync(root, { recursive: true, force: true });
     rmSync(inbox, { recursive: true, force: true });
@@ -241,6 +446,79 @@ describe("vat momsangivelse (filing)", () => {
     const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
     expect(filing.ok).toBe(false);
     expect(filing.errors.length).toBeGreaterThan(0);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("warns when the closed period is not a standard calendar quarter (deadline cadence assumption)", () => {
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-nonquarter-");
+    const docId = ingest(db, root, inbox, "INV-FIL-NQ", "DK11223344");
+
+    const sale = postJournalEntry(db, {
+      transactionDate: "2026-02-10",
+      text: "Salg",
+      documentId: docId,
+      lines: [
+        { accountNo: "2000", debitAmount: 1250 },
+        { accountNo: "1000", creditAmount: 1000, vatCode: "DK_SALE_25" },
+        { accountNo: "1200", creditAmount: 250 },
+      ],
+    });
+    expect(sale.ok).toBe(true);
+
+    // A single month closed as a vat_quarter — not a real calendar quarter.
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-02-01",
+      periodEnd: "2026-02-28",
+      kind: "vat_quarter",
+      status: "closed",
+      createdBy: "agent:test",
+    });
+    expect(closed.ok).toBe(true);
+
+    const filing = buildVatFiling(db, "2026-02-01", "2026-02-28");
+    expect(filing.ok).toBe(true);
+    // Filing still succeeds (the cadence shift is in the taxpayer's favour /
+    // cosmetic), but the user must be warned that the deadline assumes a
+    // quarterly cadence.
+    expect(
+      filing.warnings.some((w) => w.toLowerCase().includes("kvartal") || w.toLowerCase().includes("afregningsperiode")),
+    ).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("does not warn about cadence for a standard calendar-quarter period", () => {
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-quarter-ok-");
+    const docId = ingest(db, root, inbox, "INV-FIL-QOK", "DK11223344");
+    const sale = postJournalEntry(db, {
+      transactionDate: "2026-03-10",
+      text: "Salg",
+      documentId: docId,
+      lines: [
+        { accountNo: "2000", debitAmount: 1250 },
+        { accountNo: "1000", creditAmount: 1000, vatCode: "DK_SALE_25" },
+        { accountNo: "1200", creditAmount: 250 },
+      ],
+    });
+    expect(sale.ok).toBe(true);
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-01-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_quarter",
+      status: "closed",
+      createdBy: "agent:test",
+    });
+    expect(closed.ok).toBe(true);
+    const filing = buildVatFiling(db, "2026-01-01", "2026-03-31");
+    expect(filing.ok).toBe(true);
+    expect(
+      filing.warnings.some((w) => w.toLowerCase().includes("kvartal") || w.toLowerCase().includes("afregningsperiode")),
+    ).toBe(false);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -3,8 +3,11 @@ import {
   attentionFlags,
   attentionLevel,
   formatCurrency,
+  formatDateDa,
   formatKroner,
+  parseDanishAmount,
   sortByAttention,
+  tastSelvNumber,
   todayIso,
 } from "./format";
 import { summary } from "../test/fixtures";
@@ -56,6 +59,68 @@ describe("formatKroner (DKK) integer-øre rounding", () => {
     // Ordinary values and a real negative are unchanged.
     expect(formatKroner(1234.5)).toBe("1.234,50 kr.");
     expect(formatKroner(-1234.5)).toBe("-1.234,50 kr.");
+  });
+});
+
+describe("parseDanishAmount (#UI-5)", () => {
+  test("reads Danish comma decimals and dot thousands", () => {
+    expect(parseDanishAmount("1234")).toBe(1234);
+    expect(parseDanishAmount("1234,56")).toBe(1234.56);
+    expect(parseDanishAmount("1.234,56")).toBe(1234.56);
+    expect(parseDanishAmount("1.234.567")).toBe(1234567);
+    expect(parseDanishAmount("0,5")).toBe(0.5);
+    expect(parseDanishAmount("  42 ")).toBe(42);
+    expect(parseDanishAmount("-1.000,25")).toBe(-1000.25);
+  });
+
+  test("the load-bearing case: '1.234' is 1234, never 1.234", () => {
+    // A raw Number("1.234") returns 1.234 — a 1000× bookkeeping error this
+    // helper exists to rule out.
+    expect(parseDanishAmount("1.234")).toBe(1234);
+  });
+
+  test("treats a lone dot with 1-2 trailing digits as a decimal point", () => {
+    expect(parseDanishAmount("1234.5")).toBe(1234.5);
+    expect(parseDanishAmount("1234.56")).toBe(1234.56);
+  });
+
+  test("rejects ambiguous or malformed input with null", () => {
+    expect(parseDanishAmount("")).toBeNull();
+    expect(parseDanishAmount("   ")).toBeNull();
+    expect(parseDanishAmount("abc")).toBeNull();
+    expect(parseDanishAmount("1,234,56")).toBeNull();
+    expect(parseDanishAmount("1.23.456")).toBeNull();
+    expect(parseDanishAmount("1,2345")).toBeNull();
+    expect(parseDanishAmount("12,")).toBeNull();
+  });
+});
+
+describe("formatDateDa (#UI-8)", () => {
+  test("renders an ISO date as Danish running text", () => {
+    expect(formatDateDa("2026-02-27")).toBe("27. feb. 2026");
+  });
+
+  test("ignores a trailing time part", () => {
+    expect(formatDateDa("2026-02-27T13:45:00Z")).toBe("27. feb. 2026");
+  });
+
+  test("returns the em dash for missing or unparseable input", () => {
+    expect(formatDateDa(null)).toBe("—");
+    expect(formatDateDa(undefined)).toBe("—");
+    expect(formatDateDa("")).toBe("—");
+    expect(formatDateDa("ikke en dato")).toBe("—");
+  });
+});
+
+describe("tastSelvNumber (#UI-10)", () => {
+  test("emits whole kroner as a bare integer, no separators", () => {
+    expect(tastSelvNumber(52317)).toBe("52317");
+    expect(tastSelvNumber(4457)).toBe("4457");
+  });
+
+  test("emits øre with a comma, never a thousand separator", () => {
+    expect(tastSelvNumber(1234.5)).toBe("1234,50");
+    expect(tastSelvNumber(0.05)).toBe("0,05");
   });
 });
 

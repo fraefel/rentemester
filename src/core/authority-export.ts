@@ -6,6 +6,8 @@ import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { effectiveRetainUntil } from "./retention";
 import { writeFileAtomic } from "./atomic-file";
+import { buildTrialBalance } from "./financial-statements";
+import { formatAmount } from "./money";
 
 const RULE_ID = "DK-BOOKKEEPING-AUTHORITY-EXPORT-001";
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
@@ -283,6 +285,128 @@ function recordExistingFile(exportDir: string, path: string, outputs: ExportedFi
   });
 }
 
+function writeExportText(exportDir: string, path: string, body: string, outputs: ExportedFileMeta[]) {
+  // Atomic write, same as the JSON path — a crash never leaves a partial file.
+  writeFileAtomic(path, body);
+  outputs.push({
+    path: packageRelativePath(exportDir, path),
+    sha256: sha256Text(body),
+    sizeBytes: Buffer.byteLength(body),
+  });
+}
+
+// Deterministic RFC-4180-ish CSV cell: quote when it holds a comma, quote,
+// CR or LF, and double any embedded quotes. null/undefined becomes "".
+function csvCell(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  if (/[",\r\n]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
+  return text;
+}
+
+function csvRow(cells: Array<string | number | null | undefined>): string {
+  return cells.map(csvCell).join(",");
+}
+
+// Human-friendly CSVs alongside the machine-readable JSON (EJER-14). A revisor
+// opens these directly in Excel/Numbers without parsing JSON. They carry the
+// same deterministic data as the JSON, just flattened.
+function buildJournalEntriesCsv(entries: JournalEntryRecord[]): string {
+  const header = csvRow([
+    "entry_no",
+    "transaction_date",
+    "registration_datetime",
+    "entry_text",
+    "account_no",
+    "account_name",
+    "debit",
+    "credit",
+    "vat_code",
+    "line_text",
+    "currency",
+    "amount_dkk",
+    "status",
+  ]);
+  const rows: string[] = [];
+  for (const entry of entries) {
+    if (entry.lines.length === 0) {
+      rows.push(
+        csvRow([
+          entry.entryNo,
+          entry.transactionDate,
+          entry.registrationDatetime,
+          entry.text,
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          entry.currency,
+          formatAmount(entry.amountDkk),
+          entry.status,
+        ]),
+      );
+      continue;
+    }
+    for (const line of entry.lines) {
+      rows.push(
+        csvRow([
+          entry.entryNo,
+          entry.transactionDate,
+          entry.registrationDatetime,
+          entry.text,
+          line.accountNo,
+          line.accountName,
+          formatAmount(line.debitAmount),
+          formatAmount(line.creditAmount),
+          line.vatCode,
+          line.text,
+          entry.currency,
+          formatAmount(entry.amountDkk),
+          entry.status,
+        ]),
+      );
+    }
+  }
+  // Trailing newline so the file ends cleanly; \r\n keeps Excel happy.
+  return [header, ...rows].join("\r\n") + "\r\n";
+}
+
+function buildTrialBalanceCsv(db: Database, periodStart: string, periodEnd: string): string {
+  const tb = buildTrialBalance(db, periodStart, periodEnd);
+  const header = csvRow([
+    "account_no",
+    "account_name",
+    "type",
+    "normal_balance",
+    "debit",
+    "credit",
+    "balance",
+  ]);
+  const rows = tb.accounts.map((account) =>
+    csvRow([
+      account.accountNo,
+      account.name,
+      account.type,
+      account.normalBalance,
+      formatAmount(account.debit),
+      formatAmount(account.credit),
+      formatAmount(account.balance),
+    ]),
+  );
+  const totals = csvRow([
+    "TOTAL",
+    "",
+    "",
+    "",
+    formatAmount(tb.totalDebit),
+    formatAmount(tb.totalCredit),
+    formatAmount(tb.totalDebit - tb.totalCredit),
+  ]);
+  return [header, ...rows, totals].join("\r\n") + "\r\n";
+}
+
 function fetchJournalEntries(db: Database, periodStart: string, periodEnd: string): JournalEntryRecord[] {
   const entries = db.query(
     `SELECT id, entry_no, transaction_date, registration_datetime, text, document_id, source_bank_transaction_id,
@@ -468,23 +592,34 @@ function buildExportReadme(input: {
   requester: string | null;
   requestedAt: string | null;
   generatedAt: string;
+  generatedAtExplicit: boolean;
   deadlineAt: string | null;
 }) {
   // Frame text on Danish (revisor / SKAT læser pakken). Field-key og
   // file-stier holdes engelske fordi de mirror'er manifest.json's JSON-felter
   // og er stabile mod tværsprogede consumers (test-scripts, agent-tools).
+  //
+  // EJER-14: be honest about the timestamp. When the caller does not supply a
+  // real generation time, the package uses a DETERMINISTIC stamp derived from
+  // the period end (so re-running yields a byte-identical package). Labelling
+  // it plainly "Genereret: <fremtid>" was misleading — say what it is.
+  const generatedLine = input.generatedAtExplicit
+    ? `Genereret: ${input.generatedAt}`
+    : `Genereret (deterministisk, udledt af periodeslut — ikke et reelt ur-tidspunkt): ${input.generatedAt}`;
   return [
     input.title,
     "",
     `Periode: ${input.periodStart}..${input.periodEnd}`,
     `Rekvirent: ${input.requester ?? "ikke angivet"}`,
     `Anmodet: ${input.requestedAt ?? "ikke angivet"}`,
-    `Genereret: ${input.generatedAt}`,
+    generatedLine,
     `Frist: ${input.deadlineAt ?? "ikke relevant"}`,
     ...(input.scopeLines.length > 0 ? ["", ...input.scopeLines] : []),
     "",
     "Filer i pakken:",
     "- machine-readable/journal-entries.json — finansposteringer (alle linjer) i perioden",
+    "- machine-readable/journal-entries.csv — samme finansposteringer som CSV (én række pr. posteringslinje)",
+    "- machine-readable/trial-balance.csv — saldobalance for perioden (debet/kredit/saldo pr. konto) som CSV",
     "- machine-readable/documents.json — knyttede eller udstedte bilag plus stier til de eksporterede læselige filer",
     "- machine-readable/bank-transactions.json — knyttede eller periodefiltrerede banktransaktioner",
     "- machine-readable/audit-log.json — revisionsspor (audit-events) i perioden",
@@ -506,7 +641,11 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   if (errors.length === 0 && input.periodStart > input.periodEnd) errors.push("periodStart cannot be after periodEnd");
   const requestedAt = resolveIsoDateTime(input.requestedAt);
   if (input.requestedAt && !requestedAt) errors.push("requestedAt must be a valid ISO-8601 datetime when provided");
-  const generatedAt = resolveIsoDateTime(input.generatedAt ?? input.requestedAt) ?? normalizeExportTimestamp(input.periodEnd);
+  const resolvedGeneratedAt = resolveIsoDateTime(input.generatedAt ?? input.requestedAt);
+  // True when the caller supplied a real generation/request time; false when we
+  // fall back to the deterministic period-derived stamp (see README honesty note).
+  const generatedAtExplicit = resolvedGeneratedAt !== null;
+  const generatedAt = resolvedGeneratedAt ?? normalizeExportTimestamp(input.periodEnd);
   if (input.generatedAt && !resolveIsoDateTime(input.generatedAt)) errors.push("generatedAt must be a valid ISO-8601 datetime when provided");
   if (errors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors };
 
@@ -565,6 +704,21 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   writeExportJson(exportDir, join(machineReadableDir, "companies.json"), companies, outputs);
   writeExportJson(exportDir, join(machineReadableDir, "schema-migrations.json"), schemaMigrations, outputs);
 
+  // EJER-14: human-friendly CSV siblings of the journal and the trial balance
+  // (saldobalance), alongside the JSON, so a revisor can open them directly.
+  writeExportText(
+    exportDir,
+    join(machineReadableDir, "journal-entries.csv"),
+    buildJournalEntriesCsv(journalEntries),
+    outputs,
+  );
+  writeExportText(
+    exportDir,
+    join(machineReadableDir, "trial-balance.csv"),
+    buildTrialBalanceCsv(db, input.periodStart, input.periodEnd),
+    outputs,
+  );
+
   const copiedDocuments: Array<{ documentId: number; sourcePathRelativeToCompany: string | null; exportedPath: string; sha256: string; sizeBytes: number }> = [];
   for (const document of documents) {
     if (!document.storedPath || !existsSync(document.storedPath)) continue;
@@ -590,6 +744,7 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
     requester: input.requester ?? null,
     requestedAt: requestedAt ?? null,
     generatedAt,
+    generatedAtExplicit,
     deadlineAt,
   }));
   recordExistingFile(exportDir, readmePath, outputs);
@@ -600,6 +755,9 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   const manifest = {
     packageType: profile.packageType,
     generatedAt,
+    // false => generatedAt is a deterministic stamp derived from the period end,
+    // not a real wall-clock generation time (EJER-14).
+    generatedAtExplicit,
     requestedAt: requestedAt ?? null,
     deadlineAt,
     requester: input.requester ?? null,
@@ -607,9 +765,11 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
     periodEnd: input.periodEnd,
     sourceCompanyRootName: basename(companyRoot),
     appliedRules: [RULE_ID],
-    machineReadableFormat: "json",
+    machineReadableFormat: "json+csv",
     files: {
       journalEntries: "machine-readable/journal-entries.json",
+      journalEntriesCsv: "machine-readable/journal-entries.csv",
+      trialBalanceCsv: "machine-readable/trial-balance.csv",
       documents: "machine-readable/documents.json",
       bankTransactions: "machine-readable/bank-transactions.json",
       auditLog: "machine-readable/audit-log.json",

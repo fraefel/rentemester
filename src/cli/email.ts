@@ -23,7 +23,7 @@ function loadSmtpConfig(companyRoot: string): { ok: true; config: SmtpConfig } |
   if (!existsSync(path)) {
     return {
       ok: false,
-      error: `missing SMTP config: create config/smtp.json (host, port, fromAddress) at ${path}`,
+      error: `manglende SMTP-opsætning: opret config/smtp.json (host, port, fromAddress) her: ${path}`,
     };
   }
   try {

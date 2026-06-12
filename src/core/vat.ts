@@ -22,6 +22,16 @@ export type VatPeriodReport = {
   salesBase25: number;
   reverseChargeSalesBase: number;
   reverseChargePurchaseBase: number;
+  /**
+   * Output VAT actually booked on account 1200 by EU service reverse-charge
+   * purchases (the credit side of postEuServiceReverseChargePurchase). This is
+   * the *booked* sum — the øre-rounded VAT of each individual purchase added up
+   * — which can differ by up to 1 øre per purchase from 25% of the summed
+   * reverseChargePurchaseBase. The momsangivelse uses this figure for "Moms af
+   * ydelseskøb i udlandet" so that rubrik, and the salgsmoms derived by
+   * subtracting it from the booked outputVat, are both exact.
+   */
+  reverseChargePurchaseOutputVat: number;
   representationPurchaseBase: number;
   badDebtReliefBase25: number;
   /**
@@ -66,6 +76,13 @@ const REPRESENTATION_RULE_ID = "DK-VAT-REPRESENTATION-001";
  *
  * Returns the deadline as a YYYY-MM-DD ISO date, or `null` when `periodEnd`
  * is not a valid ISO date.
+ *
+ * Cadence (JUR-12): this formula is correct ONLY for a quarterly afregnings-
+ * periode — the single cadence Rentemester supports. buildVatFiling additionally
+ * warns if the closed period is not a standard calendar quarter. The deadline is
+ * deliberately NOT shifted off weekends/holidays: SKAT moves a non-banking-day
+ * due date to the next banking day, always later, so the un-shifted date is the
+ * conservative (earliest-possible) one and paying by it can never be late.
  */
 export function vatFilingDeadline(periodEnd: string): string | null {
   if (!looksLikeIsoDate(periodEnd)) return null;
@@ -234,6 +251,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       salesBase25: 0,
       reverseChargeSalesBase: 0,
       reverseChargePurchaseBase: 0,
+      reverseChargePurchaseOutputVat: 0,
       representationPurchaseBase: 0,
       badDebtReliefBase25: 0,
       exemptSalesBase: 0,
@@ -277,6 +295,14 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   let reverseChargeSalesBase = 0;
   let reverseChargePurchaseBase = 0;
   let representationPurchaseBase = 0;
+  // Reverse-charge output VAT is booked per purchase on account 1200, øre-
+  // rounded per transaction. To recover the *booked* total (which can differ
+  // from 25% of the summed base by up to 1 øre per purchase), accumulate the
+  // 1200 net (credit − debit) per journal entry and the set of entries that
+  // carry an EU_SERVICE_REVERSE_CHARGE base line, then sum 1200 over exactly
+  // those entries after the scan.
+  const account1200NetByEntry = new Map<number, number>();
+  const reverseChargeEntryIds = new Set<number>();
   let badDebtReliefBase25 = 0;
   let exemptSalesBase = 0;
   let ossConsumerSalesBase = 0;
@@ -315,7 +341,10 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     const debit = roundDkk(Number(row.debit_amount ?? 0));
     const credit = roundDkk(Number(row.credit_amount ?? 0));
 
-    if (row.account_no === "1200") outputVat += credit - debit;
+    if (row.account_no === "1200") {
+      outputVat += credit - debit;
+      account1200NetByEntry.set(row.entry_id, (account1200NetByEntry.get(row.entry_id) ?? 0) + (credit - debit));
+    }
     if (row.account_no === "4000") inputVat += debit - credit;
 
     if (row.vat_code === "DK_PURCHASE_25") { purchaseBase25 += debit - credit; inputVatBaseLines += 1; }
@@ -323,6 +352,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     if (row.vat_code === "REVERSE_CHARGE_EXEMPT") reverseChargeSalesBase += credit - debit;
     if (row.vat_code === "EU_SERVICE_REVERSE_CHARGE") {
       reverseChargePurchaseBase += debit - credit;
+      reverseChargeEntryIds.add(row.entry_id);
       // Reverse charge contributes to both output and input VAT.
       inputVatBaseLines += 1;
       outputVatBaseLines += 1;
@@ -346,6 +376,14 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   salesBase25 = roundDkk(salesBase25);
   reverseChargeSalesBase = roundDkk(reverseChargeSalesBase);
   reverseChargePurchaseBase = roundDkk(reverseChargePurchaseBase);
+  // Booked reverse-charge output VAT: the 1200 net booked on exactly the
+  // entries that carry a reverse-charge base line. Summed as the øre-rounded
+  // per-entry amounts so the figure equals what hit account 1200, not 25% of
+  // the aggregate base.
+  let reverseChargePurchaseOutputVat = 0;
+  for (const entryId of reverseChargeEntryIds) {
+    reverseChargePurchaseOutputVat = addDkk(reverseChargePurchaseOutputVat, account1200NetByEntry.get(entryId) ?? 0);
+  }
   representationPurchaseBase = roundDkk(representationPurchaseBase);
   badDebtReliefBase25 = roundDkk(badDebtReliefBase25);
   exemptSalesBase = roundDkk(exemptSalesBase);
@@ -368,6 +406,23 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     warnings.push(`input VAT mismatch: booked ${inputVat}, expected from base × rate ${expectedInputVat}`);
   }
 
+  // Partial deduction (delvis fradragsret, momsloven §§37-38) is NOT modelled:
+  // every purchase code assumes 100% deductible input VAT. When a period has
+  // BOTH VAT-exempt turnover (DK_SALE_EXEMPT, §13) AND deducted input VAT, some
+  // of that input VAT may be only partly deductible (a pro-rata split tied to
+  // the exempt vs. taxable revenue mix). Rentemester does not compute that
+  // split — warn so the user/advisor checks it. Warning only: no amount changes
+  // and the netVatPayable invariant is untouched.
+  if (exemptSalesBase > 0 && inputVat > 0) {
+    warnings.push(
+      "Delvis fradragsret (momsloven §§37-38) håndteres ikke: perioden har både " +
+        "momsfri omsætning (DK_SALE_EXEMPT) og fuldt fradraget købsmoms. Noget af " +
+        "købsmomsen kan være delvis fradragsberettiget (pro rata efter momspligtig " +
+        "vs. momsfri omsætning). Få revisor til at vurdere fradragsprocenten — " +
+        "Rentemester beregner ikke fordelingen.",
+    );
+  }
+
   return {
     ok: true,
     appliedRules: [RULE_ID],
@@ -380,6 +435,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     salesBase25,
     reverseChargeSalesBase,
     reverseChargePurchaseBase,
+    reverseChargePurchaseOutputVat,
     representationPurchaseBase,
     badDebtReliefBase25,
     exemptSalesBase,

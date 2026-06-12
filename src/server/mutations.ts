@@ -77,7 +77,7 @@ export type WithCompanyMutationOptions = {
  * network, so it fails closed. When auth IS required the bearer-token check in
  * `authMiddleware` is the gate and this check steps aside.
  */
-function assertLocalhostWriteAllowed(request: Request, config: ServerConfig): void {
+export function assertLocalhostWriteAllowed(request: Request, config: ServerConfig): void {
   if (config.authRequired) return;
   const hostHeader = (request.headers.get("host") ?? "").trim().toLowerCase();
   // Strip the optional `:port` suffix — but not from a bracketed IPv6 host.
@@ -93,6 +93,87 @@ function assertLocalhostWriteAllowed(request: Request, config: ServerConfig): vo
     throw ApiError.unauthorized(
       "Skrivehandlinger fra Cockpit er kun tilladt fra localhost, " +
         "medmindre godkendelse er slået til.",
+    );
+  }
+}
+
+/**
+ * CSRF/DNS-rebinding-hærdning (audit 2026-06-11, SEC-1) — gate 1 af 2:
+ * Content-Type.
+ *
+ * `assertLocalhostWriteAllowed` alene er ikke nok: Host-headeren sættes af
+ * browseren til SERVERENS adresse, så et ondsindet website kunne sende en
+ * CORS-"simple request" (text/plain) med JSON-body — uden preflight — og
+ * udføre writes mod localhost-API'et.
+ *
+ * Reglen: bærer mutationen en Content-Type-header, SKAL medietypen være
+ * `application/json` (parametre som `; charset=utf-8` er ok). En browser kan
+ * ikke sende en bodied cross-origin POST uden Content-Type (fetch/XHR/form
+ * sætter altid en), så text/plain-vektoren er lukket. En HELT fraværende
+ * Content-Type tillades fortsat — det er CLI/curl/ikke-browser-klienter, og
+ * den body-løse browser-vektor dækkes af Origin-gaten nedenfor.
+ */
+export function assertMutationContentType(request: Request): void {
+  const raw = request.headers.get("content-type");
+  if (raw === null) return;
+  const mediaType = (raw.split(";")[0] ?? "").trim().toLowerCase();
+  if (mediaType !== "application/json") {
+    throw ApiError.badRequest(
+      `mutationer kræver 'Content-Type: application/json' — fik '${mediaType || raw.trim()}'`,
+      { subcode: "INVALID_CONTENT_TYPE" },
+    );
+  }
+}
+
+/** Loopback-værtsnavne en browser-Origin må pege på — vilkårlig port. */
+const LOOPBACK_ORIGIN_HOSTNAMES = new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "[::1]",
+  "0:0:0:0:0:0:0:1",
+  "[0:0:0:0:0:0:0:1]",
+]);
+
+/**
+ * CSRF/DNS-rebinding-hærdning (audit 2026-06-11, SEC-1) — gate 2 af 2: Origin.
+ *
+ * En browser sætter ALTID en Origin-header på en cross-origin POST (også på
+ * simple requests uden preflight) — og siden kan ikke forfalske den. Reglen:
+ *
+ *   - manglende Origin → tilladt (CLI/curl/MCP/ikke-browser-klienter);
+ *   - loopback-origin  → tilladt på ENHVER port: produktion serverer SPA'en
+ *                        fra samme loopback-server, og vite-dev kører på
+ *                        http://localhost:5319 og proxy'er `/api` videre
+ *                        (app/vite.config.ts) med Origin-headeren intakt;
+ *   - alt andet        → afvist med stabil subcode FORBIDDEN_ORIGIN. Det
+ *                        dækker også `Origin: null` (sandboxed iframe).
+ *
+ * Når auth ER slået til, træder gaten til side ligesom localhost-gaten: dér
+ * er bearer-tokenet i `authMiddleware` gaten (et cross-site angreb kan ikke
+ * sætte Authorization-headeren i en simple request), og en legitim
+ * fjern-deployment har netop en ikke-loopback Origin.
+ */
+export function assertMutationOriginAllowed(request: Request, config: ServerConfig): void {
+  if (config.authRequired) return;
+  const origin = (request.headers.get("origin") ?? "").trim();
+  if (origin === "") return;
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    parsed = null;
+  }
+  const allowed =
+    parsed !== null &&
+    (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+    LOOPBACK_ORIGIN_HOSTNAMES.has(parsed.hostname.toLowerCase());
+  if (!allowed) {
+    throw new ApiError(
+      "unauthorized",
+      "Skrivehandlinger fra Cockpit accepterer kun browser-kald fra en " +
+        "loopback-origin (http://localhost, http://127.0.0.1 eller http://[::1]).",
+      { subcode: "FORBIDDEN_ORIGIN" },
     );
   }
 }
@@ -155,7 +236,9 @@ async function readMutationBody(
  * Runs a Cockpit write through every cross-cutting gate, in order:
  *
  *   1. localhost hard-gate   — refuse a write from a non-loopback host when
- *                              auth is disabled;
+ *                              auth is disabled; plus browser-hærdning
+ *                              (SEC-1): refuse a non-loopback Origin and a
+ *                              non-JSON Content-Type;
  *   2. company resolution    — slug → company root, ledger-exists check (404);
  *   3. confirm gate          — when `requireConfirm`, the body must carry
  *                              `confirm: true` (else 400);
@@ -177,8 +260,11 @@ export async function withCompanyMutation<T extends CoreResult>(
   handler: (ctx: MutationContext, body: Record<string, unknown>) => T | Promise<T>,
   options: WithCompanyMutationOptions = {},
 ): Promise<T> {
-  // (1) Localhost hard-gate.
+  // (1) Localhost hard-gate + browser-hærdning (SEC-1): en ikke-loopback
+  // Origin og en ikke-JSON Content-Type afvises FØR body'en læses.
   assertLocalhostWriteAllowed(request, config);
+  assertMutationOriginAllowed(request, config);
+  assertMutationContentType(request);
 
   // The auth seam already ran once in `handleRequest`; re-running it here is
   // cheap and yields the typed `Principal` the actor mapper needs without

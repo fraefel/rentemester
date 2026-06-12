@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import { formatKroner, todayIso } from "../lib/format";
+import { formatKroner, parseDanishAmount, todayIso } from "../lib/format";
 import type { MileageEntrySummary } from "../lib/types";
 import { Banner } from "./Feedback";
 import { LockBanner } from "./LockBanner";
@@ -81,17 +81,17 @@ export function MileageRegisterModal({
     setError(null);
     setLocked(null);
 
-    const km = Number(kilometers);
-    const rate = Number(ratePerKm);
+    const km = parseDanishAmount(kilometers);
+    const rate = parseDanishAmount(ratePerKm);
     if (!tripDate) return setError("Dato er påkrævet.");
     if (!purpose.trim()) return setError("Formål er påkrævet.");
     if (!fromLocation.trim()) return setError("Fra-adresse er påkrævet.");
     if (!toLocation.trim()) return setError("Til-adresse er påkrævet.");
-    if (!Number.isFinite(km) || km <= 0)
+    if (km === null || km <= 0)
       return setError("Antal km skal være et positivt tal.");
     if (!vehicle.trim()) return setError("Køretøj er påkrævet.");
     if (!driver.trim()) return setError("Chauffør er påkrævet.");
-    if (!Number.isFinite(rate) || rate <= 0)
+    if (rate === null || rate <= 0)
       return setError("Takst skal være et positivt tal i kr/km.");
     if (!rateBasis.trim())
       return setError(
@@ -130,14 +130,14 @@ export function MileageRegisterModal({
     }
   }
 
+  const kmPreview = parseDanishAmount(kilometers);
+  const ratePreview = parseDanishAmount(ratePerKm);
   const amountBasis =
-    Number.isFinite(Number(kilometers)) && Number.isFinite(Number(ratePerKm))
-      ? Number(kilometers) * Number(ratePerKm)
-      : null;
+    kmPreview !== null && ratePreview !== null ? kmPreview * ratePreview : null;
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-label="Registrér kørsel"

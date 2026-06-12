@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, type InvoiceIssueSummary } from "../lib/api";
-import { formatKroner } from "../lib/format";
+import { formatKroner, parseDanishAmount } from "../lib/format";
 import type { ContactCustomerRow } from "../lib/types";
 import { Banner } from "./Feedback";
 import { LockBanner } from "./LockBanner";
@@ -210,13 +210,13 @@ export function InvoiceIssueModal({
         setError(`Linje ${i + 1}: angiv en beskrivelse.`);
         return null;
       }
-      const quantity = Number(line.quantity);
-      const unitPrice = Number(line.unitPriceExVat);
-      if (!line.quantity.trim() || !Number.isFinite(quantity)) {
+      const quantity = parseDanishAmount(line.quantity);
+      const unitPrice = parseDanishAmount(line.unitPriceExVat);
+      if (quantity === null) {
         setError(`Linje ${i + 1}: antal skal være et tal.`);
         return null;
       }
-      if (!line.unitPriceExVat.trim() || !Number.isFinite(unitPrice)) {
+      if (unitPrice === null) {
         setError(`Linje ${i + 1}: enhedspris skal være et tal.`);
         return null;
       }

@@ -13,6 +13,12 @@ vat_codes:
     rate: 0.25
     reverse_charge: false
     deductible_percentage: 1.0
+  # LIMITATION (JUR-5): EU GOODS acquisitions (momsloven §11, erhvervelsesmoms,
+  # "Moms af varekøb i udlandet") are NOT modelled — there is no goods-import VAT
+  # code. The only EU-purchase code below is EU_SERVICE_REVERSE_CHARGE (services,
+  # §46). buildVatFiling sets momsAfVarekobUdland = 0 and warns whenever a period
+  # has EU reverse-charge purchases, so an EU goods purchase is never silently
+  # booked as a service. Full §11 erhvervelsesmoms flow is out of scope for now.
   - code: EU_SERVICE_REVERSE_CHARGE
     type: purchase
     rate: 0.25

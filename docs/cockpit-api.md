@@ -81,15 +81,16 @@ The `<key>` is route-specific (`dashboard`, `invoices`, `import`, `invoice`,
 unified with MCP + CLI in #368):
 
 ```json
-{ "ok": false, "errors": ["<safe message>"], "code": "<code>" }
+{ "ok": false, "errors": ["<safe message>"], "code": "<code>", "subcode": "<subcode>" }
 ```
 
 This is the **same envelope** MCP and CLI return — see
 [`docs/mcp-agent-contract.md`](mcp-agent-contract.md#preconditions-and-errors--where-they-live)
 and [`docs/cli-contract.md`](cli-contract.md). An agent that drives all three
 write-stacks can share a single error-parser: `errors[0]` is the
-human-readable message; `code` is the discrete enum below for programmatic
-branching.
+human-readable message; `code` is the discrete HTTP enum below for programmatic
+branching; `subcode` (present only for some errors) is a finer, stable marker
+that mirrors the MCP envelope's `code` field.
 
 | `code` | HTTP | When |
 |--------|------|------|
@@ -103,6 +104,19 @@ branching.
 A core business rejection (`ok:false` from a bookkeeping function) is mapped
 to `bad_request` by default, or to `conflict` when the message indicates a
 missing target or an already-done action. It is **never** a `500`.
+
+### `subcode` — finer markers (optional)
+
+Some write errors carry a stable `subcode` alongside the HTTP `code`, so an
+agent can branch on the specific cause without parsing `errors[0]`. The
+`subcode` is omitted when there is no finer marker. The cross-cutting subcodes
+(`src/server/mutations.ts`):
+
+| `subcode` | `code` | HTTP | When |
+|-----------|--------|------|------|
+| `INVALID_CONTENT_TYPE` | `bad_request` | 400 | A mutation arrived with a `Content-Type` other than `application/json` (SEC-1 CSRF hardening — closes the `text/plain` simple-request vector). A wholly-absent `Content-Type` is still allowed (CLI/curl/non-browser clients). |
+| `FORBIDDEN_ORIGIN` | `unauthorized` | 401 | A browser mutation arrived with a non-loopback (or `null`) `Origin` while auth is disabled (SEC-1 DNS-rebinding/CSRF hardening). A missing `Origin` (non-browser clients) and loopback origins on any port are allowed. |
+| `CONFIRM_REQUIRED` | `bad_request` | 400 | A write-irreversible mutation was sent without `confirm: true` in the body. |
 
 > **Wire-shape note (#368).** Before #368 the cockpit returned a singular
 > `error: { code, message }` object — the old shape is gone. Any client that

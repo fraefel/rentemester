@@ -7,7 +7,7 @@ import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { promoteTempFile, removeIfExists, writeTempFileFor } from "./atomic-file";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { roundDkk } from "./money";
+import { fromOre, roundDkk, toOre } from "./money";
 import { companySequenceScope, fiscalYearLabelFromDate, nextSequenceValue, reserveSequenceValue } from "./sequences";
 import { retainUntilForDate } from "./retention";
 
@@ -118,8 +118,38 @@ function creditNoteLinesFromOriginalJournal(db: Database, originalInvoiceDocumen
       text: line.text ?? undefined,
     }))
     .filter((line) => (line.debitAmount ?? 0) > 0 || (line.creditAmount ?? 0) > 0);
+  if (reversedLines.length === 0) return null;
 
-  return reversedLines.length > 0 ? reversedLines : null;
+  // KODE-3: each line is rounded to øre independently, so the rounded debits
+  // can sum to one øre more (or less) than the rounded credits (e.g. gross
+  // 125.06 credited 62.53 → revenue 50.03 + VAT 12.51 = 62.54 vs receivable
+  // 62.53) and postJournalEntry would reject the entry. Balance the entry per
+  // construction — same technique as computeAccrualSchedule's residual-in-the-
+  // last-period: park the whole rounding residual on ONE line. The carrier is
+  // the revenue line (largest debit carrying a vat_code), NOT the receivable
+  // counter-line: the receivable must stay exactly equal to the credit-note
+  // gross (the bilag total — it scales exactly: gross/originalGross ×
+  // originalGross), and the VAT line must stay pro-rata so it keeps matching
+  // the credit-note document's vatAmount. This mirrors fallbackCreditNoteLines
+  // where net = gross − vat by construction.
+  const debitOre = reversedLines.reduce((sum, line) => sum + toOre(line.debitAmount ?? 0), 0n);
+  const creditOre = reversedLines.reduce((sum, line) => sum + toOre(line.creditAmount ?? 0), 0n);
+  const residualOre = debitOre - creditOre;
+  if (residualOre !== 0n) {
+    const debitLines = reversedLines.filter((line) => (line.debitAmount ?? 0) > 0);
+    const carrierPool = debitLines.filter((line) => line.vatCode !== undefined);
+    const carrier = (carrierPool.length > 0 ? carrierPool : debitLines)
+      .reduce<typeof reversedLines[number] | null>(
+        (best, line) => (best === null || (line.debitAmount ?? 0) > (best.debitAmount ?? 0) ? line : best),
+        null,
+      );
+    if (!carrier) return null; // degenerate entry — let the fallback lines handle it
+    const adjusted = fromOre(toOre(carrier.debitAmount!) - residualOre);
+    if (!(adjusted > 0)) return null; // residual would zero out the carrier — fall back
+    carrier.debitAmount = adjusted;
+  }
+
+  return reversedLines;
 }
 
 function fallbackCreditNoteLines(originalInvoiceNo: string, payload: any, grossAmount: number, netAmount: number, vatAmount: number) {

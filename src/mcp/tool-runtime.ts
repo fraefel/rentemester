@@ -31,6 +31,7 @@ import {
   type Envelope,
 } from "./envelope";
 import { deriveMcpActor, type McpActor } from "./actor";
+import { checkActorAllowlist } from "../cli-actor";
 
 /**
  * Redacts absolute filesystem paths from a message destined for the
@@ -89,12 +90,23 @@ export function resolveCompanyArg(raw: string): CompanyArgResolution {
     if (workspaceRoot) {
       const fromSlug = resolveWorkspaceSlug(workspaceRoot, raw);
       if (fromSlug) return { ok: true, companyRoot: fromSlug };
+      // Slug-shaped value, workspace configured, but no such slug in the
+      // manifest. Name the manifest explicitly so the caller knows to check
+      // the registered slugs — not a filesystem path. (AGENT-9)
       return {
         ok: false,
-        error: `ingen virksomhed med slug '${raw}' findes i det konfigurerede workspace`,
+        error: `ingen virksomhed med slug '${raw}' findes i det konfigurerede workspace (slug ikke i workspace-manifestet — tjek de registrerede slugs)`,
       };
     }
-    // No workspace configured: fall through and treat the value as a path.
+    // The argument is slug-shaped (no separators, slug pattern) and clearly NOT
+    // a path the caller meant to pass. With no workspace configured a slug can
+    // never resolve, so report THAT precisely (AGENT-9) rather than letting it
+    // fall through to the generic "company path does not exist" — the caller
+    // needs to set RENTEMESTER_WORKSPACE, not fix a path.
+    return {
+      ok: false,
+      error: `intet workspace konfigureret: sæt RENTEMESTER_WORKSPACE til en workspace-mappe for at bruge slug '${raw}', eller angiv en absolut virksomhedssti i stedet`,
+    };
   }
 
   const segments = raw.split(/[\\/]+/);
@@ -172,9 +184,26 @@ export const idempotencyKeyField = z
  *
  * Handleren returnerer kun envelope; resultatet pakkes til MCP call-result her.
  */
+/**
+ * Optional cross-cutting checks `withCompanyDb` runs AFTER the company path is
+ * resolved and the actor derived, but BEFORE the db is opened or the handler
+ * runs. Used by `withCompanyDbConfirmed` to enforce the shared actor allowlist
+ * (SEC-2) on the MCP write path.
+ */
+type WithCompanyDbOptions = {
+  /**
+   * SEC-2 (Audit 2026-06-11): when true, the derived MCP actor must pass the
+   * company's `config/policy.yaml` actor_allowlist — the SAME gate the CLI
+   * applies via `enforceMutationActorPolicy`. A non-allowlisted (or, per SEC-3,
+   * policy-less) company rejects the write with a path-redacted envelope.
+   */
+  enforceActorAllowlist?: boolean;
+};
+
 export function withCompanyDb<TArgs extends { company: string }>(
   server: McpServer,
   handler: (ctx: { db: Database; actor: McpActor; args: TArgs }) => Envelope | Promise<Envelope>,
+  options: WithCompanyDbOptions = {},
 ): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
   return async (args) => {
     if (!args || typeof args.company !== "string" || args.company.length === 0) {
@@ -193,8 +222,28 @@ export function withCompanyDb<TArgs extends { company: string }>(
       );
     }
     const actor = deriveMcpActor(server.server.getClientVersion());
-    const db = openDb(companyPaths(companyRoot).db);
+    // SEC-2: enforce the shared actor allowlist for write tools. The MCP actor
+    // is derived from the client handshake (`actor.createdBy`, e.g.
+    // `agent:claude-code/0.4.1`). NOTE (SEC-4): handshake-supplied attribution
+    // is advisory and client-controlled — the allowlist is a coarse policy
+    // hook, not a strong identity boundary on a multi-tenant transport.
+    if (options.enforceActorAllowlist) {
+      const decision = checkActorAllowlist(companyRoot, actor.createdBy);
+      if (!decision.allowed) {
+        console.error(`[mcp:withCompanyDb] actor gate: ${decision.reason}`);
+        return envelopeToCallResult(
+          errorEnvelope(redactPaths(decision.reason), { code: "ACTOR_NOT_ALLOWED" }),
+        );
+      }
+    }
+    // `openDb`/`migrate` must stay INSIDE the try: under concurrent load they can
+    // throw (lock contention, disk pressure). If that escapes here, the SDK wraps
+    // it as an isError text result WITHOUT `structuredContent`, breaking the
+    // envelope contract (the "structuredContent undefined" flake). Keeping them
+    // inside guarantees every failure returns a proper `{ ok:false }` envelope.
+    let db: Database | undefined;
     try {
+      db = openDb(companyPaths(companyRoot).db);
       migrate(db);
       // Hand the handler the *resolved* company directory under `args.company`
       // so tools that pass it on to core APIs (e.g. `getBackupComplianceStatus`,
@@ -206,7 +255,7 @@ export function withCompanyDb<TArgs extends { company: string }>(
       const message = error instanceof Error ? error.message : String(error);
       return envelopeToCallResult(safeErrorEnvelope("withCompanyDb", message));
     } finally {
-      db.close();
+      db?.close();
     }
   };
 }
@@ -234,7 +283,9 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
         ),
       );
     }
-    return withCompanyDb(server, handler)(args);
+    // SEC-2: every confirmed MCP write passes the same actor allowlist gate as
+    // the CLI. `confirm: true` alone is no longer sufficient.
+    return withCompanyDb(server, handler, { enforceActorAllowlist: true })(args);
   };
 }
 

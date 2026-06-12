@@ -1,6 +1,6 @@
 // Tests: src/cli/mileage.ts, src/cli.ts (mileage CLI)
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
@@ -22,12 +22,22 @@ async function runCli(args: string[]) {
 function freshCompany(prefix: string) {
   const root = mkdtempSync(join(tmpdir(), prefix));
   const company = join(root, "company");
-  const db = openDb(ensureCompanyDirs(company).db);
+  const paths = ensureCompanyDirs(company);
+  const db = openDb(paths.db);
   migrate(db);
   db.run(
     `INSERT INTO companies (id, name, cvr, fiscal_year_start_month, fiscal_year_label_strategy) VALUES (1, 'Rentemester ApS', 'DK12345678', 1, 'end-year')`,
   );
   db.close();
+  // SEC-3 (Audit 2026-06-11): mutating CLI commands now fail closed against a
+  // policy-less company. Real onboarding (`init` / `company add`) seeds the
+  // allowlist; this fixture skips onboarding, so mirror it by allowlisting the
+  // derived `user:tester` actor (runCli sets USER=tester) the same way
+  // `buildDefaultPolicyYaml` would.
+  writeFileSync(
+    join(paths.config, "policy.yaml"),
+    "actor_allowlist:\n  users:\n    - user:tester\n",
+  );
   return { root, company };
 }
 

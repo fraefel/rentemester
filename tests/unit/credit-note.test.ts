@@ -281,4 +281,86 @@ describe("credit notes", () => {
     db.close();
     rmSync(root, { recursive: true, force: true });
   });
+
+  // KODE-3: per-line pro-rata rounding can make the scaled lines sum to one
+  // øre more (or less) than the receivable counter-line, and postJournalEntry
+  // then rejects the entry ("journal entry must balance"). The entry must
+  // balance per construction: the receivable stays equal to the credit-note
+  // gross (the bilag total), the VAT line stays pro-rata, and the rounding
+  // residual lands on the revenue line — mirroring the fallback lines where
+  // net = gross - vat by construction.
+  test("books a partial credit note with skæve øre (125.06 gross, 62.53 credited)", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-credit-odd-ore-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 100.05, lineTotalExVat: 100.05 }],
+      totals: { netAmount: 100.05, vatRate: 0.25, vatAmount: 25.01, grossAmount: 125.06 },
+      currency: "DKK"
+    });
+    expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
+
+    const credit = issueCreditNote(db, root, {
+      originalInvoiceDocumentId: issued.documentId!,
+      issueDate: "2026-05-17",
+      reason: "Partial correction with odd øre",
+      grossAmount: 62.53
+    });
+    expect(credit.ok, credit.errors.join("; ")).toBe(true);
+
+    const lines = db.query(
+      `SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code
+       FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+       WHERE jl.journal_entry_id = ? ORDER BY jl.id ASC`
+    ).all(credit.journalEntryId!) as any[];
+    // Revenue absorbs the rounding residual (50.03 pro-rata -> 50.02), VAT
+    // stays pro-rata, and the receivable equals the credit-note gross. Line
+    // order mirrors the original posting (receivable first).
+    expect(lines).toEqual([
+      { account_no: "1100", debit_amount: 0, credit_amount: 62.53, vat_code: null },
+      { account_no: "1000", debit_amount: 50.02, credit_amount: 0, vat_code: "DK_SALE_25" },
+      { account_no: "1200", debit_amount: 12.51, credit_amount: 0, vat_code: null },
+    ]);
+
+    // The cumulative cap still holds: the remaining 62.53 can be credited in
+    // full, also balancing per construction, and the invoice is then fully
+    // credited — with the 1100 receivable account netting to exactly zero.
+    const second = issueCreditNote(db, root, {
+      originalInvoiceDocumentId: issued.documentId!,
+      issueDate: "2026-05-18",
+      reason: "Final correction with odd øre"
+    });
+    expect(second.ok, second.errors.join("; ")).toBe(true);
+
+    const third = issueCreditNote(db, root, {
+      originalInvoiceDocumentId: issued.documentId!,
+      issueDate: "2026-05-19",
+      reason: "Too much",
+      grossAmount: 0.01
+    });
+    expect(third.ok).toBe(false);
+    expect(third.errors[0]).toContain("already fully credited");
+
+    const receivable = db.query(
+      `SELECT COALESCE(SUM(jl.debit_amount), 0) - COALESCE(SUM(jl.credit_amount), 0) AS balance
+       FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+       WHERE a.account_no = '1100'`
+    ).get() as { balance: number };
+    expect(receivable.balance).toBeCloseTo(0, 2);
+
+    const chain = verifyAuditChain(db);
+    expect(chain.ok).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
 });

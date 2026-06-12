@@ -37,8 +37,8 @@ export function register(dispatch: CommandDispatch): void {
       recordException(db, {
         type: "DOCUMENT_INGEST_BLOCKED",
         severity: "medium",
-        message: `Document ingest blocked for ${file}`,
-        requiredAction: "Fix document metadata or duplicate handling, then retry ingest.",
+        message: `Bilaget ${file} kunne ikke indlæses`,
+        requiredAction: "Ret bilagets metadata eller dublethåndtering, og prøv at indlæse igen.",
         sourceEvidence: {
           file,
           metadataFile,
@@ -50,7 +50,17 @@ export function register(dispatch: CommandDispatch): void {
         },
       });
     }
-    ctx.emitResult(result as Record<string, unknown>);
+    // EJER-17: a success confirmation, not the command description. Without a
+    // `message` the human renderer falls back to printing the command's help
+    // text ("✔ Indlæser og validerer et bilag") as the heading, which reads as
+    // a description of what the command does — not what it just did.
+    const confirmed = result.ok
+      ? {
+          ...(result as Record<string, unknown>),
+          message: `Bilag ${result.documentNo ?? ""}`.trim() + " er indlæst.",
+        }
+      : (result as Record<string, unknown>);
+    ctx.emitResult(confirmed);
     db.close();
   });
 

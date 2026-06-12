@@ -17,7 +17,7 @@
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatKroner } from "../lib/format";
+import { formatDateDa, formatKroner } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type { BankTransactionRow, CompanyBank } from "../lib/types";
 import { ErrorState, Loading } from "../components/Feedback";
@@ -106,6 +106,12 @@ export function BankView() {
   function sortIndicator(key: SortKey): string {
     if (!sort || sort.key !== key) return "";
     return sort.dir === "asc" ? " ▲" : " ▼";
+  }
+
+  // #UI-13 — expose the sort state to assistive tech on the sortable columns.
+  function ariaSort(key: SortKey): "ascending" | "descending" | "none" {
+    if (!sort || sort.key !== key) return "none";
+    return sort.dir === "asc" ? "ascending" : "descending";
   }
 
   const allTransactions = state.data?.transactions ?? [];
@@ -211,6 +217,7 @@ export function BankView() {
           setFilter={setFilter}
           clearAllFilters={clearAllFilters}
           sortIndicator={sortIndicator}
+          ariaSort={ariaSort}
           toggleSort={toggleSort}
           sortedTransactions={sortedTransactions}
         />
@@ -285,7 +292,7 @@ export function BankView() {
             <table className="data statement-table">
               <thead>
                 <tr>
-                  <th>
+                  <th scope="col" aria-sort={ariaSort("date")}>
                     <button
                       type="button"
                       className="th-sort"
@@ -295,8 +302,8 @@ export function BankView() {
                       Dato{sortIndicator("date")}
                     </button>
                   </th>
-                  <th>Tekst</th>
-                  <th className="num">
+                  <th scope="col">Tekst</th>
+                  <th className="num" scope="col" aria-sort={ariaSort("amount")}>
                     <button
                       type="button"
                       className="th-sort"
@@ -306,8 +313,8 @@ export function BankView() {
                       Beløb{sortIndicator("amount")}
                     </button>
                   </th>
-                  <th className="num">Saldo</th>
-                  <th>Afstemning</th>
+                  <th className="num" scope="col">Saldo</th>
+                  <th scope="col">Afstemning</th>
                 </tr>
               </thead>
               <tbody>
@@ -384,6 +391,10 @@ function BankFilterBar({
   hasActiveFilter,
   setFilter,
   clearAllFilters,
+  // #UI-18 — the archived branch has no reconciliation column (afstemning for
+  // arkiverede år ligger i det gamle system), so a reconciliation-status filter
+  // there is meaningless. Hide the Status select for that case.
+  showStatusFilter = true,
 }: {
   q: string;
   fromDate: string;
@@ -395,6 +406,7 @@ function BankFilterBar({
     value: string,
   ) => void;
   clearAllFilters: () => void;
+  showStatusFilter?: boolean;
 }) {
   return (
     <div className="journal-filter-bar card" role="search">
@@ -423,17 +435,19 @@ function BankFilterBar({
           onChange={(e) => setFilter("to", e.target.value)}
         />
       </label>
-      <label className="journal-filter-field">
-        <span className="muted">Status</span>
-        <select
-          value={status}
-          onChange={(e) => setFilter("status", e.target.value)}
-        >
-          <option value="all">Alle</option>
-          <option value="matched">Kun afstemte</option>
-          <option value="unmatched">Kun uafstemte</option>
-        </select>
-      </label>
+      {showStatusFilter && (
+        <label className="journal-filter-field">
+          <span className="muted">Status</span>
+          <select
+            value={status}
+            onChange={(e) => setFilter("status", e.target.value)}
+          >
+            <option value="all">Alle</option>
+            <option value="matched">Kun afstemte</option>
+            <option value="unmatched">Kun uafstemte</option>
+          </select>
+        </label>
+      )}
       {hasActiveFilter && (
         <button
           type="button"
@@ -564,6 +578,7 @@ function ArchivedBankView({
   setFilter,
   clearAllFilters,
   sortIndicator,
+  ariaSort,
   toggleSort,
   sortedTransactions,
 }: {
@@ -574,6 +589,7 @@ function ArchivedBankView({
   toDate: string;
   status: StatusFilter;
   hasActiveFilter: boolean;
+  ariaSort: (key: SortKey) => "ascending" | "descending" | "none";
   setFilter: (
     key: (typeof FILTER_PARAM_KEYS)[number],
     value: string,
@@ -611,7 +627,7 @@ function ArchivedBankView({
               {formatKroner(closingBalance, currency)}
             </div>
             <p className="muted status-note">
-              Efter seneste postering den {lastTx.date}
+              Efter seneste postering den {formatDateDa(lastTx.date)}
             </p>
           </div>
         </div>
@@ -625,6 +641,7 @@ function ArchivedBankView({
         hasActiveFilter={hasActiveFilter}
         setFilter={setFilter}
         clearAllFilters={clearAllFilters}
+        showStatusFilter={false}
       />
 
       <BankFilterSummary
@@ -637,7 +654,7 @@ function ArchivedBankView({
         <table className="data statement-table">
           <thead>
             <tr>
-              <th>
+              <th scope="col" aria-sort={ariaSort("date")}>
                 <button
                   type="button"
                   className="th-sort"
@@ -647,8 +664,8 @@ function ArchivedBankView({
                   Dato{sortIndicator("date")}
                 </button>
               </th>
-              <th>Tekst</th>
-              <th className="num">
+              <th scope="col">Tekst</th>
+              <th className="num" scope="col" aria-sort={ariaSort("amount")}>
                 <button
                   type="button"
                   className="th-sort"
@@ -658,7 +675,7 @@ function ArchivedBankView({
                   Beløb{sortIndicator("amount")}
                 </button>
               </th>
-              <th className="num">Saldo</th>
+              <th className="num" scope="col">Saldo</th>
             </tr>
           </thead>
           <tbody>

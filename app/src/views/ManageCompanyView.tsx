@@ -8,13 +8,20 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
+import { formatDateDa } from "../lib/format";
 import { Banner, ErrorState, Loading } from "../components/Feedback";
 import { AccountantExportCard } from "../components/AccountantExportCard";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import type {
   CompanyEntry,
   CompanySettings,
   VatPeriodType,
 } from "../lib/types";
+
+// #UI-3 — the cockpit serves no /docs/* routes, so the old `/docs/cvr-opsaetning`
+// link was a dead end. CVR-login setup is covered by the public installation
+// guide; link there with an absolute URL, matching HelpView's DOCS_BASE pattern.
+const CVR_SETUP_GUIDE_URL = "https://rentemester.dk/docs/installation";
 
 /** The VAT-cadence options for the profile / create-company selectors (#300). */
 const VAT_PERIOD_OPTIONS: Array<{ value: VatPeriodType; label: string }> = [
@@ -61,6 +68,10 @@ function ManageForm({
   // save without re-fetching (a re-fetch would unmount this form mid-notice).
   const [savedName, setSavedName] = useState(company.name);
   const [archived, setArchived] = useState(company.archived);
+  // #UI-17 — archiving navigates the owner away from this view, so it must not
+  // fire on a single stray click. Gate it behind a confirm dialog. (Restoring
+  // is non-destructive and stays on the page, so it stays one-click.)
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,19 +98,15 @@ function ManageForm({
     }
   }
 
-  async function toggleArchive() {
-    const next = !archived;
+  // Restoring is non-destructive and keeps the owner on the page — one click.
+  async function restoreCompany() {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await api.updateCompany(company.slug, { archived: next });
-      if (next) {
-        onArchivedAway();
-      } else {
-        setArchived(false);
-        setNotice("Virksomheden er gendannet.");
-      }
+      await api.updateCompany(company.slug, { archived: false });
+      setArchived(false);
+      setNotice("Virksomheden er gendannet.");
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "Kunne ikke ændre arkivstatus.",
@@ -109,6 +116,14 @@ function ManageForm({
     }
   }
 
+  // #UI-17 — archiving runs from the confirm dialog. It rejects on failure so
+  // the dialog surfaces the error (and the backup-lock conflict) inline rather
+  // than navigating away on a half-finished write.
+  async function confirmArchive() {
+    await api.updateCompany(company.slug, { archived: true });
+    onArchivedAway();
+  }
+
   return (
     <section>
       <div className="page-head">
@@ -116,7 +131,7 @@ function ManageForm({
           <h2>Administrér {savedName}</h2>
           <p className="muted">
             Slug <code>{company.slug}</code> · oprettet{" "}
-            {company.createdAt.slice(0, 10)}
+            {formatDateDa(company.createdAt.slice(0, 10))}
             {archived ? " · arkiveret" : ""}
           </p>
         </div>
@@ -162,10 +177,33 @@ function ManageForm({
             ? "Virksomheden er arkiveret. Gendan den for at vise den i porteføljen igen."
             : "Arkivering skjuler virksomheden fra den aktive portefølje. Regnskabsdata slettes aldrig og kan gendannes."}
         </p>
-        <button className="btn secondary" onClick={toggleArchive} disabled={busy}>
+        <button
+          className="btn secondary"
+          onClick={
+            archived ? restoreCompany : () => setConfirmingArchive(true)
+          }
+          disabled={busy}
+        >
           {archived ? "Gendan virksomhed" : "Arkivér virksomhed"}
         </button>
       </div>
+
+      {confirmingArchive && (
+        <ConfirmDialog
+          title="Arkivér virksomhed"
+          body={
+            <p>
+              Arkivér <strong>{savedName}</strong>? Virksomheden skjules fra den
+              aktive portefølje, og du sendes tilbage til oversigten.
+              Regnskabsdata slettes aldrig og kan gendannes herfra igen.
+            </p>
+          }
+          confirmLabel="Arkivér virksomhed"
+          confirmKind="danger"
+          onConfirm={confirmArchive}
+          onClose={() => setConfirmingArchive(false)}
+        />
+      )}
     </section>
   );
 }
@@ -464,8 +502,12 @@ function CvrCard({ slug, initial }: { slug: string; initial: CompanySettings }) 
         <Banner kind="warning">
           Cockpittet mangler dit virk.dk-login. Indtil det er sat op, kan
           stamdata ikke hentes automatisk fra CVR. Se{" "}
-          <a href="/docs/cvr-opsaetning" target="_blank" rel="noreferrer">
-            CVR-opsætningsguiden
+          <a
+            href={CVR_SETUP_GUIDE_URL}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            installationsguiden
           </a>{" "}
           for hvordan du konfigurerer det.
         </Banner>
@@ -504,7 +546,11 @@ function CvrCard({ slug, initial }: { slug: string; initial: CompanySettings }) 
           />
           <Fact
             label="Sidst hentet"
-            value={settings.cvrSyncedAt ? settings.cvrSyncedAt.slice(0, 10) : "Aldrig"}
+            value={
+              settings.cvrSyncedAt
+                ? formatDateDa(settings.cvrSyncedAt.slice(0, 10))
+                : "Aldrig"
+            }
           />
         </dl>
       )}
@@ -543,7 +589,7 @@ function translateCvrError(raw: string | undefined): string {
   ) {
     return (
       "Cockpittet mangler CVR-login. Konfigurér dit virk.dk-login (se " +
-      "CVR-opsætningsguiden under /docs/cvr-opsaetning) og prøv igen."
+      "installationsguiden på rentemester.dk/docs/installation) og prøv igen."
     );
   }
   return raw;

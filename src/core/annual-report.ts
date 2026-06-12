@@ -53,6 +53,27 @@ export type AnnualReportLedelsespategning = {
   placeholder: boolean;
 };
 
+/**
+ * Prior-year comparison figures (ÅRL §24): an arsrapport — also for
+ * regnskabsklasse B — must present the corresponding figures for the preceding
+ * financial year next to the current ones. The prior year is the same span
+ * shifted back exactly one calendar year. When the preceding year holds no
+ * postings the figures are simply zero (a genuine first-year report), and
+ * `available` is false so a consumer can label it "—" rather than "0".
+ */
+export type AnnualReportComparison = {
+  fiscalYearStart: string;
+  fiscalYearEnd: string;
+  /** True when the preceding year contained any ledger activity. */
+  available: boolean;
+  totalIncome: number;
+  totalExpense: number;
+  aretsResultat: number;
+  totalAssets: number;
+  totalLiabilitiesAndEquity: number;
+  equity: number;
+};
+
 export type AnnualReport = {
   ok: boolean;
   appliedRules: string[];
@@ -67,6 +88,11 @@ export type AnnualReport = {
   balanceSheet: BalanceSheetReport;
   /** Aarets resultat — the year's net result, DKK. Mirrors profitAndLoss.result. */
   aretsResultat: number;
+  /**
+   * Prior-year comparison figures (ÅRL §24). Present whenever the report is
+   * assembled so the resultatopgorelse and balance can show both years.
+   */
+  comparison: AnnualReportComparison;
   /** Notes skeleton — placeholders the owner/advisor completes. */
   notes: AnnualReportNote[];
   ledelsespategning: AnnualReportLedelsespategning;
@@ -99,6 +125,65 @@ function emptyCompany(): AnnualReportCompany {
   return { name: "", cvr: "", country: "DK", currency: "DKK" };
 }
 
+/**
+ * The preceding financial year: the same span shifted back exactly one calendar
+ * year. Operating on the YYYY prefix keeps it deterministic and avoids
+ * Date/timezone drift; a Feb-29 end shifts to Feb-28, which is the conservative
+ * choice for a comparison span boundary.
+ */
+function priorFiscalYear(start: string, end: string): { start: string; end: string } {
+  const shift = (iso: string): string => {
+    const year = Number(iso.slice(0, 4)) - 1;
+    const rest = iso.slice(4); // "-MM-DD"
+    const candidate = `${String(year).padStart(4, "0")}${rest}`;
+    // Guard the single non-existent date a year-shift can produce (Feb 29).
+    if (rest === "-02-29") return `${String(year).padStart(4, "0")}-02-28`;
+    return candidate;
+  };
+  return { start: shift(start), end: shift(end) };
+}
+
+const ZERO_COMPARISON = (start: string, end: string): AnnualReportComparison => ({
+  fiscalYearStart: start,
+  fiscalYearEnd: end,
+  available: false,
+  totalIncome: 0,
+  totalExpense: 0,
+  aretsResultat: 0,
+  totalAssets: 0,
+  totalLiabilitiesAndEquity: 0,
+  equity: 0,
+});
+
+/**
+ * Prior-year comparison figures (ÅRL §24), read straight from the ledger for
+ * the preceding span. `available` is false when the preceding year holds no
+ * postings (a genuine first-year report) so a consumer can render "—".
+ */
+function buildComparison(db: Database, start: string, end: string): AnnualReportComparison {
+  const prior = priorFiscalYear(start, end);
+  const pl = buildProfitAndLoss(db, prior.start, prior.end);
+  const bs = buildBalanceSheet(db, prior.end);
+  if (!pl.ok || !bs.ok) return ZERO_COMPARISON(prior.start, prior.end);
+  const equity = bs.equity.total + bs.periodResult;
+  const available =
+    pl.totalIncome !== 0 ||
+    pl.totalExpense !== 0 ||
+    bs.totalAssets !== 0 ||
+    bs.totalLiabilitiesAndEquity !== 0;
+  return {
+    fiscalYearStart: prior.start,
+    fiscalYearEnd: prior.end,
+    available,
+    totalIncome: pl.totalIncome,
+    totalExpense: pl.totalExpense,
+    aretsResultat: pl.result,
+    totalAssets: bs.totalAssets,
+    totalLiabilitiesAndEquity: bs.totalLiabilitiesAndEquity,
+    equity,
+  };
+}
+
 function failure(
   fiscalYearStart: string,
   fiscalYearEnd: string,
@@ -117,6 +202,10 @@ function failure(
     profitAndLoss,
     balanceSheet,
     aretsResultat: 0,
+    comparison: ZERO_COMPARISON(
+      priorFiscalYear(fiscalYearStart, fiscalYearEnd).start,
+      priorFiscalYear(fiscalYearStart, fiscalYearEnd).end,
+    ),
     notes: [],
     ledelsespategning: { text: "", placeholder: true },
     preparedBy: "Rentemester",
@@ -147,6 +236,18 @@ function buildNotesSkeleton(): AnnualReportNote[] {
       placeholder: true,
     },
     {
+      // ÅRL §24/§24a: a class-B arsrapport states the average number of
+      // employees for the financial year. Rentemester holds no payroll data,
+      // so this is a placeholder the owner/advisor fills in.
+      id: "average-employees",
+      title: "Gennemsnitligt antal beskæftigede",
+      body:
+        "Oplys det gennemsnitlige antal beskæftigede i regnskabsåret " +
+        "(årsregnskabslovens §24). Rentemester har ingen løndata — udfyldes af " +
+        "ejer eller revisor.",
+      placeholder: true,
+    },
+    {
       id: "equity",
       title: "Egenkapital",
       body: "Note-skelet for egenkapitalens bevaegelser. Udfyldes af ejer eller revisor.",
@@ -165,9 +266,9 @@ function buildLedelsespategning(fiscalYearEnd: string): AnnualReportLedelsespate
   return {
     placeholder: true,
     text:
-      "Ledelsen har dags dato behandlet og godkendt arsrapporten for " +
-      `regnskabsaaret, der slutter ${fiscalYearEnd}. Dette er en skabelon — ` +
-      "ledelsen indsaetter dato, sted og underskrifter inden indberetning.",
+      "Ledelsen har dags dato behandlet og godkendt årsrapporten for " +
+      `regnskabsåret, der slutter ${fiscalYearEnd}. Dette er en skabelon — ` +
+      "ledelsen indsætter dato, sted og underskrifter inden indberetning.",
   };
 }
 
@@ -278,6 +379,7 @@ export function buildAnnualReport(
     profitAndLoss,
     balanceSheet,
     aretsResultat: profitAndLoss.result,
+    comparison: buildComparison(db, fiscalYearStart, fiscalYearEnd),
     notes: buildNotesSkeleton(),
     ledelsespategning: buildLedelsespategning(fiscalYearEnd),
     preparedBy: "Rentemester",

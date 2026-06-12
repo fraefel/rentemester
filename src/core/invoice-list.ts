@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { getInvoiceStatus } from "./invoice-payments";
 import { normalizeEanNumber } from "./ean";
+import { todayIsoDate } from "./dates";
 
 export type InvoiceQueryStatus = "open" | "paid" | "credited" | "refunded" | "overpaid" | "written_off" | "overdue" | "all";
 
@@ -122,6 +123,10 @@ function issuedInvoiceDocuments(db: Database) {
 
 export function buildInvoiceList(db: Database, filters: InvoiceListFilters = {}): InvoiceListResult {
   const status = filters.status ?? "all";
+  // EJER-1: resolve "as of" ONCE, defaulting to today (canonical Danish-time
+  // clock), so every row's overdue check and the reported asOfDate agree —
+  // the default path and the --as-of path share one definition of "i dag".
+  const asOfDate = filters.asOfDate ?? todayIsoDate();
   const rows: InvoiceListRow[] = [];
   const normalizedCustomerCvr = normalizeCode(filters.customerCvr);
   const normalizedInvoiceNumber = normalizeText(filters.invoiceNumber);
@@ -142,7 +147,7 @@ export function buildInvoiceList(db: Database, filters: InvoiceListFilters = {})
     if (!includesFolded(customerName, filters.customer)) continue;
     if (normalizedQuery && !includesFolded(doc.invoice_no, normalizedQuery) && !includesFolded(customerName, normalizedQuery)) continue;
 
-    const invoiceStatus = getInvoiceStatus(db, doc.id, filters.asOfDate);
+    const invoiceStatus = getInvoiceStatus(db, doc.id, asOfDate);
     if (!invoiceStatus.ok) continue;
     if (filters.minAmount !== undefined && Number(invoiceStatus.grossAmount ?? 0) < filters.minAmount) continue;
     if (filters.maxAmount !== undefined && Number(invoiceStatus.grossAmount ?? 0) > filters.maxAmount) continue;
@@ -192,7 +197,7 @@ export function buildInvoiceList(db: Database, filters: InvoiceListFilters = {})
     ok: true,
     count: rows.length,
     status,
-    asOfDate: filters.asOfDate,
+    asOfDate,
     query: normalizedQuery || undefined,
     rows,
     errors: [],

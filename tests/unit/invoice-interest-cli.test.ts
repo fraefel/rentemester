@@ -108,6 +108,42 @@ describe("invoice interest CLI", () => {
     expect(parsed.appliedRules).toContain("DK-INVOICE-LATE-INTEREST-001");
   });
 
+  test("defaults the reference rate to the statutory table when --reference-rate is omitted", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-interest-default-rate-cli-"));
+    const company = join(root, "company");
+    const paymentInput = join(root, "partial-payment.json");
+
+    writeFileSync(paymentInput, JSON.stringify({
+      invoiceDocumentId: 1,
+      paymentDate: "2026-05-20",
+      amount: 1000,
+      note: "Partial payment"
+    }, null, 2));
+
+    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    await Bun.$`bun run src/cli.ts invoice issue --company ${company} --input examples/full-invoice.dk.json`.quiet();
+    await Bun.$`bun run src/cli.ts invoice apply-payment --company ${company} --input ${paymentInput}`.quiet();
+
+    // No --reference-rate: the statutory H1-2026 reference rate (1.75 %) applies,
+    // giving morarente 9.75 % per renteloven § 5.
+    const proc = Bun.spawn(["bun", "run", "src/cli.ts", "invoice", "interest", "--company", company, "--invoice-number", "2026-0001", "--as-of", "2026-06-20", "--format", "json"], {
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    rmSync(root, { recursive: true, force: true });
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.referenceRatePercent).toBe(1.75);
+    expect(parsed.annualInterestRatePercent).toBe(9.75);
+    expect(parsed.referenceRateSource).toBe("statutory-table");
+  });
+
   test("proposes and books a late-interest correction through the CLI after a back-dated payment", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-interest-correction-cli-"));
     const company = join(root, "company");

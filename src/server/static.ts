@@ -56,6 +56,40 @@ function resolveSafe(staticRoot: string, requestPath: string): string | null {
 }
 
 /**
+ * EJER-5: build info for the cockpit SPA that `rentemester serve` will serve.
+ *
+ * `app/dist` is gitignored and never rebuilt by `serve` itself, so the served
+ * UI is whatever local build happens to exist — possibly weeks older than
+ * `app/src`. There is no Vite build manifest by default, so the simplest
+ * robust signal is the mtime of `index.html` (Vite rewrites it on every
+ * build). `serve` reports this timestamp at startup so a stale UI is visible
+ * instead of silently served; when no build exists the hint says exactly how
+ * to produce one.
+ */
+export type StaticUiBuildInfo =
+  | { present: true; staticRoot: string; builtAt: string; rebuildHint: string }
+  | { present: false; staticRoot: string | null; hint: string };
+
+const REBUILD_COMMAND = "cd app && bun run build";
+
+export function describeStaticUiBuild(staticRoot: string | undefined): StaticUiBuildInfo {
+  const indexPath = staticRoot ? join(staticRoot, "index.html") : null;
+  if (!staticRoot || !indexPath || !existsSync(indexPath)) {
+    return {
+      present: false,
+      staticRoot: staticRoot ?? null,
+      hint: `Ingen bygget cockpit-UI fundet — kun JSON-API'et serveres. Byg UI'et med: ${REBUILD_COMMAND}`,
+    };
+  }
+  return {
+    present: true,
+    staticRoot,
+    builtAt: statSync(indexPath).mtime.toISOString(),
+    rebuildHint: `Er UI-buildet ældre end seneste frontend-ændringer (app/src), så genbyg med: ${REBUILD_COMMAND}`,
+  };
+}
+
+/**
  * Serves a request from the built SPA. Returns a `Response` for a real file,
  * the SPA `index.html` fallback for unknown paths, or `null` when no static
  * root is configured / the SPA is not built (caller then 404s as a JSON API).

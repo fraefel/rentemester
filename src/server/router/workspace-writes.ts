@@ -11,7 +11,34 @@ import {
 } from "../../core/workspace";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
+import {
+  assertLocalhostWriteAllowed,
+  assertMutationContentType,
+  assertMutationOriginAllowed,
+} from "../mutations";
 import { okResponse, optionalString, readJsonBody, requireString } from "./_shared";
+
+/**
+ * CSRF/DNS-rebinding-hærdning (audit 2026-06-11, SEC-1-BYPASS) for de
+ * workspace-niveau skriveruter. Disse handlers går IKKE gennem
+ * `withCompanyMutation` (der er ingen company-ledger at åbne/backup-låse her),
+ * så de inheritede ikke gates som dækker company-ruterne. Vi anvender derfor de
+ * SAMME tre gates direkte — uafhængigt af en db — FØR body læses:
+ *
+ *   1. Content-Type-gate (INVALID_CONTENT_TYPE) — lukker text/plain simple-
+ *      request-vektoren;
+ *   2. Origin-gate (FORBIDDEN_ORIGIN) — kræver loopback-origin når en browser
+ *      sender en;
+ *   3. localhost-gate — afviser ikke-loopback Host uden auth.
+ *
+ * Origin- og localhost-gaten træder til side når `authRequired` er sat — dér er
+ * bearer-tokenet gaten — konsistent med `withCompanyMutation`.
+ */
+function assertWorkspaceWriteAllowed(request: Request, config: ServerConfig): void {
+  assertLocalhostWriteAllowed(request, config);
+  assertMutationOriginAllowed(request, config);
+  assertMutationContentType(request);
+}
 
 /**
  * Parses the optional `payment` body field on the create-company form (#284)
@@ -44,6 +71,7 @@ export async function handleCompanyCreate(
   config: ServerConfig,
   request: Request,
 ): Promise<Response> {
+  assertWorkspaceWriteAllowed(request, config);
   const body = await readJsonBody(request);
   const name = requireString(body, "name");
   const payment = parseCreatePayment(body);
@@ -89,6 +117,7 @@ export async function handleCompanyUpdate(
   slug: string,
   request: Request,
 ): Promise<Response> {
+  assertWorkspaceWriteAllowed(request, config);
   if (!findWorkspaceCompany(config.workspaceRoot, slug)) {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
   }

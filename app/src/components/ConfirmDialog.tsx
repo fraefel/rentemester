@@ -69,15 +69,53 @@ export function ConfirmDialog({
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Move focus into the dialog and let Escape dismiss it — basic modal hygiene.
+  // Move focus into the dialog and let Escape dismiss it — basic modal hygiene
+  // — plus a Tab focus-trap and focus-return to the trigger on close (#UI-12).
   useEffect(() => {
+    // Remember whatever was focused before the dialog opened so we can hand
+    // focus back to it on unmount — an assistive-tech user is otherwise dumped
+    // at the top of the document.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     confirmRef.current?.focus();
+
+    function focusableElements(): HTMLElement[] {
+      const root = dialogRef.current;
+      if (!root) return [];
+      return Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled"));
+    }
+
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busy) {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      // Keep Tab/Shift+Tab cycling inside the dialog rather than escaping to
+      // the page behind the overlay.
+      const focusable = focusableElements();
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      const active = document.activeElement;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previouslyFocused?.focus?.();
+    };
   }, [busy, onClose]);
 
   async function handleConfirm() {
@@ -106,6 +144,7 @@ export function ConfirmDialog({
       }}
     >
       <div
+        ref={dialogRef}
         className="modal"
         role="dialog"
         aria-modal="true"

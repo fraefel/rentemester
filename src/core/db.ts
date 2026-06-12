@@ -70,6 +70,50 @@ export function migrate(db: Database) {
   if (!hasColumn(db, "vendors", "email")) db.exec("ALTER TABLE vendors ADD COLUMN email TEXT;");
   if (!hasColumn(db, "vendors", "phone")) db.exec("ALTER TABLE vendors ADD COLUMN phone TEXT;");
   if (!hasColumn(db, "vendors", "website")) db.exec("ALTER TABLE vendors ADD COLUMN website TEXT;");
+  // EJER-3: customers.payment_terms_days became nullable — NULL means "ingen
+  // eksplicit kundefrist; arv virksomhedens profilfrist på fakturatidspunktet".
+  // Older ledgers carry the legacy NOT NULL DEFAULT 30 definition, which SQLite
+  // cannot relax in place, so the table is rebuilt once. Existing rows keep
+  // their stored value: a pre-migration 30 cannot be told apart from a
+  // deliberate 30, so legacy customers stay on their stored frist (documented
+  // backward-compat choice — only customers created WITHOUT a frist after this
+  // migration inherit the profile). No FKs reference customers, so the rebuild
+  // is a plain copy.
+  const customersPaymentTerms = (db.query(`PRAGMA table_info(customers)`).all() as Array<{ name: string; notnull: number }>)
+    .find((col) => col.name === "payment_terms_days");
+  if (customersPaymentTerms && customersPaymentTerms.notnull === 1) {
+    // Wrap the rebuild in an explicit transaction so an abnormal termination
+    // mid-rebuild rolls back cleanly instead of leaving the ledger with a
+    // half-built rebuild table and no `customers`. DROP TABLE IF EXISTS first
+    // makes recovery idempotent: a rebuild table left behind by an earlier
+    // aborted attempt is discarded rather than crashing this migrate() with
+    // "table customers_payment_terms_rebuild already exists".
+    db.transaction(() => {
+      db.exec(`
+      DROP TABLE IF EXISTS customers_payment_terms_rebuild;
+      CREATE TABLE customers_payment_terms_rebuild (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        address TEXT,
+        vat_or_cvr TEXT,
+        email TEXT,
+        phone TEXT,
+        website TEXT,
+        ean_number TEXT,
+        payment_terms_days INTEGER CHECK(payment_terms_days IS NULL OR payment_terms_days > 0),
+        default_currency TEXT NOT NULL DEFAULT 'DKK',
+        notes TEXT,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(vat_or_cvr, name)
+      );
+      INSERT INTO customers_payment_terms_rebuild (id, name, address, vat_or_cvr, email, phone, website, ean_number, payment_terms_days, default_currency, notes, archived, created_at)
+        SELECT id, name, address, vat_or_cvr, email, phone, website, ean_number, payment_terms_days, default_currency, notes, archived, created_at FROM customers;
+      DROP TABLE customers;
+      ALTER TABLE customers_payment_terms_rebuild RENAME TO customers;
+    `);
+    })();
+  }
   // customers/vendors are no longer append-only — drop the legacy guard
   // triggers from ledgers created before that change.
   for (const trigger of [

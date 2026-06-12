@@ -131,23 +131,47 @@ agent kan branche uden at parse `errors[]`-strengen.
 
 | `code` | Trigger | Hvilke tools rammes | Recovery |
 |---|---|---|---|
+| `CONFIRM_REQUIRED` | Et write- eller destructive-tool blev kaldt uden `confirm: true`. Tekst-varianten i `errors[]` er `confirm: true required for write tool <name>` hhv. `… destructive tool system_restore_backup` — men `code` er den samme for begge. | Alle confirm-gatede tools (`write-reversible` + `write-irreversible` + `destructive`). | Re-call med `confirm: true` (kun når forudsætningerne er på plads — confirm er en beslutning, ikke en formalitet). |
+| `CONFIRMTEXT_MISMATCH` | `system_restore_backup` blev kaldt med manglende/tomt **eller** forkert `confirmText` (#307 — begge giver denne envelope, aldrig en rå `-32602`). | Kun `system_restore_backup`. | Send `confirmText: "RESTORE <targetCompany>"` eksakt. |
 | `BACKUP_LOCKED` | Backup-pligten er forsømt og `system_backup_lock` er sat til `enforced:true` med overskredet grace-periode. | **Alle** skrive-tools (`write-reversible` + `write-irreversible`) bortset fra `system_*`-familien. Read-tools og `system_*`-tools er aldrig lås-gated — at låse op kræver `system_backup`, så det skal altid kunne kaldes. | 1) `system_backup_status` for at se hvor langt forsinkelsen er. 2) `system_backup` (med `archive:true`) for at producere arkivet og frigøre låsen. 3) `system_backup_place` for at placere arkivet på en EU/EØS-attesteret destination. |
+| `ACTOR_NOT_ALLOWED` | Den afledte MCP-actor består ikke virksomhedens `config/policy.yaml` `actor_allowlist` (SEC-2 — samme gate som CLI'en). | Alle confirm-gatede skrive-tools. | Tilføj actoren under `actor_allowlist.agents` i `config/policy.yaml`, eller kald fra en allerede tilladt klient. |
 
-`errors[]` på en `BACKUP_LOCKED`-konvolut indeholder en dansk forklaring +
-det tool-navn der blev afvist, og nævner eksplicit `system_backup_status`
-som første næste-skridt. Maskinlæsbar branching skal dog ske på `code`, ikke
-på fri-tekst.
+De følgende tre koder (AGENT-16) markerer de **hyppigste tværgående
+forretningsfejl**. De afledes i konvolut-laget (`wrapCoreResult` /
+`errorEnvelope`) fra kernens fejl-tekst, så en agent kan branche på `code`
+i stedet for at mønster-matche fri-tekst. En forretningsfejl der ikke matcher
+nogen af dem bærer **ingen** `code` og er kun beskrevet i `errors[]`.
+
+| `code` | Trigger | Hvilke tools rammes | Recovery |
+|---|---|---|---|
+| `PERIOD_CLOSED` | En postering har en `transaction_date` der falder i en lukket/rapporteret regnskabsperiode (`... falls in closed/reported period ...`). | Alle bogførings-tools der skriver med en dato (`journal_post`, `invoice_post`, `vat_*`, `asset_*`, …). | Vælg en dato uden for den lukkede periode, eller genåbn perioden bevidst (`period_reopen`) før genbogføring. |
+| `PRECONDITION_MISSING` | En livscyklus-forudsætning mangler — fx skal en faktura være bogført (`invoice_post`) før den kan afregnes/krediteres. `errors[]` starter med `Forudsætning ikke opfyldt:` og navngiver det tool der skal køres først. | Settlement-/credit-note-/rykker-/rente-/kompensations-familien for udstedte fakturaer. | Kør det navngivne forudgående tool (typisk `invoice_post`), og gentag derefter kaldet. |
+| `NOT_FOUND` | En refereret entitet findes ikke (fx `invoice document N does not exist`, ukendt bank-transaktion, ukendt bilag). | Ethvert tool der slår en id/entitet op. | Find den rigtige id via et discovery-tool (`invoice_list` / `invoice_find` / `bank_list`, …) og gentag kaldet. |
+
+`errors[]` på disse konvolutter indeholder en menneskelæsbar forklaring
+(på `BACKUP_LOCKED` dansk tekst + det afviste tool-navn og
+`system_backup_status` som første næste-skridt). Maskinlæsbar branching
+skal dog ske på `code`, ikke på fri-tekst — strengene er kun fallback for
+klienter der ikke læser `code` (se `docs/confirm-contract.md`).
 
 ### `data`-felter pr. tool — det der har betydning
 
-`read`-tools returnerer typisk en liste plus en tæller:
+`read`-tools returnerer typisk en liste plus en tæller. Seks list-tools er
+**paginerede** (#381): `journal_list`, `bank_list`, `customer_list`,
+`vendor_list`, `documents_list` og `audit_log_list` tager valgfri
+`limit`/`offset` i input (default `limit` 500, hard-cap 5000 — over cap
+afvises på zod-niveau) og returnerer paginerings-metadata i `data`:
+`total` (alle matchende rækker), `count` (rækker i dette svar), `limit`,
+`offset`, `hasMore` og — når `hasMore=true` — `nextOffset`, som agenten kan
+sende uændret for at hente næste side. Et svar med `hasMore: true` er
+**ikke** komplet — en agent der ignorerer det mister stiltiende rækker.
 
 | Tool(s) | `data`-felter |
 |---|---|
 | `accounts_list` | `{ accounts: [{ accountNo, name, type, defaultVatCode }], count }` |
-| `journal_list` | `{ entries: [{ id, entryNo, transactionDate, text, currency, amountForeign, amountDkk, fxRateToDkk, documentId, sourceBankTransactionId, status, reversalOfEntryId }], count }` |
+| `journal_list` | `{ entries: [{ id, entryNo, transactionDate, text, currency, amountForeign, amountDkk, fxRateToDkk, documentId, sourceBankTransactionId, status, reversalOfEntryId }], total, count, limit, offset, hasMore, nextOffset? }` (pagineret) |
 | `journal_dry_run` | `{ entryId, entryNo, previousHash, entryHash, accountEffects: [{ accountNo, accountName, balanceBefore, balanceAfter, delta }] }` — ikke-bindende forhåndsvisning af `journal_post`: felterne beskriver hvad posteringen *ville* få. `accountEffects` lister saldo før/efter pr. berørt konto (debet-minus-kredit-netto, i kroner). Ved en ugyldig payload er konvolutten `ok=false` med `errors[]`, og `data` mangler. |
-| `bank_list` | `{ rows: [...], count }` |
+| `bank_list` | `{ rows: [...], total, count, limit, offset, hasMore, nextOffset? }` (pagineret) |
 | `invoice_list` | `{ invoices: [...], count }` |
 | `exceptions_list` | `{ exceptions: [...], count }` |
 | `period_list` | `{ periods: [{ id, periodStart, periodEnd, kind, status, reference, createdAt }], count }` — `kind` er `"vat_quarter" \| "fiscal_year" \| "custom"`; `status` er `"open" \| "closed" \| "reported"`; `reference` kan være `null`. |
@@ -181,16 +205,19 @@ på fri-tekst.
 ## Tool-count summary
 
 Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
+Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
+tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
-- **Read-tools**: 46
+- **Read-tools**: 47
 - **Write-reversible**: 11
-- **Write-irreversible**: 41
+- **Write-irreversible**: 42
 - **Destructive**: 1 (`system_restore_backup`)
 - **Total**: **101**
 
 ## Read-tools
 
-46 tools. Ingen state-bivirkninger; må kaldes frit og parallelt.
+47 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
+frit og parallelt.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
@@ -200,17 +227,17 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 | `audit_log_list` | `gdpr audit-log` (delvis) | `{ company, fromDate?, toDate?, eventTypeLike?, actorLike?, limit?, offset? }` | Filtreret, pagineret read af audit_log — den menneskelæsbare revisionsspor over hvad agenten/cockpittet/CLI'en har gjort. Append-only på server-siden. |
 | `audit_verify` | `audit verify` | `{ company }` | Verificerer hash-chain og bogføringsintegritet. |
 | `bank_account_list` | `bank-account list` | `{ company, includeInactive? }` | Lister registrerede bankkonti (slug, navn, valuta, IBAN, aktiv). Den slug, der returneres her, er den værdi en agent kan sende som `account` til `bank_import` og `bank_list`. |
-| `bank_list` | `bank list` | `{ company, status?, from?, to?, textMatch?, amount?, account? }` | Lister importerede banktransaktioner med filtre. |
+| `bank_list` | `bank list` | `{ company, status?, from?, to?, textMatch?, amount?, account?, limit?, offset? }` | Lister importerede banktransaktioner med filtre. Pagineret (default 500, cap 5000) — `data` har `total`/`hasMore`/`nextOffset`. |
 | `bank_suggest_matches` | `bank suggest-matches` | `{ company, bankTransactionId?, max? }` | Foreslår deterministiske match mellem uafstemte bank-poster og bilag. |
 | `company_profile_get` | `company profile` | `{ company }` | Henter virksomhedens gemte profil-stamdata (navn, CVR, valuta, land, adresse, regnskabsår-start, betalingsfrist, momsperiode). Hver fakturering, momsrapport og årsrapport bygger på disse felter. |
 | `meta_about` | (ingen — kun MCP) | `{}` | Server-identifikation: serverName, serverVersion, antallet af registrerede tools, rules-bundle-versionen og repo-relative stier til kontrakt-dokumenter. Bruges af agenten lige efter `initialize` for at verificere identitet/version. |
 | `budget_forecast` | `budget forecast` | `{ company, startDate, months }` | Likviditetsprognose: fremskriver banksaldoen måned for måned ud fra primosaldo, åbne fakturaer der forfalder, planlagte gentagne fakturaer og budgetterede omkostninger. Rent deterministisk. |
 | `budget_list` | `budget list` | `{ company, period?, accountNo? }` | Lister de gældende (seneste-revision) budgetlinjer. |
 | `budget_vs_actual` | `budget vs-actual` | `{ company, from, to }` | Sammenligner budget mod faktisk bogføring pr. konto pr. måned. |
-| `customer_list` | `customer list` | `{ company, archived? }` | Lister kendte kunder. |
+| `customer_list` | `customer list` | `{ company, archived?, limit?, offset? }` | Lister kendte kunder. Pagineret. |
 | `customer_validate_vat` | `customer validate-vat` | `{ company, cvr }` | Validerer EU-VAT via VIES og opdaterer en lokal validerings-cache. Klassificeret `read` (se note nedenfor): den skriver kun en gennemsigtig opslags-cache, ingen bogførings-/stamdata-state, og kræver ikke `confirm`. |
 | `cvr_lookup` | `customer cvr-lookup` | `{ company, cvr }` | Slår en dansk virksomhed op i CVR-registret. Kræver `CVR_USERNAME`/`CVR_PASSWORD`. |
-| `documents_list` | `documents list` | `{ company }` | Lister gemte bilag. |
+| `documents_list` | `documents list` | `{ company, limit?, offset? }` | Lister gemte bilag. Pagineret. |
 | `exceptions_list` | `exceptions list` | `{ company, status?, includeArchived? }` | Lister exceptions-køen (open/resolved/all). |
 | `import_archive_list` | `import archive` | `{ company, sourceSystem? }` | Lister pre-cut-over regnskabsår arkiveret fra et flerårigt eksport. |
 | `import_archive_year` | (afledt af `import archive`)¹ | `{ company, fiscalYear, sourceSystem? }` | Henter ét arkiveret regnskabsårs fulde posteringer + saldobalance. |
@@ -223,7 +250,7 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 | `invoice_status` | `invoice status` | `{ company, documentId? \| invoiceNumber?, asOf? }` | Viser åben saldo og status på en faktura. |
 | `invoice_validate` | `invoice validate` | `{ payload: InvoicePayload }` | Validerer faktura-payload uden at gemme. |
 | `journal_dry_run` | `journal dry-run` | `{ company, payload: JournalEntryInput }` | Forhåndsviser hvad `journal_post` ville gøre — uden at skrive. Intet journalnummer forbruges. |
-| `journal_list` | `journal list` | `{ company }` | Lister finansposteringer. |
+| `journal_list` | `journal list` | `{ company, from?, to?, status?, limit?, offset? }` | Lister finansposteringer med filtre på datointerval og status (`all`/`posted`/`reversed`). Pagineret (default 500, cap 5000) — `data` har `total`/`hasMore`/`nextOffset`. |
 | `mileage_list` | `mileage list` | `{ company }` | Lister registrerede kørselsposter. |
 | `mileage_report` | `mileage report` | `{ company, from, to }` | Deterministisk periode-rapport over kilometer og beløbsgrundlag. |
 | `payable_list` | `payable list` | `{ company, status?, asOf? (legacy alias: asOfDate), supplier?, vendorId?, from?, to?, minDays? }` | Bygger kreditorlisten: åbne leverandørposter med åben saldo og forfaldsintervaller (forfaldne/ikke-forfaldne). |
@@ -240,7 +267,7 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 | `vat_eu_sales_list` | `vat eu-sales-list` | `{ company, from, to }` | EU-salg uden moms-liste (VIES recapitulative statement): værdien af grænseoverskridende B2B-salg uden dansk moms grupperet pr. køber-VAT-nummer. |
 | `vat_oss_report` | `vat oss-report` | `{ company, from, to }` | OSS-rapportskelet (One Stop Shop, første slice): grundlaget for digitale ydelser solgt til EU-forbrugere. Ikke en OSS-indberetning til SKAT. |
 | `vat_report` | `vat report` | `{ company, from, to }` | Bygger momsrapport for perioden. |
-| `vendor_list` | `vendor list` | `{ company, archived? }` | Lister kendte leverandører. |
+| `vendor_list` | `vendor list` | `{ company, archived?, limit?, offset? }` | Lister kendte leverandører. Pagineret. |
 
 ¹ `import_archive_year` har ingen selvstændig CLI-kommando; den hentes fra
 samme arkiv-artefakt som `import archive` skriver.
@@ -306,7 +333,7 @@ append-only finanskæde.
 
 ### write-irreversible
 
-41 tools. Bogfører i den append-only hash-kæde eller skriver
+42 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
 revisionsklare/eksterne artefakter; kan kun "rulles tilbage" via en
 modpostering.
 
@@ -514,8 +541,37 @@ regnskabsperiode (`period reopen`) er fx CLI-only — se også underafsnittet
   (registrér/lis bankkonti for FX-bogføring). Ingen `bank_account_*`-MCP-tools.
 - `src/cli/init.ts` — `init` (initialisér en virksomhed). MCP eksponerer
   `company_add` (`src/mcp/tools/system.ts`) i stedet, ikke `init` direkte.
-- `src/cli/gdpr.ts` — `gdpr export`/`gdpr erase`/`gdpr forget`. Ingen
-  `gdpr_*`-MCP-tools — bevidst CLI-gatet for actor-attribution.
+- `src/cli/gdpr.ts` — `gdpr export`, `gdpr discover` (subject-discovery),
+  `gdpr audit-log` (signed eksport af GDPR-handlinger; MCP's `audit_log_list`
+  er kun en *delvis* pendant — et filtreret read, ikke den signerede pakke)
+  og `gdpr forget` (legacy alias: `gdpr erase`). Ingen `gdpr_*`-MCP-tools —
+  bevidst CLI-gatet for actor-attribution. `gdpr forget`/`gdpr erase` er
+  actor-gatede mutationer; `gdpr forget` kræver derudover det eksplicitte
+  flag `--after-retention-expiry` (exit `2` uden).
+
+**CLI-only på kommando-niveau** — filen har en MCP-tvilling, men disse
+enkelt-kommandoer har intet MCP-tool (verificeret mod `rentemester --help`
+og `tools/list`):
+
+- `src/cli/company.ts` (tvilling: `src/mcp/tools/company.ts`) —
+  `company list` (lister virksomheder i workspacet) og `company set-profile`
+  (retter virksomhedens profil efter init) er CLI-only; MCP har kun
+  `company_add`, `company_profile_get` og `company_sync_cvr`.
+- `src/cli/system.ts` (tvilling: `src/mcp/tools/system.ts` +
+  `src/mcp/tools/system/`) — seks kommandoer er CLI-only:
+  `system export-saft` (SAF-T-eksport), `system export-public-key`,
+  `system verify-backup-signature`, `system rotate-backup-keypair`,
+  `system export-accountant` (håndoff-pakke til bogholder/revisor) og
+  `system backup-guide` (HTML-guide).
+- `src/cli/vat.ts` (tvilling: `src/mcp/tools/vat.ts`) —
+  `vat momsangivelse` (alias: `vat filing`) er CLI-only; MCP har kun
+  `vat_report`, `vat_eu_sales_list`, `vat_oss_report` og `vat_post_*`.
+- `src/cli/import.ts` (tvilling: `src/mcp/tools/import.ts`) —
+  `import run` (fuld migrering), `import systems` og `import contacts` er
+  CLI-only; MCP har kun `import_archive_list`/`import_archive_year`.
+- `src/cli/customer.ts` (tvilling: `src/mcp/tools/customer.ts`) —
+  `customer cvr-lookup` har MCP-pendanten `cvr_lookup` (se MCP-only ovenfor);
+  ingen kommandoer i filen er helt uden pendant, men navnene divergerer.
 
 > **Andre kendte mikro-afvigelser (samme filnavn, divergent klassifikation
 > eller ergonomi):**
@@ -798,6 +854,19 @@ Hver write-tool tilskriver derudover automatisk:
 - `audit_log.event_type` = tool-navn (`journal_post`, `invoice_issue`, …)
 - `audit_log.actor` = `auditActor`
 - `audit_log.entity_type` + `entity_id` = den primære nyligt oprettede entitet.
+
+> **SECURITY — attribution er RÅDGIVENDE, ikke et sikkerhedshegn (Audit
+> 2026-06-11 SEC-4).** `createdBy` udledes af MCP-klientens egen
+> `initialize`-handshake (`clientInfo.name`/`version`). En klient styrer selv de
+> værdier og kan præsentere et hvilket som helst navn — også ét der står på en
+> virksomheds `actor_allowlist`. Attributionen er derfor god nok som en ærlig
+> audit-trail-etiket, men er IKKE et bevis på identitet. Actor-allowlisten
+> (`checkActorAllowlist`, håndhævet for confirm-gatede writes i
+> `tool-runtime.ts`, jf. SEC-2) er en grov politik-gate på en betroet,
+> single-user/lokal transport — ikke autentifikation på en utroet
+> multi-tenant-kanal. Stærk per-kalder-identitet hører hjemme i
+> transport/auth-laget (jf. `src/server/auth.ts` Phase 2 / Better Auth), ikke i
+> handshake-navnet.
 
 ## Forudsætninger
 

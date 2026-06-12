@@ -441,7 +441,7 @@ function RegisterAssetModal({
   const docRows: DocumentRow[] = docs.data?.documents ?? [];
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
+    <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="card modal-card">
         <h3>Registrér nyt anlæg</h3>
         <form onSubmit={handleSubmit}>
@@ -611,7 +611,7 @@ function WriteOffModal({
   const docRows: DocumentRow[] = docs.data?.documents ?? [];
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
+    <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="card modal-card">
         <h3>Straksafskriv småanskaffelse</h3>
         <p className="muted">

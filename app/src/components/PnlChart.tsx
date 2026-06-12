@@ -16,6 +16,7 @@ import {
 } from "chart.js";
 import { Bar } from "react-chartjs-2";
 import type { OverviewMonth } from "../lib/types";
+import { CHART_AXIS_NUMBER, CHART_CURRENCY } from "./chart-format";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -24,20 +25,6 @@ const INK_MUTED = "#4c4740";
 const INCOME = "#2e5e4e"; // --color-success
 const EXPENSE = "#a6332a"; // --color-accent
 const BORDER = "#d8d2c6"; // --color-border
-
-// Full currency formatting — used for tooltips ("18.000 kr.").
-const CURRENCY = new Intl.NumberFormat("da-DK", {
-  style: "currency",
-  currency: "DKK",
-  maximumFractionDigits: 0,
-});
-
-// Plain number with a Danish thousands separator ("18.000"). Used for the
-// Y-axis ticks: the " kr." suffix made the labels too wide and Chart.js
-// clipped them to garbage like "000 kr.".
-const AXIS_NUMBER = new Intl.NumberFormat("da-DK", {
-  maximumFractionDigits: 0,
-});
 
 export function PnlChart({ months }: { months: OverviewMonth[] }) {
   const data: ChartData<"bar"> = {
@@ -76,7 +63,7 @@ export function PnlChart({ months }: { months: OverviewMonth[] }) {
       tooltip: {
         callbacks: {
           label: (ctx) =>
-            `${ctx.dataset.label}: ${CURRENCY.format(Number(ctx.parsed.y))}`,
+            `${ctx.dataset.label}: ${CHART_CURRENCY.format(Number(ctx.parsed.y))}`,
         },
       },
     },
@@ -101,7 +88,7 @@ export function PnlChart({ months }: { months: OverviewMonth[] }) {
         ticks: {
           color: INK_MUTED,
           font: { family: "IBM Plex Mono", size: 11 },
-          callback: (value) => AXIS_NUMBER.format(Number(value)),
+          callback: (value) => CHART_AXIS_NUMBER.format(Number(value)),
         },
       },
     },

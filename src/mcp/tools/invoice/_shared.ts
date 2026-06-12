@@ -184,6 +184,58 @@ export const docIdOrNumberSchema = {
 // the same shared string (Batch D-6).
 export const notFoundEnvelope = invoiceNotFoundEnvelope;
 
+// ------------------------------------------------- payload selector resolution (AGENT-8)
+// The settlement family (invoice_settle_bank, invoice_settle_claim_bank,
+// invoice_write_off_bad_debt, invoice_apply_payment, invoice_refund_bank) and
+// invoice_credit_note carry the invoice selector INSIDE `payload` as
+// "<idKey> OR <numberKey>". The old per-file resolvers silently passed an
+// UNRESOLVED invoiceNumber through to the core, which then rejected with
+// "invoiceDocumentId must be a positive integer" — naming a field the agent
+// never sent. Resolution must fail FIRST, with the same clear wording the CLI
+// uses for `--invoice-number` (src/cli/invoice/_shared.ts), adapted to the
+// MCP discovery tools.
+
+export type PayloadInvoiceResolution =
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> };
+
+/**
+ * Resolve the issued-invoice selector inside a tool payload.
+ *
+ * - `idKey` present and a positive integer → passthrough (the number, if any,
+ *   is ignored; the id wins, matching the field descriptions).
+ * - otherwise a non-blank `numberKey` → look the invoice up by `invoice_no`;
+ *   a miss is an error envelope naming the number and the discovery tools —
+ *   NEVER a fallthrough to the core's "<idKey> must be a positive integer".
+ * - neither present → passthrough so the core's own required-field validation
+ *   produces its usual message.
+ */
+export function resolveInvoiceSelectorInPayload(
+  db: import("bun:sqlite").Database,
+  payload: Record<string, unknown>,
+  idKey: string,
+  numberKey: string,
+): PayloadInvoiceResolution {
+  const id = payload[idKey];
+  if (typeof id === "number" && Number.isInteger(id) && id > 0) {
+    return { ok: true, payload };
+  }
+  const value = typeof payload[numberKey] === "string" ? (payload[numberKey] as string).trim() : "";
+  if (!value) return { ok: true, payload };
+  const row = db
+    .query(`SELECT id FROM documents WHERE document_type = 'issued_invoice' AND invoice_no = ? LIMIT 1`)
+    .get(value) as { id: number } | null;
+  if (!row) {
+    return {
+      ok: false,
+      envelope: errorEnvelope(
+        `No issued invoice has invoice number '${value}' — check the value with 'invoice_list' or 'invoice_find'`,
+      ),
+    };
+  }
+  return { ok: true, payload: { ...payload, [idKey]: row.id } };
+}
+
 // ---------------------------------------------------------- lifecycle gates (#374)
 // The invoice_* family is a sequence: invoice_issue → invoice_post →
 // (invoice_settle_bank | invoice_apply_payment | invoice_refund_bank |
@@ -244,21 +296,25 @@ export function requireInvoicePostedEnvelope(
 ) {
   const doc = lookupIssuedInvoice(db, documentId);
   if (!doc) {
+    // No such invoice at all — a NOT_FOUND, not a lifecycle precondition.
     return errorEnvelope(
       `${POSTED_REQUIRED_PREFIX} ingen faktura med documentId=${documentId}. ` +
         `Udsted fakturaen først med invoice_issue, eller find dens documentId/invoiceNumber via invoice_list / invoice_find inden ${currentTool}.`,
+      { code: "NOT_FOUND" },
     );
   }
   if (doc.document_type !== "issued_invoice") {
     return errorEnvelope(
       `${POSTED_REQUIRED_PREFIX} document ${documentId} er ikke en udstedt faktura (document_type='${doc.document_type}'). ` +
         `${currentTool} virker kun på en faktura udstedt med invoice_issue.`,
+      { code: "PRECONDITION_MISSING" },
     );
   }
   if (!isInvoicePostedToLedger(db, documentId)) {
     return errorEnvelope(
       `${POSTED_REQUIRED_PREFIX} faktura ${doc.invoice_no} (documentId=${documentId}) er udstedt men ikke bogført. ` +
         `Kald invoice_post på fakturaen før ${currentTool}.`,
+      { code: "PRECONDITION_MISSING" },
     );
   }
   return null;

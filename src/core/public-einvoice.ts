@@ -94,6 +94,88 @@ function formatVatPercent(value: number | null | undefined) {
   return Number.isInteger(pct) ? String(pct) : String(Math.round(pct * 100) / 100);
 }
 
+// Peppol/UBL tax-category code (BT-151 / cbc:ID under cac:[Classified]TaxCategory),
+// derived from the invoice's VAT treatment rather than hardcoded "S":
+//   S  = standard rated; E = exempt; AE = VAT reverse charge.
+// A standard line with a 0% rate is treated as exempt (E) so the category and
+// the percent never disagree (an "S" with 0% is rejected by EN16931 BR-S-*).
+//
+// EN16931 BR-AE-10 (reverse charge) and BR-E-10 (exempt) require the document
+// VAT breakdown (BG-23) to carry a VAT exemption reason code (BT-121) OR a VAT
+// exemption reason text (BT-120); without one a receiving Peppol access point
+// rejects the invoice in schematron validation. We therefore attach an
+// exemption reason to E and AE (never to standard "S", which BR-S-09/10 forbid
+// from carrying one).
+type UblTaxCategory = {
+  id: "S" | "E" | "AE";
+  percent: string | null;
+  // BT-121 — only populated for AE (the single AE-valid VATEX code).
+  exemptionReasonCode?: string;
+  // BT-120 — free-text reason populated for AE and E.
+  exemptionReason?: string;
+};
+
+// VATEX-EU-AE is the only VAT-exemption-reason code valid for category AE in the
+// EN16931/Peppol "VAT exemption reasons" (VATEX) code list. Source (Peppol PINT
+// EU aligned code list):
+//   https://docs.peppol.eu/poac/eu/pint-eu/trn-invoice/codelist/Aligned-TaxExemptionCodes/
+// For category E we deliberately emit a free-text reason (BT-120) only: BR-E-10
+// is satisfied by the text alone, and a generic 0%/exempt Danish line has no
+// single defensible VATEX code (the E-specific codes are margin-scheme cases),
+// so a free-text reason avoids transmitting an over-specific, wrong code.
+const VATEX_REVERSE_CHARGE_CODE = "VATEX-EU-AE";
+const REVERSE_CHARGE_REASON_TEXT = "Reverse charge / Omvendt betalingspligt";
+const EXEMPT_REASON_TEXT = "Exempt from VAT / Momsfritaget";
+
+function deriveUblTaxCategory(
+  payload: InvoicePayload,
+  vatPercent: string | null,
+): UblTaxCategory {
+  const treatment = payload.vatTreatment ?? "standard";
+  if (treatment === "domestic_reverse_charge" || treatment === "foreign_reverse_charge") {
+    // Reverse charge: the buyer accounts for VAT; the category percent is 0.
+    // BR-AE-10 requires an exemption reason; carry the documented reverse-charge
+    // basis from the payload as supplementary free text when present.
+    const basis = hasText(payload.reverseChargeBasis) ? payload.reverseChargeBasis.trim() : null;
+    return {
+      id: "AE",
+      percent: "0",
+      exemptionReasonCode: VATEX_REVERSE_CHARGE_CODE,
+      exemptionReason: basis
+        ? `${REVERSE_CHARGE_REASON_TEXT} (${basis})`
+        : REVERSE_CHARGE_REASON_TEXT,
+    };
+  }
+  if (vatPercent === null || vatPercent === "0") {
+    // Exempt / 0%: BR-E-10 requires an exemption reason. A free-text reason
+    // (BT-120) alone satisfies the rule.
+    return { id: "E", percent: "0", exemptionReason: EXEMPT_REASON_TEXT };
+  }
+  return { id: "S", percent: vatPercent };
+}
+
+// Normalise a Danish seller participant id to the bare 8-digit CVR that
+// schemeID="0184" (ISO 6523) requires: strip an optional "DK" prefix and any
+// non-digits. Returns null when the result is not exactly 8 digits, so a
+// malformed CVR surfaces as a validation error rather than a bad EndpointID.
+function normalizeDanishCvrEndpoint(value: string | null | undefined): string | null {
+  if (!hasText(value)) return null;
+  const digits = value.trim().replace(/^DK/i, "").replace(/\D/g, "");
+  return /^\d{8}$/.test(digits) ? digits : null;
+}
+
+// Default UN/ECE Rec 20 unit code for an invoice line: piece ("H87").
+const DEFAULT_UNIT_CODE = "H87";
+
+function resolveUnitCode(
+  payload: InvoicePayload,
+  line: { unitCode?: string },
+): string {
+  if (hasText(line.unitCode)) return line.unitCode.trim();
+  if (hasText(payload.unitCode)) return payload.unitCode.trim();
+  return DEFAULT_UNIT_CODE;
+}
+
 function buildAddressXml(
   tagName: string,
   address: string | null | undefined,
@@ -172,15 +254,39 @@ function validateOioUblPayload(invoiceNumber: string, payload: InvoicePayload, e
   if (!hasText(payload.dueDate)) errors.push(`invoice ${invoiceNumber} is missing dueDate required for OIOUBL handoff`);
   if (!hasText(payload.seller?.name)) errors.push(`invoice ${invoiceNumber} is missing seller.name required for OIOUBL handoff`);
   if (!hasText(payload.seller?.address)) errors.push(`invoice ${invoiceNumber} is missing seller.address required for OIOUBL handoff`);
-  if (!hasText(payload.seller?.vatOrCvr)) errors.push(`invoice ${invoiceNumber} is missing seller.vatOrCvr required for OIOUBL handoff`);
+  if (!hasText(payload.seller?.vatOrCvr)) {
+    errors.push(`invoice ${invoiceNumber} is missing seller.vatOrCvr required for OIOUBL handoff`);
+  } else if (!normalizeDanishCvrEndpoint(payload.seller?.vatOrCvr)) {
+    // schemeID="0184" (Danish CVR) requires exactly 8 digits after stripping an
+    // optional "DK" prefix.
+    errors.push(`invoice ${invoiceNumber} seller.vatOrCvr must be a Danish 8-digit CVR for EndpointID schemeID 0184`);
+  }
+  // PEPPOL-EN16931-R003: a public-recipient invoice must carry a BuyerReference.
+  // The export falls back to orderReference / invoice number, so this only fails
+  // when none of the three is present (an effectively unreferenced invoice).
+  if (
+    !hasText(payload.buyer?.buyerReference) &&
+    !hasText(payload.buyer?.orderReference) &&
+    !hasText(invoiceNumber)
+  ) {
+    errors.push(`invoice ${invoiceNumber} is missing buyer.buyerReference required by Peppol PEPPOL-EN16931-R003 for public recipients`);
+  }
   if (!hasText(payload.buyer?.name)) errors.push(`invoice ${invoiceNumber} is missing buyer.name required for OIOUBL handoff`);
   if (!hasText(payload.buyer?.address)) errors.push(`invoice ${invoiceNumber} is missing buyer.address required for OIOUBL handoff`);
   if (!eanNumber) errors.push(`invoice ${invoiceNumber} is missing buyer.eanNumber as 13 digits required for OIOUBL handoff`);
   if (!hasText(payload.currency)) errors.push(`invoice ${invoiceNumber} is missing currency required for OIOUBL handoff`);
   if (typeof payload.totals?.netAmount !== "number") errors.push(`invoice ${invoiceNumber} is missing totals.netAmount required for OIOUBL handoff`);
   if (typeof payload.totals?.grossAmount !== "number") errors.push(`invoice ${invoiceNumber} is missing totals.grossAmount required for OIOUBL handoff`);
-  if (typeof payload.totals?.vatAmount !== "number") errors.push(`invoice ${invoiceNumber} is missing totals.vatAmount required for OIOUBL handoff`);
-  if (typeof payload.totals?.vatRate !== "number") errors.push(`invoice ${invoiceNumber} is missing totals.vatRate required for OIOUBL handoff`);
+  // Reverse-charge invoices deliberately carry no VAT amount/rate (the buyer
+  // accounts for VAT), so only standard-rated invoices require them. The
+  // tax-category code is derived from vatTreatment (AE for reverse charge).
+  const isReverseCharge =
+    payload.vatTreatment === "domestic_reverse_charge" ||
+    payload.vatTreatment === "foreign_reverse_charge";
+  if (!isReverseCharge) {
+    if (typeof payload.totals?.vatAmount !== "number") errors.push(`invoice ${invoiceNumber} is missing totals.vatAmount required for OIOUBL handoff`);
+    if (typeof payload.totals?.vatRate !== "number") errors.push(`invoice ${invoiceNumber} is missing totals.vatRate required for OIOUBL handoff`);
+  }
   if (!Array.isArray(payload.lines) || payload.lines.length === 0) {
     errors.push(`invoice ${invoiceNumber} is missing invoice lines required for OIOUBL handoff`);
   } else {
@@ -197,18 +303,28 @@ function validateOioUblPayload(invoiceNumber: string, payload: InvoicePayload, e
 function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePayload) {
   const currency = (payload.currency ?? "DKK").trim().toUpperCase();
   const vatPercent = formatVatPercent(payload.totals?.vatRate);
+  // The tax category is derived from the VAT treatment, not hardcoded "S", so
+  // exempt / reverse-charge lines carry the correct EN16931 category code.
+  const taxCategory = deriveUblTaxCategory(payload, vatPercent);
+  // The seller participant id under schemeID="0184" must be the bare 8-digit
+  // CVR (no "DK" prefix). validateOioUblPayload guarantees it is present.
+  const sellerEndpoint = normalizeDanishCvrEndpoint(payload.seller?.vatOrCvr);
+  // Reverse-charge / exempt invoices carry no VAT amount; render it as 0.00 so
+  // cac:TaxTotal stays well-formed (TaxAmount is mandatory in UBL).
+  const vatAmountForXml =
+    formatAmount(payload.totals?.vatAmount) ?? "0.00";
   const lines = payload.lines ?? [];
   const lineXml = lines
     .map((line, index) => [
       "  <cac:InvoiceLine>",
       xmlTag("cbc:ID", index + 1, "    "),
-      xmlTagWithAttrs("cbc:InvoicedQuantity", { unitCode: "H87" }, line.quantity, "    "),
+      xmlTagWithAttrs("cbc:InvoicedQuantity", { unitCode: resolveUnitCode(payload, line) }, line.quantity, "    "),
       xmlTagWithAttrs("cbc:LineExtensionAmount", { currencyID: currency }, formatAmount(line.lineTotalExVat), "    "),
       "    <cac:Item>",
       xmlTag("cbc:Name", line.description, "      "),
       "      <cac:ClassifiedTaxCategory>",
-      xmlTag("cbc:ID", "S", "        "),
-      xmlTag("cbc:Percent", vatPercent, "        "),
+      xmlTag("cbc:ID", taxCategory.id, "        "),
+      xmlTag("cbc:Percent", taxCategory.percent, "        "),
       "        <cac:TaxScheme>",
       xmlTag("cbc:ID", "VAT", "          "),
       "        </cac:TaxScheme>",
@@ -232,9 +348,24 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     xmlTag("cbc:DueDate", payload.dueDate, "  "),
     xmlTag("cbc:InvoiceTypeCode", "380", "  "),
     xmlTag("cbc:DocumentCurrencyCode", currency, "  "),
+    // cbc:BuyerReference (BT-10) — mandatory for a public-recipient invoice
+    // (PEPPOL-EN16931-R003). Falls back to the order reference, then the
+    // invoice number, so a public invoice always carries a buyer reference.
+    xmlTag(
+      "cbc:BuyerReference",
+      payload.buyer?.buyerReference ?? payload.buyer?.orderReference ?? invoiceNumber,
+      "  ",
+    ),
+    payload.buyer?.orderReference
+      ? [
+          "  <cac:OrderReference>",
+          xmlTag("cbc:ID", payload.buyer.orderReference, "    "),
+          "  </cac:OrderReference>",
+        ].join("\n")
+      : "",
     "  <cac:AccountingSupplierParty>",
     "    <cac:Party>",
-    xmlTagWithAttrs("cbc:EndpointID", { schemeID: SELLER_ENDPOINT_SCHEME_ID }, payload.seller?.vatOrCvr, "      "),
+    xmlTagWithAttrs("cbc:EndpointID", { schemeID: SELLER_ENDPOINT_SCHEME_ID }, sellerEndpoint, "      "),
     "      <cac:PartyName>",
     xmlTag("cbc:Name", payload.seller?.name, "        "),
     "      </cac:PartyName>",
@@ -264,13 +395,18 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     "    </cac:Party>",
     "  </cac:AccountingCustomerParty>",
     "  <cac:TaxTotal>",
-    xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, formatAmount(payload.totals?.vatAmount), "    "),
+    xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, vatAmountForXml, "    "),
     "    <cac:TaxSubtotal>",
     xmlTagWithAttrs("cbc:TaxableAmount", { currencyID: currency }, formatAmount(payload.totals?.netAmount), "      "),
-    xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, formatAmount(payload.totals?.vatAmount), "      "),
+    xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, vatAmountForXml, "      "),
     "      <cac:TaxCategory>",
-    xmlTag("cbc:ID", "S", "        "),
-    xmlTag("cbc:Percent", vatPercent, "        "),
+    xmlTag("cbc:ID", taxCategory.id, "        "),
+    xmlTag("cbc:Percent", taxCategory.percent, "        "),
+    // BR-AE-10 / BR-E-10: the VAT breakdown (BG-23) for AE/E must carry an
+    // exemption reason. UBL element order is ID, Percent, ReasonCode, Reason,
+    // TaxScheme — both reason tags are empty (and thus omitted) for category S.
+    xmlTag("cbc:TaxExemptionReasonCode", taxCategory.exemptionReasonCode, "        "),
+    xmlTag("cbc:TaxExemptionReason", taxCategory.exemptionReason, "        "),
     "        <cac:TaxScheme>",
     xmlTag("cbc:ID", "VAT", "          "),
     "        </cac:TaxScheme>",

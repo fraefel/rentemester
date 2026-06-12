@@ -41,7 +41,7 @@ import { buildPayablesList, payPayableFromBank } from "../core/payables";
 import { listDueAccrualRecognitionPeriods } from "../core/accruals";
 import { buildVatReport, vatFilingDeadline } from "../core/vat";
 import { buildVatFiling } from "../core/vat-filing";
-import { fiscalYearForDate } from "../core/fiscal-year";
+import { annualReportDeadline, fiscalYearForDate } from "../core/fiscal-year";
 import { vatPeriodWindowFor, type VatPeriodWindow } from "../core/periods";
 import { isValidIsoDate, diffDays, addDays } from "../core/dates";
 import { formatKroner } from "../cli-format";
@@ -56,7 +56,7 @@ import {
   resolveSupplierRule,
   type SupplierRule,
 } from "./contract";
-import { STRAKSAFSKRIVNING_THRESHOLD_DKK } from "../core/assets";
+import { straksafskrivningThresholdForYear } from "../core/assets";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -197,14 +197,30 @@ function loadInbox(inboxDir: string, metadataDir: string): InboxBilag[] {
 // ---------------------------------------------------------------------------
 // Deadline arithmetic (pure — no Date.now)
 // ---------------------------------------------------------------------------
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-// ---------------------------------------------------------------------------
 // The loop
 // ---------------------------------------------------------------------------
+
+/**
+ * Year-aware småaktiv (straksafskrivning) advisory for a possible fixed-asset
+ * purchase (JUR-4). The straksafskrivning grænse is set per income year
+ * (afskrivningsloven § 6) — e.g. 33.100 kr for 2024, 36.000 kr for 2026 — so the
+ * advisory MUST measure the purchase against its OWN year's sats, exactly like
+ * the booking gate in `postImmediateWriteOff` does. Using a single flat
+ * threshold would tell a 2024 purchase it is "under" a 2026 grænse it was never
+ * subject to.
+ *
+ * The income year is derived from the bilag/acquisition date (here the bank
+ * transaction date that pays the purchase), consistent with how the booking
+ * gate derives `acquisitionYear` from the acquisition date.
+ */
+export function straksafskrivningAdvisory(
+  acquisitionDate: string,
+  grossAmountDkk: number,
+): { thresholdDkk: number; aboveSmallAsset: boolean } {
+  const year = Number(String(acquisitionDate).slice(0, 4));
+  const thresholdDkk = straksafskrivningThresholdForYear(year);
+  return { thresholdDkk, aboveSmallAsset: Math.abs(grossAmountDkk) >= thresholdDkk };
+}
 
 /**
  * Runs one deterministic bookkeeping loop for one company.
@@ -381,7 +397,10 @@ function runPhases(db: Database, input: AgentRunInput, report: AgentRunReport): 
     // decision and never books it silently to an expense account.
     const grossAmount = Math.abs(row.amount);
     if (looksLikeFixedAsset(rule, grossAmount)) {
-      const aboveSmallAsset = grossAmount >= STRAKSAFSKRIVNING_THRESHOLD_DKK;
+      // Year-aware småaktiv grænse (JUR-4): measure against the purchase's own
+      // income year, derived from the bilag/payment date, not a flat constant.
+      const { thresholdDkk: smallAssetThresholdDkk, aboveSmallAsset } =
+        straksafskrivningAdvisory(row.date, grossAmount);
       routeException(db, report, {
         type: "AGENT_POSSIBLE_FIXED_ASSET",
         severity: "high",
@@ -393,10 +412,10 @@ function runPhases(db: Database, input: AgentRunInput, report: AgentRunReport): 
           `aktiv-/skattevurdering, som agenten ikke gætter på.`,
         requiredAction:
           aboveSmallAsset
-            ? `Beløbet er over småaktiv-grænsen på ${STRAKSAFSKRIVNING_THRESHOLD_DKK.toLocaleString("da-DK")} kr. ` +
+            ? `Beløbet er over småaktiv-grænsen på ${smallAssetThresholdDkk.toLocaleString("da-DK")} kr. ` +
               `og skal som udgangspunkt aktiveres og afskrives. Opret aktivet med 'asset register' og ` +
               `afskriv det med 'asset depreciate', eller bogfør udgiften manuelt hvis den ikke er et anlægsaktiv.`
-            : `Beløbet er under småaktiv-grænsen på ${STRAKSAFSKRIVNING_THRESHOLD_DKK.toLocaleString("da-DK")} kr. ` +
+            : `Beløbet er under småaktiv-grænsen på ${smallAssetThresholdDkk.toLocaleString("da-DK")} kr. ` +
               `Vurder om det skal straksafskrives ('asset write-off'), aktiveres og afskrives ('asset register'), ` +
               `eller bogføres som en almindelig driftsudgift — og bogfør det derefter.`,
         relatedBankTransactionId: row.bankTransactionId,
@@ -408,7 +427,7 @@ function runPhases(db: Database, input: AgentRunInput, report: AgentRunReport): 
           expenseAccount: rule.expenseAccount,
           grossAmountDkk: grossAmount,
           fixedAssetReviewThresholdDkk: FIXED_ASSET_REVIEW_THRESHOLD_DKK,
-          straksafskrivningThresholdDkk: STRAKSAFSKRIVNING_THRESHOLD_DKK,
+          straksafskrivningThresholdDkk: smallAssetThresholdDkk,
           aboveSmallAssetThreshold: aboveSmallAsset,
         },
       });
@@ -777,12 +796,10 @@ function checkDeadlines(db: Database, asOf: string, report: AgentRunReport): voi
 
   // --- Fiscal year (årsrapport) ---
   const fy = fiscalYearForDate(asOf, settings.fiscalYearStartMonth, settings.fiscalYearLabelStrategy);
-  // Årsrapport for a class-B company is due ~5 months after the fiscal year
-  // ends; the agent surfaces it conservatively, the human finalises it.
-  const fyDueYear = Number(fy.end.slice(0, 4));
-  const fyDueMonth = Number(fy.end.slice(5, 7));
-  const fyDue = new Date(Date.UTC(fyDueYear, fyDueMonth + 4, 1));
-  const fyDueDate = `${fyDue.getUTCFullYear()}-${pad2(fyDue.getUTCMonth() + 1)}-${pad2(fyDue.getUTCDate())}`;
+  // Årsrapport for a class-B company is due 6 months after the fiscal year
+  // ends (ÅRL § 138) — same canonical `annualReportDeadline` the cockpit's
+  // Forpligtelser view uses. The agent surfaces it; the human finalises it.
+  const fyDueDate = annualReportDeadline(fy.end);
   const fyDaysRemaining = diffDays(asOf, fyDueDate);
   report.upcomingDeadlines.push({
     kind: "fiscal_year",
@@ -793,8 +810,8 @@ function checkDeadlines(db: Database, asOf: string, report: AgentRunReport): voi
     ready: false,
     note:
       fyDaysRemaining <= DEADLINE_HORIZON_DAYS
-        ? `Årsrapport for regnskabsår ${fy.displayLabel} nærmer sig — forbered med 'report annual'.`
-        : `Regnskabsår ${fy.displayLabel} løber — årsrapport forfalder ${fyDueDate}.`,
+        ? `Årsrapport for regnskabsår ${fy.displayLabel} nærmer sig (frist ${fyDueDate}, ÅRL § 138) — forbered med 'report annual'.`
+        : `Regnskabsår ${fy.displayLabel} løber — årsrapport forfalder ${fyDueDate} (ÅRL § 138).`,
   });
 
   // --- Accrual recognition periods due ---

@@ -1,5 +1,5 @@
 import { diffDaysSafe as daysBetween } from "../../../core/dates";
-import { fiscalYearForDate } from "../../../core/fiscal-year";
+import { annualReportDeadline, fiscalYearForDate } from "../../../core/fiscal-year";
 import {
   vatPeriodsForYear,
   vatPeriodLabel,
@@ -170,26 +170,22 @@ export function buildCompanyObligations(
     // Annual report (årsrapport) — the statutory filing to Erhvervsstyrelsen.
     // It is not a ledger payable (it has no amount owed), but it is the other
     // recurring legal deadline an owner must not miss, so the Forpligtelser
-    // screen surfaces it alongside VAT (#290). The deadline is computed the
-    // SAME way `agent run` does (`src/agent/loop.ts#checkDeadlines`): a
-    // class-B company files its årsrapport by the 1st of the 5th month after
-    // the fiscal year ends. The fiscal year is derived from the company's own
-    // `fiscalYearStartMonth` / label strategy, so a non-calendar year is
-    // handled correctly. `amount` is 0 — it is a deadline, not a debt.
+    // screen surfaces it alongside VAT (#290). The deadline is the statutory
+    // ÅRL § 138 one — 6 months after the fiscal year ends — computed by the
+    // canonical `annualReportDeadline`, shared with `agent run`
+    // (`src/agent/loop.ts#checkDeadlines`). The fiscal year is derived from
+    // the company's own `fiscalYearStartMonth` / label strategy, so a
+    // non-calendar year is handled correctly. `amount` is 0 — it is a
+    // deadline, not a debt.
     const fy = fiscalYearForDate(
       yearEnd,
       ctx.company.fiscalYearStartMonth,
       ctx.company.fiscalYearLabelStrategy,
     );
-    const fyEndYear = parseInt(fy.end.slice(0, 4), 10);
-    const fyEndMonth = parseInt(fy.end.slice(5, 7), 10);
-    const annualReportDue = new Date(Date.UTC(fyEndYear, fyEndMonth + 4, 1));
-    const annualReportDueDate = `${annualReportDue.getUTCFullYear()}-${String(
-      annualReportDue.getUTCMonth() + 1,
-    ).padStart(2, "0")}-01`;
+    const annualReportDueDate = annualReportDeadline(fy.end);
     obligations.push({
       kind: "annual-report",
-      label: `Årsrapport — regnskabsår ${fy.displayLabel}`,
+      label: `Årsrapport — regnskabsår ${fy.displayLabel} (ÅRL § 138)`,
       amount: 0,
       dueDate: annualReportDueDate,
       daysRemaining: daysBetween(today, annualReportDueDate),

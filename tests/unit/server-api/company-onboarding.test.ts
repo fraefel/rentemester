@@ -7,7 +7,9 @@ describe("cockpit API — company onboarding (POST /api/companies)", () => {
     try {
       const res = await get(config({ workspaceRoot: ws }), "/api/companies", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        // SEC-1-BYPASS: skriveruten håndhæver nu localhost-gaten — en rigtig
+        // klient sender altid en loopback-Host, så testen gør det også.
+        headers: { host: "127.0.0.1", "content-type": "application/json" },
         body: JSON.stringify({ name: "Gamma ApS", cvr: "DK12345678" }),
       });
       expect(res.status).toBe(201);
@@ -25,7 +27,7 @@ describe("cockpit API — company onboarding (POST /api/companies)", () => {
     try {
       const res = await get(config({ workspaceRoot: ws }), "/api/companies", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { host: "127.0.0.1", "content-type": "application/json" },
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(400);
@@ -40,7 +42,7 @@ describe("cockpit API — company onboarding (POST /api/companies)", () => {
     try {
       const res = await get(config({ workspaceRoot: ws }), "/api/companies", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { host: "127.0.0.1", "content-type": "application/json" },
         body: JSON.stringify({ name: "Acme ApS" }),
       });
       expect(res.status).toBe(409);
@@ -56,7 +58,7 @@ describe("cockpit API — company onboarding (POST /api/companies)", () => {
     try {
       const res = await get(config({ workspaceRoot: ws }), "/api/companies", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { host: "127.0.0.1", "content-type": "application/json" },
         body: "{not json",
       });
       expect(res.status).toBe(400);

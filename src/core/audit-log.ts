@@ -141,6 +141,96 @@ export function listAuditLog(
   };
 }
 
+export type VerifyAuditLogIntegrityResult = {
+  ok: boolean;
+  /** Number of audit_log rows inspected. */
+  rows: number;
+  errors: string[];
+};
+
+/**
+ * KODE-14 — minimal, deterministic tamper-evidence for the audit_log.
+ *
+ * audit_log is append-only (UPDATE/DELETE blocked by schema triggers), but
+ * unlike journal_entries it has no hash chain or sequence guard, so a row
+ * removed through a privileged path (a dropped trigger, a raw sqlite3 session,
+ * a db file swapped in from outside) would leave no evidence. This is a
+ * defence-in-depth check that detects *removed* rows two complementary ways:
+ *
+ *   1. id-gap detection. audit_log.id is a monotonic INTEGER PRIMARY KEY, so a
+ *      clean log has a contiguous id range: COUNT(*) == MAX(id) - MIN(id) + 1.
+ *      A hole means a middle row was deleted.
+ *
+ *   2. journal cross-check. Every journal entry is written together with its
+ *      `journal_post` / `journal_reverse` audit event in the same transaction
+ *      (see ledger.applyJournalEntry / reverseJournalEntry), both stamped with
+ *      entity_type='journal_entry' and entity_id = the new entry id. So every
+ *      journal entry MUST have at least one matching audit row. A missing one
+ *      means an audit row was removed — this catches tail deletion, which
+ *      leaves the id range contiguous and so slips past check (1). It also
+ *      synergises with the period lifecycle replay (KODE-9), which trusts the
+ *      audit_log as the source of truth.
+ *
+ * Intentionally minimal: it does not re-hash the log (no chain column exists)
+ * — it proves *completeness against the journal*, which is the integrity that
+ * actually matters for the ledger. It is read-only and deterministic.
+ */
+export type VerifyAuditLogIntegrityOptions = {
+  /**
+   * Cross-check every journal entry against its `journal_post` /
+   * `journal_reverse` audit event. Strong, but it assumes every journal entry
+   * was written through the normal posting path (ledger.applyJournalEntry /
+   * reverseJournalEntry), which always logs that event in the same transaction.
+   * Entries inserted by a raw INSERT that deliberately bypasses audit logging
+   * (test fixtures, low-level migrations) would false-positive, so the caller
+   * opts in. Defaults to true for the standalone integrity check.
+   */
+  journalCrossCheck?: boolean;
+};
+
+export function verifyAuditLogIntegrity(
+  db: Database,
+  options: VerifyAuditLogIntegrityOptions = {},
+): VerifyAuditLogIntegrityResult {
+  const journalCrossCheck = options.journalCrossCheck ?? true;
+  const errors: string[] = [];
+
+  const span = db
+    .query("SELECT COUNT(*) AS n, MIN(id) AS lo, MAX(id) AS hi FROM audit_log")
+    .get() as { n: number; lo: number | null; hi: number | null };
+  const rows = Number(span.n ?? 0);
+
+  if (rows > 0 && span.lo != null && span.hi != null) {
+    const expectedSpan = Number(span.hi) - Number(span.lo) + 1;
+    if (rows !== expectedSpan) {
+      errors.push(
+        `audit_log id sequence has gaps: ${rows} rows present but id range ${span.lo}..${span.hi} spans ${expectedSpan} — ${expectedSpan - rows} row(s) missing`,
+      );
+    }
+  }
+
+  // Journal cross-check: every journal entry must have its matching audit event.
+  if (journalCrossCheck) {
+    const orphanEntries = db
+      .query(
+        `SELECT je.id, je.entry_no
+           FROM journal_entries je
+          WHERE NOT EXISTS (
+            SELECT 1 FROM audit_log al
+             WHERE al.entity_type = 'journal_entry'
+               AND al.entity_id = CAST(je.id AS TEXT)
+          )
+          ORDER BY je.id ASC`,
+      )
+      .all() as Array<{ id: number; entry_no: string }>;
+    for (const entry of orphanEntries) {
+      errors.push(`journal entry ${entry.entry_no} has no matching audit event — an audit_log row was removed`);
+    }
+  }
+
+  return { ok: errors.length === 0, rows, errors };
+}
+
 function mapAuditRow(row: {
   id: number;
   event_type: string;

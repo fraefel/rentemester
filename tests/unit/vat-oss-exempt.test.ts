@@ -286,3 +286,119 @@ describe("rubrik C — VAT-exempt sales", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 });
+
+describe("partial deduction (§§37-38 delvis fradragsret) warning", () => {
+  test("warns when a period has both exempt sales AND fully-deducted input VAT", () => {
+    const { root, inbox, db } = newCompany("rentemester-partial-");
+    const docId = ingest(db, root, inbox, "INV-PART-1");
+
+    // Exempt sale (no output VAT).
+    const exempt = postJournalEntry(db, {
+      transactionDate: "2026-03-08",
+      text: "Momsfrit salg",
+      documentId: docId,
+      lines: [
+        { accountNo: "2000", debitAmount: 5000 },
+        { accountNo: "1000", creditAmount: 5000, vatCode: "DK_SALE_EXEMPT" },
+      ],
+    });
+    expect(exempt.ok).toBe(true);
+
+    // A purchase with input VAT deducted at 100%.
+    const purchase = postJournalEntry(db, {
+      transactionDate: "2026-03-10",
+      text: "Indkøb",
+      documentId: docId,
+      lines: [
+        { accountNo: "3000", debitAmount: 800, vatCode: "DK_PURCHASE_25" },
+        { accountNo: "4000", debitAmount: 200 },
+        { accountNo: "2000", creditAmount: 1000 },
+      ],
+    });
+    expect(purchase.ok).toBe(true);
+
+    const report = buildVatReport(db, "2026-03-01", "2026-03-31");
+    expect(report.ok).toBe(true);
+    expect(report.exemptSalesBase).toBe(5000);
+    expect(report.inputVat).toBe(200);
+    // Warning-only: amounts are unchanged.
+    expect(
+      report.warnings.some((w) => w.includes("§§37-38") || w.toLowerCase().includes("delvis fradrag")),
+    ).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("no partial-deduction warning when there are no exempt sales", () => {
+    const { root, inbox, db } = newCompany("rentemester-partial-none-");
+    const docId = ingest(db, root, inbox, "INV-PART-2");
+
+    const purchase = postJournalEntry(db, {
+      transactionDate: "2026-03-10",
+      text: "Indkøb",
+      documentId: docId,
+      lines: [
+        { accountNo: "3000", debitAmount: 800, vatCode: "DK_PURCHASE_25" },
+        { accountNo: "4000", debitAmount: 200 },
+        { accountNo: "2000", creditAmount: 1000 },
+      ],
+    });
+    expect(purchase.ok).toBe(true);
+
+    const report = buildVatReport(db, "2026-03-01", "2026-03-31");
+    expect(report.ok).toBe(true);
+    expect(
+      report.warnings.some((w) => w.includes("§§37-38") || w.toLowerCase().includes("delvis fradrag")),
+    ).toBe(false);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("the §§37-38 warning propagates into buildVatFiling", () => {
+    const { root, inbox, db } = newCompany("rentemester-partial-filing-");
+    const docId = ingest(db, root, inbox, "INV-PART-3");
+
+    postJournalEntry(db, {
+      transactionDate: "2026-03-08",
+      text: "Momsfrit salg",
+      documentId: docId,
+      lines: [
+        { accountNo: "2000", debitAmount: 5000 },
+        { accountNo: "1000", creditAmount: 5000, vatCode: "DK_SALE_EXEMPT" },
+      ],
+    });
+    postJournalEntry(db, {
+      transactionDate: "2026-03-10",
+      text: "Indkøb",
+      documentId: docId,
+      lines: [
+        { accountNo: "3000", debitAmount: 800, vatCode: "DK_PURCHASE_25" },
+        { accountNo: "4000", debitAmount: 200 },
+        { accountNo: "2000", creditAmount: 1000 },
+      ],
+    });
+
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-03-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_quarter",
+      status: "closed",
+      createdBy: "agent:test",
+    });
+    expect(closed.ok).toBe(true);
+
+    const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
+    expect(filing.ok).toBe(true);
+    expect(
+      filing.warnings.some((w) => w.includes("§§37-38") || w.toLowerCase().includes("delvis fradrag")),
+    ).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+});

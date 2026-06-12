@@ -25,7 +25,7 @@ import {
   withCompanyDbConfirmed,
   confirmField,
 } from "../../tool-runtime";
-import { requireInvoicePostedEnvelope } from "./_shared";
+import { requireInvoicePostedEnvelope, resolveInvoiceSelectorInPayload } from "./_shared";
 
 // --- bank-settlement family --------------------------------------------------
 // invoice_settle_bank, invoice_settle_claim_bank and invoice_refund_bank share
@@ -161,25 +161,16 @@ const applyPaymentPayloadSchema = z
   })
   .describe("Apply-payment payload. amount is in kroner (decimal DKK, 2 decimals — NOT øre).");
 
-// Resolve invoice document id inside a payload that may pass invoiceNumber instead.
+// AGENT-8: the invoice selector resolution lives in _shared.ts
+// (resolveInvoiceSelectorInPayload). An unknown invoiceNumber fails THERE with
+// a clear "No issued invoice has invoice number '…'" envelope instead of
+// falling through to the core's misleading "invoiceDocumentId must be a
+// positive integer" (a field the agent never sent).
 function resolveInvoiceInPayload(
   db: import("bun:sqlite").Database,
   payload: Record<string, unknown>,
-): Record<string, unknown> {
-  if (
-    payload.invoiceDocumentId === undefined ||
-    payload.invoiceDocumentId === null ||
-    payload.invoiceDocumentId === 0
-  ) {
-    const value = typeof payload.invoiceNumber === "string" ? payload.invoiceNumber.trim() : "";
-    if (value) {
-      const row = db
-        .query(`SELECT id FROM documents WHERE document_type = 'issued_invoice' AND invoice_no = ? LIMIT 1`)
-        .get(value) as { id: number } | null;
-      if (row) return { ...payload, invoiceDocumentId: row.id };
-    }
-  }
-  return payload;
+) {
+  return resolveInvoiceSelectorInPayload(db, payload, "invoiceDocumentId", "invoiceNumber");
 }
 
 export function registerInvoiceSettlementTools(server: McpServer): void {
@@ -204,7 +195,9 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
       payload: SettleInvoiceFromBankInput & { invoiceNumber?: string };
       confirm?: boolean;
     }>(server, "invoice_settle_bank", ({ db, actor, args }) => {
-      const resolved = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      if (!resolution.ok) return resolution.envelope;
+      const resolved = resolution.payload;
       const docId = Number((resolved as { invoiceDocumentId?: unknown }).invoiceDocumentId);
       if (Number.isInteger(docId) && docId > 0) {
         const blocked = requireInvoicePostedEnvelope(db, docId, "invoice_settle_bank");
@@ -238,7 +231,9 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
       payload: SettleInvoiceClaimsFromBankInput & { invoiceNumber?: string };
       confirm?: boolean;
     }>(server, "invoice_settle_claim_bank", ({ db, actor, args }) => {
-      const resolved = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      if (!resolution.ok) return resolution.envelope;
+      const resolved = resolution.payload;
       const docId = Number((resolved as { invoiceDocumentId?: unknown }).invoiceDocumentId);
       if (Number.isInteger(docId) && docId > 0) {
         const blocked = requireInvoicePostedEnvelope(db, docId, "invoice_settle_claim_bank");
@@ -275,7 +270,9 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
       payload: WriteOffInvoiceBadDebtInput & { invoiceNumber?: string };
       confirm?: boolean;
     }>(server, "invoice_write_off_bad_debt", ({ db, actor, args }) => {
-      const resolved = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      if (!resolution.ok) return resolution.envelope;
+      const resolved = resolution.payload;
       const docId = Number((resolved as { invoiceDocumentId?: unknown }).invoiceDocumentId);
       if (Number.isInteger(docId) && docId > 0) {
         const blocked = requireInvoicePostedEnvelope(db, docId, "invoice_write_off_bad_debt");
@@ -309,7 +306,9 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
       payload: ApplyInvoicePaymentInput & { invoiceNumber?: string };
       confirm?: boolean;
     }>(server, "invoice_apply_payment", ({ db, actor, args }) => {
-      const resolved = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      if (!resolution.ok) return resolution.envelope;
+      const resolved = resolution.payload;
       const docId = Number((resolved as { invoiceDocumentId?: unknown }).invoiceDocumentId);
       if (Number.isInteger(docId) && docId > 0) {
         const blocked = requireInvoicePostedEnvelope(db, docId, "invoice_apply_payment");
@@ -343,7 +342,9 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
       payload: RefundInvoiceToBankInput & { invoiceNumber?: string };
       confirm?: boolean;
     }>(server, "invoice_refund_bank", ({ db, actor, args }) => {
-      const resolved = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
+      if (!resolution.ok) return resolution.envelope;
+      const resolved = resolution.payload;
       const docId = Number((resolved as { invoiceDocumentId?: unknown }).invoiceDocumentId);
       if (Number.isInteger(docId) && docId > 0) {
         const blocked = requireInvoicePostedEnvelope(db, docId, "invoice_refund_bank");

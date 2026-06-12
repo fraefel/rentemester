@@ -75,12 +75,12 @@ export function renderExceptionsList(result: Record<string, unknown>): string {
   const rows = asArray(result.rows);
   const lines: string[] = [];
   if (rows.length === 0) {
-    lines.push("Ingen exceptions i køen for det valgte filter.");
+    lines.push("Ingen undtagelser i køen for det valgte filter.");
     return lines.join("\n");
   }
   const open = rows.filter((row) => row.status === "open").length;
   lines.push(
-    `Exceptions-kø: ${rows.length} sag${rows.length === 1 ? "" : "er"}` +
+    `Undtagelser: ${rows.length} sag${rows.length === 1 ? "" : "er"}` +
       (open > 0 ? ` (${open} åben${open === 1 ? "" : "e"})` : ""),
   );
   lines.push("");

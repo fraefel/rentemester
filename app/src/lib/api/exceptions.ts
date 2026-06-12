@@ -1,12 +1,7 @@
 import type { ExceptionsResponse } from "../types";
 import { request } from "./_shared";
 
-// Two definitions of `resolveException` existed in the original `api.ts`:
-// the second (later in the literal) shadowed the first. To preserve that
-// last-wins semantics deterministically we split them into two consts and
-// spread them in the original order in the barrel.
-
-export const exceptionsApiLegacy = {
+export const exceptionsApi = {
   /**
    * #332 — Exceptions queue list. Default status er 'open' så cockpittet
    * altid starter på det aktive arbejde.
@@ -20,26 +15,6 @@ export const exceptionsApiLegacy = {
     ).then((r) => r.exceptions);
   },
 
-  /**
-   * POST /api/companies/:slug/exceptions/:id/resolve — closes an open
-   * exception. Returns `{ resolved: boolean }`.
-   */
-  resolveException: (
-    slug: string,
-    id: number,
-    body: { note?: string } = {},
-  ) =>
-    request<{ ok: true; exception: { id: number; resolved: boolean } }>(
-      `/api/companies/${encodeURIComponent(slug)}/exceptions/${id}/resolve`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ).then((r) => r.exception),
-};
-
-export const exceptionsApi = {
   /** Resolves an open exception. `note` is optional free text. */
   resolveException: (slug: string, id: number, note?: string) =>
     request<{ ok: true; exception: { id: number; resolved: boolean } }>(

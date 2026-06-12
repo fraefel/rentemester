@@ -12,7 +12,13 @@ describe("report tax CLI", () => {
     await Bun.$`bun run src/cli.ts init --company ${company} --cvr DK12345678`.quiet();
     await Bun.$`bun run src/cli.ts documents ingest --company ${company} --file examples/vendor-invoice.txt --metadata examples/vendor-invoice.metadata.json`.quiet();
     await Bun.$`bun run src/cli.ts journal post --company ${company} --input examples/journal-entry.expense.json`.quiet();
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-01-01 --to 2026-12-31 --kind fiscal_year --status closed`.quiet();
+    // EJER-6: the fiscal year ends 2026-12-31, which is in the future relative
+    // to the harness clock, so closing it would hit the new future-period guard.
+    // This test is about the tax report over an already-locked year, not the
+    // guard — pin the close's "today" past the year end via RENTEMESTER_TODAY.
+    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-01-01 --to 2026-12-31 --kind fiscal_year --status closed`
+      .env({ ...process.env, RENTEMESTER_TODAY: "2027-01-02" })
+      .quiet();
 
     const proc = Bun.spawn(
       ["bun", "run", "src/cli.ts", "report", "tax", "--company", company, "--from", "2026-01-01", "--to", "2026-12-31"],

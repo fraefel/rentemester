@@ -31,4 +31,10 @@ rules:
       rate with a source-backed basis. The mileage log is documentation only;
       Rentemester does not post it to the journal/ledger and does not decide
       tax treatment — that remains the user's and their advisor's
-      responsibility.
+      responsibility. NOTE (JUR-13): createMileageEntry may emit a WARNING-ONLY
+      advisory if the user-supplied ratePerKm exceeds Skatterådets highest
+      maximum tax-free rate for the trip's income year (2026 maxima: bil
+      ≤20.000 km 3,94 kr/km, bil >20.000 km 2,28 kr/km, cykel/knallert 0,64
+      kr/km). This does not violate forbid:hardcoded_tax_rate — the maxima are
+      used only to warn, never in the amount calculation, which still uses the
+      user's own rate.

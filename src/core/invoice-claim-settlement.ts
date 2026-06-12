@@ -117,7 +117,7 @@ export function settleInvoiceClaimsFromBank(db: Database, input: SettleInvoiceCl
         remainingClaimOpenBalance: roundDkk(Number(after.claimOpenBalance ?? 0)),
         appliedRules: [...new Set([RULE_ID, ...(journal.appliedRules ?? [])])],
       };
-    })();
+    }, { immediate: true })();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

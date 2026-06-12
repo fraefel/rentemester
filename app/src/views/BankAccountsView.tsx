@@ -205,7 +205,7 @@ function CreateBankAccountModal({
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
+    <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal">
         <h3>Opret bankkonto</h3>
         <form onSubmit={submit}>

@@ -98,25 +98,66 @@ kræver `confirm: true`); afvigelsen er bevidst og forklaret i
 
 ## 4. Output-felter ved succes
 
-Den enkelte kommandos `--help` dækker exit-koder og — ved fejl — `errors[]`,
-men *ikke* hvilke felter `--json`-succes-outputtet indeholder. Den kontrakt
-står ikke i `--help`.
+Hverken exit-koder eller `--json`-outputtets felter står i den enkelte
+kommandos `--help` — per-kommando-hjælpen dækker brug, inputnoter og
+tilladte flags. Exit-koderne dækkes af den **globale** hjælp
+(`rentemester --help`, sidste linje) og af §2 i denne kontrakt;
+output-felterne dækkes af dette afsnit.
 
-Reglen er: **et `--json`-succes-output fra CLI'en spejler `data`-shapen for
-den tilsvarende MCP-tool.** Hver CLI-kommando svarer (typisk 1:1) til en
-MCP-tool — `journal post` ⇄ `journal_post`, `invoice issue` ⇄ `invoice_issue`,
-`audit verify` ⇄ `audit_verify` osv. — og de to overflader returnerer den
-samme strukturerede `{ ok, errors, ... }`-form med de samme felter under
-resultatet.
+### Write-kommandoer: felt-paritet med MCP, men FLAD form
 
-Den autoritative, per-tool feltliste står derfor i
-[`docs/mcp-tool-surface.md`](mcp-tool-surface.md) under afsnittet
-"`data`-felter pr. tool" (samt i kildens `*Result`-typer i `src/core/*.ts`).
-Slå CLI-kommandoens MCP-pendant op dér for at se de præcise felter — fx giver
-`audit verify` / `audit_verify` `{ entries }` med integritets-verdikten i
-`ok`/`errors[]`, og `journal post` / `journal_post` giver
-`{ entryId, entryNo, entryHash }`.
+For **write-kommandoer** gælder felt-paritet med MCP: et `--json`-succes-output
+indeholder de samme resultat-felter som den tilsvarende MCP-tools `data` —
+`journal post` ⇄ `journal_post`, `invoice issue` ⇄ `invoice_issue` osv.
 
-Bemærk de få CLI-only-kommandoer uden MCP-pendant (fx `invoice create`,
-`invoice export-public`); de er listet under "CLI/MCP-mapping" i samme
-dokument.
+**Men formen er flad, ikke `data`-indpakket.** CLI'en lægger resultat-felterne
+direkte på topniveau sammen med `ok`/`errors`/`appliedRules`, hvor MCP wrapper
+dem i `data`. En parser skrevet til MCP-konvolutten får `undefined` på CLI'en:
+
+```jsonc
+// CLI: journal post --json  (verificeret output)
+{ "ok": true, "appliedRules": ["DK-BOOKKEEPING-BALANCED-001", "…"], "errors": [],
+  "entryId": 1, "entryNo": "2026-00001", "entryHash": "246b…70f4" }
+
+// MCP: journal_post — samme felter, men under `data`
+{ "ok": true, "data": { "entryId": 1, "entryNo": "2026-00001", "entryHash": "246b…70f4" },
+  "errors": [], "appliedRules": ["…"] }
+```
+
+Den autoritative per-tool feltliste står i
+[`docs/mcp-tool-surface.md`](mcp-tool-surface.md) under "`data`-felter pr.
+tool" (samt i kildens `*Result`-typer i `src/core/*.ts`). Slå
+write-kommandoens MCP-pendant op dér — og læs felterne fra CLI'ens
+**topniveau**, ikke fra et `data`-felt.
+
+### Read-kommandoer: INGEN paritet — formen varierer pr. kommando
+
+For **read-kommandoer** gælder paritetsløftet IKKE. De har hverken en fælles
+konvolut eller MCP's feltnavne: output-formen varierer pr. kommando, og
+feltnavnene er **snake_case** (databasekolonner), hvor MCP bruger camelCase.
+Verificerede eksempler:
+
+```jsonc
+// journal list --json — et BART array uden konvolut (ingen ok/errors);
+// MCP's journal_list giver { ok, data: { entries: [...], total, … } } i camelCase
+[ { "id": 1, "entry_no": "2026-00001", "transaction_date": "2026-01-15",
+    "text": "Testpostering", "currency": "DKK", "amount_dkk": null,
+    "document_id": null, "status": "posted", "reversal_of_entry_id": null, … } ]
+
+// accounts list --json — konvolut-agtig, men nøglen er `rows` og felterne snake_case;
+// MCP's accounts_list giver { data: { accounts: [{ accountNo, … }], count } }
+{ "ok": true, "count": 48,
+  "rows": [ { "account_no": "1000", "name": "Omsætning, ydelser",
+              "type": "income", "default_vat_code": null }, … ] }
+
+// invoice list --json — endnu en variant: rows + ekstra topniveau-felter
+{ "ok": true, "count": 0, "status": "all", "rows": [], "errors": [] }
+```
+
+En agent der parser read-output skal altså behandle hver kommandos form
+konkret (kør kommandoen mod en test-virksomhed, eller læs `src/cli/<domæne>.ts`)
+— ikke udlede den fra MCP-tool-pendant'en.
+
+Bemærk desuden de få CLI-only-kommandoer uden MCP-pendant (fx `invoice create`,
+`invoice export-public`); de er listet under "CLI/MCP-mapping" i
+[`docs/mcp-tool-surface.md`](mcp-tool-surface.md).

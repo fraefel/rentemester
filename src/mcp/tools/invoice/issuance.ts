@@ -24,6 +24,7 @@ import {
   invoicePayloadSchema,
   docIdOrNumberSchema,
   notFoundEnvelope,
+  resolveInvoiceSelectorInPayload,
 } from "./_shared";
 
 // --- credit note -------------------------------------------------------------
@@ -55,25 +56,15 @@ const creditNotePayloadSchema = z
   })
   .describe("Credit-note payload. grossAmount is in kroner (decimal DKK, 2 decimals — NOT øre).");
 
+// AGENT-8: shared payload-selector resolution — an unknown
+// originalInvoiceNumber fails here with a clear "No issued invoice has
+// invoice number '…'" envelope instead of the core's misleading
+// "originalInvoiceDocumentId must be a positive integer".
 function resolveOriginalInvoice(
   db: import("bun:sqlite").Database,
   payload: Record<string, unknown>,
-): Record<string, unknown> {
-  if (
-    payload.originalInvoiceDocumentId === undefined ||
-    payload.originalInvoiceDocumentId === null ||
-    payload.originalInvoiceDocumentId === 0
-  ) {
-    const value =
-      typeof payload.originalInvoiceNumber === "string" ? payload.originalInvoiceNumber.trim() : "";
-    if (value) {
-      const row = db
-        .query(`SELECT id FROM documents WHERE document_type = 'issued_invoice' AND invoice_no = ? LIMIT 1`)
-        .get(value) as { id: number } | null;
-      if (row) return { ...payload, originalInvoiceDocumentId: row.id };
-    }
-  }
-  return payload;
+) {
+  return resolveInvoiceSelectorInPayload(db, payload, "originalInvoiceDocumentId", "originalInvoiceNumber");
 }
 
 export function registerInvoiceIssuanceTools(server: McpServer): void {
@@ -102,8 +93,12 @@ export function registerInvoiceIssuanceTools(server: McpServer): void {
     }>(server, "invoice_issue", ({ db, args }) => {
       const resolved = resolveInvoiceMasterData(db, args.payload, { customerId: args.customerId });
       if (!resolved.ok) return wrapCoreResult(resolved);
-      const result = issueInvoice(db, args.company, resolved.payload);
-      return wrapCoreResult(result);
+      const result = issueInvoice(db, args.company, resolved.payload!);
+      // EJER-3: surface master-data notes (fx "Betalingsfrist 30 dage fra
+      // kundekortet — virksomhedens standard er 14 dage.") in the success
+      // envelope, so a deviating kundefrist is never silently applied.
+      const notes = (resolved as { notes?: string[] }).notes;
+      return wrapCoreResult(result.ok && notes && notes.length > 0 ? { ...result, notes } : result);
     }),
   );
 
@@ -151,13 +146,14 @@ export function registerInvoiceIssuanceTools(server: McpServer): void {
       server,
       "invoice_credit_note",
       ({ db, actor, args }) => {
-        const resolved = resolveOriginalInvoice(db, args.payload as Record<string, unknown>);
+        const resolution = resolveOriginalInvoice(db, args.payload as Record<string, unknown>);
+        if (!resolution.ok) return resolution.envelope;
         // Actor-invariant (#63/#76): attribute the credit-note's reversal entry
         // to the booking agent in the hash-chained ledger + audit_log.
         const result = issueCreditNote(
           db,
           args.company,
-          withActor(resolved as IssueCreditNoteInput, actor),
+          withActor(resolution.payload as IssueCreditNoteInput, actor),
         );
         return wrapCoreResult(result);
       },

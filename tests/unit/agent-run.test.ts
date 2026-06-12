@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { writeFileSync } from "node:fs";
 import { initialiseCompanyVolume } from "../../src/core/company";
-import { runAgentLoop } from "../../src/agent/loop";
+import { runAgentLoop, straksafskrivningAdvisory } from "../../src/agent/loop";
 import { formatRunReport } from "../../src/agent/run";
 import { AGENT_ACTOR_ID } from "../../src/agent/contract";
 import { openDb, migrate } from "../../src/core/db";
@@ -117,8 +117,13 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
       const currentQuarter = vatQuarters.find((d) => d.periodStart === "2026-04-01");
       expect(currentQuarter).toBeDefined();
       expect(currentQuarter!.periodEnd).toBe("2026-06-30");
-      // The fiscal-year (årsrapport) obligation is surfaced too.
-      expect(report.upcomingDeadlines.some((d) => d.kind === "fiscal_year")).toBe(true);
+      // The fiscal-year (årsrapport) obligation is surfaced too, with the
+      // statutory ÅRL § 138 deadline: 6 months after the fiscal year ends —
+      // calendar year 2026 ⇒ 30 June 2027 (NOT 1 May 2027).
+      const fiscalYearDeadline = report.upcomingDeadlines.find((d) => d.kind === "fiscal_year");
+      expect(fiscalYearDeadline).toBeDefined();
+      expect(fiscalYearDeadline!.dueDate).toBe("2027-06-30");
+      expect(fiscalYearDeadline!.note).toContain("ÅRL § 138");
 
       // The summary is plain-language and non-empty.
       expect(report.summary.length).toBeGreaterThan(0);
@@ -621,6 +626,31 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
+    });
+  });
+
+  // JUR-4: the fixed-asset advisory must measure a purchase against the
+  // straksafskrivning grænse of its OWN income year (afskrivningsloven § 6),
+  // exactly like the booking gate — not a single flat constant.
+  describe("year-aware småaktiv advisory (JUR-4)", () => {
+    test("a 2024 purchase in the 33.100–36.000 band is measured against 33.100 (over), not 36.000 (under)", () => {
+      // 35.000 kr is BELOW the 2026 grænse (36.000) but ABOVE the 2024 grænse
+      // (33.100). A flat-2026 advisory would wrongly call it "under"; the
+      // year-aware advisory correctly calls it "over" for a 2024 bilag.
+      const advice2024 = straksafskrivningAdvisory("2024-06-15", 35000);
+      expect(advice2024.thresholdDkk).toBe(33100);
+      expect(advice2024.aboveSmallAsset).toBe(true);
+
+      // The same amount on a 2026 bilag is correctly under the 2026 grænse.
+      const advice2026 = straksafskrivningAdvisory("2026-06-15", 35000);
+      expect(advice2026.thresholdDkk).toBe(36000);
+      expect(advice2026.aboveSmallAsset).toBe(false);
+    });
+
+    test("the sign of the amount does not matter — outgoing payments are negative", () => {
+      const advice = straksafskrivningAdvisory("2024-06-15", -35000);
+      expect(advice.thresholdDkk).toBe(33100);
+      expect(advice.aboveSmallAsset).toBe(true);
     });
   });
 });

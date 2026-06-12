@@ -105,8 +105,13 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
       db.close();
       process.exit(1);
     }
-    const result = issueInvoice(db, root, resolved.payload);
-    ctx.emitResult(result as Record<string, unknown>);
+    const result = issueInvoice(db, root, resolved.payload!);
+    // EJER-3: surface master-data notes (afvigende kundefrist) alongside the
+    // core result so a deviating betalingsfrist is never silently applied.
+    const issueNotes = (resolved as { notes?: string[] }).notes;
+    ctx.emitResult((result.ok && issueNotes && issueNotes.length > 0
+      ? { ...result, notes: issueNotes }
+      : result) as Record<string, unknown>);
     db.close();
   });
 
@@ -195,12 +200,16 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
       db.close();
       process.exit(1);
     }
-    const result = issueInvoice(db, root, resolved.payload);
+    const result = issueInvoice(db, root, resolved.payload!);
     // Surface the computed amounts so a human can see exactly what Rentemester
     // worked out from their input. The core result fields stay untouched, so
-    // `--format json` consumers keep a stable shape.
+    // `--format json` consumers keep a stable shape. EJER-3: master-data
+    // notes (afvigende kundefrist vs. virksomhedens standard) ride along so
+    // the betalingsfrist is never silently different from the profile.
+    const createNotes = (resolved as { notes?: string[] }).notes;
     const enriched = {
       ...result,
+      ...(result.ok && createNotes && createNotes.length > 0 ? { notes: createNotes } : {}),
       computed: {
         lines: computed.lines,
         netAmount: computed.totals.netAmount,

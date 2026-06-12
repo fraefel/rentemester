@@ -4,6 +4,7 @@ import { getInvoiceStatus } from "./invoice-payments";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { roundDkk } from "./money";
+import { normalizeEanNumber } from "./ean";
 
 const RULE_ID = "DK-INVOICE-LATE-COMPENSATION-001";
 const REGISTER_RULE_ID = "DK-INVOICE-LATE-COMPENSATION-REGISTER-001";
@@ -82,6 +83,23 @@ function looksLikeCommercialVatOrCvr(value: unknown): boolean {
   return /^[A-Z]{2}[A-Z0-9]{2,12}$/.test(normalized);
 }
 
+/**
+ * Whether the buyer is a commercial party for the purposes of the DKK 310
+ * compensation (renteloven § 9a). Beyond a CVR / EU-VAT number, this also covers
+ * PUBLIC-SECTOR buyers: renteloven § 1, stk. 4 brings public authorities within
+ * the commercial-transaction regime, and § 9a's compensation right applies to
+ * them too. Such buyers are routinely identified ONLY by an EAN/GLN (the
+ * mandatory e-invoicing endpoint for the public sector) — with no CVR on the
+ * payload — so a valid EAN, or an explicit publicRecipient flag, is accepted as
+ * alternative proof of a commercial transaction. (JUR-15)
+ */
+function buyerIsCommercialParty(buyer: unknown): boolean {
+  const b = (buyer ?? {}) as { vatOrCvr?: unknown; eanNumber?: unknown; publicRecipient?: unknown };
+  if (looksLikeCommercialVatOrCvr(b.vatOrCvr)) return true;
+  if (b.publicRecipient === true) return true;
+  return normalizeEanNumber(b.eanNumber) !== null;
+}
+
 export function calculateInvoiceLateCompensation(db: Database, input: CalculateInvoiceLateCompensationInput): CalculateInvoiceLateCompensationResult {
   const errors: string[] = [];
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) errors.push("invoiceDocumentId must be a positive integer");
@@ -100,7 +118,7 @@ export function calculateInvoiceLateCompensation(db: Database, input: CalculateI
   if (!status.ok) return { ok: false, appliedRules: [RULE_ID], errors: status.errors };
 
   const payload = invoice.payload_json ? JSON.parse(invoice.payload_json) : null;
-  const isCommercialTransaction = looksLikeCommercialVatOrCvr(payload?.buyer?.vatOrCvr);
+  const isCommercialTransaction = buyerIsCommercialParty(payload?.buyer);
   const principalOpenBalance = roundDkk(Number(status.openBalance ?? 0));
   const overdueDays = Number(status.overdueDays ?? 0);
   const compensationAmountDkk = roundDkk(input.compensationAmountDkk ?? STATUTORY_COMPENSATION_DKK);
@@ -108,7 +126,7 @@ export function calculateInvoiceLateCompensation(db: Database, input: CalculateI
   const eligible = isCommercialTransaction && principalOpenBalance > 0 && overdueDays > 0 && coveredByStatutoryAmount;
 
   let reason = "eligible";
-  if (!isCommercialTransaction) reason = "buyer.vatOrCvr missing; commercial transaction not proven";
+  if (!isCommercialTransaction) reason = "buyer.vatOrCvr, buyer.eanNumber and buyer.publicRecipient all missing; commercial transaction not proven";
   else if (!(principalOpenBalance > 0)) reason = "invoice has no collectible open balance";
   else if (!(overdueDays > 0)) reason = "invoice is not overdue as of the requested date";
   else if (!coveredByStatutoryAmount) reason = `invoice predates statutory compensation start date ${STATUTORY_COMPENSATION_START_DATE}`;
@@ -131,6 +149,16 @@ export function calculateInvoiceLateCompensation(db: Database, input: CalculateI
 }
 
 export function registerInvoiceLateCompensation(db: Database, input: RegisterInvoiceLateCompensationInput): RegisterInvoiceLateCompensationResult {
+  // Concurrency: the existing-claim check (read) and the INSERT below run in
+  // separate statements, so two *separate processes* could both pass the check
+  // before either inserts and register the DKK 310 compensation twice on the same
+  // invoice. Wrapping the read-then-write in BEGIN IMMEDIATE takes the write lock
+  // up front, so the second process blocks until the first commits and then sees
+  // the freshly inserted claim. (KODE-5, sister path to invoice-interest.ts.)
+  return db.transaction(() => registerInvoiceLateCompensationTxn(db, input)).immediate();
+}
+
+function registerInvoiceLateCompensationTxn(db: Database, input: RegisterInvoiceLateCompensationInput): RegisterInvoiceLateCompensationResult {
   const assessment = calculateInvoiceLateCompensation(db, input);
   if (!assessment.ok) return { ...assessment, appliedRules: [...new Set([...(assessment.appliedRules ?? []), REGISTER_RULE_ID])] };
   if (!assessment.eligible || !(Number(assessment.compensationAmountDkk ?? 0) > 0)) {

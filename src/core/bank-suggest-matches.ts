@@ -27,6 +27,18 @@ export type BankMatchSuggestionRow = {
   currency: string;
   reference: string | null;
   suggestions: BankMatchSuggestion[];
+  /**
+   * EJER-7: when a row has NO safe (>= 0.5) suggestion but a document's gross
+   * amount nonetheless EXACTLY matches the bank line, this names that document
+   * and says why the match is not "safe" on its own. Without it, `bank
+   * suggest-matches` printed "Ingen sikre forslag" while the exceptions queue —
+   * which finds the very same bilag by exact amount (`findCandidateBilag`) —
+   * said "passer til bilag DOC-…", a direct self-contradiction. Surfacing the
+   * amount-only near-miss here makes the two surfaces tell one story: there IS
+   * a candidate, it just lacks the invoice-number / name corroboration an
+   * auto-apply would need. Null when no exact-amount candidate exists.
+   */
+  unsafeMatchReason: string | null;
 };
 
 export type SuggestBankMatchesResult = {
@@ -505,6 +517,50 @@ function supplierCreditRefundSuggestion(bank: ReturnType<typeof unmatchedBankTra
 }
 // ===== END BANK CLUSTER (#182) =====
 
+/**
+ * EJER-7: the exact-amount near-miss the exceptions queue would name.
+ *
+ * Mirrors `findCandidateBilag` in `exceptions.ts`: a single unbooked
+ * purchase / cash-register bilag whose gross amount EQUALS the absolute bank
+ * amount (integer-øre comparison). Returns a human Danish explanation, or null
+ * when there is no — or an ambiguous (more than one) — exact-amount candidate.
+ *
+ * This is intentionally the SAME signal the unmatched-bank-transaction
+ * exception uses, so `bank suggest-matches` and the exceptions queue never
+ * contradict each other. It explains WHY the candidate is not offered as a
+ * safe suggestion: an exact amount alone cannot tell two equal-balance bilag
+ * apart, so an auto-apply would risk booking the wrong one.
+ */
+function amountOnlyNearMiss(db: Database, bankAmount: number): string | null {
+  if (!(Math.abs(bankAmount) > 0)) return null;
+  const ore = Math.round(Math.abs(bankAmount) * 100);
+  const rows = db
+    .query(
+      `SELECT d.document_no AS documentNo, d.sender_name AS senderName
+         FROM documents d
+         LEFT JOIN journal_entries je ON je.document_id = d.id AND je.status = 'posted'
+        WHERE d.document_type IN ('purchase_sale', 'cash_register_receipt')
+          AND je.id IS NULL
+          AND CAST(ROUND(d.amount_inc_vat * 100) AS INTEGER) = ?
+        LIMIT 2`,
+    )
+    .all(ore) as Array<{ documentNo: string | null; senderName: string | null }>;
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    return (
+      "Flere bilag har præcis dette beløb — beløbet alene kan ikke afgøre hvilket, " +
+      "så intet sikkert forslag gives. Vælg det rette bilag manuelt."
+    );
+  }
+  const row = rows[0]!;
+  const navn = row.documentNo ? `bilag ${row.documentNo}` : "et bilag";
+  const fra = row.senderName ? ` fra ${row.senderName}` : "";
+  return (
+    `Beløbet passer præcist til ${navn}${fra}, men der mangler et fakturanummer eller ` +
+    "navnematch for at det er et sikkert forslag. Kontrollér, at bilaget hører til, og afstem manuelt."
+  );
+}
+
 export function suggestBankMatches(db: Database, input: SuggestBankMatchesInput = {}): SuggestBankMatchesResult {
   const errors: string[] = [];
   if (input.bankTransactionId !== undefined && (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0)) {
@@ -538,6 +594,12 @@ export function suggestBankMatches(db: Database, input: SuggestBankMatchesInput 
       .sort((a, b) => b.confidence - a.confidence || a.documentId - b.documentId)
       .slice(0, max);
 
+    // EJER-7: only when there is no safe suggestion do we look for the
+    // exact-amount near-miss the exceptions queue would name — so the two
+    // surfaces never contradict each other.
+    const unsafeMatchReason =
+      suggestions.length === 0 ? amountOnlyNearMiss(db, Number(bank.amount)) : null;
+
     return {
       bankTransactionId: bank.id,
       date: bank.transaction_date,
@@ -546,6 +608,7 @@ export function suggestBankMatches(db: Database, input: SuggestBankMatchesInput 
       currency: bank.currency,
       reference: bank.reference,
       suggestions,
+      unsafeMatchReason,
     };
   });
 

@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatKroner, todayIso } from "../lib/format";
+import { formatDateDa, formatKroner, tastSelvNumber, todayIso } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type { CompanyVat, VatRubrikker } from "../lib/types";
 import { Banner, ErrorState, Loading } from "../components/Feedback";
@@ -245,7 +245,7 @@ export function VatView() {
           <div className="card statement-card vat-deadline">
             <div>
               <span className="vat-deadline-label">Angives og betales senest</span>
-              <span className="vat-deadline-date">{v.deadline}</span>
+              <span className="vat-deadline-date">{formatDateDa(v.deadline)}</span>
             </div>
             <DeadlineCountdown days={v.daysRemaining} />
           </div>
@@ -279,27 +279,6 @@ export function VatView() {
  * The card must therefore NOT claim its figures match that command — instead
  * it marks them provisional and says a closed period is the prerequisite.
  */
-/**
- * Format a kroner amount as a raw TastSelv-compatible number string: NO
- * thousand separator, NO currency suffix. Decimal øre — if any — are emitted
- * with a comma (the Danish convention TastSelv accepts). Whole-kroner amounts
- * are emitted as plain integers ("4457", not "4457,00") — that's exactly what
- * the owner needs to type into TastSelv Erhverv.
- *
- * #401: this is the load-bearing function for the rubrikker Kopier-buttons.
- * The formatted, display-only `formatKroner` output (`52.317,00 kr.`) must
- * NEVER end up on the clipboard — the `.` thousand separator would corrupt
- * the TastSelv field.
- */
-function tastSelvNumber(kroner: number): string {
-  // Round to 2 decimals to avoid floating-point noise like 4456.9999999.
-  const rounded = Math.round(kroner * 100) / 100;
-  if (Number.isInteger(rounded)) return String(rounded);
-  // Two-decimal form with a comma separator (no thousand separator).
-  const [intPart, fracPart = ""] = rounded.toFixed(2).split(".");
-  return `${intPart},${fracPart}`;
-}
-
 /** All rubrikker as label/raw-number pairs, in the order shown in the UI. */
 function rubrikkerCsvRows(
   rubrikker: VatRubrikker,

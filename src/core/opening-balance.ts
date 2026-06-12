@@ -26,6 +26,13 @@ import type { JournalEntryId } from "./ids";
 // `postOpeningBalance` prepends it; readers can detect the primo entry by it.
 export const OPENING_BALANCE_TEXT = "Primobalance";
 
+// The EXACT leading form the opening entry's text is built with below
+// (`Primobalance pr. <date>`). The crash-recovery fallback matches on this
+// structured prefix — not the bare `OPENING_BALANCE_TEXT` word — so an
+// unrelated manual posting like "Primobalance-korrektion (manuel)" is NOT
+// mistaken for THE primobalance (KODE-6).
+const OPENING_BALANCE_TEXT_PREFIX = `${OPENING_BALANCE_TEXT} pr. `;
+
 export type OpeningBalanceLineInput = {
   accountNo: string;
   debitAmount?: number;
@@ -142,10 +149,38 @@ export function postOpeningBalance(db: Database, input: OpeningBalanceInput): Op
     };
   }
 
+  // KODE-6 textual-fallback idempotency. The opening journal entry is committed
+  // by postJournalEntry, and the `opening_balances` marker is written in a
+  // SEPARATE, later transaction below — a crash in that gap leaves a durable
+  // opening journal entry with no marker. Without this guard a re-run would post
+  // a SECOND primobalance and double every opening balance. The opening entry is
+  // recognisable by its structured `Primobalance pr. <date>` prefix, so an
+  // existing one makes a re-run idempotent even when the marker row never made
+  // it to disk. The match is on the EXACT prefix (not the bare word) so an
+  // unrelated manual posting such as "Primobalance-korrektion (manuel)" booked
+  // before the primobalance is never a false positive (KODE-6).
+  const orphanPrimo = db
+    .query(
+      `SELECT entry_no FROM journal_entries
+        WHERE text LIKE ? || '%'
+        ORDER BY id ASC
+        LIMIT 1`,
+    )
+    .get(OPENING_BALANCE_TEXT_PREFIX) as { entry_no: string } | null;
+  if (orphanPrimo) {
+    return {
+      ok: false,
+      appliedRules,
+      errors: [
+        `opening balance already posted as journal entry ${orphanPrimo.entry_no}; a company can only have one primobalance`,
+      ],
+    };
+  }
+
   const note = typeof input.note === "string" && input.note.trim().length > 0 ? ` — ${input.note.trim()}` : "";
   const post = postJournalEntry(db, {
     transactionDate: cutOverDate,
-    text: `${OPENING_BALANCE_TEXT} pr. ${cutOverDate}${note}`,
+    text: `${OPENING_BALANCE_TEXT_PREFIX}${cutOverDate}${note}`,
     createdBy: input.createdBy,
     createdByProgram: input.createdByProgram,
     lines: lines.map((line) => ({
@@ -179,7 +214,7 @@ export function postOpeningBalance(db: Database, input: OpeningBalanceInput): Op
       createdBy: input.createdBy,
       createdByProgram: input.createdByProgram,
     });
-  })();
+  }, { immediate: true })();
 
   return {
     ok: true,

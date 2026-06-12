@@ -252,4 +252,59 @@ describe("bank suggest-matches CLI", () => {
     // agent would auto-apply: no corroborating invoice-no / name signal.
     expect(depositRow.suggestions).toHaveLength(0);
   });
+
+  test("explains the exact-amount near-miss the exceptions queue would name (EJER-7)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bank-suggest-nearmiss-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-bank-suggest-nearmiss-inbox-"));
+    const paths = ensureCompanyDirs(root);
+    const db = openDb(paths.db);
+    migrate(db);
+    seedAccounts(db);
+
+    // An unbooked purchase bilag for exactly 1250 kr.
+    const sourceFile = join(inbox, "vendor.txt");
+    writeFileSync(sourceFile, "Vendor invoice\n1250 DKK\n");
+    const purchase = ingestDocument(db, root, sourceFile, {
+      source: "email",
+      issueDate: "2026-05-16",
+      invoiceNo: "SUP-9001",
+      deliveryDescription: "Konsulentydelse",
+      amountIncVat: 1250,
+      currency: "DKK",
+      sender: { name: "Leverandør ApS", address: "Vej 1", vatOrCvr: "DK33445566" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      vatAmount: 250,
+      paymentDetails: "Bankoverførsel",
+    });
+    expect(purchase.ok).toBe(true);
+
+    // An outgoing bank line of the SAME amount, but whose text carries NO
+    // invoice number and NO supplier-name overlap — so the corroboration
+    // engine yields no safe suggestion. The exceptions queue, by contrast,
+    // matches this exact amount and names the bilag; suggest-matches must not
+    // contradict it with a bare "no suggestions".
+    const csv = join(root, "transactions.csv");
+    writeFileSync(csv, [
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-18,2026-05-18,Udbetaling,-1250,DKK,PAY-1",
+    ].join("\n"));
+    const imported = importBankCsv(db, root, csv);
+    expect(imported.ok).toBe(true);
+    db.close();
+
+    const listed = await runCli(["bank", "suggest-matches", "--company", root, "--format", "json"]);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+
+    expect(listed.exitCode).toBe(0);
+    const listedJson = JSON.parse(listed.stdout);
+    const payRow = listedJson.rows.find((r: any) => r.reference === "PAY-1");
+    // No safe suggestion, but the near-miss IS surfaced so the surface agrees
+    // with the exceptions queue.
+    expect(payRow.suggestions).toHaveLength(0);
+    // The reason names the bilag by its DOC-… document number — the same
+    // identifier the exceptions queue uses — plus the supplier name.
+    expect(payRow.unsafeMatchReason).toMatch(/bilag DOC-/);
+    expect(payRow.unsafeMatchReason).toContain("Leverandør ApS");
+  });
 });

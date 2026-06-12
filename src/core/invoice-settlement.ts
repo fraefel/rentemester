@@ -230,7 +230,7 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
         appliedRules: [...appliedRules],
         errors: [],
       };
-    })();
+    }, { immediate: true })();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

@@ -102,3 +102,28 @@ export function actualBankBalanceAsOf(
   const total = rows.reduce((sum, r) => sum + Number(r.balanceAfter ?? 0), 0);
   return roundKroner(total);
 }
+
+/**
+ * Why the actual statement balance is or is not known (#305, EJER-12).
+ *
+ *  - `"known"`            — a statement balance could be read.
+ *  - `"no-balance-column"` — bank transactions WERE imported, but none carried
+ *                            a running balance (the CSV had no balance column).
+ *  - `"none"`            — no bank transaction has been imported at all.
+ *
+ * A null `actualBankBalanceAsOf` has these two very different causes; without
+ * distinguishing them the cockpit said "intet kontoudtog importeret" even when
+ * a CSV WAS imported (just without a balance column), so an owner who had just
+ * imported would think the import silently failed. The bank-tab view already
+ * makes this distinction inline; this shared helper lets the portfolio card and
+ * the dashboard tell the SAME story with the Bank tab's exact wording.
+ */
+export function bankStatementStatusAsOf(
+  db: Database,
+  asOfDate: string,
+): "known" | "no-balance-column" | "none" {
+  if (actualBankBalanceAsOf(db, asOfDate) !== null) return "known";
+  const hasAnyTransactions =
+    (db.query("SELECT 1 FROM bank_transactions LIMIT 1").get() as unknown) !== null;
+  return hasAnyTransactions ? "no-balance-column" : "none";
+}

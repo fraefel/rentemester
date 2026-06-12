@@ -383,3 +383,97 @@ describe("generateIxbrl (deterministic iXBRL, micro/small subset)", () => {
     cleanup(root, inbox);
   });
 });
+
+// JUR-10: ÅRL §24 requires prior-year comparison figures (also class B) and an
+// average-employee note in the arsrapport skeleton.
+describe("annual report — ÅRL §24 comparison figures + employees note", () => {
+  // Posts a small balanced prior year (2024) so the comparison has real numbers.
+  function postPriorYear(db: ReturnType<typeof openDb>, root: string, inbox: string) {
+    const sourceFile = join(inbox, "prior-doc.txt");
+    writeFileSync(sourceFile, "Bilag 2024\n625 DKK\n");
+    const doc = ingestDocument(db, root, sourceFile, {
+      source: "email",
+      issueDate: "2024-06-15",
+      invoiceNo: "AR-DOC-2024",
+      deliveryDescription: "Ydelse 2024",
+      amountIncVat: 625,
+      currency: "DKK",
+      sender: { name: "Leverandor", address: "Saelgervej 1", vatOrCvr: "DK11223344" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      vatAmount: 125,
+      paymentDetails: "Bankoverforsel",
+    });
+    expect(doc.ok).toBe(true);
+    const open = postJournalEntry(db, {
+      transactionDate: "2024-01-02",
+      text: "Indskud egenkapital 2024",
+      lines: [
+        { accountNo: "2000", debitAmount: 30000 },
+        { accountNo: "5000", creditAmount: 30000 },
+      ],
+    });
+    expect(open.ok).toBe(true);
+    const sale = postJournalEntry(db, {
+      transactionDate: "2024-06-15",
+      text: "Konsulentsalg 2024",
+      documentId: doc.documentId!,
+      lines: [
+        { accountNo: "2000", debitAmount: 625 },
+        { accountNo: "1000", creditAmount: 500, vatCode: "DK_SALE_25" },
+        { accountNo: "1200", creditAmount: 125 },
+      ],
+    });
+    expect(sale.ok).toBe(true);
+  }
+
+  test("surfaces prior-year comparison figures and an average-employees note", () => {
+    const { root, inbox, db } = newCompany("rentemester-annual-cmp-");
+    postPriorYear(db, root, inbox);
+    postYear(db, root, inbox);
+    lockYear(db);
+
+    const report = buildAnnualReport(db, "2025-01-01", "2025-12-31");
+    expect(report.ok).toBe(true);
+
+    // Comparison spans the preceding year and is available (2024 had activity).
+    expect(report.comparison.fiscalYearStart).toBe("2024-01-01");
+    expect(report.comparison.fiscalYearEnd).toBe("2024-12-31");
+    expect(report.comparison.available).toBe(true);
+    // 2024 revenue 500, no booked expense -> result 500 (cumulative balance carries on).
+    expect(report.comparison.totalIncome).toBe(500);
+    expect(report.comparison.aretsResultat).toBe(500);
+    expect(report.comparison.totalAssets).toBeGreaterThan(0);
+
+    // The average-employees note is part of the skeleton.
+    const employees = report.notes.find((n) => n.id === "average-employees");
+    expect(employees).toBeDefined();
+    expect(employees!.title).toContain("beskæftigede");
+
+    // The iXBRL renders both the comparison block and the employees block, and
+    // documents that it cannot be filed digitally yet.
+    const ixbrl = generateIxbrl(report);
+    expect(ixbrl.ok).toBe(true);
+    expect(ixbrl.xhtml).toContain("Sammenligningstal");
+    expect(ixbrl.xhtml.toLowerCase()).toContain("beskaeftigede");
+    expect(ixbrl.xhtml).toContain("IKKE");
+    expect(ixbrl.xhtml.toLowerCase()).toContain("indberettes digitalt");
+
+    db.close();
+    cleanup(root, inbox);
+  });
+
+  test("marks comparison unavailable for a genuine first-year report", () => {
+    const { root, inbox, db } = newCompany("rentemester-annual-firstyear-");
+    postYear(db, root, inbox);
+    lockYear(db);
+
+    const report = buildAnnualReport(db, "2025-01-01", "2025-12-31");
+    expect(report.ok).toBe(true);
+    expect(report.comparison.available).toBe(false);
+    expect(report.comparison.totalIncome).toBe(0);
+    expect(report.comparison.aretsResultat).toBe(0);
+
+    db.close();
+    cleanup(root, inbox);
+  });
+});

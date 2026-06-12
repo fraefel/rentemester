@@ -32,7 +32,11 @@ function config(overrides: Partial<ServerConfig> & { workspaceRoot: string }): S
 }
 
 async function call(cfg: ServerConfig, path: string, init?: RequestInit) {
-  return handleRequest(new Request(`http://localhost${path}`, init), cfg);
+  // SEC-1-BYPASS: skriveruterne (PATCH/POST /api/companies) håndhæver nu
+  // localhost-gaten — en rigtig klient sender altid en loopback-Host, så
+  // helperen sætter en som standard (overskrives via init.headers).
+  const headers = { host: "127.0.0.1", ...(init?.headers as Record<string, string> | undefined) };
+  return handleRequest(new Request(`http://localhost${path}`, { ...init, headers }), cfg);
 }
 
 async function json(cfg: ServerConfig, path: string, init?: RequestInit) {

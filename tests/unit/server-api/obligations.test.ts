@@ -106,7 +106,10 @@ describe("cockpit API — obligations (GET .../obligations)", () => {
       expect(rows.length).toBe(1);
       expect(rows[0].kind).toBe("annual-report");
       expect(rows[0].amount).toBe(0);
-      expect(rows[0].dueDate).toBe("2027-05-01");
+      // ÅRL § 138: a class-B årsrapport is filed no later than 6 months after
+      // the fiscal year ends — calendar year 2026 ⇒ 30 June 2027 (NOT 1 May).
+      expect(rows[0].dueDate).toBe("2027-06-30");
+      expect(rows[0].label).toContain("ÅRL § 138");
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

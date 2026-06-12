@@ -48,7 +48,11 @@ function config(overrides: Partial<ServerConfig> & { workspaceRoot: string }): S
 }
 
 async function json(cfg: ServerConfig, path: string, init?: RequestInit) {
-  const res = await handleRequest(new Request(`http://localhost${path}`, init), cfg);
+  // SEC-1-BYPASS: POST/PATCH /api/companies håndhæver nu localhost-gaten — en
+  // rigtig klient sender altid en loopback-Host, så testhelperen sætter en som
+  // standard (kan overskrives via init.headers).
+  const headers = { host: "127.0.0.1", ...(init?.headers as Record<string, string> | undefined) };
+  const res = await handleRequest(new Request(`http://localhost${path}`, { ...init, headers }), cfg);
   return { status: res.status, body: (await res.json()) as { errors?: string[]; code?: string } };
 }
 

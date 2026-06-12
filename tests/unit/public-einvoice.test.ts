@@ -146,8 +146,12 @@ describe("public e-invoice preview export", () => {
     expect(first.xml).toContain("<cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>");
     // Buyer (public authority) addressed by its EAN/GLN under Peppol scheme 0088.
     expect(first.xml).toContain('<cbc:EndpointID schemeID="0088">5790000000001</cbc:EndpointID>');
-    // Seller electronic address is mandatory in Peppol BIS (BR-62), DK CVR scheme 0184.
-    expect(first.xml).toContain('<cbc:EndpointID schemeID="0184">DK12345678</cbc:EndpointID>');
+    // Seller electronic address is mandatory in Peppol BIS (BR-62), DK CVR scheme
+    // 0184. schemeID 0184 carries the bare 8-digit CVR — the "DK" prefix is
+    // stripped (JUR-9), so it must NOT render as "DK12345678".
+    expect(first.xml).toContain('<cbc:EndpointID schemeID="0184">12345678</cbc:EndpointID>');
+    // BuyerReference (BT-10) is mandatory for public recipients (PEPPOL-EN16931-R003).
+    expect(first.xml).toContain("<cbc:BuyerReference>");
     // Country code is mandatory on both postal addresses (BR-09 / BR-11).
     expect(first.xml).toContain("<cbc:IdentificationCode>DK</cbc:IdentificationCode>");
     // Buyer name carried as the legal RegistrationName (BT-44).
@@ -238,6 +242,162 @@ describe("public e-invoice preview export", () => {
 
     expect(exported.ok).toBe(false);
     expect(exported.errors).toContain("invoice 2026-0001 is missing dueDate required for OIOUBL handoff");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+// JUR-9 — Peppol BIS 3.0 conformance: BuyerReference (PEPPOL-EN16931-R003),
+// a tax category derived from the VAT treatment (not hardcoded "S"), a
+// configurable unit code, and the seller EndpointID under schemeID 0184 as a
+// bare 8-digit CVR.
+describe("public e-invoice OIOUBL — JUR-9 Peppol conformance", () => {
+  test("emits BuyerReference, OrderReference and a configurable unit code", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-jur9-ref-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+
+    const { invoiceNumber: _drop, ...base } = PUBLIC_INVOICE;
+    const issued = issueInvoice(db, root, {
+      ...base,
+      unitCode: "DAY",
+      buyer: {
+        ...PUBLIC_INVOICE.buyer,
+        buyerReference: "EAN-REF-12345",
+        orderReference: "ORDRE-987",
+      },
+    });
+    expect(issued.ok).toBe(true);
+
+    const exported = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: issued.documentId! });
+    expect(exported.ok).toBe(true);
+    expect(exported.xml).toContain("<cbc:BuyerReference>EAN-REF-12345</cbc:BuyerReference>");
+    expect(exported.xml).toContain("<cac:OrderReference>");
+    expect(exported.xml).toContain("<cbc:ID>ORDRE-987</cbc:ID>");
+    // The configurable unit code overrides the H87 default.
+    expect(exported.xml).toContain('<cbc:InvoicedQuantity unitCode="DAY">');
+    // Seller EndpointID is the bare 8-digit CVR (no "DK") under scheme 0184.
+    expect(exported.xml).toContain('<cbc:EndpointID schemeID="0184">12345678</cbc:EndpointID>');
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("keeps tax category S for a standard-rated line", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-jur9-standard-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+
+    const { invoiceNumber: _drop, ...base } = PUBLIC_INVOICE;
+    const issued = issueInvoice(db, root, {
+      ...base,
+      buyer: { ...PUBLIC_INVOICE.buyer, buyerReference: "EAN-REF-STD" },
+    });
+    expect(issued.ok).toBe(true);
+
+    const exported = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: issued.documentId! });
+    expect(exported.ok).toBe(true);
+    // A standard 25% line keeps category S with its real percent.
+    expect(exported.xml).toContain("<cbc:ID>S</cbc:ID>");
+    expect(exported.xml).toContain("<cbc:Percent>25</cbc:Percent>");
+    // JUR-9: a standard-rated invoice must NOT carry an exemption reason
+    // (BR-S-* forbids BT-120/BT-121 on category S).
+    expect(exported.xml).not.toContain("cbc:TaxExemptionReason");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("derives tax category AE for a domestic reverse-charge invoice", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-jur9-rc-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "domestic_reverse_charge",
+      reverseChargeBasis: "DK_MOMSLOVEN_§46_STK_1_NR_6",
+      issueDate: "2026-05-20",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: {
+        name: "Københavns Kommune",
+        address: "Rådhuset, 1599 København V",
+        publicRecipient: true,
+        eanNumber: "5790000000001",
+        buyerReference: "EAN-REF-RC",
+      },
+      lines: [{ description: "Byggeydelse", quantity: 1, unitPriceExVat: 1500, lineTotalExVat: 1500 }],
+      totals: { netAmount: 1500, grossAmount: 1500 },
+      currency: "DKK",
+      dueDate: "2026-06-19",
+    });
+    expect(issued.ok).toBe(true);
+
+    const exported = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: issued.documentId! });
+    expect(exported.ok).toBe(true);
+    // Reverse charge => category AE, and the invoice still validates/exports
+    // despite carrying no VAT amount/rate.
+    expect(exported.xml).toContain("<cbc:ID>AE</cbc:ID>");
+    expect(exported.xml).toContain("<cbc:BuyerReference>EAN-REF-RC</cbc:BuyerReference>");
+    // TaxAmount renders as 0.00 so cac:TaxTotal stays well-formed.
+    expect(exported.xml).toContain('<cbc:TaxAmount currencyID="DKK">0.00</cbc:TaxAmount>');
+    // JUR-9: reverse charge (AE) must carry an exemption reason (BR-AE-10).
+    // The code is the only AE-valid VATEX entry, plus a free-text reason that
+    // carries the documented reverse-charge basis from the payload.
+    expect(exported.xml).toContain(
+      "<cbc:TaxExemptionReasonCode>VATEX-EU-AE</cbc:TaxExemptionReasonCode>",
+    );
+    expect(exported.xml).toContain("<cbc:TaxExemptionReason>");
+    expect(exported.xml).toContain("DK_MOMSLOVEN_§46_STK_1_NR_6");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("emits an exemption reason for an exempt (E) 0%/no-VAT invoice", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-jur9-exempt-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+
+    // issueInvoice rejects a 0% standard invoice (it requires a positive VAT
+    // rate/amount), so the exempt (E) export branch is exercised by storing the
+    // issued-invoice document row directly with a 0% payload. The export only
+    // reads id/invoice_no/invoice_date/document_type/payload_json.
+    const payload = {
+      invoiceNumber: "2026-EXEMPT",
+      vatTreatment: "standard",
+      issueDate: "2026-05-20",
+      dueDate: "2026-06-19",
+      currency: "DKK",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: {
+        name: "Københavns Kommune",
+        address: "Rådhuset, 1599 København V",
+        publicRecipient: true,
+        eanNumber: "5790000000001",
+        buyerReference: "EAN-REF-EXEMPT",
+      },
+      lines: [{ description: "Momsfri ydelse", quantity: 1, unitPriceExVat: 1500, lineTotalExVat: 1500 }],
+      totals: { netAmount: 1500, vatRate: 0, vatAmount: 0, grossAmount: 1500 },
+    };
+    db.run(
+      `INSERT INTO documents (source, sha256_hash, invoice_no, invoice_date, document_type, payload_json)
+       VALUES ('test', ?, ?, ?, 'issued_invoice', ?)`,
+      `jur9-exempt-${payload.invoiceNumber}`,
+      payload.invoiceNumber,
+      payload.issueDate,
+      JSON.stringify(payload),
+    );
+    const documentId = Number(
+      (db.query("SELECT last_insert_rowid() AS id").get() as { id: number }).id,
+    );
+
+    const exported = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: documentId });
+    expect(exported.ok).toBe(true);
+    // A 0% line is treated as exempt (E); BR-E-10 requires an exemption reason.
+    expect(exported.xml).toContain("<cbc:ID>E</cbc:ID>");
+    expect(exported.xml).toContain("<cbc:TaxExemptionReason>");
 
     db.close();
     rmSync(root, { recursive: true, force: true });

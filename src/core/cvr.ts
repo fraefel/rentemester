@@ -15,8 +15,16 @@ import { addDaysToTimestamp } from "./dates";
  * whatever is already cached, or fails with a clear message.
  */
 
-const DEFAULT_CVR_BASE_URL = "http://distribution.virk.dk/cvr-permanent";
+const DEFAULT_CVR_BASE_URL = "https://distribution.virk.dk/cvr-permanent";
 const DEFAULT_TTL_DAYS = 30;
+/**
+ * SEC-5 (Audit 2026-06-11): default timeout for the outgoing CVR request. The
+ * distribution API normally answers in well under a second; without a bound a
+ * hung connection (or a server that accepts but never responds) would block the
+ * lookup — and any caller awaiting it — indefinitely. On timeout the call
+ * degrades to the cache fallback exactly like any other network failure.
+ */
+const DEFAULT_CVR_TIMEOUT_MS = 12_000;
 
 export type CvrManagementMember = {
   /** Person or company name of the management member. */
@@ -90,6 +98,8 @@ export type CvrLookupOptions = {
   forceRefresh?: boolean;
   /** ISO timestamp treated as "now" — for deterministic tests. */
   asOf?: string;
+  /** SEC-5: outgoing-request timeout in ms; default `DEFAULT_CVR_TIMEOUT_MS`. */
+  timeoutMs?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -448,12 +458,58 @@ type FetchOutcome =
   | { ok: true; entity: any }
   | { ok: false; error: string };
 
+/**
+ * SEC-6 (Audit 2026-06-11): the default CVR base URL is now `https://`. If an
+ * operator overrides it back to a cleartext `http://` endpoint (via
+ * `RENTEMESTER_CVR_ENDPOINT` / `options.endpoint`), the Basic-auth credentials
+ * would travel unencrypted. We do not silently downgrade — we warn (once per
+ * process) so the risk is visible without breaking a deliberate override.
+ */
+let cleartextWarned = false;
+/**
+ * Loopback hosts: cleartext http to the local machine never crosses a network,
+ * so the Basic-auth exposure SEC-6 warns about does not apply. This is also the
+ * standard local-mock pattern in tests/dev (`http://127.0.0.1:<port>`), which a
+ * spurious stderr warning would otherwise pollute.
+ */
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+function warnOnceIfCleartext(url: string): void {
+  if (cleartextWarned) return;
+  if (/^http:\/\//i.test(url) && !isLoopbackUrl(url)) {
+    cleartextWarned = true;
+    console.error(
+      `[cvr] WARNING: CVR endpoint uses cleartext http:// — Basic-auth ` +
+        `credentials are sent unencrypted. Use https://distribution.virk.dk ` +
+        `unless you are on a trusted, isolated network.`,
+    );
+  }
+}
+
 async function fetchCvrCompany(
   cvrNumber: string,
-  options: { fetchImpl: typeof fetch; baseUrl: string; username: string; password: string },
+  options: {
+    fetchImpl: typeof fetch;
+    baseUrl: string;
+    username: string;
+    password: string;
+    timeoutMs: number;
+  },
 ): Promise<FetchOutcome> {
   const url = `${options.baseUrl.replace(/\/+$/, "")}/virksomhed/_search`;
   const auth = Buffer.from(`${options.username}:${options.password}`).toString("base64");
+
+  // SEC-5: cleartext-base-URL guard. Basic-auth credentials are sent on every
+  // request; over plain `http://` they cross the wire base64-but-unencrypted.
+  // Warn once per process so an operator who overrode the (now https) default
+  // back to http is told, without spamming every lookup.
+  warnOnceIfCleartext(url);
 
   let response: Response;
   try {
@@ -464,9 +520,16 @@ async function fetchCvrCompany(
         authorization: `Basic ${auth}`,
       },
       body: JSON.stringify(buildLookupQuery(cvrNumber)),
+      // SEC-5: bound the request so a hung endpoint cannot block indefinitely.
+      signal: AbortSignal.timeout(options.timeoutMs),
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : "netværksfejl";
+    const detail =
+      error instanceof Error
+        ? error.name === "TimeoutError" || error.name === "AbortError"
+          ? `tidsgrænse på ${options.timeoutMs} ms overskredet`
+          : error.message
+        : "netværksfejl";
     return { ok: false, error: `CVR-opslag fejlede: ${detail}` };
   }
 
@@ -539,7 +602,7 @@ export async function lookupCvrCompany(
       ok: false,
       cached: false,
       errors: [
-        "CVR-opslag kræver miljøvariablerne CVR_USERNAME og CVR_PASSWORD — opret adgang på virk.dk",
+        "CVR-opslag kræver miljøvariablerne CVR_USERNAME og CVR_PASSWORD — opret system-til-system-adgang på virk.dk (log ind → Min profil → System-til-system-adgang/Serviceaftaler) og sæt de to variabler i dit miljø",
       ],
     };
   }
@@ -551,6 +614,7 @@ export async function lookupCvrCompany(
     baseUrl,
     username,
     password,
+    timeoutMs: options.timeoutMs ?? DEFAULT_CVR_TIMEOUT_MS,
   });
 
   if (!fetched.ok) {

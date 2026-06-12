@@ -8,9 +8,9 @@
 //     reload, and every in-app link below preserves it automatically.
 //
 //   * `CompanyNav` — the sub-navigation bar plus the fiscal-year selector,
-//     rendered at the top of each company view. The fourteen views are
-//     arranged in four labelled groups (Regnskab · Bogføring · Salg ·
-//     Historik) so the bar stays scannable and wraps tidily on a phone.
+//     rendered at the top of each company view. The views are arranged in
+//     four labelled groups (Regnskab · Bogføring · Salg · Historik) so the bar
+//     stays scannable and wraps tidily on a phone.
 
 import { NavLink, useSearchParams } from "react-router-dom";
 import type { FiscalYearEntry } from "../lib/types";
@@ -55,9 +55,9 @@ export function accountPostingsTo(
 type NavTab = { to: string; label: string };
 
 /**
- * The fourteen company views, arranged into four labelled groups. The grouping
- * keeps the bar scannable — and gives narrow viewports a deliberate wrap
- * boundary rather than an arbitrary one.
+ * The company views, arranged into four labelled groups. The grouping keeps the
+ * bar scannable — and gives narrow viewports a deliberate wrap boundary rather
+ * than an arbitrary one.
  */
 const TAB_GROUPS: { name: string; tabs: NavTab[] }[] = [
   {
@@ -146,8 +146,12 @@ export function CompanyNav({
   onYearChange: (year: string) => void;
 }) {
   const [params] = useSearchParams();
-  const query = params.toString();
-  const suffix = query ? `?${query}` : "";
+  // #UI-4: only the fiscal year is a cross-view concern. Threading the WHOLE
+  // query string leaked per-view filters (Bank's q/from/to/status, a posting
+  // account=…) onto every other tab. Whitelist `?year=` and drop the rest —
+  // each view owns its own filter namespace.
+  const year = params.get("year");
+  const suffix = year ? `?year=${encodeURIComponent(year)}` : "";
 
   return (
     <nav className="company-nav" aria-label="Virksomhedsvisninger">

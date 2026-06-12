@@ -106,7 +106,9 @@ CREATE TABLE IF NOT EXISTS customers (
   phone TEXT,
   website TEXT,
   ean_number TEXT,
-  payment_terms_days INTEGER NOT NULL DEFAULT 30 CHECK(payment_terms_days > 0),
+  -- EJER-3: NULL = ingen eksplicit kundefrist — fakturaen arver virksomhedens
+  -- profilfrist (companies.payment_terms_days) på fakturatidspunktet.
+  payment_terms_days INTEGER CHECK(payment_terms_days IS NULL OR payment_terms_days > 0),
   default_currency TEXT NOT NULL DEFAULT 'DKK',
   notes TEXT,
   archived INTEGER NOT NULL DEFAULT 0,

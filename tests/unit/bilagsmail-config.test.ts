@@ -1,6 +1,6 @@
 // Tests: src/core/bilagsmail.ts — IMAP config store + mail-alias (#348, #350).
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdirSync } from "node:fs";
@@ -66,6 +66,33 @@ describe("#348 — IMAP config storage in config/imap.json", () => {
       const stat = statSync(path);
       // mode includes file-type bits; mask to permission bits.
       expect(stat.mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("SEC-11: rewrite REPLACES the inode (atomic) instead of writing in place then chmod", () => {
+    const root = freshCompany("imap-perms-rewrite");
+    try {
+      // Plant a pre-existing world-readable file at the target path. The old
+      // code wrote the new (secret) content into THIS inode at 0644, then
+      // chmod'd to 0600 — a window where the secret was world-readable. The
+      // atomic write must instead stage a fresh 0600 inode and rename it into
+      // place, so the secret bytes never touch a loosely-permissioned inode.
+      const target = join(root, "config", "imap.json");
+      writeFileSync(target, "{}\n", { mode: 0o644 });
+      const beforeIno = statSync(target).ino;
+
+      const { path } = saveBilagsmailImapConfig(root, {
+        host: "imap.example.com",
+        port: 993,
+        username: "user",
+        password: "secret",
+      });
+      const after = statSync(path);
+      // Fresh inode → the secret was never written into the old 0644 inode.
+      expect(after.ino).not.toBe(beforeIno);
+      expect(after.mode & 0o777).toBe(0o600);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -55,7 +55,14 @@ export type GdprPersonalData = {
 };
 
 export type GdprExportRecord = {
-  source: "customers" | "vendors" | "documents" | "bank_transactions";
+  source:
+    | "customers"
+    | "vendors"
+    | "documents"
+    | "bank_transactions"
+    | "journal_entries"
+    | "journal_lines"
+    | "audit_log";
   sourceRowId: number;
   /** Human label, e.g. document_no or bank reference. */
   label: string | null;
@@ -123,6 +130,31 @@ function resolveSubject(key: GdprSubjectKey) {
   return { cvr: trim(key.cvr), name: trim(key.name) };
 }
 
+/** Zero-initialised per-table counter covering every export source. */
+function emptyByTable(): Record<GdprExportRecord["source"], number> {
+  return {
+    customers: 0,
+    vendors: 0,
+    documents: 0,
+    bank_transactions: 0,
+    journal_entries: 0,
+    journal_lines: 0,
+    audit_log: 0,
+  };
+}
+
+/**
+ * The append-only ledger sources whose free-text can hold personal data. They
+ * are exported for the Art. 15 access right but are NEVER erased: the hash-
+ * chained ledger and the audit log are immutable, and bookkeeping law keeps
+ * them under retention. `eraseGdprSubject` skips these sources entirely.
+ */
+const LEDGER_TEXT_SOURCES: ReadonlySet<GdprExportRecord["source"]> = new Set([
+  "journal_entries",
+  "journal_lines",
+  "audit_log",
+]);
+
 /**
  * Loads prior erasure tombstones keyed by `source:rowId`. Each value is the
  * set of field names that were redacted.
@@ -175,22 +207,12 @@ export function findGdprSubject(
       ok: false,
       subject,
       rows: [],
-      byTable: {
-        customers: 0,
-        vendors: 0,
-        documents: 0,
-        bank_transactions: 0,
-      },
+      byTable: emptyByTable(),
       errors: ["a GDPR subject must be identified by cvr or name"],
     };
   }
   const rows = collectSourceRows(db, subject);
-  const byTable: Record<GdprExportRecord["source"], number> = {
-    customers: 0,
-    vendors: 0,
-    documents: 0,
-    bank_transactions: 0,
-  };
+  const byTable = emptyByTable();
   for (const r of rows) byTable[r.source] += 1;
   // #355 — audit-log også discovery, så Datatilsynet kan se den fulde
   // GDPR-aktivitetshistorik (export + discover + erasure).
@@ -298,6 +320,94 @@ function collectSourceRows(db: Database, subject: { cvr: string | null; name: st
         label: b.reference,
         personalData: { name: b.text, address: null, email: null, vatOrCvr: null },
         retainUntil,
+      });
+    }
+  }
+
+  // JUR-8 — the append-only ledger's own free-text fields can hold personal
+  // data: journal_entries.text, journal_lines.text and audit_log.message. The
+  // Art. 15 access right covers these too, so we surface every row whose text
+  // mentions the subject by name. CVR is rarely present in free text, so we
+  // match on name only. These rows are READ-ONLY here and are never erased
+  // (see LEDGER_TEXT_SOURCES and the erasure loop): the hash-chained ledger and
+  // the audit log are immutable.
+  if (subject.name) {
+    const like = `%${subject.name.replace(/[\\%_]/g, "\\$&")}%`;
+
+    const journalEntries = db
+      .query(
+        `SELECT id, entry_no, text, transaction_date, retain_until
+           FROM journal_entries
+          WHERE text LIKE ? ESCAPE '\\'
+          ORDER BY id ASC`,
+      )
+      .all(like) as Array<{
+      id: number;
+      entry_no: string;
+      text: string;
+      transaction_date: string | null;
+      retain_until: string | null;
+    }>;
+    for (const e of journalEntries) {
+      const retainUntil = effectiveRetainUntil(db, e.retain_until, e.transaction_date);
+      if (retainUntil) linkedRetentions.push(retainUntil);
+      bookkeepingRows.push({
+        source: "journal_entries",
+        sourceRowId: e.id,
+        label: e.entry_no,
+        personalData: { name: e.text, address: null, email: null, vatOrCvr: null },
+        retainUntil,
+      });
+    }
+
+    // journal_lines carry their own free-text; inherit the parent entry's
+    // retention basis (the line has no date of its own).
+    const journalLines = db
+      .query(
+        `SELECT jl.id AS id, jl.text AS text, je.entry_no AS entry_no,
+                je.transaction_date AS transaction_date, je.retain_until AS retain_until
+           FROM journal_lines jl
+           JOIN journal_entries je ON je.id = jl.journal_entry_id
+          WHERE jl.text LIKE ? ESCAPE '\\'
+          ORDER BY jl.id ASC`,
+      )
+      .all(like) as Array<{
+      id: number;
+      text: string | null;
+      entry_no: string;
+      transaction_date: string | null;
+      retain_until: string | null;
+    }>;
+    for (const l of journalLines) {
+      const retainUntil = effectiveRetainUntil(db, l.retain_until, l.transaction_date);
+      if (retainUntil) linkedRetentions.push(retainUntil);
+      bookkeepingRows.push({
+        source: "journal_lines",
+        sourceRowId: l.id,
+        label: l.entry_no,
+        personalData: { name: l.text, address: null, email: null, vatOrCvr: null },
+        retainUntil,
+      });
+    }
+
+    // The audit log can name a subject in its message. It is permanent (no
+    // retain_until column), so the retention verdict stays null and the row is
+    // always read-only.
+    const auditEvents = db
+      .query(
+        `SELECT id, event_type, message
+           FROM audit_log
+          WHERE message LIKE ? ESCAPE '\\'
+          ORDER BY id ASC`,
+      )
+      .all(like) as Array<{ id: number; event_type: string; message: string }>;
+    for (const a of auditEvents) {
+      bookkeepingRows.push({
+        source: "audit_log",
+        sourceRowId: a.id,
+        label: a.event_type,
+        personalData: { name: a.message, address: null, email: null, vatOrCvr: null },
+        retainUntil: null,
       });
     }
   }
@@ -428,12 +538,31 @@ export function buildGdprSubjectExport(db: Database, key: GdprSubjectKey): GdprS
   };
 }
 
-/** The personal-data field names redactable per source. */
+/**
+ * The personal-data field names redactable per source. The append-only ledger
+ * sources (journal_entries / journal_lines / audit_log) carry an empty list:
+ * they are exported for Art. 15 but never redacted.
+ *
+ * DESIGN NOTE (outstanding) — overlay redaction of ledger free-text after
+ * retention expiry: once a journal_entries.text / journal_lines.text /
+ * audit_log.message row falls out of bookkeeping retention, GDPR data-
+ * minimisation would call for redacting the personal data it still holds.
+ * Doing so WITHOUT breaking the entry-hash chain requires a hash-chain-
+ * preserving tombstone design: the original bytes must remain hash-verifiable
+ * while the export layer overlays a redaction so the personal data no longer
+ * resurfaces (analogous to the master-data overlay already implemented here,
+ * but for hash-chained rows). That design is not implemented in this slice and
+ * is deliberately left as a separate, explicit piece of work — the current
+ * behaviour exports the ledger text and never mutates it.
+ */
 const REDACTABLE_FIELDS: Record<GdprExportRecord["source"], string[]> = {
   customers: ["name", "address", "email", "vatOrCvr"],
   vendors: ["name", "address", "vatOrCvr"],
   documents: ["name", "address", "vatOrCvr"],
   bank_transactions: ["name"],
+  journal_entries: [],
+  journal_lines: [],
+  audit_log: [],
 };
 
 /**
@@ -475,6 +604,12 @@ export function eraseGdprSubject(db: Database, key: GdprSubjectKey): GdprErasure
     );
 
     for (const row of collectSourceRows(db, subject)) {
+      // The append-only ledger sources are never erased here: their bytes are
+      // part of the entry-hash chain (or the immutable audit log). They are
+      // exported for Art. 15 but skipped entirely by erasure — see the design
+      // note on REDACTABLE_FIELDS for the outstanding overlay-redaction work.
+      if (LEDGER_TEXT_SOURCES.has(row.source)) continue;
+
       const tombstoneKey = `${row.source}:${row.sourceRowId}`;
       if (existing.has(tombstoneKey)) {
         alreadyErasedCount += 1;

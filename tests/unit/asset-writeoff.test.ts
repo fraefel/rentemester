@@ -8,7 +8,7 @@ import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
 import { listExceptions } from "../../src/core/exceptions";
-import { postImmediateWriteOff, STRAKSAFSKRIVNING_THRESHOLD_DKK } from "../../src/core/assets";
+import { postImmediateWriteOff, STRAKSAFSKRIVNING_THRESHOLD_DKK, straksafskrivningThresholdForYear } from "../../src/core/assets";
 
 function setup(label: string, amountIncVat: number, opts: { withDoc?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -156,6 +156,39 @@ describe("immediate write-off (straksafskrivning)", () => {
     expect(result.errors.join(" ")).toContain("document");
     const exceptions = listExceptions(db, { status: "open" });
     expect(exceptions.rows.some((e) => e.type === "ASSET_WRITEOFF_MISSING_DOCUMENTATION")).toBe(true);
+    cleanup();
+  });
+
+  test("selects the small-asset threshold from the acquisition year (year-based)", () => {
+    expect(straksafskrivningThresholdForYear(2024)).toBe(33100);
+    expect(straksafskrivningThresholdForYear(2025)).toBe(34400);
+    expect(straksafskrivningThresholdForYear(2026)).toBe(36000);
+    // Years before the earliest table entry clamp to the earliest known sats;
+    // future years (no published sats yet) clamp to the latest known.
+    expect(straksafskrivningThresholdForYear(2020)).toBe(33100);
+    expect(straksafskrivningThresholdForYear(2099)).toBe(36000);
+  });
+
+  test("uses the 2026 threshold (36.000) for a 2026 acquisition — a cost the 2024 sats would have blocked", () => {
+    // 35.000 kr is above the 2024/2025 sats but within the 2026 sats, so a
+    // 2026 acquisition must be eligible for straksafskrivning.
+    const { db, documentId, cleanup } = setup("wo-2026-sats", 35000);
+    const result = postImmediateWriteOff(db, {
+      name: "Laptop 2026",
+      category: "hardware",
+      acquisitionDate: "2026-02-01",
+      cost: 35000,
+      purchaseDocumentId: documentId!,
+      expenseAccountNo: "3120",
+      transactionDate: "2026-02-02",
+      confirmImmediateWriteOff: true,
+      thresholdRuleSource: "SKAT afskrivningsloven smaaanskaffelser 2026",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.thresholdDkk).toBe(36000);
+    const row = db.query("SELECT threshold_dkk FROM asset_writeoffs WHERE id = ?")
+      .get(result.writeOffId!) as { threshold_dkk: number };
+    expect(row.threshold_dkk).toBe(36000);
     cleanup();
   });
 

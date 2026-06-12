@@ -46,8 +46,70 @@ export type CreateMileageEntryResult = {
   entryNo?: string;
   amountBasis?: number;
   appliedRules: string[];
+  warnings: string[];
   errors: string[];
 };
+
+/**
+ * Skatterådet's maximum tax-free mileage rates per income year, for an
+ * ADVISORY ceiling check ONLY. These values are never used in any calculation
+ * or stored amount — the per-kilometre rate that drives amountBasis is always
+ * the user-supplied `ratePerKm` (rules/dk/mileage.yaml forbids a hardcoded tax
+ * rate in the calculation). This table backs a warning that fires when the
+ * user's rate exceeds the highest possible official rate, so it cannot be a
+ * tax-free rate for ANY vehicle category. The exact category ceilings (car
+ * >20.000 km, cycle/moped) are listed in the warning text so the user can
+ * self-check the right bound for their case.
+ *
+ * 2026 sources (verified 2026-06):
+ *   - Car ≤20.000 km: 3,94 kr/km; >20.000 km: 2,28 kr/km
+ *   - Cycle/moped/scooter: 0,64 kr/km
+ *   Skatterådet, bekendtgørelse om satser for 2026:
+ *   https://www.lovtidende.dk/api/pdf/252475
+ *   Skattestyrelsen: https://sktst.dk/nyheder-og-pressemeddelelser/hoejere-fradrag-til-pendlerne-i-2026
+ */
+const MILEAGE_MAX_RATE_BY_YEAR: ReadonlyArray<{
+  year: number;
+  carHigh: number;
+  carLow: number;
+  cycleMoped: number;
+}> = [
+  { year: 2026, carHigh: 3.94, carLow: 2.28, cycleMoped: 0.64 },
+];
+
+/**
+ * Build a warning-only advisory if the user-supplied rate exceeds the highest
+ * Skatterådet maximum for the trip's income year. Returns an empty array when
+ * the year is unknown (no table entry) or the rate is within bounds. Never
+ * blocks and never alters the stored rate or amount.
+ */
+function mileageRateCeilingWarnings(tripDate: string, ratePerKm: number): string[] {
+  const year = Number(tripDate.slice(0, 4));
+  // Prefer the trip year's own ceiling. When that year has no entry yet (the
+  // official Skatterådet rate is published in arrears, so a future year is
+  // missing), fall back to the LATEST known year's ceiling — the rate "sticks"
+  // to the most recent published value until officially updated. Without this
+  // fallback the advisory silently disappeared for any not-yet-tabled year, so
+  // even a blatantly excessive rate raised no warning (JUR-13).
+  const exact = MILEAGE_MAX_RATE_BY_YEAR.find((s) => s.year === year);
+  const latest = MILEAGE_MAX_RATE_BY_YEAR.reduce<typeof MILEAGE_MAX_RATE_BY_YEAR[number] | undefined>(
+    (acc, s) => (acc === undefined || s.year > acc.year ? s : acc),
+    undefined,
+  );
+  const sats = exact ?? latest;
+  if (!sats) return [];
+  if (ratePerKm <= sats.carHigh) return [];
+  // Name the year whose ceiling is actually being applied, so a fallback warning
+  // is not misleading about which official rate it compares against.
+  const ceilingYear = sats.year;
+  return [
+    `Den angivne sats ${ratePerKm.toLocaleString("da-DK")} kr/km overstiger Skatterådets ` +
+      `højeste maksimum for ${ceilingYear} (${sats.carHigh.toLocaleString("da-DK")} kr/km for bil ≤20.000 km). ` +
+      `Maks. for bil over 20.000 km er ${sats.carLow.toLocaleString("da-DK")} kr/km og for cykel/knallert ` +
+      `${sats.cycleMoped.toLocaleString("da-DK")} kr/km. En sats over maksimum kan gøre godtgørelsen ` +
+      `skattepligtig — bekræft satsgrundlaget. Rentemester ændrer ikke satsen (kun en advarsel).`,
+  ];
+}
 
 export type MileageEntryRow = {
   id: number;
@@ -153,12 +215,14 @@ export function validateMileageEntry(input: CreateMileageEntryInput): string[] {
 
 export function createMileageEntry(db: Database, input: CreateMileageEntryInput): CreateMileageEntryResult {
   const errors = validateMileageEntry(input);
-  if (errors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors };
+  if (errors.length > 0) return { ok: false, appliedRules: [RULE_ID], warnings: [], errors };
 
   const tripDate = input.tripDate.trim();
   const kilometers = roundDkk(input.kilometers);
   const ratePerKm = input.ratePerKm;
   const amountBasis = mileageAmountBasis(kilometers, ratePerKm);
+  // Advisory ceiling check only — never alters the user-supplied rate/amount.
+  const warnings = mileageRateCeilingWarnings(tripDate, ratePerKm);
 
   const inserted = db.transaction(() => {
     const entryNo = nextMileageEntryNo(db, tripDate);
@@ -202,6 +266,7 @@ export function createMileageEntry(db: Database, input: CreateMileageEntryInput)
     entryNo: inserted.entryNo,
     amountBasis,
     appliedRules: [RULE_ID],
+    warnings,
     errors: [],
   };
 }

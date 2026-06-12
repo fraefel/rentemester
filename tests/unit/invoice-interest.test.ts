@@ -7,7 +7,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { applyInvoicePayment, getInvoiceStatus } from "../../src/core/invoice-payments";
-import { calculateInvoiceLateInterest, postInvoiceLateInterestToLedger, registerInvoiceLateInterest, proposeInterestCorrection, postInterestCorrection } from "../../src/core/invoice-interest";
+import { calculateInvoiceLateInterest, postInvoiceLateInterestToLedger, registerInvoiceLateInterest, proposeInterestCorrection, postInterestCorrection, lookupStatutoryReferenceRate } from "../../src/core/invoice-interest";
 import { issueCreditNote } from "../../src/core/credit-notes";
 import { importBankCsv } from "../../src/core/bank";
 import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
@@ -901,6 +901,200 @@ describe("invoice late interest", () => {
     expect(p3.ok).toBe(false);
     expect(p3.errors[0]).toContain("already posted");
 
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("invoice late interest – statutory reference-rate table (JUR-7/EJER-8)", () => {
+  function overdueInvoice() {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-interest-rate-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-01-02",
+      dueDate: "2026-01-15",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    return { root, db, documentId: issued.documentId! };
+  }
+
+  test("lookupStatutoryReferenceRate returns the per-1/1 and per-1/7 reference rate", () => {
+    expect(lookupStatutoryReferenceRate("2026-01-01")).toBe(1.75);
+    expect(lookupStatutoryReferenceRate("2026-06-12")).toBe(1.75); // still H1 2026
+    expect(lookupStatutoryReferenceRate("2025-12-31")).toBe(1.75); // H2 2025
+    expect(lookupStatutoryReferenceRate("2025-07-01")).toBe(1.75);
+    expect(lookupStatutoryReferenceRate("2025-01-01")).toBe(2.75); // H1 2025
+    expect(lookupStatutoryReferenceRate("2024-03-15")).toBe(3.75); // H1 2024
+    expect(lookupStatutoryReferenceRate("2022-12-31")).toBeNull(); // before table
+  });
+
+  test("defaults to the statutory table when no reference rate is supplied (1/1-2026 → morarente 9.75 %)", () => {
+    const { root, db, documentId } = overdueInvoice();
+    const interest = calculateInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-02-01" });
+    expect(interest.ok).toBe(true);
+    expect(interest.referenceRatePercent).toBe(1.75);
+    expect(interest.annualInterestRatePercent).toBe(9.75);
+    expect(interest.referenceRateSource).toBe("statutory-table");
+    expect(interest.warnings ?? []).toHaveLength(0);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("honours a manual override and warns when it deviates materially from the table", () => {
+    const { root, db, documentId } = overdueInvoice();
+    const interest = calculateInvoiceLateInterest(db, {
+      invoiceDocumentId: documentId,
+      asOfDate: "2026-02-01",
+      referenceRatePercent: 5,
+    });
+    expect(interest.ok).toBe(true);
+    expect(interest.referenceRatePercent).toBe(5);
+    expect(interest.annualInterestRatePercent).toBe(13);
+    expect(interest.referenceRateSource).toBe("manual-override");
+    expect(interest.warnings?.some((w) => w.includes("deviates"))).toBe(true);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a manual override within tolerance of the table does not warn", () => {
+    const { root, db, documentId } = overdueInvoice();
+    const interest = calculateInvoiceLateInterest(db, {
+      invoiceDocumentId: documentId,
+      asOfDate: "2026-02-01",
+      referenceRatePercent: 1.75,
+    });
+    expect(interest.ok).toBe(true);
+    expect(interest.referenceRateSource).toBe("manual-override");
+    expect(interest.warnings ?? []).toHaveLength(0);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects a non-finite or negative manual reference rate", () => {
+    const { root, db, documentId } = overdueInvoice();
+    expect(
+      calculateInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-02-01", referenceRatePercent: Number.NaN }).ok,
+    ).toBe(false);
+    expect(
+      calculateInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-02-01", referenceRatePercent: -1 }).ok,
+    ).toBe(false);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("errors when no rate is supplied and the as-of date predates the table", () => {
+    const { root, db, documentId } = overdueInvoice();
+    const interest = calculateInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2022-06-01" });
+    expect(interest.ok).toBe(false);
+    expect(interest.errors[0]).toContain("no statutory reference rate");
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("registration defaults to the table rate and stores it on the claim", () => {
+    const { root, db, documentId } = overdueInvoice();
+    const registered = registerInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-02-01" });
+    expect(registered.ok).toBe(true);
+    expect(registered.referenceRatePercent).toBe(1.75);
+    // A second registration at the same as-of date with the explicit equal rate is a duplicate.
+    const dup = registerInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-02-01", referenceRatePercent: 1.75 });
+    expect(dup.ok).toBe(false);
+    expect(dup.errors[0]).toContain("already registered");
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("invoice late interest – multi-half-year statutory segmentation (JUR-7)", () => {
+  function overdueInvoiceDue(dueDate: string) {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-interest-multihalf-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    // Issue in the year before the due date so issueDate < dueDate always holds.
+    const issueYear = Number(dueDate.slice(0, 4)) - 1;
+    const issueDate = `${issueYear}-12-15`;
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate,
+      dueDate,
+      invoiceNumber: `${issueYear}-0001`,
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    return { root, db, documentId: issued.documentId! };
+  }
+
+  test("a table-rate window spanning several half-years accrues each half-year at that half-year's statutory rate, NOT a single as-of-date rate", () => {
+    // Invoice 1.250 kr, due 2024-02-01, calculated as-of 2026-06-12 (862 days).
+    // The buggy single-rate behaviour forrentede all 862 days at the 2026H1
+    // morarente (9,75 %) = 287,83 kr. The lawful figure forrenter each half-year
+    // at that half-year's morarente (renteloven § 5):
+    //   2024-02-01→2024-07-01  11,75 %   (ref 3,75)
+    //   2024-07-01→2025-01-01  11,50 %   (ref 3,50)
+    //   2025-01-01→2025-07-01  10,75 %   (ref 2,75)
+    //   2025-07-01→2026-01-01   9,75 %   (ref 1,75)
+    //   2026-01-01→2026-06-12   9,75 %   (ref 1,75)
+    // = 315,39 kr, rounded to øre exactly once across the segments.
+    const { root, db, documentId } = overdueInvoiceDue("2024-02-01");
+    const interest = calculateInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-06-12" });
+    expect(interest.ok).toBe(true);
+    expect(interest.referenceRateSource).toBe("statutory-table");
+    expect(interest.overdueDays).toBe(862);
+    expect(interest.totalInterestToDate).toBe(315.39);
+    expect(interest.accruedInterestAmount).toBe(315.39);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a MANUAL reference rate over the same multi-half-year window stays a single rate (human-in-the-loop override is never segmented)", () => {
+    // Same invoice and window, but the user explicitly supplies the reference
+    // rate. The whole 862-day window must use that one rate (ref 1,75 → 9,75 %)
+    // = 287,83 kr — unchanged from before, no half-year segmentation.
+    const { root, db, documentId } = overdueInvoiceDue("2024-02-01");
+    const interest = calculateInvoiceLateInterest(db, {
+      invoiceDocumentId: documentId,
+      asOfDate: "2026-06-12",
+      referenceRatePercent: 1.75,
+    });
+    expect(interest.ok).toBe(true);
+    expect(interest.referenceRateSource).toBe("manual-override");
+    expect(interest.overdueDays).toBe(862);
+    expect(interest.totalInterestToDate).toBe(287.83);
+    expect(interest.accruedInterestAmount).toBe(287.83);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a table-rate window wholly inside one half-year is unchanged (single segment, single rate)", () => {
+    // Due 2026-02-01, as-of 2026-06-12 → wholly inside 2026H1 (ref 1,75 → 9,75 %),
+    // 131 days. No half-year boundary is crossed, so the result is identical to
+    // the un-segmented calculation.
+    const { root, db, documentId } = overdueInvoiceDue("2026-02-01");
+    const interest = calculateInvoiceLateInterest(db, { invoiceDocumentId: documentId, asOfDate: "2026-06-12" });
+    expect(interest.ok).toBe(true);
+    expect(interest.referenceRateSource).toBe("statutory-table");
+    expect(interest.overdueDays).toBe(131);
+    expect(interest.referenceRatePercent).toBe(1.75);
+    expect(interest.annualInterestRatePercent).toBe(9.75);
+    // 1.250 @ 9,75 % × 131 d = 43,74 kr.
+    expect(interest.totalInterestToDate).toBe(43.74);
+    expect(interest.accruedInterestAmount).toBe(43.74);
     db.close();
     rmSync(root, { recursive: true, force: true });
   });

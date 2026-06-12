@@ -15,7 +15,8 @@ export type CustomerRecord = {
   phone: string | null;
   website: string | null;
   eanNumber: string | null;
-  paymentTermsDays: number;
+  /** EJER-3: null = ingen eksplicit kundefrist — fakturaen arver virksomhedens profilfrist på fakturatidspunktet. */
+  paymentTermsDays: number | null;
   defaultCurrency: string;
   notes: string | null;
   archived: number;
@@ -45,7 +46,8 @@ export type CreateCustomerInput = {
   phone?: string;
   website?: string;
   eanNumber?: string;
-  paymentTermsDays?: number;
+  /** EJER-3: udeladt/null = ingen eksplicit frist — kunden arver virksomhedens profilfrist på fakturatidspunktet. */
+  paymentTermsDays?: number | null;
   defaultCurrency?: string;
   notes?: string;
 };
@@ -72,7 +74,20 @@ export function createCustomer(db: Database, input: CreateCustomerInput) {
   const rawEanNumber = trimToNull(input.eanNumber);
   const eanNumber = rawEanNumber ? normalizeEanNumber(rawEanNumber) : null;
   if (rawEanNumber && !eanNumber) return { ok: false, errors: ["eanNumber must be 13 digits"] };
-  const paymentTermsDays = Number.isInteger(input.paymentTermsDays) && Number(input.paymentTermsDays) > 0 ? Number(input.paymentTermsDays) : 30;
+  // EJER-3: no explicit frist → store NULL so the invoice inherits the
+  // COMPANY profile's payment terms at invoice time (previously a silent,
+  // hardcoded 30 that overrode the owner's own standard without a word).
+  // Backward compat: customers created before this change carry a stored 30
+  // that cannot be told apart from a deliberate 30 — they keep their 30, and
+  // the deviation note in invoice create makes it visible.
+  let paymentTermsDays: number | null = null;
+  if (input.paymentTermsDays !== undefined && input.paymentTermsDays !== null) {
+    const value = Number(input.paymentTermsDays);
+    if (!Number.isInteger(value) || value <= 0) {
+      return { ok: false, errors: ["paymentTermsDays must be a positive integer"] };
+    }
+    paymentTermsDays = value;
+  }
   const defaultCurrency = normalizeCurrency(input.defaultCurrency);
   if (!/^[A-Z]{3}$/.test(defaultCurrency)) return { ok: false, errors: ["defaultCurrency must be a 3-letter ISO code"] };
 
@@ -114,7 +129,7 @@ export function listCustomers(db: Database, options: { archived?: boolean } = {}
      WHERE archived = CASE WHEN ? THEN archived ELSE 0 END
      ORDER BY lower(name) ASC, id ASC`
   ).all(options.archived ? 1 : 0) as Array<{
-    id: number; name: string; address: string | null; vat_or_cvr: string | null; email: string | null; phone: string | null; website: string | null; ean_number: string | null; payment_terms_days: number; default_currency: string; notes: string | null; archived: number; created_at: string;
+    id: number; name: string; address: string | null; vat_or_cvr: string | null; email: string | null; phone: string | null; website: string | null; ean_number: string | null; payment_terms_days: number | null; default_currency: string; notes: string | null; archived: number; created_at: string;
   }>;
 
   return {
@@ -209,7 +224,7 @@ export function getCustomerById(db: Database, id: number) {
     `SELECT id, name, address, vat_or_cvr, email, phone, website, ean_number, payment_terms_days, default_currency, notes, archived, created_at
      FROM customers WHERE id = ? LIMIT 1`
   ).get(id) as {
-    id: number; name: string; address: string | null; vat_or_cvr: string | null; email: string | null; phone: string | null; website: string | null; ean_number: string | null; payment_terms_days: number; default_currency: string; notes: string | null; archived: number; created_at: string;
+    id: number; name: string; address: string | null; vat_or_cvr: string | null; email: string | null; phone: string | null; website: string | null; ean_number: string | null; payment_terms_days: number | null; default_currency: string; notes: string | null; archived: number; created_at: string;
   } | null;
 }
 
@@ -261,11 +276,18 @@ export function updateCustomer(
 
   let nextPaymentTerms = existing.payment_terms_days;
   if (input.paymentTermsDays !== undefined) {
-    const value = Number(input.paymentTermsDays);
-    if (!Number.isInteger(value) || value <= 0) {
-      return { ok: false, errors: ["paymentTermsDays must be a positive integer"] };
+    // EJER-3: an explicit null clears the kundefrist back to "inherit the
+    // company profile's terms at invoice time" — same null-clears convention
+    // as the other optional fields above.
+    if (input.paymentTermsDays === null) {
+      nextPaymentTerms = null;
+    } else {
+      const value = Number(input.paymentTermsDays);
+      if (!Number.isInteger(value) || value <= 0) {
+        return { ok: false, errors: ["paymentTermsDays must be a positive integer"] };
+      }
+      nextPaymentTerms = value;
     }
-    nextPaymentTerms = value;
   }
 
   let nextCurrency = existing.default_currency;
@@ -568,10 +590,55 @@ export function findVendorByKey(db: Database, vatOrCvr: string | null, name: str
   ).get(name, vatOrCvr) as { id: number } | null;
 }
 
+/**
+ * EJER-3: the company profile's own default payment terms, or null when the
+ * ledger has no companies row (or predates the column). Queried directly
+ * instead of importing `getCompanySettings` to keep master-data free of a
+ * company.ts dependency.
+ */
+function companyDefaultPaymentTermsDays(db: Database): number | null {
+  try {
+    const row = db.query(`SELECT payment_terms_days FROM companies ORDER BY id ASC LIMIT 1`).get() as
+      | { payment_terms_days: number | null }
+      | null;
+    if (!row) return null;
+    const days = Number(row.payment_terms_days);
+    return Number.isInteger(days) && days >= 0 && days <= 365 ? days : null;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveInvoiceMasterData(db: Database, payload: InvoicePayload, options: { customerId?: number | null }) {
   if (!options.customerId) return { ok: true, payload };
   const customer = getCustomerById(db, options.customerId);
   if (!customer || customer.archived) return { ok: false, errors: [`customer ${options.customerId} does not exist`] };
+
+  // EJER-3: only an EXPLICIT kundefrist sets the due date here. A customer
+  // stored with NULL has no own frist — the due date is left unset so
+  // issueInvoice's enrichInvoiceFromCompany fills it from the company
+  // profile's payment terms (the owner's own standard).
+  const explicitDueDate = trimToNull(payload.dueDate);
+  const customerTerms = customer.payment_terms_days;
+  const dueDate =
+    explicitDueDate ??
+    (trimToNull(payload.issueDate) && customerTerms != null && customerTerms > 0
+      ? addDays(payload.issueDate!, customerTerms)
+      : undefined);
+
+  // EJER-3: when the kundekort's explicit frist (not the company standard)
+  // decides the due date AND deviates from the profile, say so out loud —
+  // the owner must never discover a silently different betalingsfrist.
+  const notes: string[] = [];
+  if (!explicitDueDate && dueDate !== undefined && customerTerms != null) {
+    const companyTerms = companyDefaultPaymentTermsDays(db);
+    if (companyTerms != null && companyTerms !== customerTerms) {
+      notes.push(
+        `Betalingsfrist ${customerTerms} dage fra kundekortet — virksomhedens standard er ${companyTerms} dage.`,
+      );
+    }
+  }
+
   return {
     ok: true,
     payload: {
@@ -584,8 +651,9 @@ export function resolveInvoiceMasterData(db: Database, payload: InvoicePayload, 
         publicRecipient: payload.buyer?.publicRecipient ?? Boolean(normalizeEanNumber(payload.buyer?.eanNumber) ?? customer.ean_number),
       },
       currency: trimToNull(payload.currency) ?? customer.default_currency,
-      dueDate: trimToNull(payload.dueDate) ?? (trimToNull(payload.issueDate) && customer.payment_terms_days > 0 ? addDays(payload.issueDate!, customer.payment_terms_days) : undefined),
+      dueDate,
     },
+    ...(notes.length > 0 ? { notes } : {}),
   };
 }
 

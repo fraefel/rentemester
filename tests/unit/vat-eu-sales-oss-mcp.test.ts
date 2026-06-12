@@ -1,70 +1,46 @@
 // Tests: src/mcp/tools/vat.ts (vat_eu_sales_list, vat_oss_report MCP tools)
+//
+// Drives the registered tool callbacks in-process through a McpServer — the
+// same surface the JSON-RPC `tools/call` path invokes after schema validation
+// (the pattern from mcp-portfolio.test.ts). The stdio JSON-RPC protocol layer
+// itself is covered end-to-end by mcp-server.test.ts; spawning a second child
+// server here added no coverage but made the test sensitive to load/shared
+// process state in the full suite (structuredContent intermittently missing).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
+import { registerVatTools } from "../../src/mcp/tools/vat";
 
-const SERVER_PATH = new URL("../../src/mcp/server.ts", import.meta.url).pathname;
-
-type JsonRpcResponse = { jsonrpc: "2.0"; id?: number; result?: any; error?: { code: number; message: string } };
-
-class StdioMcpClient {
-  private proc: ReturnType<typeof Bun.spawn>;
-  private stdoutReader: ReadableStreamDefaultReader<Uint8Array>;
-  private decoder = new TextDecoder();
-  private buffer = "";
-  private nextId = 1;
-
-  constructor() {
-    this.proc = Bun.spawn(["bun", SERVER_PATH], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-    this.stdoutReader = this.proc.stdout.getReader();
-  }
-
-  async send(method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse> {
-    const id = this.nextId++;
-    await this.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params: params ?? {} }) + "\n");
-    await (this.proc.stdin as any).flush?.();
-    return this.readResponse(id);
-  }
-
-  async notify(method: string, params?: Record<string, unknown>): Promise<void> {
-    await this.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params: params ?? {} }) + "\n");
-    await (this.proc.stdin as any).flush?.();
-  }
-
-  private async readResponse(expectedId: number): Promise<JsonRpcResponse> {
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
-      const newlineIdx = this.buffer.indexOf("\n");
-      if (newlineIdx === -1) {
-        const { value, done } = await this.stdoutReader.read();
-        if (done) throw new Error("MCP server closed stdout before responding");
-        this.buffer += this.decoder.decode(value, { stream: true });
-        continue;
-      }
-      const line = this.buffer.slice(0, newlineIdx).trim();
-      this.buffer = this.buffer.slice(newlineIdx + 1);
-      if (!line) continue;
-      const parsed: JsonRpcResponse = JSON.parse(line);
-      if (parsed.id === expectedId) return parsed;
-    }
-    throw new Error(`Timed out waiting for MCP response id=${expectedId}`);
-  }
-
-  async close(): Promise<void> {
-    try { this.proc.stdin.end(); } catch {}
-    try { this.stdoutReader.releaseLock(); } catch {}
-    this.proc.kill();
-    await this.proc.exited;
-  }
+/**
+ * Fresh McpServer with the VAT tools registered, exposing a `call(name, args)`
+ * that drives a tool's registered callback and returns its structuredContent
+ * envelope — mirroring how the JSON-RPC `tools/call` path invokes it.
+ */
+function harness() {
+  const server = new McpServer({ name: "vat-tools-test", version: "0.0.0" });
+  registerVatTools(server);
+  const tools = (server as any)._registeredTools as Record<
+    string,
+    { handler: (args: unknown, extra: unknown) => Promise<{ structuredContent: unknown }> }
+  >;
+  return {
+    toolNames: () => Object.keys(tools),
+    async call(name: string, args: unknown) {
+      const tool = tools[name];
+      if (!tool) throw new Error(`tool not registered: ${name}`);
+      const result = await tool.handler(args, { signal: new AbortController().signal });
+      return result.structuredContent as { ok: boolean; data?: any; errors: string[] };
+    },
+  };
 }
 
 let companyRoot: string;
-let client: StdioMcpClient;
 
 beforeAll(async () => {
   companyRoot = mkdtempSync(join(tmpdir(), "mcp-vat-eulist-"));
@@ -88,7 +64,8 @@ beforeAll(async () => {
     vatAmount: 0,
     paymentDetails: "Kort",
   });
-  postJournalEntry(db, {
+  expect(doc.ok).toBe(true);
+  const posted = postJournalEntry(db, {
     transactionDate: "2026-03-12",
     text: "OSS salg",
     documentId: doc.documentId!,
@@ -97,53 +74,46 @@ beforeAll(async () => {
       { accountNo: "1000", creditAmount: 2000, vatCode: "OSS_EU_CONSUMER" },
     ],
   });
+  expect(posted.ok).toBe(true);
   db.close();
   rmSync(inbox, { recursive: true, force: true });
-
-  client = new StdioMcpClient();
-  const initResponse = await client.send("initialize", {
-    protocolVersion: "2024-11-05",
-    capabilities: {},
-    clientInfo: { name: "rentemester-test-harness", version: "0.0.1" },
-  });
-  expect(initResponse.error).toBeUndefined();
-  await client.notify("notifications/initialized");
 });
 
-afterAll(async () => {
-  await client.close();
+afterAll(() => {
   if (companyRoot && existsSync(companyRoot)) {
     rmSync(companyRoot, { recursive: true, force: true });
   }
 });
 
 describe("vat_eu_sales_list MCP tool", () => {
-  test("tools/list exposes vat_eu_sales_list and vat_oss_report", async () => {
-    const response = await client.send("tools/list", {});
-    const names = new Set((response.result?.tools ?? []).map((t: { name: string }) => t.name));
-    expect(names.has("vat_eu_sales_list")).toBe(true);
-    expect(names.has("vat_oss_report")).toBe(true);
+  test("registerVatTools exposes vat_eu_sales_list and vat_oss_report", () => {
+    const h = harness();
+    const names = h.toolNames();
+    expect(names).toContain("vat_eu_sales_list");
+    expect(names).toContain("vat_oss_report");
   });
 
   test("vat_eu_sales_list returns an ok envelope on a company with no EU B2B sales", async () => {
-    const response = await client.send("tools/call", {
-      name: "vat_eu_sales_list",
-      arguments: { company: companyRoot, from: "2026-01-01", to: "2026-03-31" },
+    const h = harness();
+    const env = await h.call("vat_eu_sales_list", {
+      company: companyRoot,
+      from: "2026-01-01",
+      to: "2026-03-31",
     });
-    const structured = response.result?.structuredContent;
-    expect(structured?.ok).toBe(true);
-    expect(structured?.data?.customers).toEqual([]);
-    expect(structured?.data?.totalValue).toBe(0);
+    expect(env.ok, JSON.stringify(env)).toBe(true);
+    expect(env.data?.customers).toEqual([]);
+    expect(env.data?.totalValue).toBe(0);
   });
 
   test("vat_oss_report surfaces the OSS consumer-sales base", async () => {
-    const response = await client.send("tools/call", {
-      name: "vat_oss_report",
-      arguments: { company: companyRoot, from: "2026-01-01", to: "2026-03-31" },
+    const h = harness();
+    const env = await h.call("vat_oss_report", {
+      company: companyRoot,
+      from: "2026-01-01",
+      to: "2026-03-31",
     });
-    const structured = response.result?.structuredContent;
-    expect(structured?.ok).toBe(true);
-    expect(structured?.data?.ossConsumerSalesBase).toBe(2000);
-    expect(structured?.data?.submission).toBe(false);
+    expect(env.ok, JSON.stringify(env)).toBe(true);
+    expect(env.data?.ossConsumerSalesBase).toBe(2000);
+    expect(env.data?.submission).toBe(false);
   });
 });

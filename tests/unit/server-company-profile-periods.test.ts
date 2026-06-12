@@ -253,11 +253,13 @@ describe("Cockpit obligations — annual report deadline (#290)", () => {
       }>;
       const annual = rows.find((r) => r.kind === "annual-report");
       expect(annual).toBeDefined();
-      // FY 2026 ends 2026-12-31; the årsrapport is due 1 May 2027 (the 1st
-      // of the 5th month after the fiscal year ends) — the SAME deadline
-      // `agent run` (src/agent/loop.ts#checkDeadlines) computes.
-      expect(annual!.dueDate).toBe("2027-05-01");
+      // FY 2026 ends 2026-12-31; the årsrapport is due 30 June 2027 — six
+      // months after the fiscal year ends (ÅRL § 138) — the SAME canonical
+      // `annualReportDeadline` that `agent run`
+      // (src/agent/loop.ts#checkDeadlines) uses.
+      expect(annual!.dueDate).toBe("2027-06-30");
       expect(annual!.label).toMatch(/[ÅA]rsrapport/);
+      expect(annual!.label).toContain("ÅRL § 138");
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

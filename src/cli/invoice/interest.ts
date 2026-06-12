@@ -21,9 +21,13 @@ import { resolveInvoiceDocumentId } from "./_shared";
 export function registerInterestCommands(dispatch: CommandDispatch): void {
   dispatch.on("invoice", "interest", (ctx) => {
     const asOfDate = ctx.arg("--as-of");
-    const referenceRatePercent = Number(ctx.arg("--reference-rate"));
-    if (!asOfDate || Number.isNaN(referenceRatePercent)) {
-      console.error("Missing required --as-of <YYYY-MM-DD> or --reference-rate <pct>");
+    // --reference-rate is OPTIONAL: when omitted the statutory half-yearly table
+    // (Nationalbankens udlånsrente, renteloven § 5) supplies the rate for the
+    // as-of period. A supplied value is honoured (human-in-the-loop override).
+    const rateArg = ctx.arg("--reference-rate");
+    const referenceRatePercent = rateArg === undefined ? undefined : Number(rateArg);
+    if (!asOfDate || (rateArg !== undefined && Number.isNaN(referenceRatePercent))) {
+      console.error("Missing required --as-of <YYYY-MM-DD>; optional --reference-rate <pct> must be numeric when present");
       process.exit(2);
     }
     const db = openCommandDb(ctx);
@@ -45,9 +49,10 @@ export function registerInterestCommands(dispatch: CommandDispatch): void {
     const asOfDate = ctx.arg("--as-of");
     const rateArg = ctx.arg("--reference-rate");
     const note = ctx.arg("--note");
-    const referenceRatePercent = rateArg === undefined ? NaN : Number(rateArg);
-    if (!asOfDate || Number.isNaN(referenceRatePercent)) {
-      console.error("Missing required --as-of <YYYY-MM-DD> or --reference-rate <pct>");
+    // Optional override; defaults to the statutory table for the as-of period.
+    const referenceRatePercent = rateArg === undefined ? undefined : Number(rateArg);
+    if (!asOfDate || (rateArg !== undefined && Number.isNaN(referenceRatePercent))) {
+      console.error("Missing required --as-of <YYYY-MM-DD>; optional --reference-rate <pct> must be numeric when present");
       process.exit(2);
     }
     const db = openCommandDb(ctx);

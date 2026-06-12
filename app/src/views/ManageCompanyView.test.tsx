@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ManageCompanyView } from "./ManageCompanyView";
 import { renderAt } from "../test/render";
@@ -63,6 +63,49 @@ describe("ManageCompanyView", () => {
     expect(
       await screen.findByRole("button", { name: /Arkivér virksomhed/i }),
     ).toBeInTheDocument();
+  });
+
+  test("archiving requires a confirm dialog before the PATCH (#UI-17)", async () => {
+    mockFetch({
+      ...companiesRoute(false),
+      "PATCH /api/companies/acme-aps": {
+        company: { slug: "acme-aps", name: "Acme ApS", archived: true },
+      },
+    });
+    renderAt(<ManageCompanyView />, {
+      route: "/companies/acme-aps/manage",
+      path: "/companies/:slug/manage",
+    });
+    const archiveBtn = await screen.findByRole("button", {
+      name: /Arkivér virksomhed/i,
+    });
+
+    function archivePatchCount() {
+      const fetchMock = global.fetch as unknown as {
+        mock: { calls: Array<[RequestInfo, RequestInit?]> };
+      };
+      return fetchMock.mock.calls.filter(([url, init]) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        return (
+          method === "PATCH" &&
+          String(url).includes("/api/companies/acme-aps") &&
+          String(init?.body ?? "").includes('"archived":true')
+        );
+      }).length;
+    }
+
+    await userEvent.click(archiveBtn);
+    // The PATCH must NOT have fired yet — a dialog should now ask to confirm.
+    expect(archivePatchCount()).toBe(0);
+    expect(
+      screen.getByRole("dialog", { name: /Arkivér virksomhed/i }),
+    ).toBeInTheDocument();
+    // Confirming inside the dialog runs the archive write.
+    const confirm = screen
+      .getByRole("dialog")
+      .querySelector("button.btn.danger") as HTMLButtonElement;
+    await userEvent.click(confirm);
+    await waitFor(() => expect(archivePatchCount()).toBe(1));
   });
 
   test("404s for an unknown slug", async () => {

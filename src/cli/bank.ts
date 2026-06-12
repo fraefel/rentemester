@@ -54,7 +54,14 @@ function renderBankSuggestionsHuman(rows: any[]): void {
       `Banktransaktion ${row.bankTransactionId} | ${row.date} | ${row.amount} ${row.currency} | ${row.text}`,
     );
     if (row.suggestions.length === 0) {
-      console.log("  Ingen sikre forslag.");
+      // EJER-7: when an exact-amount candidate exists, explain WHY it is not a
+      // safe suggestion instead of a bare "Ingen sikre forslag" that
+      // contradicts the exceptions queue (which names the same bilag).
+      if (row.unsafeMatchReason) {
+        console.log(`  Ingen sikre forslag. ${row.unsafeMatchReason}`);
+      } else {
+        console.log("  Ingen sikre forslag.");
+      }
       continue;
     }
     console.table(

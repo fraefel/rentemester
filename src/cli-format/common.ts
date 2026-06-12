@@ -233,7 +233,9 @@ function collectSummaryLines(result: Record<string, unknown>) {
     if (rendered === null) continue;
     // #268: never emit an English key on a Danish-facing tool — use the Danish
     // label when one exists, falling back to the humanized form otherwise.
-    lines.push(`${WRITE_RESULT_LABEL_DA[key] ?? humanizeKey(key)}: ${rendered}`);
+    lines.push(
+      `${WRITE_RESULT_LABEL_DA[key] ?? humanizeKey(key)}: ${translateValueForKey(key, rendered)}`,
+    );
     seen.add(key);
   }
   // Batch E-1: drill one level into well-known nested-object keys. Lets
@@ -248,7 +250,7 @@ function collectSummaryLines(result: Record<string, unknown>) {
       const rendered = renderScalar(innerValue);
       if (rendered === null) continue;
       lines.push(
-        `${WRITE_RESULT_LABEL_DA[innerKey] ?? humanizeKey(innerKey)}: ${rendered}`,
+        `${WRITE_RESULT_LABEL_DA[innerKey] ?? humanizeKey(innerKey)}: ${translateValueForKey(innerKey, rendered)}`,
       );
       seen.add(innerKey);
     }
@@ -260,6 +262,29 @@ function renderScalar(value: unknown): string | null {
   if (typeof value === "string" && value.length > 0) return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return null;
+}
+
+/**
+ * Danish display values for the handful of enum-valued profile fields whose raw
+ * stored form is an English token (e.g. `quarter`, `end-year`). #268 already
+ * translates the key (label) into Danish; this translates the VALUE so an owner
+ * never sees "Momsperiode: quarter". Keyed by field, then by raw value; unknown
+ * fields/values pass through unchanged.
+ */
+const VALUE_LABEL_DA: Record<string, Record<string, string>> = {
+  vatPeriodType: {
+    month: "måned",
+    quarter: "kvartal",
+    "half-year": "halvår",
+  },
+  fiscalYearLabelStrategy: {
+    "end-year": "slutår",
+    "start-year": "startår",
+  },
+};
+
+function translateValueForKey(key: string, rendered: string): string {
+  return VALUE_LABEL_DA[key]?.[rendered] ?? rendered;
 }
 
 function humanizeKey(key: string) {

@@ -10,7 +10,7 @@
 
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatKroner } from "../lib/format";
+import { formatKroner, tastSelvNumber } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type { CompanyObligations, ObligationRow } from "../lib/types";
 import { ErrorState, Loading } from "../components/Feedback";
@@ -220,7 +220,9 @@ function ObligationActions({
   const external = EXTERNAL_LINK[row.kind];
   const copyAmount = async () => {
     if (row.kind === "annual-report") return;
-    const text = String(row.amount.toFixed(2)).replace(".", ",");
+    // #UI-10: share the SKAT TastSelv number format with VatView — no thousand
+    // separator, whole kroner as bare integers — so the two copy buttons agree.
+    const text = tastSelvNumber(row.amount);
     try {
       await navigator.clipboard.writeText(text);
     } catch {

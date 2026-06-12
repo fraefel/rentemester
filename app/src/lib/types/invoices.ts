@@ -40,7 +40,7 @@ export type CompanyInvoiceRow = {
   customerEmail: string | null;
   /**
    * Buyer's EAN-number (13 digits) when set on the invoice payload. The
-   * cockpit row offers "Send som e-faktura" only when this is present.
+   * cockpit row offers "Forbered e-faktura" only when this is present.
    */
   buyerEanNumber: string | null;
   /** True when the buyer is marked as a public recipient. */
@@ -56,9 +56,10 @@ export type CompanyInvoiceRow = {
   lastEmailedAt: string | null;
   /**
    * Timestamp (ISO-8601) of the most recently registered payment reminder
-   * (#434), or `null` when no reminder has been sent yet. Surfaced so the row
-   * can show "{n}. rykker sendt {dato}" under the status flag and the
-   * "Send rykker" action knows whether further reminders are still allowed.
+   * (#434), or `null` when no reminder has been registered yet. Surfaced so
+   * the row can show "{n}. rykker registreret {dato}" under the status flag
+   * and the "Send rykker" action knows whether further reminders are still
+   * allowed.
    */
   lastReminderAt: string | null;
   /**

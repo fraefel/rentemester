@@ -297,10 +297,10 @@ function EntryRow({
           <table className="data statement-table">
             <thead>
               <tr>
-                <th>Konto</th>
-                <th>Navn</th>
-                <th className="num">Debet</th>
-                <th className="num">Kredit</th>
+                <th scope="col">Konto</th>
+                <th scope="col">Navn</th>
+                <th className="num" scope="col">Debet</th>
+                <th className="num" scope="col">Kredit</th>
               </tr>
             </thead>
             <tbody>

@@ -81,8 +81,21 @@ deciding to write is always an explicit, logged act.
 > one `destructive` tool, `system_restore_backup`, returns
 > `confirm: true required for destructive tool system_restore_backup` — the
 > word **destructive**, not **write**. An agent that string-matches
-> `required for write tool` will therefore MISS the restore tool. Match on
-> the shared prefix `confirm: true required for` to catch both.
+> `required for write tool` will therefore MISS the restore tool.
+
+**Branch on the envelope `code`, not on the message string.** Both refusal
+variants carry the same stable machine-readable marker
+`code: "CONFIRM_REQUIRED"` on the envelope, so an agent never needs to
+parse `errors[]` to detect a missing confirm. The full set of stable
+cross-cutting codes is `CONFIRM_REQUIRED` (missing `confirm: true`, write
+*and* destructive), `CONFIRMTEXT_MISMATCH` (missing/wrong `confirmText` on
+`system_restore_backup`) and `BACKUP_LOCKED` (bookkeeping lock — see "The
+backup lock" below); the table lives in `docs/mcp-tool-surface.md` under
+"Cross-cutting preconditions". String-matching the shared prefix
+`confirm: true required for` (which catches both the
+`confirm: true required for write tool ` and
+`confirm: true required for destructive tool ` variants) is only a fallback
+for clients that cannot read `code`.
 
 `confirm: true` is not a rubber stamp. The agent should only set it once it
 has gathered the preconditions (read first — see below) and is committing to
@@ -202,13 +215,13 @@ Common precondition failures and the fix:
 
 | `errors[]` says | Meaning | Fix |
 |---|---|---|
-| `confirm: true required for write tool …` | Write attempted without `confirm`. | Re-call with `confirm: true`. |
-| `confirm: true required for destructive tool system_restore_backup` | `system_restore_backup` attempted without `confirm`. The destructive tool says `destructive`, not `write` — match `confirm: true required for` to catch both. | Re-call with `confirm: true`. |
-| `confirmText must match …` | `system_restore_backup` confirmText missing/empty **or** wrong (#307 — both cases give this envelope, never `-32602`). | Supply `RESTORE <targetCompany>` exactly. |
+| `confirm: true required for write tool …` | Write attempted without `confirm`. Envelope carries `code: "CONFIRM_REQUIRED"` — branch on that. | Re-call with `confirm: true`. |
+| `confirm: true required for destructive tool system_restore_backup` | `system_restore_backup` attempted without `confirm`. The destructive tool says `destructive`, not `write` — but the `code` is the same `CONFIRM_REQUIRED`, so branch on `code` rather than the string. | Re-call with `confirm: true`. |
+| `confirmText must match …` | `system_restore_backup` confirmText missing/empty **or** wrong (#307 — both cases give this envelope with `code: "CONFIRMTEXT_MISMATCH"`, never `-32602`). | Supply `RESTORE <targetCompany>` exactly. |
 | balance / "går ikke i nul" | Journal entry debit ≠ credit. | Correct the lines so they balance. |
 | `<field> <date> falls in <closed\|reported> period <kind> <start>..<end>` | Posting into a closed or reported period. | Post in an open period. Reopening a closed period is **CLI-only** — there is no MCP tool for it; surface it to the human to run `rentemester period reopen` (a controlled, audit-logged action; a `reported` period cannot be reopened). |
 | VIES / VAT validation missing | EU customer not VAT-validated. | Run `customer_validate_vat` first. |
-| `… låst …` (backup lock) | The opt-in bookkeeping lock is active. | Run `system_backup` with `archive:true`, then place it; see below. |
+| `… låst …` (backup lock) | The opt-in bookkeeping lock is active. Envelope carries `code: "BACKUP_LOCKED"`. | Run `system_backup` with `archive:true`, then place it; see below. |
 
 **Never guess past an `ok: false`.** The error is the precondition. If it
 cannot be resolved deterministically, surface it to the human rather than
@@ -231,11 +244,15 @@ Branch on that case before reading `errors[]`.
   earlier attempt verifiably did not land.
 - Several tools *are* idempotent **by nature** (`annotations.idempotentHint`)
   — they de-dupe on content or period, not on a client key: intake polls
-  (`mail_intake_ingest`, `imap_intake_poll`), `recurring_invoice_generate`
-  (per template/period), `invoice_render` (deterministic PDF) and
-  `invoice_send_email` (reuses the send log). Re-running *these* produces no
-  duplicate state. For every other write, the agent is responsible for
-  retry-safety via read-back.
+  (`mail_intake_ingest`, `imap_intake_poll`), `bank_import` (de-dupes on the
+  CSV's `sourceFileHash`), `recurring_invoice_generate` (per
+  template/period), `invoice_render` (deterministic PDF),
+  `invoice_send_email` (reuses the send log) and
+  `peppol_submit_public_invoice` (idempotent submission envelope).
+  Re-running *these* produces no duplicate state. For every other write, the
+  agent is responsible for retry-safety via read-back. The authoritative
+  list is the live `annotations.idempotentHint` flags in `tools/list` — as
+  of this writing exactly the seven write tools above carry it.
 - A general write-idempotency cache is a possible future feature; until it
   ships, treat this section as the contract.
 
@@ -257,8 +274,10 @@ counter-post; the chain only ever grows.
 
 Rentemester has an opt-in **bookkeeping lock** (`system_backup_lock`). When
 enabled, new bookkeeping writes are refused if the weekly backup
-(BEK 205/2024 § 4) is overdue beyond the grace period — the `errors[]` will
-contain `låst`. Backing up is the way out: run `system_backup` with
+(BEK 205/2024 § 4) is overdue beyond the grace period — the refusal envelope
+carries the stable `code: "BACKUP_LOCKED"` (branch on that; the Danish
+`errors[]` text containing `låst` is for humans). Backing up is the way
+out: run `system_backup` with
 `archive: true`, then place the archive on an EU/EEA destination
 (`system_backup_place` / `system_backup_confirm_placement`). The
 `system_*` and backup tools are never themselves blocked by the lock.

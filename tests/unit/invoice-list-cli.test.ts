@@ -40,11 +40,12 @@ function invoicePayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function runCli(args: string[]) {
+async function runCli(args: string[], env: Record<string, string> = {}) {
   const proc = Bun.spawn(["bun", "run", "src/cli.ts", ...args], {
     cwd: process.cwd(),
     stdout: "pipe",
     stderr: "pipe",
+    env: { ...process.env, ...env },
   });
   const stdout = await new Response(proc.stdout).text();
   const stderr = await new Response(proc.stderr).text();
@@ -141,5 +142,41 @@ describe("invoice list/find/overdue CLI", () => {
     expect(proc.stdout).toContain("1.250,00 kr.");
     expect(proc.stdout).toContain("5 dage forfalden");
     expect(proc.stdout).not.toContain("2026-0002");
+  });
+
+  // EJER-1: `invoice overdue` WITHOUT --as-of must compare against today's
+  // date — not against the invoice's own due date (which made every invoice
+  // exactly 0 days overdue and hid all overdue invoices on the default path).
+  test("finds overdue invoices without --as-of, using today's date (EJER-1)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-invoice-overdue-default-"));
+    const company = join(root, "company");
+    const invoice1 = join(root, "invoice-1.json");
+
+    // Due 2026-06-09; "today" (RENTEMESTER_TODAY) is 2026-06-11 → 2 days overdue.
+    writeFileSync(invoice1, JSON.stringify(invoicePayload({ dueDate: "2026-06-09" }), null, 2));
+
+    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    await Bun.$`bun run src/cli.ts invoice issue --company ${company} --input ${invoice1}`.quiet();
+
+    const today = { RENTEMESTER_TODAY: "2026-06-11" };
+    const json = await runCli(["invoice", "overdue", "--company", company], today);
+    const human = await runCli(["invoice", "overdue", "--company", company, "--format", "human"], today);
+
+    rmSync(root, { recursive: true, force: true });
+
+    expect(json.exitCode).toBe(0);
+    expect(json.stderr).toBe("");
+    const parsed = JSON.parse(json.stdout);
+    expect(parsed.count).toBe(1);
+    expect(parsed.asOfDate).toBe("2026-06-11");
+    expect(parsed.rows[0]).toMatchObject({
+      invoiceNumber: "2026-0001",
+      isOverdue: true,
+      overdueDays: 2,
+    });
+
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).toContain("Forfaldne fakturaer pr. 2026-06-11 (1)");
+    expect(human.stdout).toContain("2 dage forfalden");
   });
 });

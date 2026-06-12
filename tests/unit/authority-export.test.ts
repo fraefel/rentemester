@@ -145,6 +145,99 @@ describe("authority export", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  // EJER-14: CSV siblings of the journal + saldobalance, and an honest README
+  // timestamp when no real generation time is supplied.
+  test("includes journal + trial-balance CSVs and an honestly-labelled deterministic timestamp", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-authority-csv-"));
+    const companyRoot = join(root, "company");
+    const exportRoot = join(root, "exports");
+    const db = openDb(ensureCompanyDirs(companyRoot).db);
+    migrate(db);
+    seedAccounts(db);
+    db.run("INSERT INTO companies (id, name, country, currency) VALUES (1, 'Rentemester Test', 'DK', 'DKK')");
+
+    // Bank + equity lines need no source document (income/expense lines do).
+    const entry = postJournalEntry(db, {
+      transactionDate: "2026-05-10",
+      text: "Indskud, note med komma, og \"citat\"",
+      lines: [
+        { accountNo: "2000", debitAmount: 1250, text: "Bankindbetaling" },
+        { accountNo: "5000", creditAmount: 1250, text: "Egenkapitallinje" },
+      ],
+    });
+    expect(entry.ok).toBe(true);
+
+    // No requestedAt / generatedAt -> deterministic, period-derived stamp.
+    const exported = exportAuthorityPackage(db, companyRoot, {
+      periodStart: "2026-05-01",
+      periodEnd: "2026-05-31",
+      outputDir: exportRoot,
+    });
+    expect(exported.ok).toBe(true);
+
+    const journalCsvPath = join(exported.exportDir!, "machine-readable", "journal-entries.csv");
+    const trialCsvPath = join(exported.exportDir!, "machine-readable", "trial-balance.csv");
+    expect(existsSync(journalCsvPath)).toBe(true);
+    expect(existsSync(trialCsvPath)).toBe(true);
+
+    const journalCsv = readFileSync(journalCsvPath, "utf8");
+    // Header + one row per line.
+    expect(journalCsv.split("\r\n")[0]).toBe(
+      "entry_no,transaction_date,registration_datetime,entry_text,account_no,account_name,debit,credit,vat_code,line_text,currency,amount_dkk,status",
+    );
+    // The comma/quote-bearing entry text is properly CSV-quoted.
+    expect(journalCsv).toContain('"Indskud, note med komma, og ""citat"""');
+    expect(journalCsv).toContain("Egenkapitallinje");
+
+    const trialCsv = readFileSync(trialCsvPath, "utf8");
+    expect(trialCsv.split("\r\n")[0]).toBe(
+      "account_no,account_name,type,normal_balance,debit,credit,balance",
+    );
+    // A balanced set: the TOTAL row's debit equals its credit.
+    const totalLine = trialCsv.split("\r\n").find((l) => l.startsWith("TOTAL"))!;
+    const totalCols = totalLine.split(",");
+    expect(totalCols[4]).toBe(totalCols[5]);
+
+    // The manifest lists the CSVs and flags the timestamp provenance.
+    const manifest = JSON.parse(readFileSync(exported.manifestPath!, "utf8"));
+    expect(manifest.files.journalEntriesCsv).toBe("machine-readable/journal-entries.csv");
+    expect(manifest.files.trialBalanceCsv).toBe("machine-readable/trial-balance.csv");
+    expect(manifest.machineReadableFormat).toBe("json+csv");
+    expect(manifest.generatedAtExplicit).toBe(false);
+
+    // The README labels the deterministic stamp honestly.
+    const readme = readFileSync(join(exported.exportDir!, "README.txt"), "utf8");
+    expect(readme).toContain("deterministisk, udledt af periodeslut");
+    expect(readme).toContain("journal-entries.csv");
+    expect(readme).toContain("trial-balance.csv");
+
+    // Determinism: a re-run is byte-identical.
+    const second = exportAuthorityPackage(db, companyRoot, {
+      periodStart: "2026-05-01",
+      periodEnd: "2026-05-31",
+      outputDir: exportRoot,
+    });
+    expect(sha256(journalCsvPath)).toBe(
+      sha256(join(second.exportDir!, "machine-readable", "journal-entries.csv")),
+    );
+
+    // When a real generation time IS supplied, the README uses the plain label.
+    const explicit = exportAuthorityPackage(db, companyRoot, {
+      periodStart: "2026-05-01",
+      periodEnd: "2026-05-31",
+      outputDir: exportRoot,
+      generatedAt: "2026-06-01T09:00:00.000Z",
+    });
+    const explicitManifest = JSON.parse(readFileSync(explicit.manifestPath!, "utf8"));
+    expect(explicitManifest.generatedAtExplicit).toBe(true);
+    const explicitReadme = readFileSync(join(explicit.exportDir!, "README.txt"), "utf8");
+    expect(explicitReadme).toContain("Genereret: 2026-06-01T09:00:00.000Z");
+    expect(explicitReadme).not.toContain("deterministisk, udledt af periodeslut");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("exports an accountant handoff package without implying hosted reviewer access", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-accountant-export-"));
     const companyRoot = join(root, "company");

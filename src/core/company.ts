@@ -24,22 +24,6 @@ import {
 
 export type FiscalYearLabelStrategy = "end-year" | "start-year" | "span";
 
-/**
- * #289: the `companies.vat_period_type` column predates no migration in
- * `schema.sql`; older ledgers (and the base schema) do not have it. Ensure it
- * exists before writing to / reading the company row. Defaults to `quarter`
- * so existing companies keep Rentemester's historical assumption unchanged.
- */
-function ensureVatPeriodColumn(db: Database): void {
-  const cols = db.query("PRAGMA table_info(companies)").all() as Array<{ name: string }>;
-  if (!cols.some((col) => col.name === "vat_period_type")) {
-    db.exec(
-      "ALTER TABLE companies ADD COLUMN vat_period_type TEXT NOT NULL DEFAULT 'quarter' " +
-        "CHECK(vat_period_type IN ('month', 'quarter', 'half-year'));",
-    );
-  }
-}
-
 /** True when the `companies` table carries the `vat_period_type` column. */
 function hasVatPeriodColumn(db: Database): boolean {
   const cols = db.query("PRAGMA table_info(companies)").all() as Array<{ name: string }>;
@@ -375,9 +359,6 @@ export function initialiseCompanyVolume(
   const db = openDb(p.db);
   try {
     migrate(db);
-    // #289: the VAT-cadence column is not yet part of schema.sql; add it
-    // defensively so a fresh ledger and an older one both carry it.
-    ensureVatPeriodColumn(db);
     seedAccounts(db);
     const cvr = normalizeCvr(options.cvr);
     const fiscalYearStartMonth =

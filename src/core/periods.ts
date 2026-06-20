@@ -157,9 +157,10 @@ export function vatPeriodsForYear(year: number, type: VatPeriodType): VatPeriodW
  * is the supported path to change it afterwards — used by `company set-profile`
  * and the cockpit's PATCH-profile endpoint.
  *
- * The column is ensured (older ledgers and the base schema may lack it) before
- * the write, and a CHECK constraint guards the value, so an invalid cadence is
- * rejected here too. Returns whether the value actually changed.
+ * The column is created (and on older ledgers relaxed to nullable, #514) by
+ * the schema migration in `db.ts`, so the caller must have run `migrate(db)`
+ * first. A CHECK constraint guards the value. Returns whether the value
+ * actually changed.
  */
 export function setCompanyVatPeriodType(
   db: Database,
@@ -171,14 +172,6 @@ export function setCompanyVatPeriodType(
       changed: false,
       errors: ["vatPeriodType must be one of month, quarter, half-year"],
     };
-  }
-  // Ensure the column exists — older ledgers (and the base schema) lack it.
-  const cols = db.query("PRAGMA table_info(companies)").all() as Array<{ name: string }>;
-  if (!cols.some((col) => col.name === "vat_period_type")) {
-    db.exec(
-      "ALTER TABLE companies ADD COLUMN vat_period_type TEXT NOT NULL DEFAULT 'quarter' " +
-        "CHECK(vat_period_type IN ('month', 'quarter', 'half-year'));",
-    );
   }
   const before = db
     .query("SELECT vat_period_type AS t FROM companies WHERE id = 1")

@@ -7,6 +7,7 @@ export const journalSpecs: CommandSpec[] = [
     description: "Bogfører en manuel finanspostering. Brug 'journal dry-run' først for en ikke-bindende forhåndsvisning.",
     allowedFlags: ["--company", "--input"],
     examplePath: "examples/journal-entry.expense.json",
+    exampleNote: "Se også examples/journal-entry.securities-trade.json for en aktivt-til-aktivt-postering (værdipapirhandel) med sourceBankTransactionId.",
     inputNotes: [
       "transactionDate: YYYY-MM-DD (påkrævet)",
       "text: tekst (påkrævet)",

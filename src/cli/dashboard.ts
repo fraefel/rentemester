@@ -14,6 +14,7 @@ import { listBankTransactions } from "../core/reconciliation";
 import { listExceptions } from "../core/exceptions";
 import { buildVatReport, type VatPeriodReport } from "../core/vat";
 import {
+  DEFAULT_VAT_PERIOD_TYPE,
   effectivePeriodState,
   vatPeriodWindowFor,
   vatPeriodsForYear,
@@ -313,7 +314,14 @@ export function register(dispatch: CommandDispatch): void {
     // (`vatPeriodType`). The render-engine derives its label/countdown from
     // `vatPeriod.periodStart` + `company.vatPeriodType`, so the box always
     // matches the figure shown.
-    const period = selectVatPeriodForDashboard(db, asOfDate, company.vatPeriodType);
+    // #514: a non-registered company has no cadence — fall back to the
+    // historical default here. Proper "skip Næste-momsfrist entirely"
+    // gating for a null cadence lands in a follow-up commit.
+    const period = selectVatPeriodForDashboard(
+      db,
+      asOfDate,
+      company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
+    );
     const vatPeriod = buildVatReport(db, period.start, period.end);
     const vatDaysRemaining = daysBetween(asOfDate, period.end);
     const recentActivity = listRecentAuditLog(db, 10);

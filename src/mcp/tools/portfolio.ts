@@ -27,7 +27,7 @@ import { existsSync } from "node:fs";
 import { z } from "zod";
 import { createCompany, getCompanySettings } from "../../core/company";
 import { companyPaths } from "../../core/paths";
-import { vatPeriodWindowFor } from "../../core/periods";
+import { DEFAULT_VAT_PERIOD_TYPE, vatPeriodWindowFor } from "../../core/periods";
 import { diffDaysSafe as daysBetween } from "../../core/dates";
 import { openDb, migrate } from "../../core/db";
 import { verifyAuditChain } from "../../core/ledger";
@@ -101,7 +101,12 @@ function companyStatusRow(
     // The VAT period window follows the company's real SKAT cadence
     // (`vatPeriodType`) — a monthly filer gets a one-month window, a
     // half-yearly filer a six-month one. `core/periods.ts` owns the math.
-    const period = vatPeriodWindowFor(asOfDate, settings.vatPeriodType);
+    // #514: a non-registered company has no cadence — fall back to the
+    // historical default here.
+    const period = vatPeriodWindowFor(
+      asOfDate,
+      settings.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
+    );
     const vat = buildVatReport(db, period.start, period.end);
     const open = buildInvoiceList(db, { status: "open", asOfDate });
     const overdue = buildInvoiceList(db, { status: "overdue", asOfDate });

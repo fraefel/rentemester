@@ -31,6 +31,7 @@ import { ApiError } from "../errors";
 import { currentFiscalYear, roundKroner, todayIsoDate } from "./shared";
 import { actualBankBalanceAsOf, bankStatementStatusAsOf } from "./bank";
 import { selectVatPeriod } from "./vat";
+import { DEFAULT_VAT_PERIOD_TYPE } from "../../core/periods";
 import { groupExceptions, type ExceptionGroup } from "./exceptions";
 
 // --------------------------------------------------------------------------
@@ -167,7 +168,13 @@ function summariseCompany(
     // VAT: the booked position for the company's actual VAT period — the
     // period (month / quarter / half-year, per `vatPeriodType`) that is due
     // now. Every cockpit surface reads the same cadence, so they agree (#299).
-    const vatPeriod = selectVatPeriod(db, yearNum, company.vatPeriodType);
+    // #514: a non-registered company has no cadence — fall back to the
+    // historical default. Proper "no VAT card" gating lands in a follow-up.
+    const vatPeriod = selectVatPeriod(
+      db,
+      yearNum,
+      company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
+    );
     const vat: CompanyVatSummary = {
       payable: vatPeriod.position.payable,
       deadline: vatPeriod.deadline,
@@ -361,7 +368,11 @@ export function buildCompanyDashboardData(
     // (#281). #299: the period follows the company's real VAT cadence
     // (`vatPeriodType`), so a monthly/half-yearly filer sees its own period.
     const { year: vatYear } = currentFiscalYear(db, company);
-    const vatSelection = selectVatPeriod(db, vatYear, company.vatPeriodType);
+    const vatSelection = selectVatPeriod(
+      db,
+      vatYear,
+      company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
+    );
     const period = { start: vatSelection.start, end: vatSelection.end };
     const vatPeriod = buildVatReport(db, period.start, period.end);
     const vatDeadline = vatSelection.deadline;

@@ -201,10 +201,14 @@ export function register(dispatch: CommandDispatch): void {
         postalCode: settings.postalCode,
         city: settings.city,
         paymentTermsDays: settings.paymentTermsDays,
-        // #300: the VAT settlement cadence — the canonical value plus its
-        // Danish label, so the owner sees which momsperiode the company files.
+        // #300/#514: the VAT settlement cadence — the canonical value plus
+        // its Danish label, so the owner sees which momsperiode the company
+        // files. `null` here means the company is not VAT-registered.
         vatPeriodType: settings.vatPeriodType,
-        vatPeriodLabel: vatPeriodTypeLabelDa(settings.vatPeriodType),
+        vatPeriodLabel:
+          settings.vatPeriodType === null
+            ? "ikke momsregistreret"
+            : vatPeriodTypeLabelDa(settings.vatPeriodType),
       },
     });
     db.close();

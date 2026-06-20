@@ -152,10 +152,11 @@ export function vatPeriodsForYear(year: number, type: VatPeriodType): VatPeriodW
 }
 
 /**
- * #300: writes the company's VAT settlement cadence (`vat_period_type`) onto
- * the single `companies` row. The cadence is set at `init`/`company add`; this
- * is the supported path to change it afterwards — used by `company set-profile`
- * and the cockpit's PATCH-profile endpoint.
+ * #300/#514: writes the company's VAT settlement cadence onto the single
+ * `companies` row. `type` is `month` / `quarter` / `half-year`, or `null` to
+ * mark the company as NOT VAT-registered (#514) — every VAT-aware surface
+ * gates on the null state. Used by `company set-profile`, the cockpit's
+ * PATCH-profile endpoint and `init --no-vat`.
  *
  * The column is created (and on older ledgers relaxed to nullable, #514) by
  * the schema migration in `db.ts`, so the caller must have run `migrate(db)`
@@ -164,13 +165,13 @@ export function vatPeriodsForYear(year: number, type: VatPeriodType): VatPeriodW
  */
 export function setCompanyVatPeriodType(
   db: Database,
-  type: VatPeriodType,
+  type: VatPeriodType | null,
 ): { ok: boolean; changed: boolean; errors: string[] } {
-  if (!VAT_PERIOD_TYPES.has(type)) {
+  if (type !== null && !VAT_PERIOD_TYPES.has(type)) {
     return {
       ok: false,
       changed: false,
-      errors: ["vatPeriodType must be one of month, quarter, half-year"],
+      errors: ["vatPeriodType must be one of month, quarter, half-year, or null"],
     };
   }
   const before = db

@@ -85,7 +85,13 @@ function buildOnboardingLines(
   // capture stdout never see it (and so a redirected stdout does not swallow
   // the warning). See buildPaymentDetailsWarningLines above.
 
-  const vatLabel = vatPeriodTypeLabelDa(summary.vatPeriod);
+  // #514: a non-registered company has no cadence (`vatPeriod === null`).
+  // The CLI surface for --no-vat lands in a follow-up commit; for now the
+  // onboarding block prints "ikke momsregistreret" so the type stays sound.
+  const vatLabel =
+    summary.vatPeriod === null
+      ? "ikke momsregistreret"
+      : vatPeriodTypeLabelDa(summary.vatPeriod);
   lines.push("");
   lines.push("Tjek disse indstillinger — de er svære at ændre senere:");
   lines.push(`  - Regnskabsår: starter 1. ${monthName} (${fiscalLabel})`);

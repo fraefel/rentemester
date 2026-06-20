@@ -42,7 +42,7 @@ import { listDueAccrualRecognitionPeriods } from "../core/accruals";
 import { buildVatReport, vatFilingDeadline } from "../core/vat";
 import { buildVatFiling } from "../core/vat-filing";
 import { annualReportDeadline, fiscalYearForDate } from "../core/fiscal-year";
-import { vatPeriodWindowFor, type VatPeriodWindow } from "../core/periods";
+import { DEFAULT_VAT_PERIOD_TYPE, vatPeriodWindowFor, type VatPeriodWindow } from "../core/periods";
 import { isValidIsoDate, diffDays, addDays } from "../core/dates";
 import { formatKroner } from "../cli-format";
 import {
@@ -784,7 +784,10 @@ function reportVatPeriod(
 function checkDeadlines(db: Database, asOf: string, report: AgentRunReport): void {
   const settings = getCompanySettings(db);
   // The VAT period the company is currently accruing in is always relevant.
-  const current = vatPeriodWindowFor(asOf, settings.vatPeriodType);
+  // #514: a non-registered company has no cadence — fall back to the historical
+  // default here. Proper skip-VAT-entirely gating for a null cadence lands in
+  // a follow-up commit; agent runs against non-registered companies are rare.
+  const current = vatPeriodWindowFor(asOf, settings.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE);
   // The previous period's momsangivelse is the one with a live deadline; it
   // is reported whenever its filing deadline has not yet passed.
   const previous = previousVatPeriod(current);

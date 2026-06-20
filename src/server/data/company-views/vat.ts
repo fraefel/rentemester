@@ -1,5 +1,6 @@
 import { diffDaysSafe as daysBetween } from "../../../core/dates";
 import {
+  DEFAULT_VAT_PERIOD_TYPE,
   vatPeriodWindowFor,
   vatPeriodLabel,
   type EffectivePeriodState,
@@ -45,9 +46,12 @@ export function buildCompanyVat(
     const companyBlock = statementCompanyBlock(ctx.company);
     if (ctx.isArchivedOnly) {
       const archYear = parseInt(ctx.selectedLabel, 10);
+      // #514: a non-registered company has no cadence — fall back to the
+      // historical default here so the archived shape stays consistent. The
+      // proper "ikke momsregistreret" gate lands in a follow-up commit.
       const archWindow = vatPeriodWindowFor(
         `${archYear}-01-01`,
-        ctx.company.vatPeriodType,
+        ctx.company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
       );
       return {
         slug: ctx.entry.slug,
@@ -80,7 +84,7 @@ export function buildCompanyVat(
     const vatSelection = selectVatPeriod(
       ctx.db,
       yearNum,
-      ctx.company.vatPeriodType,
+      ctx.company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
     );
     const vat = vatSelection.position;
 

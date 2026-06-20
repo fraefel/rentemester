@@ -29,6 +29,7 @@ import {
   bankStatementStatusAsOf,
 } from "../bank";
 import { selectVatPeriod } from "../vat";
+import { DEFAULT_VAT_PERIOD_TYPE } from "../../../core/periods";
 import { groupExceptions, type ExceptionGroup } from "../exceptions";
 import {
   archiveIncomeStatement,
@@ -273,7 +274,13 @@ export function buildCompanyOverview(
     // VAT position: each VAT period settles separately. Surface the period
     // (month / quarter / half-year, per the company's `vatPeriodType`) that is
     // due now, so the cockpit agrees with the static dashboard and CLI (#299).
-    const vatSelection = selectVatPeriod(db, yearNum, company.vatPeriodType);
+    // #514: a non-registered company has no cadence — fall back to the
+    // historical default. The proper "no VAT block" gate lands in a follow-up.
+    const vatSelection = selectVatPeriod(
+      db,
+      yearNum,
+      company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
+    );
     const vat = vatSelection.position;
 
     // The exception queue — grouped by type into one Danish summary line each,

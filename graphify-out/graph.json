@@ -660,7 +660,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "components_companyform_companyform",
-      "community": 559,
+      "community": 124,
       "norm_label": "companyform()"
     },
     {
@@ -1000,7 +1000,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "components_documentbookexpensemodal_documentbookexpensemodal",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentbookexpensemodal()"
     },
     {
@@ -1010,7 +1010,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "components_documentingestmodal_test",
-      "community": 157,
+      "community": 305,
       "norm_label": "documentingestmodal.test.tsx"
     },
     {
@@ -1020,7 +1020,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "components_documentingestmodal_test_noop",
-      "community": 157,
+      "community": 305,
       "norm_label": "noop()"
     },
     {
@@ -1030,7 +1030,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "components_documentingestmodal_test_receiptfile",
-      "community": 157,
+      "community": 305,
       "norm_label": "receiptfile()"
     },
     {
@@ -1040,7 +1040,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "components_documentingestmodal_test_ingestroute",
-      "community": 157,
+      "community": 305,
       "norm_label": "ingestroute()"
     },
     {
@@ -1050,7 +1050,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "components_documentingestmodal_test_pickreceipttype",
-      "community": 157,
+      "community": 305,
       "norm_label": "pickreceipttype()"
     },
     {
@@ -1440,7 +1440,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "components_mileageregistermodal_mileageregistermodal",
-      "community": 124,
+      "community": 67,
       "norm_label": "mileageregistermodal()"
     },
     {
@@ -1540,7 +1540,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "components_pnlchart",
-      "community": 139,
+      "community": 67,
       "norm_label": "pnlchart.tsx"
     },
     {
@@ -1550,7 +1550,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "components_pnlchart_pnlchart",
-      "community": 139,
+      "community": 67,
       "norm_label": "pnlchart()"
     },
     {
@@ -2580,7 +2580,7 @@
       "source_location": "L96",
       "_origin": "ast",
       "id": "lib_format_formatpercent",
-      "community": 67,
+      "community": 102,
       "norm_label": "formatpercent()"
     },
     {
@@ -2630,7 +2630,7 @@
       "source_location": "L216",
       "_origin": "ast",
       "id": "lib_format_formatdateda",
-      "community": 124,
+      "community": 67,
       "norm_label": "formatdateda()"
     },
     {
@@ -3000,7 +3000,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "types_bank_banktransactionrow",
-      "community": 124,
+      "community": 67,
       "norm_label": "banktransactionrow"
     },
     {
@@ -3110,7 +3110,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "types_bilagsmail",
-      "community": 85,
+      "community": 124,
       "norm_label": "bilagsmail.ts"
     },
     {
@@ -3120,7 +3120,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "types_bilagsmail_bilagsmailinboxrow",
-      "community": 85,
+      "community": 124,
       "norm_label": "bilagsmailinboxrow"
     },
     {
@@ -3130,7 +3130,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "types_bilagsmail_companybilagsmail",
-      "community": 85,
+      "community": 124,
       "norm_label": "companybilagsmail"
     },
     {
@@ -3140,7 +3140,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "types_bilagsmail_bilagsmailresponse",
-      "community": 85,
+      "community": 124,
       "norm_label": "bilagsmailresponse"
     },
     {
@@ -3160,7 +3160,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "types_budget_companybudgetline",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudgetline"
     },
     {
@@ -3170,7 +3170,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "types_budget_companybudget",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudget"
     },
     {
@@ -3190,7 +3190,7 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "types_budget_companybudgetvsactualline",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudgetvsactualline"
     },
     {
@@ -3200,7 +3200,7 @@
       "source_location": "L60",
       "_origin": "ast",
       "id": "types_budget_companybudgetvsactual",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudgetvsactual"
     },
     {
@@ -3640,7 +3640,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "types_dashboard_overviewmonth",
-      "community": 139,
+      "community": 67,
       "norm_label": "overviewmonth"
     },
     {
@@ -3720,7 +3720,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "types_documents_documentrow",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentrow"
     },
     {
@@ -3730,7 +3730,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "types_documents_companydocuments",
-      "community": 102,
+      "community": 124,
       "norm_label": "companydocuments"
     },
     {
@@ -5110,7 +5110,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "fixtures_assets",
-      "community": 102,
+      "community": 20,
       "norm_label": "assets.ts"
     },
     {
@@ -5120,7 +5120,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "fixtures_assets_assets",
-      "community": 102,
+      "community": 20,
       "norm_label": "assets()"
     },
     {
@@ -5150,7 +5150,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "fixtures_budget",
-      "community": 67,
+      "community": 102,
       "norm_label": "budget.ts"
     },
     {
@@ -5160,7 +5160,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "fixtures_budget_budget",
-      "community": 67,
+      "community": 102,
       "norm_label": "budget()"
     },
     {
@@ -5170,7 +5170,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "fixtures_budget_budgetvsactual",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetvsactual()"
     },
     {
@@ -5240,7 +5240,7 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "fixtures_companies_multiyear",
-      "community": 49,
+      "community": 139,
       "norm_label": "multiyear()"
     },
     {
@@ -5250,7 +5250,7 @@
       "source_location": "L118",
       "_origin": "ast",
       "id": "fixtures_companies_companysettings",
-      "community": 149,
+      "community": 49,
       "norm_label": "companysettings()"
     },
     {
@@ -5320,7 +5320,7 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "fixtures_documents_documents",
-      "community": 102,
+      "community": 20,
       "norm_label": "documents()"
     },
     {
@@ -5660,7 +5660,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_addcompanyview",
-      "community": 559,
+      "community": 124,
       "norm_label": "addcompanyview.tsx"
     },
     {
@@ -5670,7 +5670,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "views_addcompanyview_addcompanyview",
-      "community": 559,
+      "community": 124,
       "norm_label": "addcompanyview()"
     },
     {
@@ -5790,7 +5790,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_assetsview_test",
-      "community": 102,
+      "community": 20,
       "norm_label": "assetsview.test.tsx"
     },
     {
@@ -5800,7 +5800,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "views_assetsview_test_route",
-      "community": 102,
+      "community": 20,
       "norm_label": "route()"
     },
     {
@@ -5810,7 +5810,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "views_assetsview_test_renderview",
-      "community": 102,
+      "community": 20,
       "norm_label": "renderview()"
     },
     {
@@ -5820,7 +5820,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_assetsview",
-      "community": 102,
+      "community": 124,
       "norm_label": "assetsview.tsx"
     },
     {
@@ -5830,7 +5830,7 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "views_assetsview_assetsview",
-      "community": 102,
+      "community": 20,
       "norm_label": "assetsview()"
     },
     {
@@ -5840,7 +5840,7 @@
       "source_location": "L265",
       "_origin": "ast",
       "id": "views_assetsview_assetrowview",
-      "community": 102,
+      "community": 124,
       "norm_label": "assetrowview()"
     },
     {
@@ -5850,7 +5850,7 @@
       "source_location": "L355",
       "_origin": "ast",
       "id": "views_assetsview_writeoffrow",
-      "community": 102,
+      "community": 124,
       "norm_label": "writeoffrow()"
     },
     {
@@ -5860,7 +5860,7 @@
       "source_location": "L375",
       "_origin": "ast",
       "id": "views_assetsview_usedocumentpicker",
-      "community": 102,
+      "community": 124,
       "norm_label": "usedocumentpicker()"
     },
     {
@@ -5870,7 +5870,7 @@
       "source_location": "L379",
       "_origin": "ast",
       "id": "views_assetsview_registerassetmodal",
-      "community": 102,
+      "community": 124,
       "norm_label": "registerassetmodal()"
     },
     {
@@ -5880,7 +5880,7 @@
       "source_location": "L540",
       "_origin": "ast",
       "id": "views_assetsview_writeoffmodal",
-      "community": 102,
+      "community": 124,
       "norm_label": "writeoffmodal()"
     },
     {
@@ -6070,7 +6070,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_bankview",
-      "community": 124,
+      "community": 67,
       "norm_label": "bankview.tsx"
     },
     {
@@ -6080,7 +6080,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "views_bankview_filter_param_keys",
-      "community": 124,
+      "community": 67,
       "norm_label": "filter_param_keys"
     },
     {
@@ -6090,7 +6090,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "views_bankview_statusfilter",
-      "community": 124,
+      "community": 67,
       "norm_label": "statusfilter"
     },
     {
@@ -6100,7 +6100,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "views_bankview_sortkey",
-      "community": 124,
+      "community": 67,
       "norm_label": "sortkey"
     },
     {
@@ -6110,7 +6110,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "views_bankview_sortdir",
-      "community": 124,
+      "community": 67,
       "norm_label": "sortdir"
     },
     {
@@ -6120,7 +6120,7 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "views_bankview_isstatusfilter",
-      "community": 559,
+      "community": 67,
       "norm_label": "isstatusfilter()"
     },
     {
@@ -6130,7 +6130,7 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "views_bankview_txmatchestext",
-      "community": 124,
+      "community": 67,
       "norm_label": "txmatchestext()"
     },
     {
@@ -6140,7 +6140,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "views_bankview_bankview",
-      "community": 559,
+      "community": 67,
       "norm_label": "bankview()"
     },
     {
@@ -6150,7 +6150,7 @@
       "source_location": "L386",
       "_origin": "ast",
       "id": "views_bankview_bankfilterbar",
-      "community": 124,
+      "community": 67,
       "norm_label": "bankfilterbar()"
     },
     {
@@ -6160,7 +6160,7 @@
       "source_location": "L467",
       "_origin": "ast",
       "id": "views_bankview_bankfiltersummary",
-      "community": 124,
+      "community": 67,
       "norm_label": "bankfiltersummary()"
     },
     {
@@ -6170,7 +6170,7 @@
       "source_location": "L496",
       "_origin": "ast",
       "id": "views_bankview_bankdifferencebanner",
-      "community": 124,
+      "community": 67,
       "norm_label": "bankdifferencebanner()"
     },
     {
@@ -6180,7 +6180,7 @@
       "source_location": "L570",
       "_origin": "ast",
       "id": "views_bankview_archivedbankview",
-      "community": 124,
+      "community": 67,
       "norm_label": "archivedbankview()"
     },
     {
@@ -6220,7 +6220,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_bilagsmailview",
-      "community": 559,
+      "community": 124,
       "norm_label": "bilagsmailview.tsx"
     },
     {
@@ -6240,7 +6240,7 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "views_bilagsmailview_aliaspanel",
-      "community": 559,
+      "community": 124,
       "norm_label": "aliaspanel()"
     },
     {
@@ -6250,7 +6250,7 @@
       "source_location": "L133",
       "_origin": "ast",
       "id": "views_bilagsmailview_imapconfigpanel",
-      "community": 559,
+      "community": 124,
       "norm_label": "imapconfigpanel()"
     },
     {
@@ -6260,7 +6260,7 @@
       "source_location": "L296",
       "_origin": "ast",
       "id": "views_bilagsmailview_inboxpanel",
-      "community": 559,
+      "community": 124,
       "norm_label": "inboxpanel()"
     },
     {
@@ -6270,7 +6270,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_budgetview_test",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetview.test.tsx"
     },
     {
@@ -6280,7 +6280,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "views_budgetview_test_route",
-      "community": 67,
+      "community": 102,
       "norm_label": "route()"
     },
     {
@@ -6290,7 +6290,7 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "views_budgetview_test_renderview",
-      "community": 67,
+      "community": 102,
       "norm_label": "renderview()"
     },
     {
@@ -6300,7 +6300,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_budgetview",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetview.tsx"
     },
     {
@@ -6310,7 +6310,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "views_budgetview_month_labels_dk",
-      "community": 67,
+      "community": 102,
       "norm_label": "month_labels_dk"
     },
     {
@@ -6320,7 +6320,7 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "views_budgetview_periodlabel",
-      "community": 67,
+      "community": 102,
       "norm_label": "periodlabel()"
     },
     {
@@ -6330,7 +6330,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "views_budgetview_budgetview",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetview()"
     },
     {
@@ -6340,7 +6340,7 @@
       "source_location": "L145",
       "_origin": "ast",
       "id": "views_budgetview_budgetgrid",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetgrid()"
     },
     {
@@ -6350,7 +6350,7 @@
       "source_location": "L258",
       "_origin": "ast",
       "id": "views_budgetview_budgetamountinput",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetamountinput()"
     },
     {
@@ -6360,7 +6360,7 @@
       "source_location": "L339",
       "_origin": "ast",
       "id": "views_budgetview_addbudgetlineform",
-      "community": 67,
+      "community": 102,
       "norm_label": "addbudgetlineform()"
     },
     {
@@ -6370,7 +6370,7 @@
       "source_location": "L446",
       "_origin": "ast",
       "id": "views_budgetview_budgetvsactualtable",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetvsactualtable()"
     },
     {
@@ -6380,7 +6380,7 @@
       "source_location": "L534",
       "_origin": "ast",
       "id": "views_budgetview_comparisonrow",
-      "community": 67,
+      "community": 102,
       "norm_label": "comparisonrow()"
     },
     {
@@ -6390,7 +6390,7 @@
       "source_location": "L563",
       "_origin": "ast",
       "id": "views_budgetview_groupbyaccount",
-      "community": 67,
+      "community": 102,
       "norm_label": "groupbyaccount()"
     },
     {
@@ -6400,7 +6400,7 @@
       "source_location": "L578",
       "_origin": "ast",
       "id": "views_budgetview_archivednotice",
-      "community": 67,
+      "community": 102,
       "norm_label": "archivednotice()"
     },
     {
@@ -6560,7 +6560,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_dashboardview",
-      "community": 139,
+      "community": 67,
       "norm_label": "dashboardview.tsx"
     },
     {
@@ -6570,7 +6570,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "views_dashboardview_dashboardview",
-      "community": 139,
+      "community": 67,
       "norm_label": "dashboardview()"
     },
     {
@@ -6580,7 +6580,7 @@
       "source_location": "L170",
       "_origin": "ast",
       "id": "views_dashboardview_isfreshemptycompany",
-      "community": 139,
+      "community": 67,
       "norm_label": "isfreshemptycompany()"
     },
     {
@@ -6590,7 +6590,7 @@
       "source_location": "L177",
       "_origin": "ast",
       "id": "views_dashboardview_getstartedcard",
-      "community": 139,
+      "community": 67,
       "norm_label": "getstartedcard()"
     },
     {
@@ -6600,7 +6600,7 @@
       "source_location": "L206",
       "_origin": "ast",
       "id": "views_dashboardview_archivedunavailablecard",
-      "community": 139,
+      "community": 67,
       "norm_label": "archivedunavailablecard()"
     },
     {
@@ -6610,7 +6610,7 @@
       "source_location": "L225",
       "_origin": "ast",
       "id": "views_dashboardview_statementto",
-      "community": 139,
+      "community": 67,
       "norm_label": "statementto()"
     },
     {
@@ -6620,7 +6620,7 @@
       "source_location": "L234",
       "_origin": "ast",
       "id": "views_dashboardview_kpicard",
-      "community": 139,
+      "community": 67,
       "norm_label": "kpicard()"
     },
     {
@@ -6630,7 +6630,7 @@
       "source_location": "L272",
       "_origin": "ast",
       "id": "views_dashboardview_keyfigures",
-      "community": 139,
+      "community": 67,
       "norm_label": "keyfigures()"
     },
     {
@@ -6640,7 +6640,7 @@
       "source_location": "L305",
       "_origin": "ast",
       "id": "views_dashboardview_statuscard",
-      "community": 139,
+      "community": 67,
       "norm_label": "statuscard()"
     },
     {
@@ -6650,7 +6650,7 @@
       "source_location": "L331",
       "_origin": "ast",
       "id": "views_dashboardview_bankcard",
-      "community": 139,
+      "community": 67,
       "norm_label": "bankcard()"
     },
     {
@@ -6660,7 +6660,7 @@
       "source_location": "L376",
       "_origin": "ast",
       "id": "views_dashboardview_vatcard",
-      "community": 139,
+      "community": 67,
       "norm_label": "vatcard()"
     },
     {
@@ -6670,7 +6670,7 @@
       "source_location": "L420",
       "_origin": "ast",
       "id": "views_dashboardview_receivablescard",
-      "community": 139,
+      "community": 67,
       "norm_label": "receivablescard()"
     },
     {
@@ -6680,7 +6680,7 @@
       "source_location": "L451",
       "_origin": "ast",
       "id": "views_dashboardview_exceptionlinkto",
-      "community": 139,
+      "community": 67,
       "norm_label": "exceptionlinkto()"
     },
     {
@@ -6690,7 +6690,7 @@
       "source_location": "L456",
       "_origin": "ast",
       "id": "views_dashboardview_exceptionscard",
-      "community": 139,
+      "community": 67,
       "norm_label": "exceptionscard()"
     },
     {
@@ -6700,7 +6700,7 @@
       "source_location": "L595",
       "_origin": "ast",
       "id": "views_dashboardview_recententriescard",
-      "community": 139,
+      "community": 67,
       "norm_label": "recententriescard()"
     },
     {
@@ -6710,7 +6710,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_documentsview_test",
-      "community": 102,
+      "community": 20,
       "norm_label": "documentsview.test.tsx"
     },
     {
@@ -6720,7 +6720,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "views_documentsview_test_fiscal_years",
-      "community": 102,
+      "community": 20,
       "norm_label": "fiscal_years"
     },
     {
@@ -6730,7 +6730,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "views_documentsview_test_route",
-      "community": 102,
+      "community": 20,
       "norm_label": "route()"
     },
     {
@@ -6740,7 +6740,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "views_documentsview_test_renderview",
-      "community": 102,
+      "community": 20,
       "norm_label": "renderview()"
     },
     {
@@ -6750,7 +6750,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_documentsview",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentsview.tsx"
     },
     {
@@ -6760,7 +6760,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "views_documentsview_documentspage",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentspage"
     },
     {
@@ -6770,7 +6770,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "views_documentsview_doc_type_labels",
-      "community": 102,
+      "community": 124,
       "norm_label": "doc_type_labels"
     },
     {
@@ -6780,7 +6780,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "views_documentsview_filter_param_keys",
-      "community": 102,
+      "community": 124,
       "norm_label": "filter_param_keys"
     },
     {
@@ -6790,7 +6790,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "views_documentsview_statusfilter",
-      "community": 102,
+      "community": 124,
       "norm_label": "statusfilter"
     },
     {
@@ -6800,7 +6800,7 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "views_documentsview_typefilter",
-      "community": 102,
+      "community": 124,
       "norm_label": "typefilter"
     },
     {
@@ -6810,7 +6810,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "views_documentsview_sortkey",
-      "community": 102,
+      "community": 124,
       "norm_label": "sortkey"
     },
     {
@@ -6820,7 +6820,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "views_documentsview_sortdir",
-      "community": 102,
+      "community": 124,
       "norm_label": "sortdir"
     },
     {
@@ -6830,7 +6830,7 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "views_documentsview_isstatusfilter",
-      "community": 102,
+      "community": 124,
       "norm_label": "isstatusfilter()"
     },
     {
@@ -6840,7 +6840,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "views_documentsview_istypefilter",
-      "community": 102,
+      "community": 124,
       "norm_label": "istypefilter()"
     },
     {
@@ -6850,7 +6850,7 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "views_documentsview_documentamount",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentamount()"
     },
     {
@@ -6860,7 +6860,7 @@
       "source_location": "L67",
       "_origin": "ast",
       "id": "views_documentsview_documentmatchestext",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentmatchestext()"
     },
     {
@@ -6870,7 +6870,7 @@
       "source_location": "L87",
       "_origin": "ast",
       "id": "views_documentsview_documentsview",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentsview()"
     },
     {
@@ -7450,7 +7450,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_managecompanyview_test",
-      "community": 149,
+      "community": 49,
       "norm_label": "managecompanyview.test.tsx"
     },
     {
@@ -7460,7 +7460,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "views_managecompanyview_test_companiesroute",
-      "community": 149,
+      "community": 49,
       "norm_label": "companiesroute()"
     },
     {
@@ -7470,7 +7470,7 @@
       "source_location": "L83",
       "_origin": "ast",
       "id": "views_managecompanyview_test_archivepatchcount",
-      "community": 149,
+      "community": 49,
       "norm_label": "archivepatchcount()"
     },
     {
@@ -7480,7 +7480,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_managecompanyview",
-      "community": 124,
+      "community": 49,
       "norm_label": "managecompanyview.tsx"
     },
     {
@@ -7490,7 +7490,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "views_managecompanyview_vat_period_options",
-      "community": 124,
+      "community": 49,
       "norm_label": "vat_period_options"
     },
     {
@@ -7500,7 +7500,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "views_managecompanyview_managecompanyview",
-      "community": 149,
+      "community": 49,
       "norm_label": "managecompanyview()"
     },
     {
@@ -7510,7 +7510,7 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "views_managecompanyview_manageform",
-      "community": 124,
+      "community": 67,
       "norm_label": "manageform()"
     },
     {
@@ -7520,7 +7520,7 @@
       "source_location": "L220",
       "_origin": "ast",
       "id": "views_managecompanyview_profilecard",
-      "community": 124,
+      "community": 49,
       "norm_label": "profilecard()"
     },
     {
@@ -7530,7 +7530,7 @@
       "source_location": "L410",
       "_origin": "ast",
       "id": "views_managecompanyview_cvrcard",
-      "community": 124,
+      "community": 49,
       "norm_label": "cvrcard()"
     },
     {
@@ -7540,7 +7540,7 @@
       "source_location": "L585",
       "_origin": "ast",
       "id": "views_managecompanyview_translatecvrerror",
-      "community": 124,
+      "community": 49,
       "norm_label": "translatecvrerror()"
     },
     {
@@ -7550,7 +7550,7 @@
       "source_location": "L602",
       "_origin": "ast",
       "id": "views_managecompanyview_fact",
-      "community": 124,
+      "community": 49,
       "norm_label": "fact()"
     },
     {
@@ -7560,7 +7560,7 @@
       "source_location": "L611",
       "_origin": "ast",
       "id": "views_managecompanyview_cvraddressline",
-      "community": 124,
+      "community": 49,
       "norm_label": "cvraddressline()"
     },
     {
@@ -7660,7 +7660,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "views_multiyearview_test",
-      "community": 49,
+      "community": 139,
       "norm_label": "multiyearview.test.tsx"
     },
     {
@@ -7670,7 +7670,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "views_multiyearview_test_route",
-      "community": 49,
+      "community": 139,
       "norm_label": "route()"
     },
     {
@@ -7680,7 +7680,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "views_multiyearview_test_renderview",
-      "community": 49,
+      "community": 139,
       "norm_label": "renderview()"
     },
     {
@@ -7690,7 +7690,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "views_multiyearview_test_sectionrows",
-      "community": 49,
+      "community": 139,
       "norm_label": "sectionrows()"
     },
     {
@@ -7710,7 +7710,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "views_multiyearview_multiyearview",
-      "community": 49,
+      "community": 139,
       "norm_label": "multiyearview()"
     },
     {
@@ -7740,7 +7740,7 @@
       "source_location": "L450",
       "_origin": "ast",
       "id": "views_multiyearview_deltapct",
-      "community": 67,
+      "community": 102,
       "norm_label": "deltapct()"
     },
     {
@@ -8450,7 +8450,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "views_vatview_vatview",
-      "community": 124,
+      "community": 67,
       "norm_label": "vatview()"
     },
     {
@@ -13760,7 +13760,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "core_atomic_file",
-      "community": 72,
+      "community": 95,
       "norm_label": "atomic-file.ts"
     },
     {
@@ -13770,7 +13770,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "core_atomic_file_randomtemppath",
-      "community": 72,
+      "community": 95,
       "norm_label": "randomtemppath()"
     },
     {
@@ -13780,7 +13780,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "core_atomic_file_writetempfilefor",
-      "community": 72,
+      "community": 95,
       "norm_label": "writetempfilefor()"
     },
     {
@@ -13790,7 +13790,7 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "core_atomic_file_fsyncdir",
-      "community": 72,
+      "community": 95,
       "norm_label": "fsyncdir()"
     },
     {
@@ -13800,7 +13800,7 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "core_atomic_file_promotetempfile",
-      "community": 72,
+      "community": 95,
       "norm_label": "promotetempfile()"
     },
     {
@@ -13810,7 +13810,7 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "core_atomic_file_writefileatomic",
-      "community": 72,
+      "community": 95,
       "norm_label": "writefileatomic()"
     },
     {
@@ -13820,7 +13820,7 @@
       "source_location": "L89",
       "_origin": "ast",
       "id": "core_atomic_file_removeifexists",
-      "community": 72,
+      "community": 95,
       "norm_label": "removeifexists()"
     },
     {
@@ -16280,7 +16280,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "core_credit_notes",
-      "community": 72,
+      "community": 95,
       "norm_label": "credit-notes.ts"
     },
     {
@@ -16300,7 +16300,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "core_credit_notes_issuecreditnoteresult",
-      "community": 72,
+      "community": 95,
       "norm_label": "issuecreditnoteresult"
     },
     {
@@ -16310,7 +16310,7 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "core_credit_notes_sha256",
-      "community": 72,
+      "community": 95,
       "norm_label": "sha256()"
     },
     {
@@ -16320,7 +16320,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "core_credit_notes_creditnotesequencestate",
-      "community": 72,
+      "community": 95,
       "norm_label": "creditnotesequencestate()"
     },
     {
@@ -16330,7 +16330,7 @@
       "source_location": "L51",
       "_origin": "ast",
       "id": "core_credit_notes_nextcreditnotenumber",
-      "community": 72,
+      "community": 95,
       "norm_label": "nextcreditnotenumber()"
     },
     {
@@ -16340,7 +16340,7 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "core_credit_notes_validatemanualcreditnotenumberscope",
-      "community": 72,
+      "community": 95,
       "norm_label": "validatemanualcreditnotenumberscope()"
     },
     {
@@ -16350,7 +16350,7 @@
       "source_location": "L66",
       "_origin": "ast",
       "id": "core_credit_notes_reservemanualcreditnotenumber",
-      "community": 72,
+      "community": 95,
       "norm_label": "reservemanualcreditnotenumber()"
     },
     {
@@ -16360,7 +16360,7 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "core_credit_notes_scaledjournalamount",
-      "community": 72,
+      "community": 95,
       "norm_label": "scaledjournalamount()"
     },
     {
@@ -16380,7 +16380,7 @@
       "source_location": "L155",
       "_origin": "ast",
       "id": "core_credit_notes_fallbackcreditnotelines",
-      "community": 72,
+      "community": 95,
       "norm_label": "fallbackcreditnotelines()"
     },
     {
@@ -16390,7 +16390,7 @@
       "source_location": "L181",
       "_origin": "ast",
       "id": "core_credit_notes_issuecreditnote",
-      "community": 72,
+      "community": 95,
       "norm_label": "issuecreditnote()"
     },
     {
@@ -18760,7 +18760,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "core_ids",
-      "community": 208,
+      "community": 72,
       "norm_label": "ids.ts"
     },
     {
@@ -18770,7 +18770,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "core_ids_invoicenumber",
-      "community": 208,
+      "community": 72,
       "norm_label": "invoicenumber"
     },
     {
@@ -18780,7 +18780,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "core_ids_documentid",
-      "community": 208,
+      "community": 72,
       "norm_label": "documentid"
     },
     {
@@ -18800,7 +18800,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "core_ids_banktransactionid",
-      "community": 208,
+      "community": 72,
       "norm_label": "banktransactionid"
     },
     {
@@ -18840,7 +18840,7 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "core_ids_asbanktransactionid",
-      "community": 208,
+      "community": 72,
       "norm_label": "asbanktransactionid()"
     },
     {
@@ -26330,7 +26330,7 @@
       "source_location": "L129",
       "_origin": "ast",
       "id": "core_system_backups_backuped25519publickeypath",
-      "community": 14,
+      "community": 7,
       "norm_label": "backuped25519publickeypath()"
     },
     {
@@ -26350,7 +26350,7 @@
       "source_location": "L139",
       "_origin": "ast",
       "id": "core_system_backups_publickeyhint",
-      "community": 14,
+      "community": 7,
       "norm_label": "publickeyhint()"
     },
     {
@@ -26360,7 +26360,7 @@
       "source_location": "L155",
       "_origin": "ast",
       "id": "core_system_backups_ensureed25519keypair",
-      "community": 14,
+      "community": 7,
       "norm_label": "ensureed25519keypair()"
     },
     {
@@ -26380,7 +26380,7 @@
       "source_location": "L195",
       "_origin": "ast",
       "id": "core_system_backups_exportbackuppublickey",
-      "community": 14,
+      "community": 7,
       "norm_label": "exportbackuppublickey()"
     },
     {
@@ -26560,7 +26560,7 @@
       "source_location": "L582",
       "_origin": "ast",
       "id": "core_system_backups_rotatebackupkeypair",
-      "community": 14,
+      "community": 7,
       "norm_label": "rotatebackupkeypair()"
     },
     {
@@ -29277,7 +29277,7 @@
       "label": "registerPortfolioTools()",
       "file_type": "code",
       "source_file": "src/mcp/tools/portfolio.ts",
-      "source_location": "L166",
+      "source_location": "L167",
       "_origin": "ast",
       "id": "tools_portfolio_registerportfoliotools",
       "community": 47,
@@ -29970,7 +29970,7 @@
       "source_location": "L80",
       "_origin": "ast",
       "id": "server_mutations_assertlocalhostwriteallowed",
-      "community": 571,
+      "community": 45,
       "norm_label": "assertlocalhostwriteallowed()"
     },
     {
@@ -29980,7 +29980,7 @@
       "source_location": "L116",
       "_origin": "ast",
       "id": "server_mutations_assertmutationcontenttype",
-      "community": 571,
+      "community": 45,
       "norm_label": "assertmutationcontenttype()"
     },
     {
@@ -30000,7 +30000,7 @@
       "source_location": "L157",
       "_origin": "ast",
       "id": "server_mutations_assertmutationoriginallowed",
-      "community": 571,
+      "community": 45,
       "norm_label": "assertmutationoriginallowed()"
     },
     {
@@ -30110,7 +30110,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "router_shared_readjsonbody",
-      "community": 571,
+      "community": 45,
       "norm_label": "readjsonbody()"
     },
     {
@@ -30120,7 +30120,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "router_shared_requirestring",
-      "community": 571,
+      "community": 45,
       "norm_label": "requirestring()"
     },
     {
@@ -30130,7 +30130,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "router_shared_optionalstring",
-      "community": 571,
+      "community": 45,
       "norm_label": "optionalstring()"
     },
     {
@@ -30720,7 +30720,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "router_workspace_writes",
-      "community": 571,
+      "community": 45,
       "norm_label": "workspace-writes.ts"
     },
     {
@@ -30730,7 +30730,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "router_workspace_writes_assertworkspacewriteallowed",
-      "community": 571,
+      "community": 45,
       "norm_label": "assertworkspacewriteallowed()"
     },
     {
@@ -30740,7 +30740,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "router_workspace_writes_parsecreatepayment",
-      "community": 571,
+      "community": 45,
       "norm_label": "parsecreatepayment()"
     },
     {
@@ -30750,7 +30750,7 @@
       "source_location": "L70",
       "_origin": "ast",
       "id": "router_workspace_writes_handlecompanycreate",
-      "community": 571,
+      "community": 45,
       "norm_label": "handlecompanycreate()"
     },
     {
@@ -30760,7 +30760,7 @@
       "source_location": "L115",
       "_origin": "ast",
       "id": "router_workspace_writes_handlecompanyupdate",
-      "community": 571,
+      "community": 45,
       "norm_label": "handlecompanyupdate()"
     },
     {
@@ -30880,7 +30880,7 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "write_handlers_shared_parseidparam",
-      "community": 10,
+      "community": 45,
       "norm_label": "parseidparam()"
     },
     {
@@ -31060,7 +31060,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "write_handlers_bilagsmail",
-      "community": 45,
+      "community": 10,
       "norm_label": "bilagsmail.ts"
     },
     {
@@ -31120,7 +31120,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "write_handlers_company",
-      "community": 45,
+      "community": 265,
       "norm_label": "company.ts"
     },
     {
@@ -31220,7 +31220,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "write_handlers_exceptions_handleresolveexception",
-      "community": 10,
+      "community": 45,
       "norm_label": "handleresolveexception()"
     },
     {
@@ -31240,7 +31240,7 @@
       "source_location": "L107",
       "_origin": "ast",
       "id": "write_handlers_exceptions_handleapproveagentsuggestion",
-      "community": 10,
+      "community": 45,
       "norm_label": "handleapproveagentsuggestion()"
     },
     {
@@ -31250,7 +31250,7 @@
       "source_location": "L156",
       "_origin": "ast",
       "id": "write_handlers_exceptions_handlerejectagentsuggestion",
-      "community": 10,
+      "community": 45,
       "norm_label": "handlerejectagentsuggestion()"
     },
     {
@@ -32070,7 +32070,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "unit_atomic_file_fsync_test",
-      "community": 72,
+      "community": 95,
       "norm_label": "atomic-file-fsync.test.ts"
     },
     {
@@ -32450,7 +32450,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "unit_bank_refund_matching_test",
-      "community": 72,
+      "community": 95,
       "norm_label": "bank-refund-matching.test.ts"
     },
     {
@@ -32460,7 +32460,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "unit_bank_refund_matching_test_invoicepayload",
-      "community": 72,
+      "community": 95,
       "norm_label": "invoicepayload()"
     },
     {
@@ -32750,7 +32750,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "unit_company_documents_view_ejer15_test",
-      "community": 435,
+      "community": 72,
       "norm_label": "company-documents-view-ejer15.test.ts"
     },
     {
@@ -32760,7 +32760,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "unit_company_documents_view_ejer15_test_invoicepayload",
-      "community": 435,
+      "community": 72,
       "norm_label": "invoicepayload()"
     },
     {
@@ -32870,7 +32870,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "unit_credit_note_test",
-      "community": 235,
+      "community": 95,
       "norm_label": "credit-note.test.ts"
     },
     {
@@ -32880,7 +32880,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "unit_credit_note_test_failingdocumentinsertdb",
-      "community": 235,
+      "community": 95,
       "norm_label": "failingdocumentinsertdb()"
     },
     {
@@ -33180,7 +33180,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "unit_document_ingest_test",
-      "community": 95,
+      "community": 208,
       "norm_label": "document-ingest.test.ts"
     },
     {
@@ -33450,7 +33450,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "unit_expense_booking_test",
-      "community": 191,
+      "community": 255,
       "norm_label": "expense-booking.test.ts"
     },
     {
@@ -33460,7 +33460,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "unit_expense_booking_test_markcompanynotvatregistered",
-      "community": 191,
+      "community": 255,
       "norm_label": "markcompanynotvatregistered()"
     },
     {
@@ -37170,7 +37170,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "server_api_workspace_write_origin_content_type_test",
-      "community": 571,
+      "community": 87,
       "norm_label": "workspace-write-origin-content-type.test.ts"
     },
     {
@@ -37180,7 +37180,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "server_api_workspace_write_origin_content_type_test_companycount",
-      "community": 571,
+      "community": 87,
       "norm_label": "companycount()"
     },
     {
@@ -37190,7 +37190,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "server_api_workspace_write_origin_content_type_test_request",
-      "community": 571,
+      "community": 87,
       "norm_label": "request()"
     },
     {
@@ -37200,7 +37200,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "server_api_workspace_write_origin_content_type_test_makewswithcompany",
-      "community": 571,
+      "community": 87,
       "norm_label": "makewswithcompany()"
     },
     {
@@ -37210,7 +37210,7 @@
       "source_location": "L141",
       "_origin": "ast",
       "id": "server_api_workspace_write_origin_content_type_test_nameof",
-      "community": 571,
+      "community": 87,
       "norm_label": "nameof()"
     },
     {
@@ -38690,7 +38690,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "unit_server_write_import_test",
-      "community": 255,
+      "community": 500,
       "norm_label": "server-write-import.test.ts"
     },
     {
@@ -38710,7 +38710,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "unit_server_write_import_test_config",
-      "community": 255,
+      "community": 500,
       "norm_label": "config()"
     },
     {
@@ -38720,7 +38720,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "unit_server_write_import_test_post",
-      "community": 255,
+      "community": 500,
       "norm_label": "post()"
     },
     {
@@ -38730,7 +38730,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "unit_server_write_import_test_dinero_contacts_csv",
-      "community": 255,
+      "community": 500,
       "norm_label": "dinero_contacts_csv"
     },
     {
@@ -49172,7 +49172,7 @@
       "file_type": "code",
       "source_file": "app/src/components/DocumentIngestModal.test.tsx",
       "source_location": "L70",
-      "community": 157,
+      "community": 305,
       "norm_label": "oningested",
       "id": "components_documentingestmodal_test_oningested"
     },
@@ -49181,7 +49181,7 @@
       "file_type": "code",
       "source_file": "app/src/components/DocumentIngestModal.test.tsx",
       "source_location": "L86",
-      "community": 157,
+      "community": 305,
       "norm_label": "ingestcall",
       "id": "components_documentingestmodal_test_ingestcall"
     },
@@ -49190,7 +49190,7 @@
       "file_type": "code",
       "source_file": "app/src/components/DocumentIngestModal.test.tsx",
       "source_location": "L90",
-      "community": 157,
+      "community": 305,
       "norm_label": "init",
       "id": "components_documentingestmodal_test_init"
     },
@@ -49199,7 +49199,7 @@
       "file_type": "code",
       "source_file": "app/src/components/DocumentIngestModal.test.tsx",
       "source_location": "L92",
-      "community": 157,
+      "community": 305,
       "norm_label": "sent",
       "id": "components_documentingestmodal_test_sent"
     },
@@ -49208,7 +49208,7 @@
       "file_type": "code",
       "source_file": "app/src/components/DocumentIngestModal.test.tsx",
       "source_location": "L126",
-      "community": 157,
+      "community": 305,
       "norm_label": "onclose",
       "id": "components_documentingestmodal_test_onclose"
     },
@@ -49559,7 +49559,7 @@
       "file_type": "code",
       "source_file": "app/src/views/ManageCompanyView.test.tsx",
       "source_location": "L33",
-      "community": 149,
+      "community": 49,
       "norm_label": "input",
       "id": "views_managecompanyview_test_input"
     },
@@ -49568,7 +49568,7 @@
       "file_type": "code",
       "source_file": "app/src/views/ManageCompanyView.test.tsx",
       "source_location": "L116",
-      "community": 149,
+      "community": 49,
       "norm_label": "button",
       "id": "views_managecompanyview_test_button"
     },
@@ -49577,7 +49577,7 @@
       "file_type": "code",
       "source_file": "app/src/views/ManageCompanyView.test.tsx",
       "source_location": "L195",
-      "community": 149,
+      "community": 49,
       "norm_label": "select",
       "id": "views_managecompanyview_test_select"
     },
@@ -49865,7 +49865,7 @@
       "file_type": "code",
       "source_file": "app/src/views/MultiYearView.test.tsx",
       "source_location": "L34",
-      "community": 49,
+      "community": 139,
       "norm_label": "rows",
       "id": "views_multiyearview_test_rows"
     },
@@ -49874,7 +49874,7 @@
       "file_type": "code",
       "source_file": "app/src/views/MultiYearView.test.tsx",
       "source_location": "L91",
-      "community": 49,
+      "community": 139,
       "norm_label": "{ container }",
       "id": "views_multiyearview_test_container"
     },
@@ -49883,7 +49883,7 @@
       "file_type": "code",
       "source_file": "app/src/views/MultiYearView.test.tsx",
       "source_location": "L125",
-      "community": 49,
+      "community": 139,
       "norm_label": "headers",
       "id": "views_multiyearview_test_headers"
     },
@@ -49892,7 +49892,7 @@
       "file_type": "code",
       "source_file": "app/src/views/MultiYearView.test.tsx",
       "source_location": "L126",
-      "community": 49,
+      "community": 139,
       "norm_label": "labels",
       "id": "views_multiyearview_test_labels"
     },
@@ -49901,7 +49901,7 @@
       "file_type": "code",
       "source_file": "app/src/views/MultiYearView.test.tsx",
       "source_location": "L152",
-      "community": 49,
+      "community": 139,
       "norm_label": "dashcells",
       "id": "views_multiyearview_test_dashcells"
     },
@@ -49910,7 +49910,7 @@
       "file_type": "code",
       "source_file": "app/src/views/BudgetView.test.tsx",
       "source_location": "L128",
-      "community": 67,
+      "community": 102,
       "norm_label": "fields",
       "id": "views_budgetview_test_fields"
     },
@@ -50036,7 +50036,7 @@
       "file_type": "code",
       "source_file": "app/src/views/DocumentsView.test.tsx",
       "source_location": "L181",
-      "community": 102,
+      "community": 20,
       "norm_label": "multi_docs",
       "id": "views_documentsview_test_multi_docs"
     },
@@ -50045,7 +50045,7 @@
       "file_type": "code",
       "source_file": "app/src/views/DocumentsView.test.tsx",
       "source_location": "L249",
-      "community": 102,
+      "community": 20,
       "norm_label": "search",
       "id": "views_documentsview_test_search"
     },
@@ -50054,7 +50054,7 @@
       "file_type": "code",
       "source_file": "app/src/views/DocumentsView.test.tsx",
       "source_location": "L262",
-      "community": 102,
+      "community": 20,
       "norm_label": "status",
       "id": "views_documentsview_test_status"
     },
@@ -50063,7 +50063,7 @@
       "file_type": "code",
       "source_file": "app/src/views/DocumentsView.test.tsx",
       "source_location": "L273",
-      "community": 102,
+      "community": 20,
       "norm_label": "frominput",
       "id": "views_documentsview_test_frominput"
     },
@@ -50144,7 +50144,7 @@
       "file_type": "code",
       "source_file": "app/src/views/AssetsView.test.tsx",
       "source_location": "L96",
-      "community": 102,
+      "community": 20,
       "norm_label": "fetchmock",
       "id": "views_assetsview_test_fetchmock"
     },
@@ -50153,7 +50153,7 @@
       "file_type": "code",
       "source_file": "app/src/views/AssetsView.test.tsx",
       "source_location": "L135",
-      "community": 102,
+      "community": 20,
       "norm_label": "rowbtn",
       "id": "views_assetsview_test_rowbtn"
     },
@@ -50162,7 +50162,7 @@
       "file_type": "code",
       "source_file": "app/src/views/AssetsView.test.tsx",
       "source_location": "L145",
-      "community": 102,
+      "community": 20,
       "norm_label": "confirmbtn",
       "id": "views_assetsview_test_confirmbtn"
     },
@@ -50171,7 +50171,7 @@
       "file_type": "code",
       "source_file": "app/src/views/AssetsView.test.tsx",
       "source_location": "L152",
-      "community": 102,
+      "community": 20,
       "norm_label": "posted",
       "id": "views_assetsview_test_posted"
     },
@@ -50180,7 +50180,7 @@
       "file_type": "code",
       "source_file": "app/src/views/AssetsView.test.tsx",
       "source_location": "L168",
-      "community": 102,
+      "community": 20,
       "norm_label": "button",
       "id": "views_assetsview_test_button"
     },
@@ -51791,7 +51791,7 @@
       "file_type": "code",
       "source_file": "tests/unit/server-write-import.test.ts",
       "source_location": "L54",
-      "community": 255,
+      "community": 500,
       "norm_label": "{ root: ws, slug }",
       "id": "unit_server_write_import_test_root_ws_slug"
     },
@@ -51800,7 +51800,7 @@
       "file_type": "code",
       "source_file": "tests/unit/server-write-import.test.ts",
       "source_location": "L69",
-      "community": 255,
+      "community": 500,
       "norm_label": "companyroot",
       "id": "unit_server_write_import_test_companyroot"
     },
@@ -51809,7 +51809,7 @@
       "file_type": "code",
       "source_file": "tests/unit/server-write-import.test.ts",
       "source_location": "L70",
-      "community": 255,
+      "community": 500,
       "norm_label": "db",
       "id": "unit_server_write_import_test_db"
     },
@@ -51818,7 +51818,7 @@
       "file_type": "code",
       "source_file": "tests/unit/server-write-import.test.ts",
       "source_location": "L73",
-      "community": 255,
+      "community": 500,
       "norm_label": "customers",
       "id": "unit_server_write_import_test_customers"
     },
@@ -51827,7 +51827,7 @@
       "file_type": "code",
       "source_file": "tests/unit/server-write-import.test.ts",
       "source_location": "L76",
-      "community": 255,
+      "community": 500,
       "norm_label": "vendors",
       "id": "unit_server_write_import_test_vendors"
     },
@@ -51836,7 +51836,7 @@
       "file_type": "code",
       "source_file": "tests/unit/server-write-import.test.ts",
       "source_location": "L92",
-      "community": 255,
+      "community": 500,
       "norm_label": "cfg",
       "id": "unit_server_write_import_test_cfg"
     },
@@ -51845,7 +51845,7 @@
       "file_type": "code",
       "source_file": "tests/unit/server-write-import.test.ts",
       "source_location": "L143",
-      "community": 255,
+      "community": 500,
       "norm_label": "{ root: ws }",
       "id": "unit_server_write_import_test_root_ws"
     },
@@ -58658,7 +58658,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L12",
-      "community": 95,
+      "community": 208,
       "norm_label": "result",
       "id": "unit_document_ingest_test_result"
     },
@@ -58667,7 +58667,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L57",
-      "community": 95,
+      "community": 208,
       "norm_label": "companyroot",
       "id": "unit_document_ingest_test_companyroot"
     },
@@ -58676,7 +58676,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L58",
-      "community": 95,
+      "community": 208,
       "norm_label": "inboxroot",
       "id": "unit_document_ingest_test_inboxroot"
     },
@@ -58685,7 +58685,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L59",
-      "community": 95,
+      "community": 208,
       "norm_label": "sourcefile",
       "id": "unit_document_ingest_test_sourcefile"
     },
@@ -58694,7 +58694,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L62",
-      "community": 95,
+      "community": 208,
       "norm_label": "validation",
       "id": "unit_document_ingest_test_validation"
     },
@@ -58703,7 +58703,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L70",
-      "community": 95,
+      "community": 208,
       "norm_label": "paths",
       "id": "unit_document_ingest_test_paths"
     },
@@ -58712,7 +58712,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L71",
-      "community": 95,
+      "community": 208,
       "norm_label": "db",
       "id": "unit_document_ingest_test_db"
     },
@@ -58721,7 +58721,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L81",
-      "community": 95,
+      "community": 208,
       "norm_label": "row",
       "id": "unit_document_ingest_test_row"
     },
@@ -58730,7 +58730,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L133",
-      "community": 95,
+      "community": 208,
       "norm_label": "firstfile",
       "id": "unit_document_ingest_test_firstfile"
     },
@@ -58739,7 +58739,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L134",
-      "community": 95,
+      "community": 208,
       "norm_label": "secondfile",
       "id": "unit_document_ingest_test_secondfile"
     },
@@ -58748,7 +58748,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L141",
-      "community": 95,
+      "community": 208,
       "norm_label": "first",
       "id": "unit_document_ingest_test_first"
     },
@@ -58757,7 +58757,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L152",
-      "community": 95,
+      "community": 208,
       "norm_label": "second",
       "id": "unit_document_ingest_test_second"
     },
@@ -58766,7 +58766,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L221",
-      "community": 95,
+      "community": 208,
       "norm_label": "fakepdf",
       "id": "unit_document_ingest_test_fakepdf"
     },
@@ -58775,7 +58775,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L251",
-      "community": 95,
+      "community": 208,
       "norm_label": "realpdf",
       "id": "unit_document_ingest_test_realpdf"
     },
@@ -58784,7 +58784,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L311",
-      "community": 95,
+      "community": 208,
       "norm_label": "dup",
       "id": "unit_document_ingest_test_dup"
     },
@@ -58793,7 +58793,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L325",
-      "community": 95,
+      "community": 208,
       "norm_label": "rescannedfile",
       "id": "unit_document_ingest_test_rescannedfile"
     },
@@ -58802,7 +58802,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L328",
-      "community": 95,
+      "community": 208,
       "norm_label": "logicaldup",
       "id": "unit_document_ingest_test_logicaldup"
     },
@@ -58811,7 +58811,7 @@
       "file_type": "code",
       "source_file": "tests/unit/document-ingest.test.ts",
       "source_location": "L342",
-      "community": 95,
+      "community": 208,
       "norm_label": "forcedlogicaldup",
       "id": "unit_document_ingest_test_forcedlogicaldup"
     },
@@ -60413,7 +60413,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L34",
-      "community": 235,
+      "community": 95,
       "norm_label": "root",
       "id": "unit_credit_note_test_root"
     },
@@ -60422,7 +60422,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L35",
-      "community": 235,
+      "community": 95,
       "norm_label": "db",
       "id": "unit_credit_note_test_db"
     },
@@ -60431,7 +60431,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L42",
-      "community": 235,
+      "community": 95,
       "norm_label": "issued",
       "id": "unit_credit_note_test_issued"
     },
@@ -60440,7 +60440,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L61",
-      "community": 235,
+      "community": 95,
       "norm_label": "credit",
       "id": "unit_credit_note_test_credit"
     },
@@ -60449,7 +60449,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L69",
-      "community": 235,
+      "community": 95,
       "norm_label": "lines",
       "id": "unit_credit_note_test_lines"
     },
@@ -60458,7 +60458,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L80",
-      "community": 235,
+      "community": 95,
       "norm_label": "chain",
       "id": "unit_credit_note_test_chain"
     },
@@ -60467,7 +60467,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L122",
-      "community": 235,
+      "community": 95,
       "norm_label": "realdb",
       "id": "unit_credit_note_test_realdb"
     },
@@ -60476,7 +60476,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L139",
-      "community": 235,
+      "community": 95,
       "norm_label": "failingdb",
       "id": "unit_credit_note_test_failingdb"
     },
@@ -60485,7 +60485,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L140",
-      "community": 235,
+      "community": 95,
       "norm_label": "failed",
       "id": "unit_credit_note_test_failed"
     },
@@ -60494,7 +60494,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L149",
-      "community": 235,
+      "community": 95,
       "norm_label": "sequence",
       "id": "unit_credit_note_test_sequence"
     },
@@ -60503,7 +60503,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L152",
-      "community": 235,
+      "community": 95,
       "norm_label": "retried",
       "id": "unit_credit_note_test_retried"
     },
@@ -60512,7 +60512,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L247",
-      "community": 235,
+      "community": 95,
       "norm_label": "doc",
       "id": "unit_credit_note_test_doc"
     },
@@ -60521,7 +60521,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L262",
-      "community": 235,
+      "community": 95,
       "norm_label": "second",
       "id": "unit_credit_note_test_second"
     },
@@ -60530,7 +60530,7 @@
       "file_type": "code",
       "source_file": "tests/unit/credit-note.test.ts",
       "source_location": "L269",
-      "community": 235,
+      "community": 95,
       "norm_label": "third",
       "id": "unit_credit_note_test_third"
     },
@@ -63410,7 +63410,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L41",
-      "community": 72,
+      "community": 95,
       "norm_label": "{ root, db }",
       "id": "unit_bank_refund_matching_test_root_db"
     },
@@ -63419,7 +63419,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L42",
-      "community": 72,
+      "community": 95,
       "norm_label": "invoice",
       "id": "unit_bank_refund_matching_test_invoice"
     },
@@ -63428,7 +63428,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L49",
-      "community": 72,
+      "community": 95,
       "norm_label": "csv",
       "id": "unit_bank_refund_matching_test_csv"
     },
@@ -63437,7 +63437,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L59",
-      "community": 72,
+      "community": 95,
       "norm_label": "result",
       "id": "unit_bank_refund_matching_test_result"
     },
@@ -63446,7 +63446,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L76",
-      "community": 72,
+      "community": 95,
       "norm_label": "cn",
       "id": "unit_bank_refund_matching_test_cn"
     },
@@ -63455,7 +63455,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L105",
-      "community": 72,
+      "community": 95,
       "norm_label": "inbox",
       "id": "unit_bank_refund_matching_test_inbox"
     },
@@ -63464,7 +63464,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L106",
-      "community": 72,
+      "community": 95,
       "norm_label": "sourcefile",
       "id": "unit_bank_refund_matching_test_sourcefile"
     },
@@ -63473,7 +63473,7 @@
       "file_type": "code",
       "source_file": "tests/unit/bank-refund-matching.test.ts",
       "source_location": "L108",
-      "community": 72,
+      "community": 95,
       "norm_label": "purchase",
       "id": "unit_bank_refund_matching_test_purchase"
     },
@@ -64409,7 +64409,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L17",
-      "community": 191,
+      "community": 255,
       "norm_label": "root",
       "id": "unit_expense_booking_test_root"
     },
@@ -64418,7 +64418,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L18",
-      "community": 191,
+      "community": 255,
       "norm_label": "inbox",
       "id": "unit_expense_booking_test_inbox"
     },
@@ -64427,7 +64427,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L19",
-      "community": 191,
+      "community": 255,
       "norm_label": "csv",
       "id": "unit_expense_booking_test_csv"
     },
@@ -64436,7 +64436,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L20",
-      "community": 191,
+      "community": 255,
       "norm_label": "sourcefile",
       "id": "unit_expense_booking_test_sourcefile"
     },
@@ -64445,7 +64445,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L27",
-      "community": 191,
+      "community": 255,
       "norm_label": "db",
       "id": "unit_expense_booking_test_db"
     },
@@ -64454,7 +64454,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L31",
-      "community": 191,
+      "community": 255,
       "norm_label": "bank",
       "id": "unit_expense_booking_test_bank"
     },
@@ -64463,7 +64463,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L34",
-      "community": 191,
+      "community": 255,
       "norm_label": "doc",
       "id": "unit_expense_booking_test_doc"
     },
@@ -64472,7 +64472,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L48",
-      "community": 191,
+      "community": 255,
       "norm_label": "bankrow",
       "id": "unit_expense_booking_test_bankrow"
     },
@@ -64481,7 +64481,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L49",
-      "community": 191,
+      "community": 255,
       "norm_label": "booked",
       "id": "unit_expense_booking_test_booked"
     },
@@ -64490,7 +64490,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L61",
-      "community": 191,
+      "community": 255,
       "norm_label": "lines",
       "id": "unit_expense_booking_test_lines"
     },
@@ -64499,7 +64499,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L74",
-      "community": 191,
+      "community": 255,
       "norm_label": "report",
       "id": "unit_expense_booking_test_report"
     },
@@ -64508,7 +64508,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L180",
-      "community": 191,
+      "community": 255,
       "norm_label": "entry",
       "id": "unit_expense_booking_test_entry"
     },
@@ -64517,7 +64517,7 @@
       "file_type": "code",
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L283",
-      "community": 191,
+      "community": 255,
       "norm_label": "explicit",
       "id": "unit_expense_booking_test_explicit"
     },
@@ -72467,7 +72467,7 @@
       "file_type": "code",
       "source_file": "app/src/components/MileageRegisterModal.tsx",
       "source_location": "L30",
-      "community": 124,
+      "community": 67,
       "norm_label": "todayisodate()",
       "id": "components_mileageregistermodal_todayisodate"
     },
@@ -73367,7 +73367,7 @@
       "file_type": "code",
       "source_file": "app/src/test/fixtures.ts",
       "source_location": "L426",
-      "community": 67,
+      "community": 102,
       "norm_label": "budget()",
       "id": "test_fixtures_budget"
     },
@@ -73376,7 +73376,7 @@
       "file_type": "code",
       "source_file": "app/src/test/fixtures.ts",
       "source_location": "L461",
-      "community": 67,
+      "community": 102,
       "norm_label": "budgetvsactual()",
       "id": "test_fixtures_budgetvsactual"
     },
@@ -73430,7 +73430,7 @@
       "file_type": "code",
       "source_file": "app/src/test/fixtures.ts",
       "source_location": "L655",
-      "community": 102,
+      "community": 20,
       "norm_label": "documents()",
       "id": "test_fixtures_documents"
     },
@@ -73457,7 +73457,7 @@
       "file_type": "code",
       "source_file": "app/src/test/fixtures.ts",
       "source_location": "L714",
-      "community": 49,
+      "community": 139,
       "norm_label": "multiyear()",
       "id": "test_fixtures_multiyear"
     },
@@ -73484,7 +73484,7 @@
       "file_type": "code",
       "source_file": "app/src/test/fixtures.ts",
       "source_location": "L869",
-      "community": 149,
+      "community": 49,
       "norm_label": "companysettings()",
       "id": "test_fixtures_companysettings"
     },
@@ -73493,7 +73493,7 @@
       "file_type": "code",
       "source_file": "app/src/test/fixtures.ts",
       "source_location": "L897",
-      "community": 102,
+      "community": 20,
       "norm_label": "assets()",
       "id": "test_fixtures_assets"
     },
@@ -73889,7 +73889,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L36",
-      "community": 124,
+      "community": 49,
       "norm_label": "companyentry",
       "id": "lib_types_companyentry"
     },
@@ -74015,7 +74015,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L201",
-      "community": 139,
+      "community": 67,
       "norm_label": "overviewmonth",
       "id": "lib_types_overviewmonth"
     },
@@ -74024,7 +74024,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L208",
-      "community": 139,
+      "community": 67,
       "norm_label": "overviewexceptionrow",
       "id": "lib_types_overviewexceptionrow"
     },
@@ -74060,7 +74060,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L270",
-      "community": 139,
+      "community": 67,
       "norm_label": "companyoverview",
       "id": "lib_types_companyoverview"
     },
@@ -74222,7 +74222,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L530",
-      "community": 124,
+      "community": 67,
       "norm_label": "banktransactionrow",
       "id": "lib_types_banktransactionrow"
     },
@@ -74231,7 +74231,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L541",
-      "community": 124,
+      "community": 67,
       "norm_label": "companybank",
       "id": "lib_types_companybank"
     },
@@ -74276,7 +74276,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L653",
-      "community": 102,
+      "community": 124,
       "norm_label": "documentrow",
       "id": "lib_types_documentrow"
     },
@@ -74285,7 +74285,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L676",
-      "community": 102,
+      "community": 124,
       "norm_label": "companydocuments",
       "id": "lib_types_companydocuments"
     },
@@ -74591,7 +74591,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1127",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudgetline",
       "id": "lib_types_companybudgetline"
     },
@@ -74600,7 +74600,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1138",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudget",
       "id": "lib_types_companybudget"
     },
@@ -74618,7 +74618,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1162",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudgetvsactualline",
       "id": "lib_types_companybudgetvsactualline"
     },
@@ -74627,7 +74627,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1179",
-      "community": 67,
+      "community": 102,
       "norm_label": "companybudgetvsactual",
       "id": "lib_types_companybudgetvsactual"
     },
@@ -74708,7 +74708,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1266",
-      "community": 124,
+      "community": 49,
       "norm_label": "companysettings",
       "id": "lib_types_companysettings"
     },
@@ -75014,7 +75014,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1602",
-      "community": 102,
+      "community": 124,
       "norm_label": "assetrow",
       "id": "lib_types_assetrow"
     },
@@ -75023,7 +75023,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1617",
-      "community": 102,
+      "community": 124,
       "norm_label": "assetwriteoffrow",
       "id": "lib_types_assetwriteoffrow"
     },
@@ -75032,7 +75032,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L1633",
-      "community": 102,
+      "community": 20,
       "norm_label": "companyassets",
       "id": "lib_types_companyassets"
     },
@@ -75527,7 +75527,7 @@
       "file_type": "code",
       "source_file": "app/src/lib/types.ts",
       "source_location": "L2223",
-      "community": 559,
+      "community": 124,
       "norm_label": "companybilagsmail",
       "id": "lib_types_companybilagsmail"
     },
@@ -76643,7 +76643,7 @@
       "file_type": "code",
       "source_file": "app/src/views/ManageCompanyView.tsx",
       "source_location": "L472",
-      "community": 124,
+      "community": 49,
       "norm_label": "accountantexportcard()",
       "id": "views_managecompanyview_accountantexportcard"
     },
@@ -76670,7 +76670,7 @@
       "file_type": "code",
       "source_file": "app/src/views/BankView.tsx",
       "source_location": "L253",
-      "community": 124,
+      "community": 67,
       "norm_label": "archivednotice()",
       "id": "views_bankview_archivednotice"
     },
@@ -77102,7 +77102,7 @@
       "file_type": "code",
       "source_file": "src/server/data.ts",
       "source_location": "L86",
-      "community": 45,
+      "community": 46,
       "norm_label": "companysummary",
       "id": "server_data_companysummary"
     },
@@ -77129,7 +77129,7 @@
       "file_type": "code",
       "source_file": "src/server/data.ts",
       "source_location": "L272",
-      "community": 45,
+      "community": 46,
       "norm_label": "portfoliooverview",
       "id": "server_data_portfoliooverview"
     },
@@ -78740,7 +78740,7 @@
       "file_type": "code",
       "source_file": "app/src/views/DashboardView.tsx",
       "source_location": "L131",
-      "community": 139,
+      "community": 67,
       "norm_label": "archivednotice()",
       "id": "views_dashboardview_archivednotice"
     },
@@ -111363,9 +111363,9 @@
       "source_file": "app/src/lib/types/vat.ts",
       "source_location": "L29",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "types_vat",
-      "target": "types_vat_companyvatcommon",
-      "confidence_score": 1.0
+      "target": "types_vat_companyvatcommon"
     },
     {
       "relation": "contains",
@@ -111373,9 +111373,9 @@
       "source_file": "app/src/lib/types/vat.ts",
       "source_location": "L49",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "types_vat",
-      "target": "types_vat_companyvatnotregistered",
-      "confidence_score": 1.0
+      "target": "types_vat_companyvatnotregistered"
     },
     {
       "relation": "contains",
@@ -111383,9 +111383,9 @@
       "source_file": "app/src/lib/types/vat.ts",
       "source_location": "L54",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "types_vat",
-      "target": "types_vat_companyvatregistered",
-      "confidence_score": 1.0
+      "target": "types_vat_companyvatregistered"
     },
     {
       "relation": "contains",
@@ -111435,9 +111435,9 @@
       "source_file": "app/src/test/fixtures/vat.ts",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "fixtures_vat",
-      "target": "types_vat_companyvatnotregistered",
-      "confidence_score": 1.0
+      "target": "types_vat_companyvatnotregistered"
     },
     {
       "relation": "imports",
@@ -111446,9 +111446,9 @@
       "source_file": "app/src/test/fixtures/vat.ts",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "fixtures_vat",
-      "target": "types_vat_companyvatregistered",
-      "confidence_score": 1.0
+      "target": "types_vat_companyvatregistered"
     },
     {
       "relation": "imports",
@@ -111457,9 +111457,9 @@
       "source_file": "app/src/views/VatView.tsx",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "views_vatview",
-      "target": "types_vat_companyvatregistered",
-      "confidence_score": 1.0
+      "target": "types_vat_companyvatregistered"
     },
     {
       "relation": "imports",
@@ -118082,9 +118082,9 @@
       "source_file": "app/src/test/fixtures/vat.ts",
       "source_location": "L50",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "fixtures_vat",
-      "target": "fixtures_vat_vatnotregistered",
-      "confidence_score": 1.0
+      "target": "fixtures_vat_vatnotregistered"
     },
     {
       "relation": "imports",
@@ -151650,9 +151650,9 @@
       "source_file": "src/cli/vat.ts",
       "source_location": "L28",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cli_vat",
-      "target": "cli_vat_ensurevatregistered",
-      "confidence_score": 1.0
+      "target": "cli_vat_ensurevatregistered"
     },
     {
       "relation": "contains",
@@ -151671,9 +151671,9 @@
       "source_file": "src/cli/vat.ts",
       "source_location": "L4",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cli_vat",
-      "target": "core_company",
-      "confidence_score": 1.0
+      "target": "core_company"
     },
     {
       "relation": "imports",
@@ -151682,9 +151682,9 @@
       "source_file": "src/cli/vat.ts",
       "source_location": "L4",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cli_vat",
-      "target": "core_company_getcompanysettings",
-      "confidence_score": 1.0
+      "target": "core_company_getcompanysettings"
     },
     {
       "relation": "imports_from",
@@ -151934,9 +151934,9 @@
       "source_file": "src/cli/vat.ts",
       "source_location": "L29",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cli_vat_ensurevatregistered",
-      "target": "core_company_getcompanysettings",
-      "confidence_score": 1.0
+      "target": "core_company_getcompanysettings"
     },
     {
       "relation": "contains",
@@ -163524,9 +163524,9 @@
       "source_file": "src/core/companies-schema.ts",
       "source_location": "L22",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "core_companies_schema",
-      "target": "core_companies_schema_ensurenullablevatperiodcolumn",
-      "confidence_score": 1.0
+      "target": "core_companies_schema_ensurenullablevatperiodcolumn"
     },
     {
       "relation": "imports_from",
@@ -163535,9 +163535,9 @@
       "source_file": "src/core/db.ts",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "core_db",
-      "target": "core_companies_schema",
-      "confidence_score": 1.0
+      "target": "core_companies_schema"
     },
     {
       "relation": "imports_from",
@@ -163546,9 +163546,9 @@
       "source_file": "src/core/periods.ts",
       "source_location": "L3",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "core_periods",
-      "target": "core_companies_schema",
-      "confidence_score": 1.0
+      "target": "core_companies_schema"
     },
     {
       "relation": "imports",
@@ -163557,9 +163557,9 @@
       "source_file": "src/core/db.ts",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "core_db",
-      "target": "core_companies_schema_ensurenullablevatperiodcolumn",
-      "confidence_score": 1.0
+      "target": "core_companies_schema_ensurenullablevatperiodcolumn"
     },
     {
       "relation": "calls",
@@ -163579,9 +163579,9 @@
       "source_file": "src/core/periods.ts",
       "source_location": "L3",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "core_periods",
-      "target": "core_companies_schema_ensurenullablevatperiodcolumn",
-      "confidence_score": 1.0
+      "target": "core_companies_schema_ensurenullablevatperiodcolumn"
     },
     {
       "relation": "calls",
@@ -164443,9 +164443,9 @@
       "source_file": "src/core/expense-booking.ts",
       "source_location": "L2",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "core_expense_booking",
-      "target": "core_company",
-      "confidence_score": 1.0
+      "target": "core_company"
     },
     {
       "relation": "imports_from",
@@ -166577,9 +166577,9 @@
       "source_file": "tests/unit/vat-period-type-feature.test.ts",
       "source_location": "L603",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "unit_vat_period_type_feature_test_makenonvatworkspace",
-      "target": "core_company_createcompany",
-      "confidence_score": 1.0
+      "target": "core_company_createcompany"
     },
     {
       "relation": "calls",
@@ -166643,9 +166643,9 @@
       "source_file": "src/core/expense-booking.ts",
       "source_location": "L2",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "core_expense_booking",
-      "target": "core_company_getcompanysettings",
-      "confidence_score": 1.0
+      "target": "core_company_getcompanysettings"
     },
     {
       "relation": "calls",
@@ -233702,9 +233702,9 @@
       "source_file": "tests/unit/vat-period-type-feature.test.ts",
       "source_location": "L602",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "unit_vat_period_type_feature_test_makenonvatworkspace",
-      "target": "core_workspace_initworkspace",
-      "confidence_score": 1.0
+      "target": "core_workspace_initworkspace"
     },
     {
       "relation": "calls",
@@ -269352,9 +269352,9 @@
       "source_file": "tests/unit/expense-booking.test.ts",
       "source_location": "L22",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "unit_expense_booking_test",
-      "target": "unit_expense_booking_test_markcompanynotvatregistered",
-      "confidence_score": 1.0
+      "target": "unit_expense_booking_test_markcompanynotvatregistered"
     },
     {
       "relation": "contains",
@@ -289559,9 +289559,9 @@
       "source_file": "tests/unit/vat-period-type-feature.test.ts",
       "source_location": "L600",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "unit_vat_period_type_feature_test",
-      "target": "unit_vat_period_type_feature_test_makenonvatworkspace",
-      "confidence_score": 1.0
+      "target": "unit_vat_period_type_feature_test_makenonvatworkspace"
     },
     {
       "relation": "contains",
@@ -289760,9 +289760,9 @@
       "source_file": "tests/unit/vat-period-type-feature.test.ts",
       "source_location": "L601",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "unit_vat_period_type_feature_test_makenonvatworkspace",
-      "target": "unit_vat_period_type_feature_test_tmproot",
-      "confidence_score": 1.0
+      "target": "unit_vat_period_type_feature_test_tmproot"
     },
     {
       "relation": "calls",
@@ -290974,9 +290974,9 @@
       "source_file": "www/page-templates/seo-page.template.astro",
       "source_location": "L14",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "page_templates_seo_page_template",
-      "target": "users_kraenhansen_repositories_rentemester_www_components_pagehero_astro",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_components_pagehero_astro"
     },
     {
       "relation": "imports_from",
@@ -290985,9 +290985,9 @@
       "source_file": "www/page-templates/seo-page.template.astro",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "page_templates_seo_page_template",
-      "target": "users_kraenhansen_repositories_rentemester_www_components_seoevidence_astro",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_components_seoevidence_astro"
     },
     {
       "relation": "imports_from",
@@ -290996,17 +290996,17 @@
       "source_file": "www/page-templates/seo-page.template.astro",
       "source_location": "L16",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "page_templates_seo_page_template",
-      "target": "users_kraenhansen_repositories_rentemester_www_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/page-templates/seo-page.template.astro",
+      "confidence_score": 1.0,
       "source": "page_templates_seo_page_template",
-      "target": "users_kraenhansen_repositories_rentemester_www_layouts_baselayout_astro",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_layouts_baselayout_astro"
     },
     {
       "relation": "contains",
@@ -291455,17 +291455,17 @@
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/components/Footer.astro",
+      "confidence_score": 1.0,
       "source": "components_footer",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/components/Footer.astro",
+      "confidence_score": 1.0,
       "source": "components_footer",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map"
     },
     {
       "relation": "imports_from",
@@ -291541,633 +291541,633 @@
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/ai/ai-bogfoering-med-kontrol.astro",
+      "confidence_score": 1.0,
       "source": "ai_ai_bogfoering_med_kontrol",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/ai/mcp-bogfoering.astro",
+      "confidence_score": 1.0,
       "source": "ai_mcp_bogfoering",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/anlaegsaktiver/afskrivning.astro",
+      "confidence_score": 1.0,
       "source": "anlaegsaktiver_afskrivning",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/begreber/afstemning.astro",
+      "confidence_score": 1.0,
       "source": "begreber_afstemning",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/begreber/append-only-ledger.astro",
+      "confidence_score": 1.0,
       "source": "begreber_append_only_ledger",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/begreber/audit-trail.astro",
+      "confidence_score": 1.0,
       "source": "begreber_audit_trail",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/begreber/bilagsnummer.astro",
+      "confidence_score": 1.0,
       "source": "begreber_bilagsnummer",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/begreber/debet-kredit.astro",
+      "confidence_score": 1.0,
       "source": "begreber_debet_kredit",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/begreber/kontoplan.astro",
+      "confidence_score": 1.0,
       "source": "begreber_kontoplan",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/bilag/bilagsmail.astro",
+      "confidence_score": 1.0,
       "source": "bilag_bilagsmail",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/components/Header.astro",
+      "confidence_score": 1.0,
       "source": "components_header",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/components/SeoEvidence.astro",
+      "confidence_score": 1.0,
       "source": "components_seoevidence",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/debitorer/faktura-status.astro",
+      "confidence_score": 1.0,
       "source": "debitorer_faktura_status",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/debitorer/refundering.astro",
+      "confidence_score": 1.0,
       "source": "debitorer_refundering",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/debitorer/rykkergebyr-morarente.astro",
+      "confidence_score": 1.0,
       "source": "debitorer_rykkergebyr_morarente",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/debitorer/tab-paa-debitorer.astro",
+      "confidence_score": 1.0,
       "source": "debitorer_tab_paa_debitorer",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/docs/bank-import.astro",
+      "confidence_score": 1.0,
       "source": "docs_bank_import",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/docs/foerste-faktura.astro",
+      "confidence_score": 1.0,
       "source": "docs_foerste_faktura",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/docs/index.astro",
+      "confidence_score": 1.0,
       "source": "docs_index",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/docs/installation.astro",
+      "confidence_score": 1.0,
       "source": "docs_installation",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/docs/momsangivelse.astro",
+      "confidence_score": 1.0,
       "source": "docs_momsangivelse",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/fakturering/e-faktura-offentlig.astro",
+      "confidence_score": 1.0,
       "source": "fakturering_e_faktura_offentlig",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/fakturering/gentagne-fakturaer.astro",
+      "confidence_score": 1.0,
       "source": "fakturering_gentagne_fakturaer",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/layouts/BaseLayout.astro",
+      "confidence_score": 1.0,
       "source": "layouts_baselayout",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/moms/eu-reverse-charge.astro",
+      "confidence_score": 1.0,
       "source": "moms_eu_reverse_charge",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/moms/momsindberetning.astro",
+      "confidence_score": 1.0,
       "source": "moms_momsindberetning",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/moms/momsrapport.astro",
+      "confidence_score": 1.0,
       "source": "moms_momsrapport",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/moms/vies-momsnummer.astro",
+      "confidence_score": 1.0,
       "source": "moms_vies_momsnummer",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/myndigheder/eksport-af-regnskab.astro",
+      "confidence_score": 1.0,
       "source": "myndigheder_eksport_af_regnskab",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/myndigheder/regnskabsmateriale.astro",
+      "confidence_score": 1.0,
       "source": "myndigheder_regnskabsmateriale",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/myndigheder/revisor-handoff.astro",
+      "confidence_score": 1.0,
       "source": "myndigheder_revisor_handoff",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/myndigheder/saft.astro",
+      "confidence_score": 1.0,
       "source": "myndigheder_saft",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/ai-bogholder.astro",
+      "confidence_score": 1.0,
       "source": "pages_ai_bogholder",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/bogfoering-for-aps.astro",
+      "confidence_score": 1.0,
       "source": "pages_bogfoering_for_aps",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/bogfoering-for-enkeltmandsvirksomhed.astro",
+      "confidence_score": 1.0,
       "source": "pages_bogfoering_for_enkeltmandsvirksomhed",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/bogfoering-for-freelancere.astro",
+      "confidence_score": 1.0,
       "source": "pages_bogfoering_for_freelancere",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/bogfoeringsprogram.astro",
+      "confidence_score": 1.0,
       "source": "pages_bogfoeringsprogram",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/funktioner.astro",
+      "confidence_score": 1.0,
       "source": "pages_funktioner",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/hvorfor.astro",
+      "confidence_score": 1.0,
       "source": "pages_hvorfor",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/index.astro",
+      "confidence_score": 1.0,
       "source": "pages_index",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/kontakt.astro",
+      "confidence_score": 1.0,
       "source": "pages_kontakt",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/om.astro",
+      "confidence_score": 1.0,
       "source": "pages_om",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/open-source-regnskabsprogram.astro",
+      "confidence_score": 1.0,
       "source": "pages_open_source_regnskabsprogram",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/privatlivspolitik.astro",
+      "confidence_score": 1.0,
       "source": "pages_privatlivspolitik",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/regnskabsprogram.astro",
+      "confidence_score": 1.0,
       "source": "pages_regnskabsprogram",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/saadan-virker-det.astro",
+      "confidence_score": 1.0,
       "source": "pages_saadan_virker_det",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/sikkerhed.astro",
+      "confidence_score": 1.0,
       "source": "pages_sikkerhed",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/regnskab/aabningsbalance.astro",
+      "confidence_score": 1.0,
       "source": "regnskab_aabningsbalance",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/regnskab/aarsrapport.astro",
+      "confidence_score": 1.0,
       "source": "regnskab_aarsrapport",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/regnskab/budget-likviditet.astro",
+      "confidence_score": 1.0,
       "source": "regnskab_budget_likviditet",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/regnskab/flere-virksomheder.astro",
+      "confidence_score": 1.0,
       "source": "regnskab_flere_virksomheder",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/regnskab/kreditorer.astro",
+      "confidence_score": 1.0,
       "source": "regnskab_kreditorer",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/regnskab/periodeafgraensning.astro",
+      "confidence_score": 1.0,
       "source": "regnskab_periodeafgraensning",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/regnskab/skatteopgoerelse.astro",
+      "confidence_score": 1.0,
       "source": "regnskab_skatteopgoerelse",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/bankafstemning.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_bankafstemning",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/banktransaktion.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_banktransaktion",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/bilag.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_bilag",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/faktura.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_faktura",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/kassebon.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_kassebon",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/koerselsgodtgorelse.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_koerselsgodtgorelse",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/kreditnota.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_kreditnota",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/kvittering.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_kvittering",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/leverandoerfaktura.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_leverandoerfaktura",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/mobilepay.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_mobilepay",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/repraesentation.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_repraesentation",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/udenlandsk-faktura.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_udenlandsk_faktura",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/saadan-bogfoerer-du/valuta.astro",
+      "confidence_score": 1.0,
       "source": "saadan_bogfoerer_du_valuta",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/sikkerhed/backup-af-regnskab.astro",
+      "confidence_score": 1.0,
       "source": "sikkerhed_backup_af_regnskab",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/sikkerhed/gdpr.astro",
+      "confidence_score": 1.0,
       "source": "sikkerhed_gdpr",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/sikkerhed/lokal-regnskabsdata.astro",
+      "confidence_score": 1.0,
       "source": "sikkerhed_lokal_regnskabsdata",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/sikkerhed/signeret-backup.astro",
+      "confidence_score": 1.0,
       "source": "sikkerhed_signeret_backup",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/stamdata/cvr.astro",
+      "confidence_score": 1.0,
       "source": "stamdata_cvr",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/vaerktoej/fakturaskabelon.astro",
+      "confidence_score": 1.0,
       "source": "vaerktoej_fakturaskabelon",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/bogfoeringsloven.astro",
+      "confidence_score": 1.0,
       "source": "viden_bogfoeringsloven",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/digital-bogfoering.astro",
+      "confidence_score": 1.0,
       "source": "viden_digital_bogfoering",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/import/dinero.astro",
+      "confidence_score": 1.0,
       "source": "www_src_pages_viden_import_dinero_astro_import_dinero",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_consts",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_consts"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/components/KnowledgeSectionLinks.astro",
+      "confidence_score": 1.0,
       "source": "components_knowledgesectionlinks",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/layouts/BaseLayout.astro",
+      "confidence_score": 1.0,
       "source": "layouts_baselayout",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map"
     },
     {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/pages/viden/index.astro",
+      "confidence_score": 1.0,
       "source": "viden_index",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_site_map"
     },
     {
       "relation": "contains",
@@ -295888,9 +295888,9 @@
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "www/src/layouts/BaseLayout.astro",
+      "confidence_score": 1.0,
       "source": "layouts_baselayout",
-      "target": "users_kraenhansen_repositories_rentemester_www_src_styles_global_css",
-      "confidence_score": 1.0
+      "target": "users_kraenhansen_repositories_rentemester_www_src_styles_global_css"
     },
     {
       "relation": "imports_from",
@@ -302991,9 +302991,9 @@
       "source_file": "CONTRIBUTING.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "contributing",
-      "target": "docs_build_loop",
-      "confidence_score": 1.0
+      "target": "docs_build_loop"
     },
     {
       "relation": "contains",
@@ -303421,9 +303421,9 @@
       "source_file": "README.md",
       "source_location": "L204",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "readme",
-      "target": "agent_demo_readme",
-      "confidence_score": 1.0
+      "target": "agent_demo_readme"
     },
     {
       "relation": "contains",
@@ -303981,9 +303981,9 @@
       "source_file": "ROADMAP.md",
       "source_location": "L84",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "roadmap",
-      "target": "docs_peppol_nemhandel",
-      "confidence_score": 1.0
+      "target": "docs_peppol_nemhandel"
     },
     {
       "relation": "contains",
@@ -304331,9 +304331,9 @@
       "source_file": "docs/compliance/backup-destinations.md",
       "source_location": "L145",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_backup_destinations",
-      "target": "docs_backup_security",
-      "confidence_score": 1.0
+      "target": "docs_backup_security"
     },
     {
       "relation": "references",
@@ -304341,9 +304341,9 @@
       "source_file": "docs/compliance/requirements.md",
       "source_location": "L146",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements",
-      "target": "docs_backup_security",
-      "confidence_score": 1.0
+      "target": "docs_backup_security"
     },
     {
       "relation": "references",
@@ -304351,9 +304351,9 @@
       "source_file": "docs/compliance/requirements-by-area.md",
       "source_location": "L362",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements_by_area",
-      "target": "docs_backup_security",
-      "confidence_score": 1.0
+      "target": "docs_backup_security"
     },
     {
       "relation": "contains",
@@ -304741,9 +304741,9 @@
       "source_file": "docs/cli-contract.md",
       "source_location": "L69",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_cli_contract",
-      "target": "docs_confirm_contract",
-      "confidence_score": 1.0
+      "target": "docs_confirm_contract"
     },
     {
       "relation": "references",
@@ -304751,9 +304751,9 @@
       "source_file": "docs/cli-contract.md",
       "source_location": "L128",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_cli_contract",
-      "target": "docs_mcp_tool_surface",
-      "confidence_score": 1.0
+      "target": "docs_mcp_tool_surface"
     },
     {
       "relation": "references",
@@ -304761,9 +304761,9 @@
       "source_file": "docs/cockpit-api.md",
       "source_location": "L89",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_cockpit_api",
-      "target": "docs_cli_contract",
-      "confidence_score": 1.0
+      "target": "docs_cli_contract"
     },
     {
       "relation": "contains",
@@ -304861,9 +304861,9 @@
       "source_file": "docs/cockpit-api.md",
       "source_location": "L191",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_cockpit_api",
-      "target": "docs_confirm_contract",
-      "confidence_score": 1.0
+      "target": "docs_confirm_contract"
     },
     {
       "relation": "references",
@@ -304871,9 +304871,9 @@
       "source_file": "docs/cockpit-api.md",
       "source_location": "L14",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_cockpit_api",
-      "target": "docs_mcp_agent_contract",
-      "confidence_score": 1.0
+      "target": "docs_mcp_agent_contract"
     },
     {
       "relation": "references",
@@ -304881,9 +304881,9 @@
       "source_file": "docs/cockpit-api.md",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_cockpit_api",
-      "target": "docs_runtime_agent_contract",
-      "confidence_score": 1.0
+      "target": "docs_runtime_agent_contract"
     },
     {
       "relation": "contains",
@@ -305391,9 +305391,9 @@
       "source_file": "docs/compliance/README.md",
       "source_location": "L45",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_readme",
-      "target": "backup_destinations_google_workspace",
-      "confidence_score": 1.0
+      "target": "backup_destinations_google_workspace"
     },
     {
       "relation": "references",
@@ -305401,9 +305401,9 @@
       "source_file": "docs/compliance/README.md",
       "source_location": "L46",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_readme",
-      "target": "backup_destinations_template",
-      "confidence_score": 1.0
+      "target": "backup_destinations_template"
     },
     {
       "relation": "references",
@@ -305411,9 +305411,9 @@
       "source_file": "docs/compliance/README.md",
       "source_location": "L42",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_readme",
-      "target": "compliance_backup_destinations",
-      "confidence_score": 1.0
+      "target": "compliance_backup_destinations"
     },
     {
       "relation": "references",
@@ -305421,9 +305421,9 @@
       "source_file": "docs/compliance/README.md",
       "source_location": "L27",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_readme",
-      "target": "compliance_out_of_scope",
-      "confidence_score": 1.0
+      "target": "compliance_out_of_scope"
     },
     {
       "relation": "contains",
@@ -305441,9 +305441,9 @@
       "source_file": "docs/compliance/README.md",
       "source_location": "L19",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_readme",
-      "target": "compliance_requirements",
-      "confidence_score": 1.0
+      "target": "compliance_requirements"
     },
     {
       "relation": "references",
@@ -305451,9 +305451,9 @@
       "source_file": "docs/compliance/README.md",
       "source_location": "L24",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_readme",
-      "target": "compliance_requirements_by_area",
-      "confidence_score": 1.0
+      "target": "compliance_requirements_by_area"
     },
     {
       "relation": "references",
@@ -305461,9 +305461,9 @@
       "source_file": "docs/compliance/README.md",
       "source_location": "L31",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_readme",
-      "target": "compliance_source_changes",
-      "confidence_score": 1.0
+      "target": "compliance_source_changes"
     },
     {
       "relation": "contains",
@@ -305561,9 +305561,9 @@
       "source_file": "docs/compliance/backup-destinations.md",
       "source_location": "L128",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_backup_destinations",
-      "target": "backup_destinations_google_workspace",
-      "confidence_score": 1.0
+      "target": "backup_destinations_google_workspace"
     },
     {
       "relation": "references",
@@ -305571,9 +305571,9 @@
       "source_file": "docs/compliance/backup-destinations.md",
       "source_location": "L131",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_backup_destinations",
-      "target": "backup_destinations_template",
-      "confidence_score": 1.0
+      "target": "backup_destinations_template"
     },
     {
       "relation": "contains",
@@ -305591,9 +305591,9 @@
       "source_file": "docs/compliance/backup-destinations.md",
       "source_location": "L95",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_backup_destinations",
-      "target": "docs_mcp_tool_surface",
-      "confidence_score": 1.0
+      "target": "docs_mcp_tool_surface"
     },
     {
       "relation": "references",
@@ -305601,9 +305601,9 @@
       "source_file": "docs/compliance/requirements.md",
       "source_location": "L144",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements",
-      "target": "compliance_backup_destinations",
-      "confidence_score": 1.0
+      "target": "compliance_backup_destinations"
     },
     {
       "relation": "references",
@@ -305611,9 +305611,9 @@
       "source_file": "docs/compliance/requirements-by-area.md",
       "source_location": "L358",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements_by_area",
-      "target": "compliance_backup_destinations",
-      "confidence_score": 1.0
+      "target": "compliance_backup_destinations"
     },
     {
       "relation": "references",
@@ -305621,9 +305621,9 @@
       "source_file": "rentemester.md",
       "source_location": "L1734",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "rentemester",
-      "target": "compliance_backup_destinations",
-      "confidence_score": 1.0
+      "target": "compliance_backup_destinations"
     },
     {
       "relation": "contains",
@@ -305791,9 +305791,9 @@
       "source_file": "docs/compliance/requirements.md",
       "source_location": "L145",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements",
-      "target": "backup_destinations_template",
-      "confidence_score": 1.0
+      "target": "backup_destinations_template"
     },
     {
       "relation": "references",
@@ -305801,9 +305801,9 @@
       "source_file": "docs/compliance/requirements-by-area.md",
       "source_location": "L361",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements_by_area",
-      "target": "backup_destinations_template",
-      "confidence_score": 1.0
+      "target": "backup_destinations_template"
     },
     {
       "relation": "contains",
@@ -305941,9 +305941,9 @@
       "source_file": "docs/compliance/requirements.md",
       "source_location": "L145",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements",
-      "target": "backup_destinations_google_workspace",
-      "confidence_score": 1.0
+      "target": "backup_destinations_google_workspace"
     },
     {
       "relation": "references",
@@ -305951,9 +305951,9 @@
       "source_file": "docs/compliance/requirements-by-area.md",
       "source_location": "L360",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements_by_area",
-      "target": "backup_destinations_google_workspace",
-      "confidence_score": 1.0
+      "target": "backup_destinations_google_workspace"
     },
     {
       "relation": "contains",
@@ -306121,9 +306121,9 @@
       "source_file": "docs/compliance/out-of-scope.md",
       "source_location": "L3",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_out_of_scope",
-      "target": "compliance_requirements",
-      "confidence_score": 1.0
+      "target": "compliance_requirements"
     },
     {
       "relation": "references",
@@ -306131,9 +306131,9 @@
       "source_file": "docs/compliance/out-of-scope.md",
       "source_location": "L93",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_out_of_scope",
-      "target": "docs_psd2_assessment",
-      "confidence_score": 1.0
+      "target": "docs_psd2_assessment"
     },
     {
       "relation": "contains",
@@ -306141,9 +306141,9 @@
       "source_file": "docs/compliance/out-of-scope.md",
       "source_location": "L173",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_out_of_scope_bevidste_fravalg_hvad_rentemester_ikke_d\u00e6kker",
-      "target": "compliance_out_of_scope_10_s\u00e5dan_beder_du_om_et_omr\u00e5de_der_ikke_er_listet",
-      "confidence_score": 1.0
+      "target": "compliance_out_of_scope_10_s\u00e5dan_beder_du_om_et_omr\u00e5de_der_ikke_er_listet"
     },
     {
       "relation": "contains",
@@ -306221,9 +306221,9 @@
       "source_file": "docs/compliance/out-of-scope.md",
       "source_location": "L135",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_out_of_scope_bevidste_fravalg_hvad_rentemester_ikke_d\u00e6kker",
-      "target": "compliance_out_of_scope_8_moms_komplekse_fradragsmodeller",
-      "confidence_score": 1.0
+      "target": "compliance_out_of_scope_8_moms_komplekse_fradragsmodeller"
     },
     {
       "relation": "contains",
@@ -306231,9 +306231,9 @@
       "source_file": "docs/compliance/out-of-scope.md",
       "source_location": "L162",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_out_of_scope_bevidste_fravalg_hvad_rentemester_ikke_d\u00e6kker",
-      "target": "compliance_out_of_scope_9_fremtidige_forpligtelser_der_ikke_er_gennemf\u00f8rt_endnu",
-      "confidence_score": 1.0
+      "target": "compliance_out_of_scope_9_fremtidige_forpligtelser_der_ikke_er_gennemf\u00f8rt_endnu"
     },
     {
       "relation": "references",
@@ -306241,9 +306241,9 @@
       "source_file": "docs/compliance/requirements.md",
       "source_location": "L40",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements",
-      "target": "compliance_requirements_by_area",
-      "confidence_score": 1.0
+      "target": "compliance_requirements_by_area"
     },
     {
       "relation": "contains",
@@ -306261,9 +306261,9 @@
       "source_file": "docs/compliance/requirements-by-area.md",
       "source_location": "L432",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements_by_area",
-      "target": "docs_peppol_nemhandel",
-      "confidence_score": 1.0
+      "target": "docs_peppol_nemhandel"
     },
     {
       "relation": "contains",
@@ -306491,9 +306491,9 @@
       "source_file": "docs/compliance/requirements.md",
       "source_location": "L279",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_requirements",
-      "target": "docs_peppol_nemhandel",
-      "confidence_score": 1.0
+      "target": "docs_peppol_nemhandel"
     },
     {
       "relation": "references",
@@ -306501,9 +306501,9 @@
       "source_file": "docs/compliance/source-changes.md",
       "source_location": "L127",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "compliance_source_changes",
-      "target": "compliance_requirements",
-      "confidence_score": 1.0
+      "target": "compliance_requirements"
     },
     {
       "relation": "contains",
@@ -306801,9 +306801,9 @@
       "source_file": "docs/confirm-contract.md",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_confirm_contract",
-      "target": "docs_mcp_agent_contract",
-      "confidence_score": 1.0
+      "target": "docs_mcp_agent_contract"
     },
     {
       "relation": "contains",
@@ -307221,9 +307221,9 @@
       "source_file": "docs/mcp-agent-contract.md",
       "source_location": "L17",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_mcp_agent_contract",
-      "target": "docs_mcp_tool_surface",
-      "confidence_score": 1.0
+      "target": "docs_mcp_tool_surface"
     },
     {
       "relation": "references",
@@ -307231,9 +307231,9 @@
       "source_file": "docs/mcp-agent-contract.md",
       "source_location": "L7",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_mcp_agent_contract",
-      "target": "docs_runtime_agent_contract",
-      "confidence_score": 1.0
+      "target": "docs_runtime_agent_contract"
     },
     {
       "relation": "references",
@@ -307241,9 +307241,9 @@
       "source_file": "docs/mcp-install.md",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_mcp_install",
-      "target": "docs_mcp_agent_contract",
-      "confidence_score": 1.0
+      "target": "docs_mcp_agent_contract"
     },
     {
       "relation": "contains",
@@ -307421,9 +307421,9 @@
       "source_file": "docs/mcp-install.md",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "docs_mcp_install",
-      "target": "docs_mcp_tool_surface",
-      "confidence_score": 1.0
+      "target": "docs_mcp_tool_surface"
     },
     {
       "relation": "contains",
@@ -318902,5 +318902,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "b8b9e1bc2b61367054eac1af3a7e2ebf381fd3f4"
+  "built_at_commit": "ff6c63d9dfadf3c1390001ed97381d7bfb2ece59"
 }

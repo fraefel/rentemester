@@ -58,7 +58,7 @@ export function VatView() {
         <Banner kind="info">
           Denne virksomhed er ikke momsregistreret. Der er derfor ingen momsperiode,
           ingen momsangivelse og ingen SKAT-frist. Tilkøb af bilag med moms bogføres
-          med <code>expense book --vat-treatment non_deductible_full</code> så momsen
+          med <code>expense book --vat-treatment non_deductible</code> så momsen
           absorberes i udgiften. Skal selskabet alligevel momsregistreres, så sæt en
           momsperiode under <Link to={`/${slug}/manage`}>Indstillinger</Link>.
         </Banner>

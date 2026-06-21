@@ -5,7 +5,7 @@ import { postEuServiceReverseChargePurchase, postRepresentationPurchase } from "
 import { absDkk, compareDkk, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk } from "./money";
 
 /**
- * `non_deductible_full` (DK-VAT-NON-DEDUCTIBLE-001 / Momsloven § 37) is the
+ * `non_deductible` (DK-VAT-NON-DEDUCTIBLE-001 / Momsloven § 37) is the
  * treatment for a VAT-charged purchase received by a NOT VAT-registered
  * company — the entire VAT is absorbed into the expense cost basis (gross
  * debit on the expense account, no 4000 input-VAT line, nothing for the
@@ -18,7 +18,7 @@ export type ExpenseVatTreatment =
   | "reverse_charge"
   | "representation"
   | "exempt"
-  | "non_deductible_full";
+  | "non_deductible";
 
 export type BookExpenseFromBankInput = {
   documentId: number;
@@ -61,11 +61,11 @@ function inferVatTreatment(
   if (defaultVatCode === "REPRESENTATION_SPECIAL") return "representation";
   if (defaultVatCode === "DK_PURCHASE_25") {
     // A not-VAT-registered company cannot deduct input VAT under § 37, so a
-    // DK 25 % account's default treatment is `non_deductible_full` (gross to
+    // DK 25 % account's default treatment is `non_deductible` (gross to
     // the expense, no 4000 line) rather than `standard`. EU reverse-charge
     // and representation stay as inferred — those treatments are still
     // legitimate for a non-registered company on rare bilag.
-    return companyIsVatRegistered ? "standard" : "non_deductible_full";
+    return companyIsVatRegistered ? "standard" : "non_deductible";
   }
   // A null or unrecognised default_vat_code must not be silently downgraded
   // to VAT-exempt — that would under-claim købsmoms with no warning.
@@ -155,8 +155,8 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0) errors.push("bankTransactionId must be a positive integer");
   if (typeof input.expenseAccountNo !== "string" || input.expenseAccountNo.trim().length === 0) errors.push("expenseAccountNo is required");
-  if (input.vatTreatment && !["standard", "reverse_charge", "representation", "exempt", "non_deductible_full"].includes(input.vatTreatment)) {
-    errors.push("vatTreatment must be one of standard, reverse_charge, representation, exempt, non_deductible_full when present");
+  if (input.vatTreatment && !["standard", "reverse_charge", "representation", "exempt", "non_deductible"].includes(input.vatTreatment)) {
+    errors.push("vatTreatment must be one of standard, reverse_charge, representation, exempt, non_deductible when present");
   }
   if (errors.length > 0) return { ok: false, appliedRules: [], errors };
 
@@ -216,20 +216,20 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     return {
       ok: false,
       appliedRules: [],
-      errors: [`account ${account.account_no} has an unmapped default_vat_code ${account.default_vat_code === null ? "(none)" : account.default_vat_code} — pass an explicit vatTreatment (standard, reverse_charge, representation, exempt, non_deductible_full)`],
+      errors: [`account ${account.account_no} has an unmapped default_vat_code ${account.default_vat_code === null ? "(none)" : account.default_vat_code} — pass an explicit vatTreatment (standard, reverse_charge, representation, exempt, non_deductible)`],
     };
   }
   const vatTreatment: ExpenseVatTreatment = inferredTreatment;
-  // `non_deductible_full` is meaningful only for a NOT VAT-registered
+  // `non_deductible` is meaningful only for a NOT VAT-registered
   // company (Momsloven § 37 — no deduction without registration). Refuse it
   // for a registered company; their VAT-charged bilag belong on `standard`,
   // which still books the deductible input-VAT line on 4000.
-  if (vatTreatment === "non_deductible_full" && companyIsVatRegistered) {
+  if (vatTreatment === "non_deductible" && companyIsVatRegistered) {
     return {
       ok: false,
       appliedRules: [],
       errors: [
-        "non_deductible_full is only valid when the company is not VAT-registered (vatPeriodType === null) — use 'standard' for a registered company",
+        "non_deductible is only valid when the company is not VAT-registered (vatPeriodType === null) — use 'standard' for a registered company",
       ],
     };
   }
@@ -351,7 +351,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment };
   }
 
-  if (vatTreatment === "non_deductible_full") {
+  if (vatTreatment === "non_deductible") {
     // The same two-line shape as `exempt` (gross debit on expense, gross
     // credit on payment), but `vat_amount > 0` is allowed because the VAT
     // is on the bilag — it just can't be reclaimed (§ 37) so it is

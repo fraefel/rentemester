@@ -14,7 +14,7 @@ import { storeViesValidation } from "../../src/core/vies";
 
 describe("expense booking", () => {
   // ---------------------------------------------------------------------
-  // #514 — non_deductible_full: VAT-charged bilag at NOT VAT-registered
+  // #514 — non_deductible: VAT-charged bilag at NOT VAT-registered
   // companies (a holding ApS, en frivilligt momsfritaget virksomhed eller en
   // mikrovirksomhed under § 48-tærsklen). The VAT is absorbed into the cost
   // basis under § 37 — no 4000 line, no momsangivelse contribution.
@@ -30,9 +30,9 @@ describe("expense booking", () => {
     );
   }
 
-  test("non_deductible_full posts gross to expense + payment, no 4000 line, at non-registered company", () => {
-    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-"));
-    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-inbox-"));
+  test("non_deductible posts gross to expense + payment, no 4000 line, at non-registered company", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-inbox-"));
     const csv = join(root, "transactions.csv");
     const sourceFile = join(inbox, "depotgebyr.txt");
     // Danske Bank Depotgebyr — the canonical motivating example: net 42,31 +
@@ -73,12 +73,12 @@ describe("expense booking", () => {
       documentId: doc.documentId!,
       bankTransactionId: bankRow.id,
       expenseAccountNo: "3300",
-      vatTreatment: "non_deductible_full",
+      vatTreatment: "non_deductible",
     });
 
     expect({ ok: booked.ok, errors: booked.errors }).toEqual({ ok: true, errors: [] });
     expect(booked.grossAmount).toBe(52.89);
-    expect(booked.vatTreatment).toBe("non_deductible_full");
+    expect(booked.vatTreatment).toBe("non_deductible");
     // netAmount carries the gross figure too — the whole bilag IS the cost.
     expect(booked.netAmount).toBe(52.89);
     expect(booked.vatAmount).toBe(0);
@@ -110,9 +110,9 @@ describe("expense booking", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("non_deductible_full is refused at a VAT-registered company (points at standard)", () => {
-    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-reg-"));
-    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-reg-inbox-"));
+  test("non_deductible is refused at a VAT-registered company (points at standard)", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-reg-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-reg-inbox-"));
     const csv = join(root, "transactions.csv");
     const sourceFile = join(inbox, "vendor.txt");
     writeFileSync(csv, [
@@ -149,7 +149,7 @@ describe("expense booking", () => {
       documentId: doc.documentId!,
       bankTransactionId: bankRow.id,
       expenseAccountNo: "3000",
-      vatTreatment: "non_deductible_full",
+      vatTreatment: "non_deductible",
     });
 
     expect(booked.ok).toBe(false);
@@ -161,9 +161,9 @@ describe("expense booking", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("non_deductible_full accepts vat_amount = 0 too (superset of exempt at non-registered company)", () => {
-    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-vat0-"));
-    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-vat0-inbox-"));
+  test("non_deductible accepts vat_amount = 0 too (superset of exempt at non-registered company)", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-vat0-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-vat0-inbox-"));
     const csv = join(root, "transactions.csv");
     const sourceFile = join(inbox, "vendor.txt");
     writeFileSync(csv, [
@@ -199,11 +199,11 @@ describe("expense booking", () => {
       documentId: doc.documentId!,
       bankTransactionId: bankRow.id,
       expenseAccountNo: "3300",
-      vatTreatment: "non_deductible_full",
+      vatTreatment: "non_deductible",
     });
 
     expect({ ok: booked.ok, errors: booked.errors }).toEqual({ ok: true, errors: [] });
-    expect(booked.vatTreatment).toBe("non_deductible_full");
+    expect(booked.vatTreatment).toBe("non_deductible");
     // Two-line booking unchanged when vat_amount is 0 — the shape is identical
     // to a vat-charged bilag, just with the gross == net coincidence.
     const lines = db
@@ -229,9 +229,9 @@ describe("expense booking", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("inference picks non_deductible_full for DK_PURCHASE_25 account when company is not VAT-registered", () => {
-    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-infer-"));
-    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-full-infer-inbox-"));
+  test("inference picks non_deductible for DK_PURCHASE_25 account when company is not VAT-registered", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-infer-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-infer-inbox-"));
     const csv = join(root, "transactions.csv");
     const sourceFile = join(inbox, "vendor.txt");
     writeFileSync(csv, [
@@ -264,7 +264,7 @@ describe("expense booking", () => {
       .query("SELECT id FROM bank_transactions WHERE reference = 'REF-NDF-INF-1'")
       .get() as { id: number };
     // 3000 (Software og SaaS) has DK_PURCHASE_25 as default_vat_code. With no
-    // explicit --vat-treatment, the inference must pick non_deductible_full
+    // explicit --vat-treatment, the inference must pick non_deductible
     // for a not-VAT-registered company — never `standard`, which would park
     // the moms on 4000 Købsmoms where it can never be deducted.
     const booked = bookExpenseFromBank(db, {
@@ -274,7 +274,7 @@ describe("expense booking", () => {
     });
 
     expect({ ok: booked.ok, errors: booked.errors }).toEqual({ ok: true, errors: [] });
-    expect(booked.vatTreatment).toBe("non_deductible_full");
+    expect(booked.vatTreatment).toBe("non_deductible");
 
     db.close();
     rmSync(root, { recursive: true, force: true });

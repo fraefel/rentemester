@@ -142,7 +142,7 @@ states ([DK-VAT-REGISTRATION-001](requirements.md#35-momsloven-lbk-2092024)):
 - **Ikke momsregistreret** (`NULL` cadence) — et holdingselskab, en
   frivilligt momsfritaget virksomhed, eller en mikrovirksomhed under
   § 48-tærsklen. Bilag med moms bogføres med
-  [`non_deductible_full`](../../src/core/expense-booking.ts) så momsen
+  [`non_deductible`](../../src/core/expense-booking.ts) så momsen
   absorberes i kostprisen ([DK-VAT-NON-DEDUCTIBLE-001](requirements.md#35-momsloven-lbk-2092024)).
 
 **Hvad der IKKE er modelleret:** den mellemliggende tilstand —

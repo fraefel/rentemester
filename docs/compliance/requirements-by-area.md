@@ -262,7 +262,7 @@ ikke-fradragsberettiget købsmoms i kostprisen uden at parkere den på
 | [DK-VAT-EU-SALES-LIST-001](requirements.md#35-momsloven-lbk-2092024) | EU B2B-salg uden DK-moms grupperes pr. kunde-VAT. |
 | [DK-VAT-OSS-001](requirements.md#35-momsloven-lbk-2092024) | OSS-salg holdes ude af standard-angivelsen. |
 | [DK-VAT-REGISTRATION-001](requirements.md#35-momsloven-lbk-2092024) | Momsregistrering er en eksplicit virksomhedsstilstand — NULL `vat_period_type` = "ikke momsregistreret", momsangivelser/-frister afvises. |
-| [DK-VAT-NON-DEDUCTIBLE-001](requirements.md#35-momsloven-lbk-2092024) | Ikke-registreret virksomhed kan ikke fradrage købsmoms — `non_deductible_full` absorberer momsen i kostprisen. |
+| [DK-VAT-NON-DEDUCTIBLE-001](requirements.md#35-momsloven-lbk-2092024) | Ikke-registreret virksomhed kan ikke fradrage købsmoms — `non_deductible` absorberer momsen i kostprisen. |
 | [DK-VAT-SEPARATE-AMOUNT-001](requirements.md#36-momsbekendtgørelsen-bek-14352023) | Dansk moms-fradrag kræver angivet moms-beløb. |
 
 Alle kode-håndhævet. VIES-lookup mod EU's moms-VIES-tjeneste bruges

@@ -12,7 +12,7 @@ export const initSpec: CommandSpec[] = [
     inputNotes: [
       "Ligger virksomhedsmappen i et workspace (via --workspace eller RENTEMESTER_WORKSPACE), registreres virksomheden også i workspacet, så Cockpittet kan se den.",
       "--vat-period sætter virksomhedens momsperiode: month (måneds-moms), quarter (kvartals-moms) eller half-year (halvårs-moms). Standard er quarter. Vælg den periode du er registreret for hos SKAT — momsperioder og -frister følger dette valg.",
-      "--no-vat (eller --vat-period none) markerer virksomheden som IKKE momsregistreret — et holdingselskab, en frivilligt momsfritaget virksomhed eller en mikrovirksomhed under § 48-tærsklen. Hele momsstakken (dashboard, momsangivelse, deadlines) tier så stille, og købsmoms på bilag absorberes i udgiften via expense book --vat-treatment non_deductible_full.",
+      "--no-vat (eller --vat-period none) markerer virksomheden som IKKE momsregistreret — et holdingselskab, en frivilligt momsfritaget virksomhed eller en mikrovirksomhed under § 48-tærsklen. Hele momsstakken (dashboard, momsangivelse, deadlines) tier så stille, og købsmoms på bilag absorberes i udgiften via expense book --vat-treatment non_deductible.",
       "Virksomhedsprofilen kan rettes senere med 'company set-profile' — du behøver aldrig at indtaste din egen stamdata på en faktura igen.",
     ],
   },

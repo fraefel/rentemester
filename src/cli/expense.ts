@@ -13,7 +13,7 @@ export function register(dispatch: CommandDispatch): void {
       | "reverse_charge"
       | "representation"
       | "exempt"
-      | "non_deductible_full"
+      | "non_deductible"
       | undefined;
     if (
       !Number.isInteger(documentId) ||

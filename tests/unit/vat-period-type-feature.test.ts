@@ -690,6 +690,80 @@ describe("setCompanyVatPeriodType — round-trip between cadence and null (#514)
   });
 });
 
+// The deregistration guard must not strand posted VAT activity. Coverage is
+// judged by EFFECTIVE period state, so a reopened period (row still 'closed')
+// is correctly treated as open again.
+describe("setCompanyVatPeriodType — deregistration guard vs open VAT periods", () => {
+  function deregister(ws: string, slug: string) {
+    const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+    try {
+      migrate(db);
+      return setCompanyVatPeriodType(db, null);
+    } finally {
+      db.close();
+    }
+  }
+
+  test("refuses while a VAT period carrying posted activity is still open", () => {
+    const { root: ws, slug } = makeWorkspace("dereg-open", "quarter");
+    try {
+      postVatSale(ws, slug, "2026-02-15");
+      const res = deregister(ws, slug);
+      expect(res.ok).toBe(false);
+      expect(res.changed).toBe(false);
+      expect(res.errors[0]).toContain("åben momsperiode");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("allows deregistration once the VAT period is closed", async () => {
+    const { root: ws, slug } = makeWorkspace("dereg-closed", "quarter");
+    try {
+      postVatSale(ws, slug, "2026-02-15");
+      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        confirm: true,
+      });
+      expect(closed.status).toBe(200);
+      const res = deregister(ws, slug);
+      expect(res).toEqual({ ok: true, changed: true, errors: [] });
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses again after a closed VAT period is REOPENED (effective state, not row status)", async () => {
+    const { root: ws, slug } = makeWorkspace("dereg-reopened", "quarter");
+    try {
+      postVatSale(ws, slug, "2026-02-15");
+      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        confirm: true,
+      });
+      expect(closed.status).toBe(200);
+      const reopened = await post(config(ws), `/api/companies/${slug}/periods/reopen`, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        kind: "vat_quarter",
+        reason: "bilag bogført for sent",
+        confirm: true,
+      });
+      expect(reopened.status).toBe(200);
+      // The period row still reads 'closed'; only the append-only audit log
+      // carries the reopen. A row-status check would wrongly allow deregister.
+      const res = deregister(ws, slug);
+      expect(res.ok).toBe(false);
+      expect(res.changed).toBe(false);
+      expect(res.errors[0]).toContain("åben momsperiode");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("dashboard + obligations gate VAT-only output for non-registered (#514)", () => {
   test("CLI dashboard renders an 'Ikke momsregistreret' card instead of a momsfrist", async () => {
     const root = tmpRoot("cli-dash-no-vat");

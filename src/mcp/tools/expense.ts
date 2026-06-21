@@ -26,7 +26,12 @@ const vatTreatmentEnum = z
       "'non_deductible' = a VAT-charged bilag at a NOT VAT-registered company " +
       "(Momsloven § 37) — the entire VAT is absorbed into the cost basis; no 4000 " +
       "input-VAT line is written. Refused for a VAT-registered company. " +
-      "When omitted, 'standard' is used.",
+      "When omitted, the treatment is INFERRED from the expense account's " +
+      "default_vat_code: a DK 25 % purchase account maps to 'standard' for a " +
+      "VAT-registered company but to 'non_deductible' for a non-registered one; " +
+      "an EU-service account maps to 'reverse_charge' and a representation " +
+      "account to 'representation'. An account with no recognised default_vat_code " +
+      "is refused — pass an explicit vatTreatment in that case.",
   );
 
 export function registerExpenseTools(server: McpServer): void {

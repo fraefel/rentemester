@@ -23,11 +23,18 @@ import type {
 // guide; link there with an absolute URL, matching HelpView's DOCS_BASE pattern.
 const CVR_SETUP_GUIDE_URL = "https://rentemester.dk/docs/installation";
 
-/** The VAT-cadence options for the profile / create-company selectors (#300). */
-const VAT_PERIOD_OPTIONS: Array<{ value: VatPeriodType; label: string }> = [
+/**
+ * VAT-cadence options for the profile selector (#300). `"none"` is the
+ * form-level sentinel for a NOT VAT-registered company; it is submitted to the
+ * PATCH-profile endpoint as `null`, which deregisters the company. Without this
+ * option an owner of a non-registered holding ApS could never keep — and would
+ * silently re-register on — the not-registered state when saving the profile.
+ */
+const VAT_PERIOD_OPTIONS: Array<{ value: VatPeriodType | "none"; label: string }> = [
   { value: "month", label: "Måned (måneds-moms)" },
   { value: "quarter", label: "Kvartal (kvartals-moms)" },
   { value: "half-year", label: "Halvår (halvårs-moms)" },
+  { value: "none", label: "Ikke momsregistreret" },
 ];
 
 export function ManageCompanyView() {
@@ -228,13 +235,13 @@ function ProfileCard({
   const [address, setAddress] = useState(initial.address ?? "");
   const [postalCode, setPostalCode] = useState(initial.postalCode ?? "");
   const [city, setCity] = useState(initial.city ?? "");
-  // #300: the VAT settlement cadence is editable from the cockpit. The
-  // dropdown only exposes the three cadences for now; turning the
-  // registration off is the job of a follow-up commit. Default to `quarter`
-  // in the form state so the dropdown has a valid selection when
-  // `initial.vatPeriodType` is null (a not-VAT-registered company).
-  const [vatPeriodType, setVatPeriodType] = useState<VatPeriodType>(
-    initial.vatPeriodType ?? "quarter",
+  // #300: the VAT settlement cadence is editable from the cockpit, including
+  // turning registration OFF (`"none"` → submitted as `null`). Initialise the
+  // form state from `initial.vatPeriodType` so a not-VAT-registered company
+  // (null) shows "Ikke momsregistreret" selected — defaulting to `quarter`
+  // here would silently re-register the company on the next profile save.
+  const [vatPeriodType, setVatPeriodType] = useState<VatPeriodType | "none">(
+    initial.vatPeriodType ?? "none",
   );
   const [bankName, setBankName] = useState(initial.payment?.bankName ?? "");
   const [registrationNo, setRegistrationNo] = useState(
@@ -266,7 +273,9 @@ function ProfileCard({
         address: address.trim(),
         postalCode: postalCode.trim(),
         city: city.trim(),
-        vatPeriodType,
+        // `"none"` → null so the server deregisters the company; a real
+        // cadence is sent verbatim.
+        vatPeriodType: vatPeriodType === "none" ? null : vatPeriodType,
         payment: {
           bankName: bankName.trim(),
           registrationNo: registrationNo.trim(),
@@ -275,7 +284,7 @@ function ProfileCard({
         },
       });
       setSettings(updated);
-      setVatPeriodType(updated.vatPeriodType ?? "quarter");
+      setVatPeriodType(updated.vatPeriodType ?? "none");
       setNotice("Stamdata opdateret.");
     } catch (err) {
       setError(
@@ -339,7 +348,7 @@ function ProfileCard({
             name="vatPeriodType"
             value={vatPeriodType}
             onChange={(e) =>
-              setVatPeriodType(e.target.value as VatPeriodType)
+              setVatPeriodType(e.target.value as VatPeriodType | "none")
             }
           >
             {VAT_PERIOD_OPTIONS.map((o) => (
@@ -350,7 +359,9 @@ function ProfileCard({
           </select>
           <span className="field-hint">
             Den momsperiode virksomheden er registreret for hos SKAT.
-            Momsperioder og -frister følger dette valg.
+            Momsperioder og -frister følger dette valg. Vælg «Ikke
+            momsregistreret» for en virksomhed uden momsregistrering (fx
+            holdingselskab) — momsfrister og momsangivelse slås så fra.
           </span>
         </label>
         <label>

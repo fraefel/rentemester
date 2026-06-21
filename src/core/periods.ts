@@ -193,35 +193,59 @@ export function setCompanyVatPeriodType(
   // Going from registered → not-registered must not silently strand posted
   // VAT activity (output VAT on a sale, deductible input VAT on a bilag).
   // Refuse when the ledger carries any posted entry on a `vat`-type account
-  // whose date is NOT inside a closed/reported VAT period — i.e. any open
-  // VAT obligation that would otherwise lose its filing path. The owner
-  // must close + indberette before deregistering.
+  // whose date is NOT inside an EFFECTIVELY closed/reported VAT period — i.e.
+  // any open VAT obligation that would otherwise lose its filing path. The
+  // owner must close + indberette before deregistering.
+  //
+  // Coverage is judged by `effectivePeriodState`, NOT the period row's stored
+  // status: a period that was closed and then reopened (#247) keeps its row at
+  // `closed` while being effectively `open` again, so a raw `ap.status` check
+  // would let a reopen→deregister sequence strand posted VAT activity — the
+  // exact failure this guard exists to prevent. This mirrors the lens
+  // `closeAccountingPeriod` / `validateJournalTransactionDate` already use.
   if (type === null && before.t !== null) {
-    const openVatActivity = db
+    const vatEntryDates = db
       .query(
-        `SELECT COUNT(*) AS n
+        `SELECT DISTINCT je.transaction_date AS d
            FROM journal_lines jl
            JOIN accounts a ON a.id = jl.account_id
            JOIN journal_entries je ON je.id = jl.journal_entry_id
           WHERE a.type = 'vat'
-            AND je.status = 'posted'
-            AND NOT EXISTS (
-              SELECT 1
-                FROM accounting_periods ap
-               WHERE ap.kind = 'vat_quarter'
-                 AND ap.status IN ('closed', 'reported')
-                 AND je.transaction_date BETWEEN ap.period_start AND ap.period_end
-            )`,
+            AND je.status = 'posted'`,
       )
-      .get() as { n: number };
-    if (openVatActivity.n > 0) {
-      return {
-        ok: false,
-        changed: false,
-        errors: [
-          "selskabet har bogført momsaktivitet i en åben momsperiode — luk perioden og indberet momsangivelsen før selskabet markeres som ikke-momsregistreret (kør 'vat momsangivelse' efterfulgt af 'period close')",
-        ],
-      };
+      .all() as Array<{ d: string }>;
+    if (vatEntryDates.length > 0) {
+      const vatPeriods = db
+        .query(
+          `SELECT id, period_start, period_end, status
+             FROM accounting_periods
+            WHERE kind = 'vat_quarter'`,
+        )
+        .all() as Array<{
+        id: number;
+        period_start: string;
+        period_end: string;
+        status: AccountingPeriodStatus;
+      }>;
+      const settledPeriods = vatPeriods.filter((p) => {
+        const state = effectivePeriodState(db, p.id, p.status);
+        return state === "closed" || state === "reported";
+      });
+      const hasOpenVatActivity = vatEntryDates.some(
+        (entry) =>
+          !settledPeriods.some(
+            (p) => entry.d >= p.period_start && entry.d <= p.period_end,
+          ),
+      );
+      if (hasOpenVatActivity) {
+        return {
+          ok: false,
+          changed: false,
+          errors: [
+            "selskabet har bogført momsaktivitet i en åben momsperiode — luk perioden og indberet momsangivelsen før selskabet markeres som ikke-momsregistreret (kør 'vat momsangivelse' efterfulgt af 'period close')",
+          ],
+        };
+      }
     }
   }
   db.query("UPDATE companies SET vat_period_type = ? WHERE id = 1").run(type);

@@ -158,9 +158,9 @@ export function vatPeriodsForYear(year: number, type: VatPeriodType | null): Vat
 /**
  * #300: writes the company's VAT settlement cadence onto the single
  * `companies` row. `type` is `month` / `quarter` / `half-year`, or `null` to
- * mark the company as NOT VAT-registered — every VAT-aware surface gates on
- * the null state. Used by `company set-profile`, the cockpit's PATCH-profile
- * endpoint and `init --no-vat`.
+ * mark the company as NOT VAT-registered (DK-VAT-REGISTRATION-001) — every
+ * VAT-aware surface gates on the null state. Used by `company set-profile`,
+ * the cockpit's PATCH-profile endpoint and `init --no-vat`.
  *
  * Defensively ensures the `vat_period_type` column exists and is nullable
  * before writing — calls `ensureNullableVatPeriodColumn` directly so a

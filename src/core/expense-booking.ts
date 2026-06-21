@@ -5,12 +5,13 @@ import { postEuServiceReverseChargePurchase, postRepresentationPurchase } from "
 import { absDkk, compareDkk, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk } from "./money";
 
 /**
- * `non_deductible_full` (Momsloven § 37) is the treatment for a VAT-charged
- * purchase received by a NOT VAT-registered company — the entire VAT is
- * absorbed into the expense cost basis (gross debit on the expense account,
- * no 4000 input-VAT line, nothing for the momsangivelse). The branch mirrors
- * `exempt`'s line shape but accepts `vat_amount > 0`. It is refused on a
- * registered company; for those, `standard` is the right treatment.
+ * `non_deductible_full` (DK-VAT-NON-DEDUCTIBLE-001 / Momsloven § 37) is the
+ * treatment for a VAT-charged purchase received by a NOT VAT-registered
+ * company — the entire VAT is absorbed into the expense cost basis (gross
+ * debit on the expense account, no 4000 input-VAT line, nothing for the
+ * momsangivelse). The branch mirrors `exempt`'s line shape but accepts
+ * `vat_amount > 0`. It is refused on a registered company; for those,
+ * `standard` is the right treatment.
  */
 export type ExpenseVatTreatment =
   | "standard"

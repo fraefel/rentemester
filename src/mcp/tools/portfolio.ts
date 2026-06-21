@@ -104,8 +104,9 @@ function companyStatusRow(
     // A non-registered company has no VAT period — surface a sentinel so
     // the portfolio JSON consumer can branch on `vatRegistered: false`
     // instead of reading an invented period.
+    const vatPeriodType = settings.vatPeriodType;
     const vatBlock =
-      settings.vatPeriodType === null
+      vatPeriodType === null
         ? {
             vatRegistered: false as const,
             periodStart: null,
@@ -115,7 +116,7 @@ function companyStatusRow(
             canCompute: false,
           }
         : (() => {
-            const period = vatPeriodWindowFor(asOfDate, settings.vatPeriodType!);
+            const period = vatPeriodWindowFor(asOfDate, vatPeriodType);
             const vat = buildVatReport(db, period.start, period.end);
             return {
               vatRegistered: true as const,

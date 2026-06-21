@@ -170,11 +170,12 @@ function summariseCompany(
     // A non-registered company has no VAT period at all — the portfolio-card
     // type carries `vat: CompanyVatSummary | null`, so the SPA hides the
     // card.
+    const vatPeriodType = company.vatPeriodType;
     const vat: CompanyVatSummary | null =
-      company.vatPeriodType === null
+      vatPeriodType === null
         ? null
         : (() => {
-            const vatPeriod = selectVatPeriod(db, yearNum, company.vatPeriodType!);
+            const vatPeriod = selectVatPeriod(db, yearNum, vatPeriodType);
             return {
               payable: vatPeriod.position.payable,
               deadline: vatPeriod.deadline,
@@ -374,8 +375,9 @@ export function buildCompanyDashboardData(
     // with null period bounds and zero figures so the dashboard renderer can
     // branch on it.
     const { year: vatYear } = currentFiscalYear(db, company);
+    const vatPeriodTypeForBlock = company.vatPeriodType;
     const vatBlock =
-      company.vatPeriodType === null
+      vatPeriodTypeForBlock === null
         ? {
             periodStart: null as string | null,
             periodEnd: null as string | null,
@@ -384,7 +386,7 @@ export function buildCompanyDashboardData(
             errors: [] as string[],
           }
         : (() => {
-            const vatSelection = selectVatPeriod(db, vatYear, company.vatPeriodType!);
+            const vatSelection = selectVatPeriod(db, vatYear, vatPeriodTypeForBlock);
             const period = { start: vatSelection.start, end: vatSelection.end };
             const vatPeriod = buildVatReport(db, period.start, period.end);
             return {

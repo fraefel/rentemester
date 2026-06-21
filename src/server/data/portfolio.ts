@@ -31,7 +31,6 @@ import { ApiError } from "../errors";
 import { currentFiscalYear, roundKroner, todayIsoDate } from "./shared";
 import { actualBankBalanceAsOf, bankStatementStatusAsOf } from "./bank";
 import { selectVatPeriod } from "./vat";
-import { DEFAULT_VAT_PERIOD_TYPE } from "../../core/periods";
 import { groupExceptions, type ExceptionGroup } from "./exceptions";
 
 // --------------------------------------------------------------------------
@@ -168,18 +167,20 @@ function summariseCompany(
     // VAT: the booked position for the company's actual VAT period — the
     // period (month / quarter / half-year, per `vatPeriodType`) that is due
     // now. Every cockpit surface reads the same cadence, so they agree (#299).
-    // #514: a non-registered company has no cadence — fall back to the
-    // historical default. Proper "no VAT card" gating lands in a follow-up.
-    const vatPeriod = selectVatPeriod(
-      db,
-      yearNum,
-      company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
-    );
-    const vat: CompanyVatSummary = {
-      payable: vatPeriod.position.payable,
-      deadline: vatPeriod.deadline,
-      daysRemaining: daysBetween(todayIsoDate(), vatPeriod.deadline),
-    };
+    // #514: a non-registered company has no VAT period at all — the
+    // portfolio-card type carries `vat: CompanyVatSummary | null`, so the
+    // SPA simply hides the card.
+    const vat: CompanyVatSummary | null =
+      company.vatPeriodType === null
+        ? null
+        : (() => {
+            const vatPeriod = selectVatPeriod(db, yearNum, company.vatPeriodType!);
+            return {
+              payable: vatPeriod.position.payable,
+              deadline: vatPeriod.deadline,
+              daysRemaining: daysBetween(todayIsoDate(), vatPeriod.deadline),
+            };
+          })();
 
     // Open tasks — open exceptions grouped into Danish summary lines.
     const exceptions = listExceptions(db, { status: "open" });
@@ -221,7 +222,9 @@ function summariseCompany(
       overdueInvoiceCount: overdue.count,
       unlinkedBankCount: unlinked.count,
       openExceptionCount: exceptions.count,
-      netVatPayable: vat.payable,
+      // #514: a non-registered company has no payable VAT; surface 0 so the
+      // legacy roll-up math (vatPayable across companies) stays a plain sum.
+      netVatPayable: vat?.payable ?? 0,
     };
   } finally {
     db.close();
@@ -367,16 +370,33 @@ export function buildCompanyDashboardData(
     // file now — exactly as the Overblik card and `vat momsangivelse` do
     // (#281). #299: the period follows the company's real VAT cadence
     // (`vatPeriodType`), so a monthly/half-yearly filer sees its own period.
+    // #514: a non-registered company has no VAT period — the `vat` block is
+    // emitted with null period bounds and zero figures so the dashboard
+    // renderer can branch on it.
     const { year: vatYear } = currentFiscalYear(db, company);
-    const vatSelection = selectVatPeriod(
-      db,
-      vatYear,
-      company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
-    );
-    const period = { start: vatSelection.start, end: vatSelection.end };
-    const vatPeriod = buildVatReport(db, period.start, period.end);
-    const vatDeadline = vatSelection.deadline;
-    const vatDaysRemaining = daysBetween(asOfDate, vatDeadline);
+    const vatBlock =
+      company.vatPeriodType === null
+        ? {
+            periodStart: null as string | null,
+            periodEnd: null as string | null,
+            netVatPayable: 0,
+            daysRemaining: null as number | null,
+            errors: [] as string[],
+          }
+        : (() => {
+            const vatSelection = selectVatPeriod(db, vatYear, company.vatPeriodType!);
+            const period = { start: vatSelection.start, end: vatSelection.end };
+            const vatPeriod = buildVatReport(db, period.start, period.end);
+            return {
+              periodStart: period.start as string | null,
+              periodEnd: period.end as string | null,
+              netVatPayable: vatPeriod.netVatPayable,
+              daysRemaining: daysBetween(asOfDate, vatSelection.deadline) as
+                | number
+                | null,
+              errors: vatPeriod.errors ?? [],
+            };
+          })();
     const recentActivity = listRecentAuditLog(db, 10);
     const backup = getBackupComplianceStatus(db, companyRoot, asOfDate);
     const audit = verifyAuditChain(db);
@@ -412,13 +432,7 @@ export function buildCompanyDashboardData(
           message: row.message,
         })),
       },
-      vat: {
-        periodStart: period.start,
-        periodEnd: period.end,
-        netVatPayable: vatPeriod.netVatPayable,
-        daysRemaining: vatDaysRemaining,
-        errors: vatPeriod.errors ?? [],
-      },
+      vat: vatBlock,
       backup: {
         backupsFound: backup.backupsFound,
         latestBackupAt: backup.latestBackupAt,

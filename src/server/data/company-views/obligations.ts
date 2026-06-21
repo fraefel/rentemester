@@ -1,7 +1,6 @@
 import { diffDaysSafe as daysBetween } from "../../../core/dates";
 import { annualReportDeadline, fiscalYearForDate } from "../../../core/fiscal-year";
 import {
-  DEFAULT_VAT_PERIOD_TYPE,
   vatPeriodsForYear,
   vatPeriodLabel,
 } from "../../../core/periods";
@@ -154,13 +153,10 @@ export function buildCompanyObligations(
     // has a payable, no VAT obligation is shown. #299: the periods follow the
     // company's real VAT cadence (`vatPeriodType`) — a monthly filer sees up to
     // twelve VAT lines, a half-yearly filer two — never a hardcoded quarter.
-    // #514: a non-registered company has no cadence — fall back to the
-    // historical default here. The proper "skip VAT obligations entirely"
-    // gate for null lands in a follow-up commit.
-    for (const window of vatPeriodsForYear(
-      yearNum,
-      ctx.company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
-    )) {
+    // #514: a non-registered company has no VAT periods — `vatPeriodsForYear`
+    // returns `[]` for a null cadence, so the loop body simply never runs and
+    // the obligations list carries zero VAT lines.
+    for (const window of vatPeriodsForYear(yearNum, ctx.company.vatPeriodType)) {
       const position = vatPositionForPeriod(ctx.db, window.start, window.end);
       if (position.payable > 0) {
         obligations.push({

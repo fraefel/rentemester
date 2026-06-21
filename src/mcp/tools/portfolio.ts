@@ -27,7 +27,7 @@ import { existsSync } from "node:fs";
 import { z } from "zod";
 import { createCompany, getCompanySettings } from "../../core/company";
 import { companyPaths } from "../../core/paths";
-import { DEFAULT_VAT_PERIOD_TYPE, vatPeriodWindowFor } from "../../core/periods";
+import { vatPeriodWindowFor } from "../../core/periods";
 import { diffDaysSafe as daysBetween } from "../../core/dates";
 import { openDb, migrate } from "../../core/db";
 import { verifyAuditChain } from "../../core/ledger";
@@ -101,13 +101,31 @@ function companyStatusRow(
     // The VAT period window follows the company's real SKAT cadence
     // (`vatPeriodType`) — a monthly filer gets a one-month window, a
     // half-yearly filer a six-month one. `core/periods.ts` owns the math.
-    // #514: a non-registered company has no cadence — fall back to the
-    // historical default here.
-    const period = vatPeriodWindowFor(
-      asOfDate,
-      settings.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
-    );
-    const vat = buildVatReport(db, period.start, period.end);
+    // #514: a non-registered company has no VAT period — surface a sentinel
+    // so the portfolio JSON consumer can branch on `vatRegistered: false`
+    // instead of reading an invented period.
+    const vatBlock =
+      settings.vatPeriodType === null
+        ? {
+            vatRegistered: false as const,
+            periodStart: null,
+            periodEnd: null,
+            daysUntilDue: null,
+            netVatPayable: null,
+            canCompute: false,
+          }
+        : (() => {
+            const period = vatPeriodWindowFor(asOfDate, settings.vatPeriodType!);
+            const vat = buildVatReport(db, period.start, period.end);
+            return {
+              vatRegistered: true as const,
+              periodStart: period.start,
+              periodEnd: period.end,
+              daysUntilDue: daysBetween(asOfDate, period.end),
+              netVatPayable: vat.ok ? vat.netVatPayable : null,
+              canCompute: vat.ok,
+            };
+          })();
     const open = buildInvoiceList(db, { status: "open", asOfDate });
     const overdue = buildInvoiceList(db, { status: "overdue", asOfDate });
     const exceptions = listExceptions(db, { status: "open" });
@@ -119,13 +137,7 @@ function companyStatusRow(
       name: settings.name || registeredName,
       cvr: settings.cvr,
       ok: true,
-      vat: {
-        periodStart: period.start,
-        periodEnd: period.end,
-        daysUntilDue: daysBetween(asOfDate, period.end),
-        netVatPayable: vat.ok ? vat.netVatPayable : null,
-        canCompute: vat.ok,
-      },
+      vat: vatBlock,
       openReceivables: {
         count: open.count,
         totalOpenBalance: openReceivables,

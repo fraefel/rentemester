@@ -1,6 +1,5 @@
 import { diffDaysSafe as daysBetween } from "../../../core/dates";
 import {
-  DEFAULT_VAT_PERIOD_TYPE,
   vatPeriodWindowFor,
   vatPeriodLabel,
   type EffectivePeriodState,
@@ -21,7 +20,15 @@ import {
 // Per-company VAT return (Moms, year-aware) — cockpit-redesign it. 3
 // --------------------------------------------------------------------------
 
-export type CompanyVat = ReturnType<typeof buildCompanyVat>;
+export type CompanyVatRegistered = Extract<
+  ReturnType<typeof buildCompanyVat>,
+  { vatRegistered: true }
+>;
+export type CompanyVatNotRegistered = Extract<
+  ReturnType<typeof buildCompanyVat>,
+  { vatRegistered: false }
+>;
+export type CompanyVat = CompanyVatRegistered | CompanyVatNotRegistered;
 
 /**
  * Moms — the VAT return for the selected calendar fiscal year. The VAT period
@@ -44,14 +51,26 @@ export function buildCompanyVat(
   const ctx = resolveStatementContext(workspaceRoot, slug, year);
   try {
     const companyBlock = statementCompanyBlock(ctx.company);
+    // #514: a non-VAT-registered company has no period, no deadline and no
+    // momsangivelse. Return a discriminated `vatRegistered: false` variant
+    // so the Cockpit can render an explanation card ("denne virksomhed er
+    // ikke momsregistreret") without ever reading a synthesised period.
+    if (ctx.company.vatPeriodType === null) {
+      return {
+        slug: ctx.entry.slug,
+        selectedYear: ctx.selectedLabel,
+        archived: ctx.isArchivedOnly,
+        company: companyBlock,
+        fiscalYears: ctx.years,
+        vatRegistered: false as const,
+        periodLabel: "Ikke momsregistreret",
+      };
+    }
     if (ctx.isArchivedOnly) {
       const archYear = parseInt(ctx.selectedLabel, 10);
-      // #514: a non-registered company has no cadence — fall back to the
-      // historical default here so the archived shape stays consistent. The
-      // proper "ikke momsregistreret" gate lands in a follow-up commit.
       const archWindow = vatPeriodWindowFor(
         `${archYear}-01-01`,
-        ctx.company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
+        ctx.company.vatPeriodType,
       );
       return {
         slug: ctx.entry.slug,
@@ -59,6 +78,7 @@ export function buildCompanyVat(
         archived: true,
         company: companyBlock,
         fiscalYears: ctx.years,
+        vatRegistered: true as const,
         periodStart: archWindow.start,
         periodEnd: archWindow.end,
         periodLabel: vatPeriodLabel(archWindow),
@@ -84,7 +104,7 @@ export function buildCompanyVat(
     const vatSelection = selectVatPeriod(
       ctx.db,
       yearNum,
-      ctx.company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
+      ctx.company.vatPeriodType,
     );
     const vat = vatSelection.position;
 
@@ -116,6 +136,7 @@ export function buildCompanyVat(
       archived: false,
       company: companyBlock,
       fiscalYears: ctx.years,
+      vatRegistered: true as const,
       periodStart: vat.periodStart,
       periodEnd: vat.periodEnd,
       periodLabel: vatSelection.label,

@@ -14,7 +14,6 @@ import { listBankTransactions } from "../core/reconciliation";
 import { listExceptions } from "../core/exceptions";
 import { buildVatReport, type VatPeriodReport } from "../core/vat";
 import {
-  DEFAULT_VAT_PERIOD_TYPE,
   effectivePeriodState,
   vatPeriodWindowFor,
   vatPeriodsForYear,
@@ -314,14 +313,19 @@ export function register(dispatch: CommandDispatch): void {
     // (`vatPeriodType`). The render-engine derives its label/countdown from
     // `vatPeriod.periodStart` + `company.vatPeriodType`, so the box always
     // matches the figure shown.
-    // #514: a non-registered company has no cadence — fall back to the
-    // historical default here. Proper "skip Næste-momsfrist entirely"
-    // gating for a null cadence lands in a follow-up commit.
-    const period = selectVatPeriodForDashboard(
-      db,
-      asOfDate,
-      company.vatPeriodType ?? DEFAULT_VAT_PERIOD_TYPE,
-    );
+    // #514: a non-registered company has no cadence — the renderer's
+    // deadline section short-circuits on `vatPeriodType === null` and shows
+    // an "ikke momsregistreret" card, so the actual period bounds here are
+    // never read for it. We still synthesise the calendar year for the few
+    // VAT-agnostic consumers (EU-sales/OSS, VAT report) — they correctly
+    // return empty results for a non-registered company.
+    const period =
+      company.vatPeriodType === null
+        ? {
+            start: `${asOfDate.slice(0, 4)}-01-01`,
+            end: `${asOfDate.slice(0, 4)}-12-31`,
+          }
+        : selectVatPeriodForDashboard(db, asOfDate, company.vatPeriodType);
     const vatPeriod = buildVatReport(db, period.start, period.end);
     const vatDaysRemaining = daysBetween(asOfDate, period.end);
     const recentActivity = listRecentAuditLog(db, 10);

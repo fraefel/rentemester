@@ -134,15 +134,19 @@ export function vatPeriodLabel(window: VatPeriodWindow): string {
 }
 
 /**
- * #299: every VAT period window that starts inside calendar `year`, for a
- * company on the given cadence — 12 for a monthly company, 4 for a quarterly
- * company, 2 for a half-yearly company. Returned in chronological order.
+ * #299/#514: every VAT period window that starts inside calendar `year`, for
+ * a company on the given cadence — 12 for a monthly company, 4 for a
+ * quarterly company, 2 for a half-yearly company, and `[]` when `type` is
+ * `null` (the company is not VAT-registered). Returned in chronological
+ * order.
  *
  * This is the single source of truth for "which VAT periods does a company
  * have in a year" — the cockpit's per-period selection, the obligations list
- * and the dashboard all iterate it instead of hardcoding Q1..Q4.
+ * and the dashboard all iterate it instead of hardcoding Q1..Q4, and they
+ * automatically render zero VAT lines for a non-registered company.
  */
-export function vatPeriodsForYear(year: number, type: VatPeriodType): VatPeriodWindow[] {
+export function vatPeriodsForYear(year: number, type: VatPeriodType | null): VatPeriodWindow[] {
+  if (type === null) return [];
   const span = vatPeriodMonthSpan(type);
   const windows: VatPeriodWindow[] = [];
   for (let startMonth = 1; startMonth <= 12; startMonth += span) {

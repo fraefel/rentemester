@@ -1,9 +1,24 @@
 import type { Database } from "bun:sqlite";
+import { getCompanySettings } from "./company";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { postEuServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
 import { absDkk, compareDkk, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk } from "./money";
 
-export type ExpenseVatTreatment = "standard" | "reverse_charge" | "representation" | "exempt";
+/**
+ * #514: `non_deductible_full` (Momsloven § 37) is the treatment for a VAT-
+ * charged purchase received by a NOT VAT-registered company — the entire VAT
+ * is absorbed into the expense cost basis (gross debit on the expense
+ * account, no 4000 input-VAT line, nothing for the momsangivelse). The
+ * branch mirrors `exempt`'s line shape but accepts `vat_amount > 0`. It is
+ * refused on a registered company; for those, `standard` is the right
+ * treatment.
+ */
+export type ExpenseVatTreatment =
+  | "standard"
+  | "reverse_charge"
+  | "representation"
+  | "exempt"
+  | "non_deductible_full";
 
 export type BookExpenseFromBankInput = {
   documentId: number;
@@ -130,8 +145,8 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0) errors.push("bankTransactionId must be a positive integer");
   if (typeof input.expenseAccountNo !== "string" || input.expenseAccountNo.trim().length === 0) errors.push("expenseAccountNo is required");
-  if (input.vatTreatment && !["standard", "reverse_charge", "representation", "exempt"].includes(input.vatTreatment)) {
-    errors.push("vatTreatment must be one of standard, reverse_charge, representation, exempt when present");
+  if (input.vatTreatment && !["standard", "reverse_charge", "representation", "exempt", "non_deductible_full"].includes(input.vatTreatment)) {
+    errors.push("vatTreatment must be one of standard, reverse_charge, representation, exempt, non_deductible_full when present");
   }
   if (errors.length > 0) return { ok: false, appliedRules: [], errors };
 
@@ -192,6 +207,22 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     };
   }
   const vatTreatment: ExpenseVatTreatment = inferredTreatment;
+  // #514: `non_deductible_full` is meaningful only for a NOT VAT-registered
+  // company (Momsloven § 37 — no deduction without registration). Refuse it
+  // for a registered company; their VAT-charged bilag belong on `standard`,
+  // which still books the deductible input-VAT line on 4000.
+  if (vatTreatment === "non_deductible_full") {
+    const settings = getCompanySettings(db);
+    if (settings.vatPeriodType !== null) {
+      return {
+        ok: false,
+        appliedRules: [],
+        errors: [
+          "non_deductible_full is only valid when the company is not VAT-registered (vatPeriodType === null) — use 'standard' for a registered company",
+        ],
+      };
+    }
+  }
   const transactionDate = input.transactionDate ?? bank.transaction_date;
   // Posting text is read by a Danish owner — keep it fully Danish. The
   // supplier name is used when known; otherwise fall back to a Danish word.
@@ -292,7 +323,33 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment };
   }
 
-  if (vatAmount !== 0) return { ok: false, appliedRules: [], errors: ["exempt expense booking requires document vat_amount = 0"] };
+  if (vatTreatment === "exempt") {
+    if (vatAmount !== 0) return { ok: false, appliedRules: [], errors: ["exempt expense booking requires document vat_amount = 0"] };
+    const result = postJournalEntry(db, {
+      transactionDate,
+      text,
+      documentId: input.documentId,
+      sourceBankTransactionId: input.bankTransactionId,
+      createdBy: input.createdBy,
+      createdByProgram: input.createdByProgram,
+      ...journalMetadata,
+      lines: [
+        { accountNo: account.account_no, debitAmount: grossAmountDkk, text: document.invoice_no ?? "Udgift" },
+        { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text },
+      ],
+    });
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment };
+  }
+
+  // #514 — non_deductible_full: a VAT-charged bilag at a NOT VAT-registered
+  // company. The same two-line shape as `exempt` (gross debit on expense,
+  // gross credit on payment), but `vat_amount > 0` is allowed because the
+  // VAT IS on the bilag — it just can't be reclaimed (§ 37) so it is
+  // absorbed into the cost basis. No 4000 line is written; no `vatCode` is
+  // attached, so the lines never feed any momsangivelse rubrik. The 25 %-
+  // ratio sanity check is skipped because non-deductible VAT is not part of
+  // any input-VAT total, and a non-25 % bilag (e.g. a foreign-VAT receipt) is
+  // legitimately bookable this way.
   const result = postJournalEntry(db, {
     transactionDate,
     text,
@@ -302,7 +359,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     createdByProgram: input.createdByProgram,
     ...journalMetadata,
     lines: [
-      { accountNo: account.account_no, debitAmount: grossAmountDkk, text: document.invoice_no ?? "Udgift" },
+      { accountNo: account.account_no, debitAmount: grossAmountDkk, text: document.invoice_no ?? "Udgift inkl. moms (ikke-fradragsberettiget)" },
       { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text },
     ],
   });

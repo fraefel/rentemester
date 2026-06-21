@@ -273,9 +273,9 @@ export function buildCompanyOverview(
     // VAT position: each VAT period settles separately. Surface the period
     // (month / quarter / half-year, per the company's `vatPeriodType`) that is
     // due now, so the cockpit agrees with the static dashboard and CLI (#299).
-    // #514: a non-registered company has no VAT period — the `vat` block is
-    // null below so the Overblik card hides itself rather than rendering a
-    // bogus Q1 view.
+    // A non-registered company has no VAT period — the `vat` block is null
+    // below so the Overblik card hides itself rather than rendering a bogus
+    // Q1 view.
     const vatSelection =
       company.vatPeriodType === null
         ? null

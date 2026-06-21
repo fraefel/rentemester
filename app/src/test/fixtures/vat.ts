@@ -4,7 +4,7 @@ import { STATEMENT_COMPANY, STATEMENT_FISCAL_YEARS } from "./_shared";
 /**
  * The fixture builds a VAT-registered company by default — the discriminated
  * `vatRegistered: true` variant. Tests that need to render the
- * "ikke momsregistreret" card use `vatNotRegistered()` below (#514).
+ * "ikke momsregistreret" card use `vatNotRegistered()` below.
  */
 export function vat(over: Partial<CompanyVatRegistered> = {}): CompanyVatRegistered {
   return {
@@ -46,7 +46,7 @@ export function vat(over: Partial<CompanyVatRegistered> = {}): CompanyVatRegiste
   };
 }
 
-/** #514: the not-VAT-registered variant — the cockpit renders an explanation. */
+/** The not-VAT-registered variant — the cockpit renders an explanation. */
 export function vatNotRegistered(
   over: Partial<CompanyVatNotRegistered> = {},
 ): CompanyVatNotRegistered {

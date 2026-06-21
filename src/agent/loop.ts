@@ -783,9 +783,9 @@ function reportVatPeriod(
  */
 function checkDeadlines(db: Database, asOf: string, report: AgentRunReport): void {
   const settings = getCompanySettings(db);
-  // #514: a non-registered company has no VAT period and no momsangivelse
-  // deadline — the agent must not invent one. Skip the entire VAT block; the
-  // fiscal-year (årsrapport) deadline below still applies.
+  // A non-registered company has no VAT period and no momsangivelse
+  // deadline — the agent must not invent one. Skip the entire VAT block;
+  // the fiscal-year (årsrapport) deadline below still applies.
   if (settings.vatPeriodType !== null) {
     // The VAT period the company is currently accruing in is always relevant.
     const current = vatPeriodWindowFor(asOf, settings.vatPeriodType);

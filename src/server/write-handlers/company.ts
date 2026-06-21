@@ -99,10 +99,10 @@ export async function handleCompanyProfile(
         paymentTermsDays = body.paymentTermsDays;
       }
 
-      // #300/#514: the VAT settlement cadence is editable from the cockpit.
-      // Accepted values: 'month' / 'quarter' / 'half-year', or `null` /
-      // the string `"none"` to mark the company as NOT VAT-registered.
-      // An unknown value is a 400 — the column has a CHECK constraint, so a
+      // #300: the VAT settlement cadence is editable from the cockpit.
+      // Accepted values: 'month' / 'quarter' / 'half-year', or `null` / the
+      // string `"none"` to mark the company as NOT VAT-registered. An
+      // unknown value is a 400 — the column has a CHECK constraint, so a
       // bad string would otherwise fail opaquely.
       type ParsedVatPeriod = ReturnType<typeof normalizeVatPeriodType> | "explicit-null";
       let vatPeriodType: ParsedVatPeriod | undefined;
@@ -142,12 +142,12 @@ export async function handleCompanyProfile(
         );
       }
 
-      // #300/#514: the VAT cadence lives on the company row but
+      // #300: the VAT cadence lives on the company row but
       // `setCompanyProfile` does not own it — write it first via the
-      // periods-core helper so the settings the response carries reflect the
-      // new cadence. Passing `null` (parsed as "explicit-null" above) marks
-      // the company as not-VAT-registered; the helper refuses if there is
-      // open VAT activity, which surfaces as a 400 here.
+      // periods-core helper so the settings the response carries reflect
+      // the new cadence. Passing `null` (parsed as "explicit-null" above)
+      // marks the company as not-VAT-registered; the helper refuses if
+      // there is open VAT activity, which surfaces as a 400 here.
       if (vatPeriodType !== undefined) {
         const cadenceForCore =
           vatPeriodType === "explicit-null" ? null : vatPeriodType;

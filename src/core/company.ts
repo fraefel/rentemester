@@ -55,12 +55,11 @@ export type CompanySettings = {
    */
   paymentTermsDays: number;
   /**
-   * #289/#514: the VAT settlement cadence the company is registered for with
-   * SKAT (`month` / `quarter` / `half-year`). Drives VAT period windows and
-   * their filing deadlines. `null` means the company is NOT VAT-registered
+   * #289: the VAT settlement cadence the company is registered for with SKAT
+   * (`month` / `quarter` / `half-year`). Drives VAT period windows and their
+   * filing deadlines. `null` means the company is NOT VAT-registered
    * (holding ApS, frivilligt momsfritaget, mikrovirksomhed under § 48); every
    * VAT-aware surface (dashboard, obligations, momsangivelse) gates on this.
-   * Companies created before #514 have `quarter` stored — unchanged.
    */
   vatPeriodType: VatPeriodType | null;
 };
@@ -373,10 +372,10 @@ export function initialiseCompanyVolume(
     const city = options.city?.trim() || null;
     const paymentTermsDays =
       normalizePaymentTermsDays(options.paymentTermsDays) ?? DEFAULT_PAYMENT_TERMS_DAYS;
-    // #514: `null` means "not VAT-registered" and is written through verbatim.
-    // Undefined (caller didn't pass anything) keeps the historical default
-    // cadence so back-compat for callers who never specified vatPeriodType is
-    // byte-identical to before.
+    // `null` means "not VAT-registered" and is written through verbatim;
+    // undefined (caller didn't pass anything) keeps the historical default
+    // cadence so back-compat for callers who never specified vatPeriodType
+    // is byte-identical to before.
     const vatPeriodType: VatPeriodType | null =
       options.vatPeriodType === null
         ? null
@@ -432,9 +431,9 @@ export type CompanyOnboardingSummary = {
   fiscalYearStartMonth: number;
   fiscalYearLabelStrategy: FiscalYearLabelStrategy;
   /**
-   * #289/#514: the company's VAT settlement cadence — the canonical
-   * period-type value (`month` / `quarter` / `half-year`), or `null` when the
-   * company is not VAT-registered.
+   * #289: the company's VAT settlement cadence — the canonical period-type
+   * value (`month` / `quarter` / `half-year`), or `null` when the company is
+   * not VAT-registered.
    */
   vatPeriod: VatPeriodType | null;
   /** Number of accounts seeded into the chart of accounts. */
@@ -588,8 +587,8 @@ export function getCompanySettings(db: Database): CompanySettings {
     cvrSyncedAt: row.cvr_synced_at,
     paymentTermsDays:
       normalizePaymentTermsDays(row.payment_terms_days) ?? DEFAULT_PAYMENT_TERMS_DAYS,
-    // #514: `null` in the column = "not VAT-registered" — preserved verbatim.
-    // A stored value that fails normalisation (corrupt cell) falls back to the
+    // `null` in the column = "not VAT-registered" — preserved verbatim. A
+    // stored value that fails normalisation (corrupt cell) falls back to the
     // historical default so legacy ledgers stay readable.
     vatPeriodType:
       row.vat_period_type === null

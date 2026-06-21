@@ -142,11 +142,12 @@ export function register(dispatch: CommandDispatch): void {
       iban: ctx.trimToNull(ctx.arg("--iban")) ?? undefined,
     };
 
-    // #300/#514: `--vat-period` changes the company's VAT settlement cadence
+    // #300: `--vat-period` changes the company's VAT settlement cadence
     // after init. `--no-vat` (or `--vat-period none`) marks the company as
-    // NOT VAT-registered (null cadence). `setCompanyProfile` does not own the
-    // `vat_period_type` column, so the change is written via the periods-core
-    // helper. An unknown value is refused before any profile field is touched.
+    // NOT VAT-registered (null cadence). `setCompanyProfile` does not own
+    // the `vat_period_type` column, so the change is written via the
+    // periods-core helper. An unknown value is refused before any profile
+    // field is touched.
     const vatPeriodRaw = ctx.arg("--vat-period");
     const noVatFlag = ctx.hasFlag("--no-vat");
     const explicitCadence =
@@ -198,9 +199,8 @@ export function register(dispatch: CommandDispatch): void {
       payment,
     });
     // Reflect the cadence on the result so the JSON output and human summary
-    // show the live profile after the edit. #514: `vatRegistered` is the
-    // derived boolean clients can switch UI on without reasoning about a
-    // null cadence.
+    // show the live profile after the edit. `vatRegistered` is the derived
+    // boolean clients can switch UI on without reasoning about a null cadence.
     const settings = getCompanySettings(db);
     const enriched = {
       ...result,
@@ -228,9 +228,9 @@ export function register(dispatch: CommandDispatch): void {
         postalCode: settings.postalCode,
         city: settings.city,
         paymentTermsDays: settings.paymentTermsDays,
-        // #300/#514: the VAT settlement cadence — the canonical value plus
-        // its Danish label, so the owner sees which momsperiode the company
-        // files. `null` here means the company is not VAT-registered.
+        // #300: the VAT settlement cadence — the canonical value plus its
+        // Danish label, so the owner sees which momsperiode the company
+        // files. `null` here means the company is not VAT-registered;
         // `vatRegistered` is the derived boolean clients can read directly.
         vatPeriodType: settings.vatPeriodType,
         vatPeriodLabel:

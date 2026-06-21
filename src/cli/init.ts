@@ -85,17 +85,17 @@ function buildOnboardingLines(
   // capture stdout never see it (and so a redirected stdout does not swallow
   // the warning). See buildPaymentDetailsWarningLines above.
 
-  // #514: a non-registered company carries `vatPeriod === null` — the
-  // onboarding block surfaces "ikke momsregistreret" and points the owner at
+  // A non-registered company carries `vatPeriod === null` — the onboarding
+  // block surfaces "ikke momsregistreret" and points the owner at
   // 'company set-profile --vat-period <cadence>' should they later register.
-  const isRegistered = summary.vatPeriod !== null;
-  const vatLabel = isRegistered
+  const isVatRegistered = summary.vatPeriod !== null;
+  const vatLabel = isVatRegistered
     ? vatPeriodTypeLabelDa(summary.vatPeriod!)
     : "ikke momsregistreret";
   lines.push("");
   lines.push("Tjek disse indstillinger — de er svære at ændre senere:");
   lines.push(`  - Regnskabsår: starter 1. ${monthName} (${fiscalLabel})`);
-  if (isRegistered) {
+  if (isVatRegistered) {
     lines.push(`  - Momsperiode: ${vatLabel}. Afregner du en anden momsperiode,`);
     lines.push(
       `    så kør 'init --vat-period month|quarter|half-year' (standard: quarter),`,
@@ -143,7 +143,7 @@ export function register(dispatch: CommandDispatch): void {
     const onboardingActor =
       ctx.trimToNull(ctx.arg("--actor")) ?? inferredMutationActor();
 
-    // #514: --no-vat (boolean) and --vat-period none both mean "register the
+    // --no-vat (boolean) and --vat-period none both mean "register the
     // company as NOT VAT-registered" (null cadence). Combining --no-vat with
     // an explicit cadence is a user-input error — refuse before we touch the
     // ledger so the fatal message is the only failure mode.
@@ -172,8 +172,8 @@ export function register(dispatch: CommandDispatch): void {
         cvr: ctx.arg("--cvr"),
         fiscalYearStartMonth: ctx.arg("--fiscal-year-start-month"),
         fiscalYearLabelStrategy: ctx.arg("--fiscal-year-label-strategy"),
-        // #289/#514: the company's VAT settlement cadence —
-        // month/quarter/half-year, or `null` for a not-VAT-registered company.
+        // #289: the company's VAT settlement cadence — month/quarter/half-year,
+        // or `null` for a not-VAT-registered company.
         vatPeriodType: vatPeriodOption,
         address: ctx.trimToNull(ctx.arg("--address")) ?? undefined,
         postalCode: ctx.trimToNull(ctx.arg("--postal-code")) ?? undefined,

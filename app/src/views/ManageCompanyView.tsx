@@ -228,11 +228,11 @@ function ProfileCard({
   const [address, setAddress] = useState(initial.address ?? "");
   const [postalCode, setPostalCode] = useState(initial.postalCode ?? "");
   const [city, setCity] = useState(initial.city ?? "");
-  // #300: the VAT settlement cadence is editable from the cockpit.
-  // #514: `null` means the company is not VAT-registered. The dropdown only
-  // exposes the three cadences for now; turning the registration off is the
-  // job of a follow-up commit. Default to `quarter` in the form state so the
-  // dropdown has a valid selection until the user changes it.
+  // #300: the VAT settlement cadence is editable from the cockpit. The
+  // dropdown only exposes the three cadences for now; turning the
+  // registration off is the job of a follow-up commit. Default to `quarter`
+  // in the form state so the dropdown has a valid selection when
+  // `initial.vatPeriodType` is null (a not-VAT-registered company).
   const [vatPeriodType, setVatPeriodType] = useState<VatPeriodType>(
     initial.vatPeriodType ?? "quarter",
   );

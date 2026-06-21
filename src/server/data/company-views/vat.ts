@@ -51,7 +51,7 @@ export function buildCompanyVat(
   const ctx = resolveStatementContext(workspaceRoot, slug, year);
   try {
     const companyBlock = statementCompanyBlock(ctx.company);
-    // #514: a non-VAT-registered company has no period, no deadline and no
+    // A non-VAT-registered company has no period, no deadline and no
     // momsangivelse. Return a discriminated `vatRegistered: false` variant
     // so the Cockpit can render an explanation card ("denne virksomhed er
     // ikke momsregistreret") without ever reading a synthesised period.

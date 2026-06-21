@@ -313,10 +313,10 @@ export function register(dispatch: CommandDispatch): void {
     // (`vatPeriodType`). The render-engine derives its label/countdown from
     // `vatPeriod.periodStart` + `company.vatPeriodType`, so the box always
     // matches the figure shown.
-    // #514: a non-registered company has no cadence — the renderer's
-    // deadline section short-circuits on `vatPeriodType === null` and shows
-    // an "ikke momsregistreret" card, so the actual period bounds here are
-    // never read for it. We still synthesise the calendar year for the few
+    // A non-registered company has no cadence — the renderer's deadline
+    // section short-circuits on `vatPeriodType === null` and shows an "ikke
+    // momsregistreret" card, so the actual period bounds here are never
+    // read for it. We still synthesise the calendar year for the few
     // VAT-agnostic consumers (EU-sales/OSS, VAT report) — they correctly
     // return empty results for a non-registered company.
     const period =

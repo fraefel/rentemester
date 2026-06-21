@@ -19,7 +19,7 @@ import { buildOssReport } from "../core/vat-oss";
 // ===== END EU SALES LIST + OSS =====
 
 /**
- * #514: refuse every VAT-report-class command when the company is not
+ * Refuse every VAT-report-class command when the company is not
  * VAT-registered. Without this gate the commands would happily build an
  * empty-rubrikker report for a holding ApS — meaningless output that a SKAT
  * TastSelv operator could submit by accident. Terminates the process on

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { insertAuditLog, resolveActor } from "./actor";
+import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { isValidIsoDate as looksLikeIsoDate, addDays, todayIsoDate, MONTH_NAMES_DA } from "./dates";
 
 export type AccountingPeriodKind = "vat_quarter" | "fiscal_year" | "custom";
@@ -134,11 +135,10 @@ export function vatPeriodLabel(window: VatPeriodWindow): string {
 }
 
 /**
- * #299/#514: every VAT period window that starts inside calendar `year`, for
- * a company on the given cadence — 12 for a monthly company, 4 for a
- * quarterly company, 2 for a half-yearly company, and `[]` when `type` is
- * `null` (the company is not VAT-registered). Returned in chronological
- * order.
+ * #299: every VAT period window that starts inside calendar `year`, for a
+ * company on the given cadence — 12 for a monthly company, 4 for a quarterly
+ * company, 2 for a half-yearly company, and `[]` when `type` is `null` (the
+ * company is not VAT-registered). Returned in chronological order.
  *
  * This is the single source of truth for "which VAT periods does a company
  * have in a year" — the cockpit's per-period selection, the obligations list
@@ -156,16 +156,17 @@ export function vatPeriodsForYear(year: number, type: VatPeriodType | null): Vat
 }
 
 /**
- * #300/#514: writes the company's VAT settlement cadence onto the single
+ * #300: writes the company's VAT settlement cadence onto the single
  * `companies` row. `type` is `month` / `quarter` / `half-year`, or `null` to
- * mark the company as NOT VAT-registered (#514) — every VAT-aware surface
- * gates on the null state. Used by `company set-profile`, the cockpit's
- * PATCH-profile endpoint and `init --no-vat`.
+ * mark the company as NOT VAT-registered — every VAT-aware surface gates on
+ * the null state. Used by `company set-profile`, the cockpit's PATCH-profile
+ * endpoint and `init --no-vat`.
  *
- * The column is created (and on older ledgers relaxed to nullable, #514) by
- * the schema migration in `db.ts`, so the caller must have run `migrate(db)`
- * first. A CHECK constraint guards the value. Returns whether the value
- * actually changed.
+ * Defensively ensures the `vat_period_type` column exists and is nullable
+ * before writing — calls `ensureNullableVatPeriodColumn` directly so a
+ * caller that forgot `migrate(db)` still gets the correct shape rather than
+ * a SQLite "no such column" error. A CHECK constraint guards the value.
+ * Returns whether the value actually changed.
  */
 export function setCompanyVatPeriodType(
   db: Database,
@@ -178,6 +179,7 @@ export function setCompanyVatPeriodType(
       errors: ["vatPeriodType must be one of month, quarter, half-year, or null"],
     };
   }
+  ensureNullableVatPeriodColumn(db);
   const before = db
     .query("SELECT vat_period_type AS t FROM companies WHERE id = 1")
     .get() as { t: string | null } | null;
@@ -188,11 +190,11 @@ export function setCompanyVatPeriodType(
       errors: ["company has not been initialised — run 'rentemester init' first"],
     };
   }
-  // #514: going from registered → not-registered must not silently strand
-  // posted VAT activity (output VAT on a sale, deductible input VAT on a
-  // bilag). Refuse when the ledger carries any posted entry on a `vat`-type
-  // account whose date is NOT inside a closed/reported VAT period — i.e. any
-  // open VAT obligation that would otherwise lose its filing path. The owner
+  // Going from registered → not-registered must not silently strand posted
+  // VAT activity (output VAT on a sale, deductible input VAT on a bilag).
+  // Refuse when the ledger carries any posted entry on a `vat`-type account
+  // whose date is NOT inside a closed/reported VAT period — i.e. any open
+  // VAT obligation that would otherwise lose its filing path. The owner
   // must close + indberette before deregistering.
   if (type === null && before.t !== null) {
     const openVatActivity = db

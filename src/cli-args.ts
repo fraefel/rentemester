@@ -9,8 +9,6 @@ const BOOLEAN_FLAGS = new Set([
   "--include-archived",
   "--ixbrl-taxonomy",
   "--after-retention-expiry",
-  // #514: declares the company as NOT VAT-registered — used by `init` and
-  // `company set-profile`. Mutually exclusive with `--vat-period <cadence>`.
   "--no-vat",
 ]);
 

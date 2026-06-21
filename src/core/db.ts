@@ -2,69 +2,12 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
+import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { backfillRetentionDeadlines } from "./retention";
 
 function hasColumn(db: Database, table: string, column: string) {
   const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   return cols.some((col) => col.name === column);
-}
-
-/**
- * #514: ensure `companies.vat_period_type` exists AND is nullable.
- *
- * The column was added in #289 as `NOT NULL DEFAULT 'quarter'` from a defensive
- * helper outside `migrate()`. A non-VAT-registered company has no meaningful
- * cadence — `null` is the canonical "not registered" state — so the column
- * must allow NULL. SQLite cannot relax a NOT NULL in place, so for an older
- * ledger we rebuild the `companies` row with the relaxed CHECK and copy every
- * stored column across. Idempotent: a fresh ledger gets the column added
- * nullable from the start; a ledger that already carries the nullable column
- * is a no-op.
- */
-function ensureNullableVatPeriodColumn(db: Database) {
-  const cols = db.query("PRAGMA table_info(companies)").all() as Array<{
-    name: string;
-    type: string;
-    notnull: number;
-    dflt_value: string | null;
-    pk: number;
-  }>;
-  const existing = cols.find((c) => c.name === "vat_period_type");
-  if (!existing) {
-    db.exec(
-      "ALTER TABLE companies ADD COLUMN vat_period_type TEXT " +
-        "CHECK(vat_period_type IS NULL OR vat_period_type IN ('month', 'quarter', 'half-year'));",
-    );
-    return;
-  }
-  if (existing.notnull === 0) return;
-
-  // Older ledger: column carries the legacy NOT NULL DEFAULT 'quarter'
-  // definition. Rebuild the table to relax it. The new column list is
-  // derived from PRAGMA so the rebuild is forward-compatible with any other
-  // column an earlier migration step has already appended (mail_alias, …).
-  const newColumns = cols
-    .map((c) => {
-      if (c.name === "vat_period_type") {
-        return "vat_period_type TEXT CHECK(vat_period_type IS NULL OR vat_period_type IN ('month', 'quarter', 'half-year'))";
-      }
-      const pk = c.pk === 1 ? " PRIMARY KEY" : "";
-      const notnull = c.notnull === 1 ? " NOT NULL" : "";
-      const dflt = c.dflt_value !== null ? ` DEFAULT ${c.dflt_value}` : "";
-      return `${c.name} ${c.type || "TEXT"}${pk}${notnull}${dflt}`;
-    })
-    .join(",\n        ");
-  const columnList = cols.map((c) => c.name).join(", ");
-
-  db.transaction(() => {
-    db.exec("DROP TABLE IF EXISTS companies_vat_period_rebuild;");
-    db.exec(`CREATE TABLE companies_vat_period_rebuild (\n        ${newColumns}\n      );`);
-    db.exec(
-      `INSERT INTO companies_vat_period_rebuild (${columnList}) SELECT ${columnList} FROM companies;`,
-    );
-    db.exec("DROP TABLE companies;");
-    db.exec("ALTER TABLE companies_vat_period_rebuild RENAME TO companies;");
-  })();
 }
 
 export function openDb(path: string) {
@@ -116,7 +59,7 @@ export function migrate(db: Database) {
   // to due date. Captured once on the company profile so every invoice inherits
   // it instead of the owner re-typing it. Older ledgers predate the column.
   if (!hasColumn(db, "companies", "payment_terms_days")) db.exec("ALTER TABLE companies ADD COLUMN payment_terms_days INTEGER NOT NULL DEFAULT 14 CHECK(payment_terms_days BETWEEN 0 AND 365);");
-  // #514: the VAT-cadence column is nullable — `null` means the company is not
+  // The VAT-cadence column is nullable — `null` means the company is not
   // VAT-registered. On older ledgers the column may have been added as
   // `NOT NULL DEFAULT 'quarter'`; the helper rebuilds the table to relax it.
   ensureNullableVatPeriodColumn(db);

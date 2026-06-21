@@ -37,10 +37,11 @@ export function VatView() {
   const v = state.data!;
   const currency = v.company.currency || "DKK";
 
-  // #514: a non-VAT-registered company has nothing to show on the moms-tab —
+  // A non-VAT-registered company has nothing to show on the moms-tab —
   // surface an explanation card instead of an empty rubrikker table. Render
   // early so none of the period-related controls below execute against the
-  // null periodStart/periodEnd.
+  // missing period fields, and TypeScript narrows v to CompanyVatRegistered
+  // below.
   if (!v.vatRegistered) {
     return (
       <section className="statement">

@@ -25,7 +25,7 @@ export type VatRubrikker = {
   rubrikC: number;
 };
 
-/** Fields common to both registered and non-registered companies (#514). */
+/** Fields common to both registered and non-registered companies. */
 type CompanyVatCommon = {
   slug: string;
   selectedYear: string;
@@ -35,13 +35,13 @@ type CompanyVatCommon = {
   /**
    * The VAT period label — for a registered company follows the cadence
    * (#299): "Q2 2026" (quarter), "Maj 2026" (month), "1. halvår 2026"
-   * (half-year). "Ikke momsregistreret" (#514) when the company has none.
+   * (half-year). "Ikke momsregistreret" when the company has none.
    */
   periodLabel: string;
 };
 
 /**
- * #514: a company that is NOT VAT-registered. The Cockpit must render an
+ * A company that is NOT VAT-registered. The Cockpit must render an
  * explanation card instead of the period/rubrikker block — `vatRegistered`
  * is the discriminator that lets TypeScript narrow off this variant
  * without nullable fields polluting the registered shape.

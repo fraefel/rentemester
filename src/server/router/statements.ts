@@ -145,8 +145,8 @@ export function handleCompanyVatExport(
   try {
     exported = exportVatPdf(config.workspaceRoot, slug, year);
   } catch (err) {
-    // #514: exportVatPdf throws when the company is not VAT-registered.
-    // Surface as a clean 400 — there is no momsangivelse to export.
+    // exportVatPdf throws when the company is not VAT-registered. Surface
+    // as a clean 400 — there is no momsangivelse to export.
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes("ikke momsregistreret")) {
       throw ApiError.badRequest(message);

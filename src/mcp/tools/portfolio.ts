@@ -101,8 +101,8 @@ function companyStatusRow(
     // The VAT period window follows the company's real SKAT cadence
     // (`vatPeriodType`) — a monthly filer gets a one-month window, a
     // half-yearly filer a six-month one. `core/periods.ts` owns the math.
-    // #514: a non-registered company has no VAT period — surface a sentinel
-    // so the portfolio JSON consumer can branch on `vatRegistered: false`
+    // A non-registered company has no VAT period — surface a sentinel so
+    // the portfolio JSON consumer can branch on `vatRegistered: false`
     // instead of reading an invented period.
     const vatBlock =
       settings.vatPeriodType === null

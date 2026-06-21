@@ -167,9 +167,9 @@ function summariseCompany(
     // VAT: the booked position for the company's actual VAT period — the
     // period (month / quarter / half-year, per `vatPeriodType`) that is due
     // now. Every cockpit surface reads the same cadence, so they agree (#299).
-    // #514: a non-registered company has no VAT period at all — the
-    // portfolio-card type carries `vat: CompanyVatSummary | null`, so the
-    // SPA simply hides the card.
+    // A non-registered company has no VAT period at all — the portfolio-card
+    // type carries `vat: CompanyVatSummary | null`, so the SPA hides the
+    // card.
     const vat: CompanyVatSummary | null =
       company.vatPeriodType === null
         ? null
@@ -222,7 +222,7 @@ function summariseCompany(
       overdueInvoiceCount: overdue.count,
       unlinkedBankCount: unlinked.count,
       openExceptionCount: exceptions.count,
-      // #514: a non-registered company has no payable VAT; surface 0 so the
+      // A non-registered company has no payable VAT; surface 0 so the
       // legacy roll-up math (vatPayable across companies) stays a plain sum.
       netVatPayable: vat?.payable ?? 0,
     };
@@ -370,9 +370,9 @@ export function buildCompanyDashboardData(
     // file now — exactly as the Overblik card and `vat momsangivelse` do
     // (#281). #299: the period follows the company's real VAT cadence
     // (`vatPeriodType`), so a monthly/half-yearly filer sees its own period.
-    // #514: a non-registered company has no VAT period — the `vat` block is
-    // emitted with null period bounds and zero figures so the dashboard
-    // renderer can branch on it.
+    // A non-registered company has no VAT period — the `vat` block is emitted
+    // with null period bounds and zero figures so the dashboard renderer can
+    // branch on it.
     const { year: vatYear } = currentFiscalYear(db, company);
     const vatBlock =
       company.vatPeriodType === null

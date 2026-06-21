@@ -25,8 +25,8 @@ export function deadlineSection(input: DashboardInput): string {
   // real VAT cadence (`vatPeriodType`) — a half-yearly filer sees "1. halvår
   // 2026" with the half-year deadline, not a quarter. For a `quarter` company
   // the window/label/deadline are byte-identical to the historical behaviour.
-  // #514: when the company is not VAT-registered the card explains so instead
-  // of inventing a period from a non-existent cadence.
+  // When the company is not VAT-registered the card explains so instead of
+  // inventing a period from a non-existent cadence.
   if (input.company.vatPeriodType === null) {
     return `<div class="deadline-card">
   <div>

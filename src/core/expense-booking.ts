@@ -52,10 +52,20 @@ type FxBookingBasis = {
 // vatTreatment when the account's default_vat_code is null or unmapped.
 type InferredVatTreatment = ExpenseVatTreatment | "unknown";
 
-function inferVatTreatment(defaultVatCode: string | null): InferredVatTreatment {
+function inferVatTreatment(
+  defaultVatCode: string | null,
+  companyIsVatRegistered: boolean,
+): InferredVatTreatment {
   if (defaultVatCode === "EU_SERVICE_REVERSE_CHARGE") return "reverse_charge";
   if (defaultVatCode === "REPRESENTATION_SPECIAL") return "representation";
-  if (defaultVatCode === "DK_PURCHASE_25") return "standard";
+  if (defaultVatCode === "DK_PURCHASE_25") {
+    // A not-VAT-registered company cannot deduct input VAT under § 37, so a
+    // DK 25 % account's default treatment is `non_deductible_full` (gross to
+    // the expense, no 4000 line) rather than `standard`. EU reverse-charge
+    // and representation stay as inferred — those treatments are still
+    // legitimate for a non-registered company on rare bilag.
+    return companyIsVatRegistered ? "standard" : "non_deductible_full";
+  }
   // A null or unrecognised default_vat_code must not be silently downgraded
   // to VAT-exempt — that would under-claim købsmoms with no warning.
   return "unknown";
@@ -197,12 +207,15 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   const existingJournal = db.query(`SELECT id FROM journal_entries WHERE source_bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
   if (existingJournal) return { ok: false, appliedRules: [], errors: [`bank transaction ${bank.id} is already linked to journal entry ${existingJournal.id}`] };
 
-  const inferredTreatment = input.vatTreatment ?? inferVatTreatment(account.default_vat_code);
+  const companySettings = getCompanySettings(db);
+  const companyIsVatRegistered = companySettings.vatPeriodType !== null;
+  const inferredTreatment =
+    input.vatTreatment ?? inferVatTreatment(account.default_vat_code, companyIsVatRegistered);
   if (inferredTreatment === "unknown") {
     return {
       ok: false,
       appliedRules: [],
-      errors: [`account ${account.account_no} has an unmapped default_vat_code ${account.default_vat_code === null ? "(none)" : account.default_vat_code} — pass an explicit vatTreatment (standard, reverse_charge, representation, exempt)`],
+      errors: [`account ${account.account_no} has an unmapped default_vat_code ${account.default_vat_code === null ? "(none)" : account.default_vat_code} — pass an explicit vatTreatment (standard, reverse_charge, representation, exempt, non_deductible_full)`],
     };
   }
   const vatTreatment: ExpenseVatTreatment = inferredTreatment;
@@ -210,17 +223,14 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   // company (Momsloven § 37 — no deduction without registration). Refuse it
   // for a registered company; their VAT-charged bilag belong on `standard`,
   // which still books the deductible input-VAT line on 4000.
-  if (vatTreatment === "non_deductible_full") {
-    const settings = getCompanySettings(db);
-    if (settings.vatPeriodType !== null) {
-      return {
-        ok: false,
-        appliedRules: [],
-        errors: [
-          "non_deductible_full is only valid when the company is not VAT-registered (vatPeriodType === null) — use 'standard' for a registered company",
-        ],
-      };
-    }
+  if (vatTreatment === "non_deductible_full" && companyIsVatRegistered) {
+    return {
+      ok: false,
+      appliedRules: [],
+      errors: [
+        "non_deductible_full is only valid when the company is not VAT-registered (vatPeriodType === null) — use 'standard' for a registered company",
+      ],
+    };
   }
   const transactionDate = input.transactionDate ?? bank.transaction_date;
   // Posting text is read by a Danish owner — keep it fully Danish. The

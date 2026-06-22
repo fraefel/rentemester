@@ -7,11 +7,16 @@ import { api, ApiError } from "../lib/api";
 import type { VatPeriodType } from "../lib/types";
 import { Banner } from "./Feedback";
 
-/** The VAT-cadence options for the create-company selector (#300). */
-const VAT_PERIOD_OPTIONS: Array<{ value: VatPeriodType; label: string }> = [
+/**
+ * VAT-cadence options for the create-company selector (#300). `"none"` creates
+ * a NOT VAT-registered company (a holding ApS, frivilligt momsfritaget, or a
+ * microbusiness under the § 48 threshold); it is submitted as `null`.
+ */
+const VAT_PERIOD_OPTIONS: Array<{ value: VatPeriodType | "none"; label: string }> = [
   { value: "month", label: "Måned (måneds-moms)" },
   { value: "quarter", label: "Kvartal (kvartals-moms)" },
   { value: "half-year", label: "Halvår (halvårs-moms)" },
+  { value: "none", label: "Ikke momsregistreret" },
 ];
 
 export function CompanyForm({
@@ -26,7 +31,8 @@ export function CompanyForm({
   const [cvr, setCvr] = useState("");
   const [fiscalMonth, setFiscalMonth] = useState("1");
   // #300: the VAT settlement cadence — defaults to the historical `quarter`.
-  const [vatPeriodType, setVatPeriodType] = useState<VatPeriodType>("quarter");
+  // `"none"` creates a NOT VAT-registered company (submitted as null).
+  const [vatPeriodType, setVatPeriodType] = useState<VatPeriodType | "none">("quarter");
   // #284: optional bank/payment details — captured at creation so the very
   // first invoice already carries payment instructions.
   const [bankName, setBankName] = useState("");
@@ -57,7 +63,8 @@ export function CompanyForm({
         slug: slug.trim() || undefined,
         cvr: cvr.trim() || undefined,
         fiscalYearStartMonth: fiscalMonth.trim() || undefined,
-        vatPeriodType,
+        // `"none"` → null so the server creates a not-VAT-registered company.
+        vatPeriodType: vatPeriodType === "none" ? null : vatPeriodType,
         ...(payment ? { payment } : {}),
       });
       onCreated(created.slug);
@@ -134,7 +141,7 @@ export function CompanyForm({
         <select
           name="vatPeriodType"
           value={vatPeriodType}
-          onChange={(e) => setVatPeriodType(e.target.value as VatPeriodType)}
+          onChange={(e) => setVatPeriodType(e.target.value as VatPeriodType | "none")}
         >
           {VAT_PERIOD_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -144,7 +151,8 @@ export function CompanyForm({
         </select>
         <span className="field-hint">
           Den momsperiode virksomheden er registreret for hos SKAT — månedlig,
-          kvartalsvis eller halvårlig. Kan ændres senere under Administrér.
+          kvartalsvis eller halvårlig. Vælg «Ikke momsregistreret» for fx et
+          holdingselskab. Kan ændres senere under Administrér.
         </span>
       </label>
 

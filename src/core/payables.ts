@@ -23,6 +23,7 @@
 import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
+import { getCompanySettings } from "./company";
 import { isValidIsoDate as looksLikeIsoDate, diffDays, todayIsoDate } from "./dates";
 import { absDkk, compareDkk, percentOfDkk, roundDkk, subtractDkk, sumDkk } from "./money";
 
@@ -38,8 +39,12 @@ export type RegisterPayableInput = {
   billDate: string;
   dueDate: string;
   expenseAccountNo: string;
-  /** "standard" books 25 % deductible input VAT; "exempt" books no VAT. */
-  vatTreatment?: "standard" | "exempt";
+  /**
+   * "standard" books 25 % deductible input VAT (registered companies only);
+   * "exempt" books no VAT; "non_deductible" absorbs charged VAT into the
+   * expense (Momsloven § 37 — a NOT VAT-registered company has no deduction).
+   */
+  vatTreatment?: "standard" | "exempt" | "non_deductible";
   vendorId?: number;
   vatAccountNo?: string;
   note?: string;
@@ -199,8 +204,8 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
   if (!looksLikeIsoDate(input.billDate)) errors.push("billDate must be YYYY-MM-DD");
   if (!looksLikeIsoDate(input.dueDate)) errors.push("dueDate must be YYYY-MM-DD");
   if (typeof input.expenseAccountNo !== "string" || input.expenseAccountNo.trim().length === 0) errors.push("expenseAccountNo is required");
-  if (input.vatTreatment && !["standard", "exempt"].includes(input.vatTreatment)) {
-    errors.push("vatTreatment must be one of standard, exempt when present");
+  if (input.vatTreatment && !["standard", "exempt", "non_deductible"].includes(input.vatTreatment)) {
+    errors.push("vatTreatment must be one of standard, exempt, non_deductible when present");
   }
   if (input.vendorId !== undefined && (!Number.isInteger(input.vendorId) || input.vendorId <= 0)) {
     errors.push("vendorId must be a positive integer when present");
@@ -244,7 +249,21 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
   const existing = db.query(`SELECT id FROM payables WHERE document_id = ? LIMIT 1`).get(input.documentId) as { id: number } | null;
   if (existing) return { ok: false, appliedRules: [RULE_ID], errors: [`document ${input.documentId} is already registered as payable ${existing.id}`] };
 
-  const vatTreatment = input.vatTreatment ?? (vatAmount > 0 ? "standard" : "exempt");
+  // A NOT VAT-registered company cannot deduct input VAT (§ 37), so a charged
+  // VAT amount defaults to non_deductible (absorbed into the cost) rather than
+  // standard; a registered company keeps the historical standard default.
+  const companyIsRegistered = getCompanySettings(db).vatPeriodType !== null;
+  const vatTreatment =
+    input.vatTreatment ?? (vatAmount > 0 ? (companyIsRegistered ? "standard" : "non_deductible") : "exempt");
+  if (vatTreatment === "standard" && !companyIsRegistered) {
+    return {
+      ok: false,
+      appliedRules: [RULE_ID],
+      errors: [
+        "selskabet er ikke momsregistreret — brug vatTreatment 'non_deductible', så den fakturerede moms absorberes i udgiften (momsloven § 37)",
+      ],
+    };
+  }
   if (vatTreatment === "exempt" && vatAmount !== 0) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["exempt payable registration requires document vat_amount = 0"] };
   }
@@ -278,7 +297,13 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
         { accountNo: CREDITOR_ACCOUNT_NO, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
       ]
     : [
-        { accountNo: expenseAccountNo, debitAmount: grossAmount, text: document.invoice_no ?? "Udgift" },
+        {
+          accountNo: expenseAccountNo,
+          debitAmount: grossAmount,
+          text:
+            document.invoice_no ??
+            (vatTreatment === "non_deductible" ? "Udgift inkl. moms (ikke-fradragsberettiget)" : "Udgift"),
+        },
         { accountNo: CREDITOR_ACCOUNT_NO, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
       ];
 

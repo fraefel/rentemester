@@ -45,6 +45,24 @@ function assertWorkspaceWriteAllowed(request: Request, config: ServerConfig): vo
  * into a core `CompanyPaymentInput`. Every sub-field is optional — `createCompany`
  * only creates the primary bank account when at least one carries information.
  */
+/**
+ * Parses the optional `vatPeriodType` create-company field, preserving the
+ * NOT-VAT-registered signal that `optionalString` would otherwise drop:
+ * a JSON `null` or the string `"none"` both mean "not registered" (→ `null`,
+ * which `initialiseCompanyVolume` writes verbatim); a cadence string passes
+ * through; absent stays `undefined` (historical quarterly default).
+ */
+function parseCreateVatPeriod(body: Record<string, unknown>): string | null | undefined {
+  const raw = body.vatPeriodType;
+  if (raw === null) return null;
+  if (typeof raw === "string") {
+    const v = raw.trim();
+    if (v === "none") return null;
+    return v.length > 0 ? v : undefined;
+  }
+  return undefined;
+}
+
 function parseCreatePayment(
   body: Record<string, unknown>,
 ): { bankName?: string; registrationNo?: string; accountNo?: string; iban?: string } | undefined {
@@ -83,9 +101,10 @@ export async function handleCompanyCreate(
       cvr: optionalString(body, "cvr") ?? null,
       fiscalYearStartMonth: optionalString(body, "fiscalYearStartMonth"),
       fiscalYearLabelStrategy: optionalString(body, "fiscalYearLabelStrategy"),
-      // #300: the VAT settlement cadence. `initialiseCompanyVolume` validates
-      // it and throws on an unknown value — re-mapped to a 400 below.
-      vatPeriodType: optionalString(body, "vatPeriodType"),
+      // #300: the VAT settlement cadence — or `null`/"none" for a NOT
+      // VAT-registered company. `initialiseCompanyVolume` validates it and
+      // throws on an unknown value — re-mapped to a 400 below.
+      vatPeriodType: parseCreateVatPeriod(body),
       ...(payment ? { payment } : {}),
     });
   } catch (err) {

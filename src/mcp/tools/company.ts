@@ -35,7 +35,13 @@ export function registerCompanyProfileTools(server: McpServer): void {
         "cvr, fiscalYearStartMonth, fiscalYearLabelStrategy, address, " +
         "postalCode, city, companyForm, industryCode, industryText, " +
         "cvrStatus, auditWaived, cvrSyncedAt, paymentTermsDays, " +
-        "vatPeriodType }. Defaults indsættes for felter ledgeren ikke har " +
+        "vatPeriodType, vatRegistered }. `vatPeriodType` er 'month' / " +
+        "'quarter' / 'half-year', ELLER `null` når virksomheden IKKE er " +
+        "momsregistreret (holdingselskab m.fl.); `vatRegistered` er den " +
+        "afledte boolean (false ⇔ vatPeriodType er null) — branch på den " +
+        "frem for at antage en kadence. For et ikke-momsregistreret selskab " +
+        "afviser moms-rapport-værktøjerne, og købsmoms absorberes i udgiften " +
+        "(non_deductible). Defaults indsættes for felter ledgeren ikke har " +
         "(ny virksomhed), så shape'en er stabil.",
       inputSchema: {
         company: z
@@ -53,7 +59,12 @@ export function registerCompanyProfileTools(server: McpServer): void {
     },
     withCompanyDb<{ company: string }>(server, ({ db }) => {
       const profile = getCompanySettings(db);
-      return successEnvelope({ profile });
+      // Surface the derived registration boolean so an agent branches on it
+      // directly instead of having to know that a null cadence means "not
+      // VAT-registered".
+      return successEnvelope({
+        profile: { ...profile, vatRegistered: profile.vatPeriodType !== null },
+      });
     }),
   );
 }

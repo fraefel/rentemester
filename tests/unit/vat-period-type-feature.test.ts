@@ -588,3 +588,354 @@ describe("CLI dashboard — VAT period label follows the cadence (#299)", () => 
     }
   });
 });
+
+// --------------------------------------------------------------------------
+// #514 — non-VAT-registered companies are a first-class state. The CLI,
+// the setter, the periods-core helper, every downstream surface (dashboard,
+// obligations, vat report/momsangivelse) and the cockpit PATCH endpoint
+// must all treat `vatPeriodType: null` as "ikke momsregistreret".
+// --------------------------------------------------------------------------
+
+/** A workspace with one company explicitly NOT VAT-registered. */
+function makeNonVatWorkspace(label: string) {
+  const root = tmpRoot(label);
+  initWorkspace(root);
+  const created = createCompany(root, { name: "Holding ApS", vatPeriodType: null });
+  return { root, slug: created.slug };
+}
+
+describe("init --no-vat / company profile round-trip (#514)", () => {
+  test("'init --no-vat' yields a profile with vatPeriodType=null + vatRegistered=false", async () => {
+    const root = tmpRoot("cli-no-vat-init");
+    try {
+      const company = join(root, "company");
+      const init = await runCli(["init", "--company", company, "--no-vat"]);
+      expect(init.exitCode).toBe(0);
+      const initJson = JSON.parse(init.stdout);
+      expect(initJson.vatPeriod).toBeNull();
+
+      const profile = await runCli([
+        "company", "profile",
+        "--company", company,
+        "--format", "json",
+      ]);
+      expect(profile.exitCode).toBe(0);
+      const parsed = JSON.parse(profile.stdout);
+      expect(parsed.profile.vatPeriodType).toBeNull();
+      expect(parsed.profile.vatRegistered).toBe(false);
+      expect(parsed.profile.vatPeriodLabel).toBe("ikke momsregistreret");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("'init --vat-period none' is an alias for --no-vat", async () => {
+    const root = tmpRoot("cli-no-vat-alias");
+    try {
+      const company = join(root, "company");
+      const init = await runCli([
+        "init", "--company", company, "--vat-period", "none",
+      ]);
+      expect(init.exitCode).toBe(0);
+      expect(JSON.parse(init.stdout).vatPeriod).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("combining --no-vat with --vat-period <cadence> is refused", async () => {
+    const root = tmpRoot("cli-no-vat-mutex");
+    try {
+      const company = join(root, "company");
+      const init = await runCli([
+        "init", "--company", company, "--no-vat", "--vat-period", "quarter",
+      ]);
+      expect(init.exitCode).not.toBe(0);
+      const stderr = init.stderr;
+      expect(stderr).toContain("--no-vat kan ikke kombineres med --vat-period");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("vatPeriodsForYear(null) (#514)", () => {
+  test("returns an empty array — there are no VAT periods to enumerate", () => {
+    expect(vatPeriodsForYear(2026, null)).toEqual([]);
+  });
+});
+
+describe("setCompanyVatPeriodType — round-trip between cadence and null (#514)", () => {
+  test("a quarter company can be marked not-registered then re-registered", () => {
+    const { root: ws, slug } = makeWorkspace("set-vat-null-roundtrip", "quarter");
+    try {
+      const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+      try {
+        migrate(db);
+        const off = setCompanyVatPeriodType(db, null);
+        expect(off).toEqual({ ok: true, changed: true, errors: [] });
+        const stored = db
+          .query("SELECT vat_period_type AS t FROM companies WHERE id = 1")
+          .get() as { t: string | null };
+        expect(stored.t).toBeNull();
+
+        const back = setCompanyVatPeriodType(db, "quarter");
+        expect(back).toEqual({ ok: true, changed: true, errors: [] });
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("deregistration and re-registration each write an itemized audit_log entry", () => {
+    const { root: ws, slug } = makeWorkspace("set-vat-audit", "quarter");
+    try {
+      const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+      try {
+        migrate(db);
+        setCompanyVatPeriodType(db, null);
+        setCompanyVatPeriodType(db, "quarter");
+        const events = db
+          .query(
+            "SELECT event_type AS e, message AS m FROM audit_log WHERE entity_type = 'company' AND event_type LIKE 'company_vat_%' ORDER BY id ASC",
+          )
+          .all() as Array<{ e: string; m: string }>;
+        expect(events.map((r) => r.e)).toEqual([
+          "company_vat_deregistered",
+          "company_vat_registered",
+        ]);
+        expect(events[0]!.m).toContain("ikke momsregistreret");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+// The deregistration guard must not strand posted VAT activity. Coverage is
+// judged by EFFECTIVE period state, so a reopened period (row still 'closed')
+// is correctly treated as open again.
+describe("setCompanyVatPeriodType — deregistration guard vs open VAT periods", () => {
+  function deregister(ws: string, slug: string) {
+    const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+    try {
+      migrate(db);
+      return setCompanyVatPeriodType(db, null);
+    } finally {
+      db.close();
+    }
+  }
+
+  test("refuses while a VAT period carrying posted activity is still open", () => {
+    const { root: ws, slug } = makeWorkspace("dereg-open", "quarter");
+    try {
+      postVatSale(ws, slug, "2026-02-15");
+      const res = deregister(ws, slug);
+      expect(res.ok).toBe(false);
+      expect(res.changed).toBe(false);
+      expect(res.errors[0]).toContain("åben momsperiode");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("allows deregistration once the VAT period is closed", async () => {
+    const { root: ws, slug } = makeWorkspace("dereg-closed", "quarter");
+    try {
+      postVatSale(ws, slug, "2026-02-15");
+      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        confirm: true,
+      });
+      expect(closed.status).toBe(200);
+      const res = deregister(ws, slug);
+      expect(res).toEqual({ ok: true, changed: true, errors: [] });
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses again after a closed VAT period is REOPENED (effective state, not row status)", async () => {
+    const { root: ws, slug } = makeWorkspace("dereg-reopened", "quarter");
+    try {
+      postVatSale(ws, slug, "2026-02-15");
+      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        confirm: true,
+      });
+      expect(closed.status).toBe(200);
+      const reopened = await post(config(ws), `/api/companies/${slug}/periods/reopen`, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        kind: "vat_quarter",
+        reason: "bilag bogført for sent",
+        confirm: true,
+      });
+      expect(reopened.status).toBe(200);
+      // The period row still reads 'closed'; only the append-only audit log
+      // carries the reopen. A row-status check would wrongly allow deregister.
+      const res = deregister(ws, slug);
+      expect(res.ok).toBe(false);
+      expect(res.changed).toBe(false);
+      expect(res.errors[0]).toContain("åben momsperiode");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("dashboard + obligations gate VAT-only output for non-registered (#514)", () => {
+  test("CLI dashboard renders an 'Ikke momsregistreret' card instead of a momsfrist", async () => {
+    const root = tmpRoot("cli-dash-no-vat");
+    try {
+      const company = join(root, "company");
+      const outPath = join(root, "dashboard.html");
+      expect(
+        (await runCli(["init", "--company", company, "--no-vat"])).exitCode,
+      ).toBe(0);
+      const dash = await runCli([
+        "dashboard",
+        "--company", company,
+        "--out", outPath,
+        "--as-of", "2026-05-17",
+      ]);
+      expect({ exitCode: dash.exitCode, stderr: dash.stderr }).toEqual({
+        exitCode: 0,
+        stderr: "",
+      });
+      const html = readFileSync(outPath, "utf8");
+      expect(html).toContain("Ikke momsregistreret");
+      expect(html).toContain("Selskabet er ikke momsregistreret");
+      // No synthetic quarter label is invented for the deadline card.
+      expect(html).not.toContain("Q1 2026");
+      expect(html).not.toContain("Q2 2026");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("buildCompanyObligations emits zero VAT lines for a not-registered company", () => {
+    const { root: ws, slug } = makeNonVatWorkspace("oblig-no-vat");
+    try {
+      const obligations = buildCompanyObligations(ws, slug, 2026);
+      const vatRows = obligations.obligations.filter((r) => r.kind === "vat");
+      expect(vatRows).toEqual([]);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("buildCompanyVat returns a vatRegistered=false sentinel for a not-registered company", () => {
+    const { root: ws, slug } = makeNonVatWorkspace("vat-card-no-vat");
+    try {
+      const vat = buildCompanyVat(ws, slug, 2026);
+      expect(vat.vatRegistered).toBe(false);
+      expect(vat.periodLabel).toBe("Ikke momsregistreret");
+      // The discriminated union narrows away the period/rubrikker fields —
+      // assert via JSON snapshot that they are absent (no synthetic Q1).
+      expect((vat as Record<string, unknown>).periodStart).toBeUndefined();
+      expect((vat as Record<string, unknown>).periodEnd).toBeUndefined();
+      expect((vat as Record<string, unknown>).rubrikker).toBeUndefined();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("buildCompanyOverview emits a null vat block for a not-registered company", () => {
+    const { root: ws, slug } = makeNonVatWorkspace("overview-no-vat");
+    try {
+      const overview = buildCompanyOverview(ws, slug, 2026);
+      expect(overview.vat).toBeNull();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("vat report / momsangivelse refuse for non-registered (#514)", () => {
+  test("'vat report' returns ok=false with the Danish error and exit 1", async () => {
+    const root = tmpRoot("cli-vat-report-no-vat");
+    try {
+      const company = join(root, "company");
+      expect(
+        (await runCli(["init", "--company", company, "--no-vat"])).exitCode,
+      ).toBe(0);
+      const report = await runCli([
+        "vat", "report",
+        "--company", company,
+        "--from", "2026-01-01",
+        "--to", "2026-03-31",
+        "--format", "json",
+      ]);
+      expect(report.exitCode).toBe(1);
+      const parsed = JSON.parse(report.stdout);
+      expect(parsed).toEqual({
+        ok: false,
+        errors: ["selskabet er ikke momsregistreret"],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("'vat momsangivelse' is refused with the same envelope", async () => {
+    const root = tmpRoot("cli-vat-moms-no-vat");
+    try {
+      const company = join(root, "company");
+      expect(
+        (await runCli(["init", "--company", company, "--no-vat"])).exitCode,
+      ).toBe(0);
+      const moms = await runCli([
+        "vat", "momsangivelse",
+        "--company", company,
+        "--from", "2026-01-01",
+        "--to", "2026-03-31",
+        "--format", "json",
+      ]);
+      expect(moms.exitCode).toBe(1);
+      expect(JSON.parse(moms.stdout)).toEqual({
+        ok: false,
+        errors: ["selskabet er ikke momsregistreret"],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("PATCH /api/companies/:slug/company accepts null vatPeriodType (#514)", () => {
+  test("body { vatPeriodType: null } marks the company as not registered", async () => {
+    const { root: ws, slug } = makeWorkspace("patch-null-vat", "quarter");
+    try {
+      const res = await patch(config(ws), `/api/companies/${slug}/company`, {
+        vatPeriodType: null,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.company.vatPeriodType).toBeNull();
+
+      const fresh = await call(config(ws), `/api/companies/${slug}/company`);
+      expect(fresh.body.company.vatPeriodType).toBeNull();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("body { vatPeriodType: 'none' } is an alias for null", async () => {
+    const { root: ws, slug } = makeWorkspace("patch-none-vat", "quarter");
+    try {
+      const res = await patch(config(ws), `/api/companies/${slug}/company`, {
+        vatPeriodType: "none",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.company.vatPeriodType).toBeNull();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});

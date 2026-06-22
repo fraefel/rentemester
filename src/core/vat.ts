@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
+import { getCompanySettings } from "./company";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { requireCachedViesValidation, normalizeEuVatNumber } from "./vies";
 import { addDkk, compareDkk, fromOre, percentOfDkk, roundDkk, subtractDkk, sumDkk, toOre } from "./money";
@@ -85,6 +86,34 @@ export type VatPeriodReport = {
 const RULE_ID = "DK-VAT-REPORT-001";
 const REVERSE_CHARGE_RULE_ID = "DK-VAT-REVERSE-CHARGE-001";
 const REPRESENTATION_RULE_ID = "DK-VAT-REPRESENTATION-001";
+const REGISTRATION_RULE_ID = "DK-VAT-REGISTRATION-001";
+
+/**
+ * True when the single company row is VAT-registered (a cadence is set). A
+ * null `vat_period_type` marks a NOT VAT-registered company (Momsloven § 47 /
+ * § 48). Reads through `getCompanySettings`, the canonical reader, so the
+ * notion of "registered" is byte-identical to every other surface.
+ */
+function companyIsVatRegistered(db: Database): boolean {
+  return getCompanySettings(db).vatPeriodType !== null;
+}
+
+// EU service reverse charge for a NOT VAT-registered company is NOT a deductible
+// net-zero booking: under Momsloven § 46, stk. 1, nr. 3, jf. § 50 b the buyer
+// becomes separately liable to register and pay Danish erhvervelsesmoms "fra
+// første krone" with NO input-VAT deduction (§ 37). That registration + filing
+// flow is out of scope (parallel to the § 11 EU-goods erhvervelsesmoms
+// limitation), so we must refuse rather than silently book a forbidden 4000
+// deduction (or silently absorb VAT the company actually owes SKAT).
+const NON_REGISTERED_EU_SERVICE_MSG =
+  "selskabet er ikke momsregistreret — EU-ydelseskøb med omvendt betalingspligt udløser særskilt registreringspligt for erhvervelsesmoms (momsloven § 46, stk. 1, nr. 3, jf. § 50 b) fra første krone uden fradrag (§ 37); det håndterer Rentemester ikke endnu. Registrér selskabet for erhvervelsesmoms og søg rådgivning — bogfør ikke købet som reverse charge her";
+
+// Representation for a NOT VAT-registered company: the § 42 partial deduction
+// is a registered-business relief, and § 37 grants no deduction at all, so the
+// full VAT is simply a cost. The correct booking is gross absorption via
+// `expense book --vat-treatment non_deductible`, not this partial-deduction path.
+const NON_REGISTERED_REPRESENTATION_MSG =
+  "selskabet er ikke momsregistreret — repræsentationsmoms kan ikke fradrages (momsloven § 37); bogfør bilaget brutto med 'expense book --vat-treatment non_deductible', så hele momsen absorberes i udgiften";
 
 /**
  * SKAT filing/payment deadline for a VAT period (#236).
@@ -165,6 +194,13 @@ export function postEuServiceReverseChargePurchase(db: Database, input: ReverseC
   if (typeof input.expenseAccountNo !== "string" || input.expenseAccountNo.trim().length === 0) errors.push("expenseAccountNo is required");
   if (errors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors };
 
+  // A non-registered company cannot book deductible reverse-charge VAT (§ 37);
+  // the purchase instead triggers a § 50 b erhvervelsesmoms registration that
+  // is out of scope. Refuse rather than book a forbidden 4000 line.
+  if (!companyIsVatRegistered(db)) {
+    return { ok: false, appliedRules: [REGISTRATION_RULE_ID, REVERSE_CHARGE_RULE_ID], errors: [NON_REGISTERED_EU_SERVICE_MSG] };
+  }
+
   const documentRow = db.query(`SELECT sender_vat_cvr FROM documents WHERE id = ?`).get(input.documentId) as { sender_vat_cvr: string | null } | null;
   if (!documentRow) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [`documentId ${input.documentId} does not exist`] };
   // EU service reverse charge (momsloven §46) applies only to suppliers in
@@ -214,6 +250,13 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!Number.isFinite(input.netAmount) || input.netAmount <= 0) errors.push("netAmount must be a positive number");
   if (errors.length > 0) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors };
+
+  // The § 42 partial representation deduction is a registered-business relief;
+  // a non-registered company gets no deduction (§ 37), so the full VAT is a
+  // cost. Refuse and direct to gross non_deductible absorption.
+  if (!companyIsVatRegistered(db)) {
+    return { ok: false, appliedRules: [REGISTRATION_RULE_ID, REPRESENTATION_RULE_ID], errors: [NON_REGISTERED_REPRESENTATION_MSG] };
+  }
 
   const fullVatAmount = percentOfDkk(input.netAmount, 25);
   const deductibleVatAmount = percentOfDkk(fullVatAmount, 25);

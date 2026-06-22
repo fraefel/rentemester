@@ -5,7 +5,7 @@ export const payableSpecs: CommandSpec[] = [
   {
     key: "payable register",
     usage:
-      "payable register --company <path> --document-id <n> --bill-date <YYYY-MM-DD> --due-date <YYYY-MM-DD> --expense-account <konto> [--vat-treatment standard|exempt] [--vendor-id <n>] [--note <text>]",
+      "payable register --company <path> --document-id <n> --bill-date <YYYY-MM-DD> --due-date <YYYY-MM-DD> --expense-account <konto> [--vat-treatment standard|exempt|non_deductible] [--vendor-id <n>] [--note <text>]",
     description:
       "Registrerer et bogført leverandørbilag som en åben kreditorpost (kreditorstyring). Posteringen debiterer udgift + købsmoms og krediterer 7000 Leverandørgæld, så gælden står åben i bøgerne indtil den betales.",
     allowedFlags: ["--company", "--document-id", "--bill-date", "--due-date", "--expense-account", "--vat-treatment", "--vendor-id", "--note"],
@@ -13,7 +13,7 @@ export const payableSpecs: CommandSpec[] = [
       "--document-id binder kreditorposten til et indlæst købsbilag (heltal-id). Et bilag kan kun registreres som kreditorpost én gang.",
       "--bill-date er bilagsdatoen (bogføringsdato for kreditorposteringen); --due-date er forfaldsdatoen gælden afdrages efter i kreditorlisten.",
       "--expense-account: kontonummeret udgiften bogføres på (fx 3000 Software og SaaS).",
-      "--vat-treatment: 'standard' løfter 25 % dansk købsmoms af bilaget; 'exempt' bogfører ingen moms. Udelades den, udledes den af bilagets vat_amount (>0 → standard, =0 → exempt).",
+      "--vat-treatment: 'standard' løfter 25 % dansk fradragsberettiget købsmoms af bilaget (kun momsregistrerede selskaber); 'exempt' bogfører ingen moms; 'non_deductible' absorberer den fakturerede moms i udgiften uden 4000-linje (momsloven § 37 — et ikke-momsregistreret selskab har intet fradrag). Udelades den, udledes den af bilagets vat_amount og selskabets registrering (>0 → 'standard' for et registreret selskab, men 'non_deductible' for et ikke-registreret; =0 → 'exempt'). 'standard' afvises for et ikke-registreret selskab.",
       "Kun DKK-bilag understøttes i denne første slice — fremmedvaluta er uden for scope.",
       "Reverse charge / repræsentation hører til 'expense book' og modelleres ikke som kreditorpost.",
     ],

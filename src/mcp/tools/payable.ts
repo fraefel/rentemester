@@ -54,11 +54,15 @@ export function registerPayableTools(server: McpServer): void {
             "Account number from the chart of accounts the expense is posted to, e.g. '3000'. See accounts_list.",
           ),
         vatTreatment: z
-          .enum(["standard", "exempt"])
+          .enum(["standard", "exempt", "non_deductible"])
           .optional()
           .describe(
-            "'standard' books 25% Danish input VAT off the bill; 'exempt' books no VAT. " +
-              "When omitted it is inferred from the document's vat_amount (>0 => standard, =0 => exempt).",
+            "'standard' books 25% Danish deductible input VAT off the bill (VAT-registered companies only); " +
+              "'exempt' books no VAT; 'non_deductible' absorbs the charged VAT into the expense with no 4000 line " +
+              "(Momsloven § 37 — a NOT VAT-registered company has no deduction). When omitted it is inferred from " +
+              "the document's vat_amount and the company's registration: vat>0 => 'standard' for a registered " +
+              "company but 'non_deductible' for a non-registered one; vat=0 => 'exempt'. 'standard' is refused for a " +
+              "non-registered company.",
           ),
         vendorId: z
           .number()
@@ -78,7 +82,7 @@ export function registerPayableTools(server: McpServer): void {
       billDate: string;
       dueDate: string;
       expenseAccount: string;
-      vatTreatment?: "standard" | "exempt";
+      vatTreatment?: "standard" | "exempt" | "non_deductible";
       vendorId?: number;
       note?: string;
       confirm?: boolean;

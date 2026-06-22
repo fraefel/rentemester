@@ -8,8 +8,10 @@
  *  - `vat_post_representation_purchase` (write-irreversible)
  */
 
+import type { Database } from "bun:sqlite";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getCompanySettings } from "../../core/company";
 import {
   buildVatReport,
   postEuServiceReverseChargePurchase,
@@ -20,8 +22,22 @@ import {
 import { buildViesRecapitulativeStatement } from "../../core/vat-vies-list";
 import { buildOssReport } from "../../core/vat-oss";
 import { withActor } from "../actor";
-import { envelopeShape, wrapCoreResult } from "../envelope";
+import { envelopeShape, errorEnvelope, wrapCoreResult, type Envelope } from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
+
+/**
+ * Refuse a VAT-report-class tool when the company is not VAT-registered
+ * (`vatPeriodType === null`). Mirrors the CLI's `ensureVatRegistered` gate
+ * (src/cli/vat.ts) so an agent hitting these tools gets the same
+ * `{ ok: false }` refusal — without this the core builders would return an
+ * empty-rubrikker report that DK-VAT-REGISTRATION-001 explicitly forbids
+ * (`forbid: momsangivelse_for_non_registered_company`). Returns the refusal
+ * envelope, or `null` when the company is registered (caller proceeds).
+ */
+function refuseIfNotVatRegistered(db: Database): Envelope | null {
+  if (getCompanySettings(db).vatPeriodType !== null) return null;
+  return errorEnvelope(["selskabet er ikke momsregistreret"], { code: "NOT_VAT_REGISTERED" });
+}
 
 // All monetary fields below are in kroner — decimal DKK with 2 decimals (NOT øre).
 
@@ -152,6 +168,8 @@ export function registerVatTools(server: McpServer): void {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     withCompanyDb<{ company: string; from: string; to: string }>(server, ({ db, args }) => {
+      const refusal = refuseIfNotVatRegistered(db);
+      if (refusal) return refusal;
       const result = buildVatReport(db, args.from, args.to);
       return wrapCoreResult(result);
     }),
@@ -178,6 +196,8 @@ export function registerVatTools(server: McpServer): void {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     withCompanyDb<{ company: string; from: string; to: string }>(server, ({ db, args }) => {
+      const refusal = refuseIfNotVatRegistered(db);
+      if (refusal) return refusal;
       const result = buildViesRecapitulativeStatement(db, args.from, args.to);
       return wrapCoreResult(result);
     }),
@@ -203,6 +223,8 @@ export function registerVatTools(server: McpServer): void {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     withCompanyDb<{ company: string; from: string; to: string }>(server, ({ db, args }) => {
+      const refusal = refuseIfNotVatRegistered(db);
+      if (refusal) return refusal;
       const result = buildOssReport(db, args.from, args.to);
       return wrapCoreResult(result);
     }),

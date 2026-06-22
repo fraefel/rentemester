@@ -122,6 +122,12 @@ function inferEnvelopeCode(errors: string[]): string | undefined {
   if (/does not exist|findes ikke|no (?:such|\w+ found)|kunne ikke findes/i.test(haystack)) {
     return "NOT_FOUND";
   }
+  // The company is not VAT-registered — the VAT report/posting gates all refuse
+  // with the shared "selskabet er ikke momsregistreret" wording, so an agent can
+  // branch on the stable code instead of parsing the Danish free text.
+  if (/ikke momsregistreret/i.test(haystack)) {
+    return "NOT_VAT_REGISTERED";
+  }
   return undefined;
 }
 

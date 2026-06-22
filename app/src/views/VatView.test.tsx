@@ -3,7 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VatView } from "./VatView";
 import { renderAt } from "../test/render";
-import { vat, mockFetch } from "../test/fixtures";
+import { vat, vatNotRegistered, mockFetch } from "../test/fixtures";
 
 function route(over = {}) {
   return {
@@ -82,6 +82,27 @@ describe("VatView — Moms", () => {
     expect(
       await screen.findByText(/Moms er ikke tilgængelig for 2025/),
     ).toBeInTheDocument();
+  });
+
+  // A NOT VAT-registered company renders the explanation card instead of the
+  // period/rubrikker block — and must render WITHOUT crashing. Regression
+  // guard: the not-registered branch previously mis-wired CompanyNav (years
+  // undefined → YearSelector .map threw) and used an invalid Banner kind.
+  test("a not-VAT-registered company shows the explanation card and renders the year selector", async () => {
+    mockFetch({
+      "GET /api/companies/acme-aps/vat": { vat: vatNotRegistered() },
+    });
+    renderView();
+    expect(
+      await screen.findByText(/ikke momsregistreret/i),
+    ).toBeInTheDocument();
+    // The CompanyNav year selector must be present — it threw on undefined
+    // `years` before the fix, crashing the whole view.
+    expect(
+      screen.getByLabelText("Vælg regnskabsår"),
+    ).toBeInTheDocument();
+    // No synthetic momsangivelse rubrics for a non-registered company.
+    expect(screen.queryByText("Moms at betale")).not.toBeInTheDocument();
   });
 
   // #271: a bad-debt write-off books a debit on the output-VAT account. The

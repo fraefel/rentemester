@@ -15,6 +15,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
+import { initialiseCompanyVolume } from "../../src/core/company";
 import { registerVatTools } from "../../src/mcp/tools/vat";
 
 /**
@@ -116,4 +117,34 @@ describe("vat_eu_sales_list MCP tool", () => {
     expect(env.data?.ossConsumerSalesBase).toBe(2000);
     expect(env.data?.submission).toBe(false);
   });
+});
+
+// The report-class MCP tools must mirror the CLI gate: a NOT VAT-registered
+// company (vat_period_type = null) gets an { ok:false } refusal, never an
+// empty-rubrikker report (DK-VAT-REGISTRATION-001). Without the gate in
+// src/mcp/tools/vat.ts these tools would build a report straight from core.
+describe("VAT report MCP tools refuse a non-registered company", () => {
+  let nonVatRoot: string;
+  beforeAll(() => {
+    nonVatRoot = mkdtempSync(join(tmpdir(), "mcp-vat-no-reg-"));
+    initialiseCompanyVolume(nonVatRoot, { name: "Holding ApS", vatPeriodType: null });
+  });
+  afterAll(() => {
+    if (nonVatRoot && existsSync(nonVatRoot)) {
+      rmSync(nonVatRoot, { recursive: true, force: true });
+    }
+  });
+
+  for (const name of ["vat_report", "vat_eu_sales_list", "vat_oss_report"]) {
+    test(`${name} refuses with 'ikke momsregistreret'`, async () => {
+      const h = harness();
+      const env = await h.call(name, {
+        company: nonVatRoot,
+        from: "2026-01-01",
+        to: "2026-03-31",
+      });
+      expect(env.ok, JSON.stringify(env)).toBe(false);
+      expect(env.errors.join(" ")).toContain("ikke momsregistreret");
+    });
+  }
 });

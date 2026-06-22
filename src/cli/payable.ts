@@ -72,7 +72,7 @@ export function register(dispatch: CommandDispatch): void {
       billDate,
       dueDate,
       expenseAccountNo,
-      vatTreatment: ctx.arg("--vat-treatment") as "standard" | "exempt" | undefined,
+      vatTreatment: ctx.arg("--vat-treatment") as "standard" | "exempt" | "non_deductible" | undefined,
       vendorId,
       note: ctx.arg("--note") ?? undefined,
     });

@@ -30,7 +30,7 @@ import {
  * POST /api/companies/:slug/payables — registers an existing purchase
  * document (bilag) as a leverandørfaktura. Body:
  *   { documentId: number, billDate: string, dueDate: string,
- *     expenseAccountNo: string, vatTreatment?: "standard"|"exempt",
+ *     expenseAccountNo: string, vatTreatment?: "standard"|"exempt"|"non_deductible",
  *     vendorId?: number, note?: string, confirm: true }
  *
  * Write-irreversible (it appends a kreditorpost journal entry), so
@@ -55,10 +55,11 @@ export async function handlePayableRegister(
       if (
         vatTreatmentRaw !== undefined &&
         vatTreatmentRaw !== "standard" &&
-        vatTreatmentRaw !== "exempt"
+        vatTreatmentRaw !== "exempt" &&
+        vatTreatmentRaw !== "non_deductible"
       ) {
         throw ApiError.badRequest(
-          "'vatTreatment' must be one of: standard, exempt",
+          "'vatTreatment' must be one of: standard, exempt, non_deductible",
         );
       }
       const vendorId = optionalBodyPositiveInt(body, "vendorId");
@@ -72,7 +73,7 @@ export async function handlePayableRegister(
             dueDate,
             expenseAccountNo,
             ...(vatTreatmentRaw
-              ? { vatTreatment: vatTreatmentRaw as "standard" | "exempt" }
+              ? { vatTreatment: vatTreatmentRaw as "standard" | "exempt" | "non_deductible" }
               : {}),
             ...(vendorId !== undefined ? { vendorId } : {}),
             ...(note ? { note } : {}),

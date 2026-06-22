@@ -252,4 +252,69 @@ describe("payables (kreditorstyring)", () => {
     rmSync(root, { recursive: true, force: true });
     rmSync(inbox, { recursive: true, force: true });
   });
+
+  // §37: a NOT VAT-registered company cannot deduct input VAT, so a VAT-bearing
+  // payable is absorbed (non_deductible) — the whole brutto hits the expense,
+  // no 4000 line — and an explicit 'standard' is refused.
+  function markNotRegistered(db: ReturnType<typeof openDb>) {
+    db.run(
+      "INSERT INTO companies (id, name, vat_period_type) VALUES (1, 'TEST HOLDING ApS', NULL) " +
+        "ON CONFLICT(id) DO UPDATE SET vat_period_type = NULL",
+    );
+  }
+
+  test("non-registered company: a VAT-bearing payable defaults to non_deductible (gross to expense, no 4000)", () => {
+    const { root, db } = setup("rentemester-payables-nonreg-");
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-payables-nonreg-inbox-"));
+    markNotRegistered(db);
+    const documentId = ingestPurchase(db, root, inbox, "Software ApS", "V-ND-1", 1250, 250);
+
+    const registered = registerPayable(db, {
+      documentId,
+      billDate: "2026-01-10",
+      dueDate: "2026-02-09",
+      expenseAccountNo: "3000",
+    });
+    expect({ ok: registered.ok, errors: registered.errors }).toEqual({ ok: true, errors: [] });
+
+    const lines = db
+      .query(
+        `SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code
+         FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+         WHERE jl.journal_entry_id = ? ORDER BY jl.id ASC`,
+      )
+      .all(registered.entryId!) as any[];
+    // Gross to the expense, no 4000 Købsmoms line, no vat_code: never feeds a
+    // momsangivelse rubrik.
+    expect(lines).toEqual([
+      { account_no: "3000", debit_amount: 1250, credit_amount: 0, vat_code: null },
+      { account_no: "7000", debit_amount: 0, credit_amount: 1250, vat_code: null },
+    ]);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("non-registered company: explicit vatTreatment='standard' payable is refused (points at non_deductible)", () => {
+    const { root, db } = setup("rentemester-payables-nonreg-std-");
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-payables-nonreg-std-inbox-"));
+    markNotRegistered(db);
+    const documentId = ingestPurchase(db, root, inbox, "Software ApS", "V-ND-2", 1250, 250);
+
+    const registered = registerPayable(db, {
+      documentId,
+      billDate: "2026-01-10",
+      dueDate: "2026-02-09",
+      expenseAccountNo: "3000",
+      vatTreatment: "standard",
+    });
+    expect(registered.ok).toBe(false);
+    expect(registered.errors.join(" ")).toContain("ikke momsregistreret");
+    expect(registered.errors.join(" ")).toContain("non_deductible");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
 });

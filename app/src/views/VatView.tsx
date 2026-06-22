@@ -54,8 +54,13 @@ export function VatView() {
             </p>
           </div>
         </div>
-        <CompanyNav slug={slug} year={year} setYear={setYear} active="vat" />
-        <Banner kind="info">
+        <CompanyNav
+          slug={slug}
+          years={v.fiscalYears}
+          selectedYear={v.selectedYear}
+          onYearChange={setYear}
+        />
+        <Banner kind="warning">
           Denne virksomhed er ikke momsregistreret. Der er derfor ingen momsperiode,
           ingen momsangivelse og ingen SKAT-frist. Tilkøb af bilag med moms bogføres
           med <code>expense book --vat-treatment non_deductible</code> så momsen

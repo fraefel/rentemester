@@ -1,4 +1,4 @@
-version: dk-bookkeeping-v0.0.7
+version: dk-bookkeeping-v0.0.8
 sources:
   - DK-BOGFORINGSLOVEN-2022-700
   - DK-DIGITAL-BOGFORING-NONREGISTERED-2024-205
@@ -332,6 +332,24 @@ rules:
         - duplicate_payable_for_same_purchase_document
         - payable_recognition_without_purchase_document
     explanation: Rentemester registers a booked supplier bill as an open creditor item by posting a balanced recognition entry (debit expense plus deductible input VAT, credit the trade-creditor liability account), keyed one-to-one to the underlying purchase document so the same bill is never registered twice.
+  # ===== CHART OF ACCOUNTS — POST-INIT EXTENSION =====
+  - rule_id: DK-CHART-OF-ACCOUNTS-ADD-001
+    name: Post-init chart-of-accounts extension must be a sanctioned, audit-logged write
+    category: ledger_validation
+    source_id: DK-BOGFORINGSLOVEN-2022-700
+    provisions:
+      - ref: "§ 7, stk. 1"
+        text_hash: "sha256:1094e0af03f6b6383aee9c5bbc46f629ab94d04b2f949d01621ad54195f1b744"
+    severity: hard_stop
+    machine_rule:
+      require:
+        - unique_account_number
+        - schema_valid_account_type_and_normal_balance
+        - append_only_audit_log_entry_for_each_addition
+      forbid:
+        - silent_chart_of_accounts_extension_via_raw_sql
+        - reclassification_or_deletion_of_existing_accounts
+    explanation: Rentemester must expose a sanctioned write path for adding an account to the chart of accounts after init so an owner can extend the chart when a new income, expense or balance-sheet account is needed; the addition validates uniqueness and type/normal-balance, audit-logs the event, and never silently reclassifies or removes an existing account.
   - rule_id: DK-PAYABLE-PAYMENT-001
     name: Payable payments must be traceably applied against open creditor items and bank transactions
     category: ledger_validation

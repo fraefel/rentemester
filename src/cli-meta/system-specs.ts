@@ -86,4 +86,26 @@ export const systemSpecs: CommandSpec[] = [
   { key: "system export-saft", usage: "system export-saft --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --out <dir> [--generated-at <ISO-8601>]", description: "Eksporterer første deterministiske SAF-T-slice (kontoplan, journal og salgsfakturaer).", allowedFlags: ["--company", "--from", "--to", "--out", "--generated-at"] },
   { key: "audit verify", usage: "audit verify --company <path>", description: "Verificerer audit-kæde og bogføringsintegritet.", allowedFlags: ["--company"] },
   { key: "accounts list", usage: "accounts list --company <path>", description: "Lister kontoplanen.", allowedFlags: ["--company"] },
+  {
+    key: "accounts add",
+    usage:
+      "accounts add --company <path> --account-no <text> --name <text> --type asset|liability|equity|income|expense|vat [--normal-balance debit|credit] [--default-vat-code <text>] [--allow-direct-posting true|false]",
+    description:
+      "Tilføjer én ny konto til kontoplanen efter init. Append-only — eksisterende konti kan ikke omdøbes eller flyttes med denne kommando. --normal-balance udledes af --type hvis ikke angivet (asset/expense → debit, ellers credit). Audit-logges.",
+    allowedFlags: [
+      "--company",
+      "--account-no",
+      "--name",
+      "--type",
+      "--normal-balance",
+      "--default-vat-code",
+      "--allow-direct-posting",
+    ],
+    inputNotes: [
+      "Append-only: rename/type-change/archive er ikke understøttet i denne kommando.",
+      "--account-no skal være unikt i kontoplanen.",
+      "--type styrer både CHECK-constraint og default --normal-balance.",
+      "--allow-direct-posting true|false (default true) — afgør om kontoen må posteres direkte.",
+    ],
+  },
 ];

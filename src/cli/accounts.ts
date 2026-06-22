@@ -1,4 +1,5 @@
 import { migrate } from "../core/db";
+import { createAccount } from "../core/chart-of-accounts";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandDispatch } from "../cli-dispatch";
 
@@ -22,6 +23,41 @@ export function register(dispatch: CommandDispatch): void {
     // aligned text table keyed on the account number instead. (#246)
     console.log(renderAccountsTable(rows));
     db.close();
+  });
+
+  dispatch.on("accounts", "add", (ctx) => {
+    const db = openCommandDb(ctx);
+    migrate(db);
+
+    const rawDirectPosting = ctx.arg("--allow-direct-posting");
+    let allowDirectPosting: boolean | undefined;
+    if (rawDirectPosting != null) {
+      const lower = rawDirectPosting.toLowerCase();
+      if (lower === "true") allowDirectPosting = true;
+      else if (lower === "false") allowDirectPosting = false;
+      else {
+        ctx.emitResult({
+          ok: false,
+          errors: [
+            `--allow-direct-posting must be 'true' or 'false' (got '${rawDirectPosting}')`,
+          ],
+        });
+        db.close();
+        process.exit(1);
+      }
+    }
+
+    const result = createAccount(db, {
+      accountNo: ctx.arg("--account-no") ?? "",
+      name: ctx.arg("--name") ?? "",
+      type: ctx.arg("--type") ?? "",
+      normalBalance: ctx.arg("--normal-balance"),
+      defaultVatCode: ctx.arg("--default-vat-code"),
+      allowDirectPosting,
+    });
+    ctx.emitResult(result as Record<string, unknown>);
+    db.close();
+    if (!result.ok) process.exit(1);
   });
 }
 

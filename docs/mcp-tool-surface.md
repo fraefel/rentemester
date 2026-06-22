@@ -91,7 +91,7 @@ med det samme i komprimeret form.
 | Niveau | Krav | Eksempler |
 |---|---|---|
 | `read` | Ingen | `audit_verify`, `bank_list`, `invoice_status`, `vat_report`, `portfolio_overview` |
-| `write-reversible` | `confirm: true` | `customer_create`, `vendor_create`, `bank_import`, `documents_ingest`, `exception_resolve`, `mileage_log` |
+| `write-reversible` | `confirm: true` | `customer_create`, `vendor_create`, `accounts_add`, `bank_import`, `documents_ingest`, `exception_resolve`, `mileage_log` |
 | `write-irreversible` | `confirm: true` | `journal_post`, `invoice_issue`, `invoice_post`, `expense_book`, `vat_post_*`, `asset_register`, `system_backup` |
 | `destructive` | `confirm: true` + `confirmText` | `system_restore_backup` |
 
@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 101 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 102 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-101 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+102 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -185,6 +185,7 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `journal_post` | `{ entryId, entryNo, entryHash }` |
 | `invoice_issue` | `{ documentId, invoiceNumber, storedPath, sha256, pdfDocumentId?, pdfStoredPath?, pdfSha256? }` — feltet hedder `documentId` (ikke `invoiceDocumentId`); `invoiceNumber` (ikke `invoiceNo`). |
 | `customer_create` / `vendor_create` | `{ customerId }` / `{ vendorId }` |
+| `accounts_add` | `{ accountNo }` |
 | `journal_reverse` | `{ entryId, entryNo, entryHash }` for modposten |
 | `recurring_invoice_create` | `{ templateId }` |
 | `recurring_invoice_generate` | `{ created, templateId, periodIndex, documentId, invoiceNumber, issueDate, dueDate, deliveryPeriodStart?, deliveryPeriodEnd? }` — `created:false` ⇒ en eksisterende faktura blev returneret (idempotent). |
@@ -209,10 +210,10 @@ Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
 - **Read-tools**: 47
-- **Write-reversible**: 11
+- **Write-reversible**: 12
 - **Write-irreversible**: 42
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **101**
+- **Total**: **102**
 
 ## Read-tools
 
@@ -314,11 +315,12 @@ uden at kernen kaldes.
 
 ### write-reversible
 
-11 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
+12 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
 append-only finanskæde.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
+| `accounts_add` | `accounts add` | `{ company, input: CreateAccountInput, confirm }` | Tilføjer én ny konto til kontoplanen efter init. Append-only — kan ikke omdøbe/ændre type/arkivere eksisterende konti. `normalBalance` udledes af `type` hvis ikke angivet. |
 | `bank_import` | `bank import` | `{ company, csvPath \| csvContent, account?, profile?, confirm }` | Importerer banktransaktioner fra CSV. Deterministisk via `sourceFileHash`. |
 | `budget_set` | `budget set` | `{ company, accountNo, period, amount, notes?, confirm }` | Sætter et budget for én konto i én kalendermåned. Append-only revisioner — seneste vinder. |
 | `company_sync_cvr` | `company sync-cvr` | `{ company, confirm }` | Henter virksomhedens stamdata fra CVR og opdaterer companies-rækken. Regnskabsåret røres ikke. |

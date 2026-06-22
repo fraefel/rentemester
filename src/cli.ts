@@ -49,6 +49,9 @@ import { register as registerMailIntake } from "./cli/mail-intake";
 // ===== IMAP INTAKE (#181) =====
 import { register as registerImapIntake } from "./cli/imap-intake";
 // ===== END IMAP INTAKE (#181) =====
+// ===== DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
+import { register as registerEfaktura } from "./cli/efaktura";
+// ===== END DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
 // ===== MILEAGE LOG (#123) =====
 import { register as registerMileage } from "./cli/mileage";
 // Fixed assets (#124, #125)
@@ -244,6 +247,9 @@ for (const registerFn of [
   // ===== IMAP INTAKE (#181) =====
   registerImapIntake,
   // ===== END IMAP INTAKE (#181) =====
+  // ===== DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
+  registerEfaktura,
+  // ===== END DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
   // ===== MILEAGE LOG (#123) =====
   registerMileage,
   // Fixed assets (#124, #125)

@@ -24,6 +24,7 @@ import { complianceSpecs } from "./cli-meta/compliance-specs";
 import { accrualSpecs } from "./cli-meta/accrual-specs";
 import { budgetSpecs } from "./cli-meta/budget-specs";
 import { payableSpecs } from "./cli-meta/payables-specs";
+import { efakturaSpecs } from "./cli-meta/efaktura-specs";
 
 export type { CommandSpec } from "./cli-meta/_shared";
 export {
@@ -80,6 +81,7 @@ export const COMMAND_SPECS: CommandSpec[] = [
   ...accrualSpecs,
   ...budgetSpecs,
   ...payableSpecs,
+  ...efakturaSpecs,
 ];
 
 registerCommandSpecs(COMMAND_SPECS);

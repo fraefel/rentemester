@@ -901,10 +901,21 @@ export function submitPublicEInvoicePeppol(
 // written, so a later retry can still reach `acknowledged`.
 // ============================================================================
 
-/** Outcome of one transport attempt through an access point. */
+/**
+ * Outcome of one transport attempt through an access point.
+ *
+ * `ok:false` may carry a `queuedDocumentId`: the transport ACCEPTED the document
+ * (it sits in the access point's delivery queue, e.g. Digisense' 202/queued) but
+ * we did not observe a terminal `delivered` within the bounded poll budget. The
+ * document is NOT lost — it will likely be delivered asynchronously — so a blind
+ * retry that calls `deliver` again would deliver it a SECOND time. When this id
+ * is present, `transmitPublicEInvoicePeppol` records a non-terminal `prepared`
+ * submission row keyed on it and a later run refuses to re-deliver (it must poll
+ * the existing documentId instead).
+ */
 export type PeppolTransmissionOutcome =
   | { ok: true; transmissionId: string; transmittedAt: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; queuedDocumentId?: string };
 
 /**
  * Performs the actual AS4 transport of an OIOUBL invoice through an access
@@ -977,6 +988,27 @@ export async function transmitPublicEInvoicePeppol(
       transmissionId: existing.transmission_id ?? undefined,
     };
   }
+  // Double-send guard: a previous attempt ACCEPTED the document into the access
+  // point's delivery queue (a `prepared` row with a transmission_id) but never
+  // observed `delivered` within the poll budget. The document is already on its
+  // way — calling the transmitter again would deliver it a SECOND time. Refuse
+  // to re-deliver and tell the caller to poll the existing queued documentId.
+  if (existing && existing.status === "prepared" && hasText(existing.transmission_id)) {
+    return {
+      ok: false,
+      invoiceNumber,
+      submissionReference: existing.submission_reference,
+      idempotencyKey: existing.idempotency_key,
+      status: existing.status,
+      transmissionId: existing.transmission_id ?? undefined,
+      appliedRules: [PEPPOL_SUBMIT_RULE_ID],
+      errors: [
+        `PEPPOL transmission already queued for invoice ${invoiceNumber} ` +
+          `(documentId ${existing.transmission_id}); refusing to re-deliver to avoid a duplicate. ` +
+          `Poll the delivery status for this documentId instead.`,
+      ],
+    };
+  }
 
   // Perform the transport. A thrown error is treated as a failed attempt.
   let outcome: PeppolTransmissionOutcome;
@@ -1000,6 +1032,66 @@ export async function transmitPublicEInvoicePeppol(
         `PEPPOL transmission failed for invoice ${invoiceNumber} ` +
         `via access point ${input.accessPoint.accessPointId.trim()}: ${outcome.error}`,
     });
+    // Queued-but-not-yet-delivered: the access point ACCEPTED the document into
+    // its delivery queue. Persist a non-terminal `prepared` submission row keyed
+    // on the idempotency key, carrying the queued documentId, so a later run
+    // hits the double-send guard above and refuses to re-deliver. Without this,
+    // the next attempt would call `deliver` again and the recipient would get
+    // the invoice twice. We only do this when no row exists yet (the row is
+    // append-only and the idempotency key is UNIQUE).
+    if (outcome.queuedDocumentId && !existing) {
+      const submissionReference = `PEPPOL-${invoiceNumber}-${idempotencyKey.slice(0, 12)}`;
+      const envelope = buildPeppolSubmissionEnvelope({
+        submissionReference,
+        idempotencyKey,
+        invoiceNumber,
+        accessPoint: input.accessPoint,
+        receiverEndpointId: receiver,
+        oioublSha256: oioubl.sha256,
+        status: "prepared",
+      });
+      const envelopeSha256 = createHash("sha256").update(envelope).digest("hex");
+      db.run(
+        `INSERT INTO peppol_submissions
+           (invoice_document_id, invoice_no, idempotency_key, submission_reference,
+            access_point_id, receiver_endpoint_id, oioubl_sha256, envelope_sha256,
+            envelope_xml, status, transmission_id, acknowledged_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, NULL)`,
+        input.invoiceDocumentId,
+        invoiceNumber,
+        idempotencyKey,
+        submissionReference,
+        input.accessPoint.accessPointId.trim(),
+        receiver,
+        oioubl.sha256,
+        envelopeSha256,
+        envelope,
+        outcome.queuedDocumentId,
+      );
+      insertAuditLog(db, {
+        eventType: "public_einvoice_peppol_transmission",
+        entityType: "document",
+        entityId: input.invoiceDocumentId,
+        message:
+          `PEPPOL transmission for invoice ${invoiceNumber} is QUEUED at the access point ` +
+          `(documentId ${outcome.queuedDocumentId}); recorded a pending submission to prevent a re-deliver. ` +
+          `Poll the delivery status for this documentId rather than retrying transmit.`,
+      });
+      return {
+        ok: false,
+        invoiceNumber,
+        submissionReference,
+        idempotencyKey,
+        status: "prepared",
+        transmissionId: outcome.queuedDocumentId,
+        appliedRules: [PEPPOL_SUBMIT_RULE_ID],
+        errors: [
+          `PEPPOL transmission queued but not yet delivered: ${outcome.error}. ` +
+            `A pending submission was recorded (documentId ${outcome.queuedDocumentId}); ` +
+            `do not retry transmit — poll the delivery status instead.`,
+        ],
+      };
+    }
     return {
       ok: false,
       invoiceNumber,

@@ -74,6 +74,18 @@ export const invoiceSpecs: CommandSpec[] = [
   { key: "invoice export-public-oioubl", usage: "invoice export-public-oioubl --company <path> (--document-id <n> | --invoice-number <no>) --out <file.xml>", description: "Eksporterer et deterministisk OIOUBL-handoff-artifact til offentlig e-faktura uden direkte PEPPOL-submission.", allowedFlags: ["--company", "--document-id", "--invoice-number", "--out"] },
   // PEPPOL submission (#128)
   { key: "invoice submit-public-peppol", usage: "invoice submit-public-peppol --company <path> (--document-id <n> | --invoice-number <no>) --access-point <file.json> [--out <file.xml>]", description: "Bygger en deterministisk, idempotent PEPPOL-submission-envelope oven på OIOUBL-handoff-artifaktet. Access-point-config læses fra fil; credentials gemmes aldrig i bogføringstilstanden.", allowedFlags: ["--company", "--document-id", "--invoice-number", "--access-point", "--out"] },
+  // Digisense e-faktura-transport (#efaktura)
+  {
+    key: "invoice transmit-digisense",
+    usage: "invoice transmit-digisense --company <path> (--document-id <n> | --invoice-number <no>) [--digisense-company-key <key>]",
+    description:
+      "Sender en offentlig e-faktura gennem Digisense' access point: validate-document (schematron) -> deliver-document -> poll til delivered, og bogfører en succes som en acknowledged PEPPOL-submission. License-key hentes fra secret-laget (config/digisense.json) — gem den først med `efaktura konfigurer`. companyKey resolves fra Digisense-state eller --digisense-company-key.",
+    allowedFlags: ["--company", "--document-id", "--invoice-number", "--digisense-company-key"],
+    inputNotes: [
+      "INTET --access-point: for Digisense ER access point'et Digisense selv (routing på companyKey + license-key). Access-point-identiteten udledes deterministisk af companyKey, så gentaget transmit af samme faktura er idempotent og aldrig leverer dobbelt.",
+      "Forudsætter en gemt license-key (`efaktura konfigurer --api-license-key ...`) og en registreret virksomhed (`efaktura registrer`).",
+    ],
+  },
   {
     key: "invoice credit-note",
     usage: "invoice credit-note --company <path> --input <file.json>",

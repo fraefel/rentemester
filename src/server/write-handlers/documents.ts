@@ -204,8 +204,8 @@ export async function handleDocumentIngest(
  *
  * Body: `{ documentId: number, bankTransactionId: number,
  * expenseAccountNo: string, vatTreatment?: 'standard'|'reverse_charge'|
- * 'representation'|'exempt', paymentAccountNo?: string, transactionDate?:
- * string, text?: string, confirm: true }`.
+ * 'representation'|'exempt'|'non_deductible', paymentAccountNo?: string,
+ * transactionDate?: string, text?: string, confirm: true }`.
  *
  * Write-irreversible (it appends a journal entry that links both the
  * document and the bank transaction) so `requireConfirm` is set. The same
@@ -229,12 +229,12 @@ export async function handleDocumentBookExpense(
       let vatTreatment: ExpenseVatTreatment | undefined;
       if (vatTreatmentRaw !== undefined) {
         if (
-          !["standard", "reverse_charge", "representation", "exempt"].includes(
+          !["standard", "reverse_charge", "representation", "exempt", "non_deductible"].includes(
             vatTreatmentRaw,
           )
         ) {
           throw ApiError.badRequest(
-            "'vatTreatment' must be one of standard, reverse_charge, representation, exempt",
+            "'vatTreatment' must be one of standard, reverse_charge, representation, exempt, non_deductible",
           );
         }
         vatTreatment = vatTreatmentRaw as ExpenseVatTreatment;

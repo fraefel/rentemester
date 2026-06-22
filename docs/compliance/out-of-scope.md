@@ -159,6 +159,27 @@ ny `accounts.deductibility_percentage`-kolonne plus en
 § 38-fordelingsmotor; det er en større udvidelse end den binære
 registreret/ikke-registreret-model.
 
+### 8.1 EU-ydelseskøb med omvendt betalingspligt hos et ikke-registreret selskab (§ 50 b)
+
+Et ikke-momsregistreret selskab der køber ydelser fra udlandet med omvendt
+betalingspligt (momsloven § 46, stk. 1, nr. 3) er **ikke** uden videre
+fritaget: køberen bliver betalingspligtig for dansk moms og skal lade sig
+**særskilt registrere for erhvervelsesmoms** efter § 50 b — **fra første
+krone**, uden vareerhvervelsestærsklen på 80.000 kr. (§ 50). Momsen kan
+samtidig **ikke fradrages** (§ 37), så reverse-charge-momsen er en reel
+udgift *og* en reel gæld til SKAT — ikke den net-nul-postering en
+momsregistreret virksomhed laver.
+
+**Hvad der IKKE er modelleret:** denne § 50 b-registrerings- og
+erhvervelsesmoms-afregningsflow (parallelt med at § 11-erhvervelsesmoms for
+EU-vareindkøb også er uden for scope). Derfor **afviser** Rentemester at
+bogføre et EU-ydelseskøb som reverse charge for et ikke-registreret selskab
+(i stedet for stiltiende at bogføre et forbudt 4000-fradrag eller skjule den
+skyldige moms). Vejledningen i fejlbeskeden er at registrere selskabet for
+erhvervelsesmoms og søge rådgivning. Et indenlandsk eller repræsentations-bilag
+hos samme selskab håndteres derimod fint med `non_deductible`-absorption
+([DK-VAT-NON-DEDUCTIBLE-001](requirements.md#35-momsloven-lbk-2092024)).
+
 ## 9. Fremtidige forpligtelser der ikke er gennemført endnu
 
 Ting der **kommer**, men endnu ikke er aktive eller endnu ikke er

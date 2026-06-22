@@ -618,4 +618,122 @@ describe("expense booking", () => {
     rmSync(root, { recursive: true, force: true });
     rmSync(inbox, { recursive: true, force: true });
   });
+
+  // §37 + §50b: how a NOT VAT-registered company's representation / EU-service
+  // bilag are handled. Representation is absorbed into the cost (non_deductible
+  // — the § 42 partial deduction is a registered-business relief). EU-service
+  // reverse charge is REFUSED: for a non-registered company it triggers a
+  // separate § 50 b erhvervelsesmoms registration that is out of scope, so we
+  // must not silently book a forbidden 4000 deduction nor hide owed VAT.
+  function bootstrapNonRegistered(
+    label: string,
+    senderVat: string,
+    vatAmount: number,
+  ) {
+    const root = mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
+    const inbox = mkdtempSync(join(tmpdir(), `rentemester-${label}-inbox-`));
+    const csv = join(root, "transactions.csv");
+    const sourceFile = join(inbox, "bilag.txt");
+    writeFileSync(
+      csv,
+      [
+        "transaction_date,booking_date,text,amount,currency,reference",
+        `2026-05-16,2026-05-16,LEVERANDOER,-1250,DKK,REF-${label}`,
+      ].join("\n"),
+    );
+    writeFileSync(sourceFile, "Bilag\n1250 DKK\n");
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    markCompanyNotVatRegistered(db);
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+    const doc = ingestDocument(db, root, sourceFile, {
+      source: "email",
+      issueDate: "2026-05-16",
+      invoiceNo: `INV-${label}`,
+      deliveryDescription: "Ydelse",
+      amountIncVat: 1250,
+      currency: "DKK",
+      sender: { name: "Leverandør", address: "Vej 1", vatOrCvr: senderVat },
+      recipient: { name: "TEST HOLDING ApS", address: "Holdingvej 1", vatOrCvr: "DK12345678" },
+      vatAmount,
+      paymentDetails: "Bankoverførsel",
+    });
+    expect(doc.ok).toBe(true);
+    const bankRow = db
+      .query("SELECT id FROM bank_transactions WHERE reference = ?")
+      .get(`REF-${label}`) as { id: number };
+    return { db, root, inbox, documentId: doc.documentId!, bankTransactionId: bankRow.id };
+  }
+
+  function lineRows(db: import("bun:sqlite").Database, entryId: number) {
+    return db
+      .query(
+        `SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code
+           FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+          WHERE jl.journal_entry_id = ? ORDER BY jl.id ASC`,
+      )
+      .all(entryId);
+  }
+
+  test("representation bilag at a non-registered company is absorbed as non_deductible (no partial deduction, no 4000 line)", () => {
+    // A REPRESENTATION_SPECIAL account (3070) with vat on the bilag.
+    const { db, root, inbox, documentId, bankTransactionId } = bootstrapNonRegistered(
+      "repr-nonreg",
+      "DK99887766",
+      250,
+    );
+    const booked = bookExpenseFromBank(db, { documentId, bankTransactionId, expenseAccountNo: "3070" });
+    expect({ ok: booked.ok, errors: booked.errors }).toEqual({ ok: true, errors: [] });
+    expect(booked.vatTreatment).toBe("non_deductible");
+    expect(lineRows(db, booked.entryId!)).toEqual([
+      { account_no: "3070", debit_amount: 1250, credit_amount: 0, vat_code: null },
+      { account_no: "2000", debit_amount: 0, credit_amount: 1250, vat_code: null },
+    ]);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("explicit vatTreatment=representation is refused at a non-registered company (points at non_deductible)", () => {
+    const { db, root, inbox, documentId, bankTransactionId } = bootstrapNonRegistered(
+      "repr-explicit-nonreg",
+      "DK99887766",
+      250,
+    );
+    const booked = bookExpenseFromBank(db, {
+      documentId,
+      bankTransactionId,
+      expenseAccountNo: "3070",
+      vatTreatment: "representation",
+    });
+    expect(booked.ok).toBe(false);
+    expect(booked.errors.join(" ")).toContain("ikke momsregistreret");
+    expect(booked.errors.join(" ")).toContain("non_deductible");
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("EU-service reverse_charge is refused at a non-registered company (§ 50 b erhvervelsesmoms out of scope)", () => {
+    // EU-service invoice carries no Danish VAT (vat_amount = 0); the 3010
+    // account's EU_SERVICE_REVERSE_CHARGE default infers reverse_charge.
+    const { db, root, inbox, documentId, bankTransactionId } = bootstrapNonRegistered(
+      "eu-nonreg",
+      "DE811234567",
+      0,
+    );
+    const booked = bookExpenseFromBank(db, { documentId, bankTransactionId, expenseAccountNo: "3010" });
+    expect(booked.ok).toBe(false);
+    expect(booked.errors.join(" ")).toContain("ikke momsregistreret");
+    expect(booked.errors.join(" ")).toContain("§ 50 b");
+    // Nothing was booked — no journal entry links the bank transaction.
+    const linked = db
+      .query("SELECT COUNT(*) AS n FROM journal_entries WHERE source_bank_transaction_id = ?")
+      .get(bankTransactionId) as { n: number };
+    expect(linked.n).toBe(0);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
 });

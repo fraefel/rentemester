@@ -43,6 +43,7 @@ const VAT_TREATMENT_LABELS: Record<ExpenseVatTreatment, string> = {
   reverse_charge: "Omvendt betalingspligt (EU-ydelse)",
   representation: "Repræsentation (delvis fradragsret)",
   exempt: "Momsfri",
+  non_deductible: "Ikke fradragsberettiget (momsen absorberes i udgiften)",
 };
 
 export function DocumentBookExpenseModal({

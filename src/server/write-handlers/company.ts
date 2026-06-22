@@ -151,7 +151,10 @@ export async function handleCompanyProfile(
       if (vatPeriodType !== undefined) {
         const cadenceForCore =
           vatPeriodType === "explicit-null" ? null : vatPeriodType;
-        const vatResult = setCompanyVatPeriodType(ctx.db, cadenceForCore);
+        const vatResult = setCompanyVatPeriodType(ctx.db, cadenceForCore, {
+          createdBy: ctx.actor.createdBy,
+          createdByProgram: ctx.actor.createdByProgram,
+        });
         if (!vatResult.ok) {
           throw ApiError.badRequest(vatResult.errors[0] ?? "could not set VAT period type");
         }

@@ -29,38 +29,69 @@ export function ensureNullableVatPeriodColumn(db: Database) {
   }>;
   const existing = cols.find((c) => c.name === "vat_period_type");
   if (!existing) {
+    // `DEFAULT 'quarter'` is deliberate: an EXISTING company row (a pre-#289
+    // ledger that never had this column) was implicitly a quarterly VAT filer,
+    // so it must come back registered — never silently flip to NULL = "not
+    // VAT-registered". NULL is reserved for an EXPLICIT deregistration write
+    // (`init --no-vat`, `set-profile --no-vat`, the PATCH-profile endpoint); it
+    // is never the byproduct of adding the column. The CHECK still permits NULL
+    // so those explicit writes succeed.
     db.exec(
-      "ALTER TABLE companies ADD COLUMN vat_period_type TEXT " +
+      "ALTER TABLE companies ADD COLUMN vat_period_type TEXT DEFAULT 'quarter' " +
         "CHECK(vat_period_type IS NULL OR vat_period_type IN ('month', 'quarter', 'half-year'));",
     );
     return;
   }
   if (existing.notnull === 0) return;
 
-  // Older ledger: column carries the legacy NOT NULL DEFAULT 'quarter'
-  // definition. Rebuild the table to relax it. The new column list is
-  // derived from PRAGMA so the rebuild is forward-compatible with any other
-  // column an earlier migration step has already appended (mail_alias, …).
-  const newColumns = cols
-    .map((c) => {
-      if (c.name === "vat_period_type") {
-        return "vat_period_type TEXT CHECK(vat_period_type IS NULL OR vat_period_type IN ('month', 'quarter', 'half-year'))";
-      }
-      const pk = c.pk === 1 ? " PRIMARY KEY" : "";
-      const notnull = c.notnull === 1 ? " NOT NULL" : "";
-      const dflt = c.dflt_value !== null ? ` DEFAULT ${c.dflt_value}` : "";
-      return `${c.name} ${c.type || "TEXT"}${pk}${notnull}${dflt}`;
-    })
-    .join(",\n        ");
+  // Older ledger: the column carries the legacy `NOT NULL DEFAULT 'quarter'`
+  // definition. Relax it to nullable. We rebuild from the table's CANONICAL
+  // CREATE SQL (sqlite_master) and rewrite ONLY the vat_period_type column —
+  // PRAGMA table_info does NOT expose CHECK constraints, so reconstructing the
+  // column list from PRAGMA would silently DROP the CHECKs on the other columns
+  // (fiscal_year_start_month, fiscal_year_label_strategy, payment_terms_days).
+  // DROP TABLE also drops the table's triggers + indexes (e.g. the
+  // `companies_fiscal_lock` config guard), so we capture and re-create them in
+  // the same transaction rather than leaving them gone until the next migrate().
+  const tableSql = (
+    db
+      .query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'companies'")
+      .get() as { sql: string } | null
+  )?.sql;
+  if (!tableSql) return;
+  // Drop only `NOT NULL` from the column, keeping its DEFAULT and CHECK. The
+  // CHECK already admits NULL (`NULL IN (...)` is NULL, never FALSE, so a CHECK
+  // passes), so relaxing nullability needs no CHECK change.
+  const relaxedSql = tableSql.replace(
+    /vat_period_type\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+'quarter'/i,
+    "vat_period_type TEXT DEFAULT 'quarter'",
+  );
+  if (relaxedSql === tableSql) {
+    // The expected legacy fragment was not found (unknown column shape). Bail
+    // out rather than risk a malformed rebuild — the column stays as it is.
+    return;
+  }
+  const rebuildSql = relaxedSql.replace(
+    /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?"?companies"?/i,
+    "CREATE TABLE companies_vat_period_rebuild",
+  );
+  const triggers = db
+    .query("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'companies' AND sql IS NOT NULL")
+    .all() as Array<{ sql: string }>;
+  const indexes = db
+    .query("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'companies' AND sql IS NOT NULL")
+    .all() as Array<{ sql: string }>;
   const columnList = cols.map((c) => c.name).join(", ");
 
   db.transaction(() => {
     db.exec("DROP TABLE IF EXISTS companies_vat_period_rebuild;");
-    db.exec(`CREATE TABLE companies_vat_period_rebuild (\n        ${newColumns}\n      );`);
+    db.exec(rebuildSql);
     db.exec(
       `INSERT INTO companies_vat_period_rebuild (${columnList}) SELECT ${columnList} FROM companies;`,
     );
     db.exec("DROP TABLE companies;");
     db.exec("ALTER TABLE companies_vat_period_rebuild RENAME TO companies;");
+    for (const t of triggers) db.exec(t.sql);
+    for (const i of indexes) db.exec(i.sql);
   })();
 }

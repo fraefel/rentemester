@@ -140,7 +140,8 @@ export type ExpenseVatTreatment =
   | "standard"
   | "reverse_charge"
   | "representation"
-  | "exempt";
+  | "exempt"
+  | "non_deductible";
 
 /** Input for `api.bookDocumentExpense` (#407). */
 export type DocumentBookExpenseInput = {

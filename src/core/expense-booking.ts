@@ -57,14 +57,23 @@ function inferVatTreatment(
   defaultVatCode: string | null,
   companyIsVatRegistered: boolean,
 ): InferredVatTreatment {
+  // For a NOT VAT-registered company, § 37 grants no input-VAT deduction, so
+  // every domestic VAT-bearing treatment collapses to `non_deductible` (gross
+  // to the expense, no 4000 line):
+  //   - DK 25 % purchase  → non_deductible (absorb the full VAT).
+  //   - representation     → non_deductible. The § 42 partial deduction is a
+  //     registered-business relief; with no deduction at all the full VAT is a
+  //     cost, so absorbing it is the correct booking (not the partial path).
+  // EU service reverse charge is the exception: it is NOT absorbed, because for
+  // a non-registered company it triggers a separate § 50 b erhvervelsesmoms
+  // registration owed to SKAT (out of scope). We keep inferring `reverse_charge`
+  // so the core post path refuses it with the § 50 b guidance rather than
+  // silently hiding an owed-VAT liability.
   if (defaultVatCode === "EU_SERVICE_REVERSE_CHARGE") return "reverse_charge";
-  if (defaultVatCode === "REPRESENTATION_SPECIAL") return "representation";
+  if (defaultVatCode === "REPRESENTATION_SPECIAL") {
+    return companyIsVatRegistered ? "representation" : "non_deductible";
+  }
   if (defaultVatCode === "DK_PURCHASE_25") {
-    // A not-VAT-registered company cannot deduct input VAT under § 37, so a
-    // DK 25 % account's default treatment is `non_deductible` (gross to
-    // the expense, no 4000 line) rather than `standard`. EU reverse-charge
-    // and representation stay as inferred — those treatments are still
-    // legitimate for a non-registered company on rare bilag.
     return companyIsVatRegistered ? "standard" : "non_deductible";
   }
   // A null or unrecognised default_vat_code must not be silently downgraded

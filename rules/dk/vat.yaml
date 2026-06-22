@@ -229,10 +229,11 @@ rules:
         - momsangivelse_for_non_registered_company
         - vat_deadline_for_non_registered_company
     explanation: >-
-      A Danish company is either VAT-registered with a chosen settlement cadence
-      (month / quarter / half-year per momsloven § 47, stk. 1) or explicitly not
-      VAT-registered (a holding ApS outside § 3, a frivilligt momsfritaget company,
-      or a microbusiness below the § 48, stk. 1 50.000 kr. threshold). Rentemester
+      A Danish company is either VAT-registered — the duty to register follows
+      momsloven § 47, stk. 1, and the settlement cadence (month / quarter /
+      half-year) follows § 57, stk. 2-4 — or explicitly not VAT-registered
+      (a holding ApS outside § 3, a frivilligt momsfritaget company, or a
+      microbusiness below the § 48, stk. 1 50.000 kr. threshold). Rentemester
       persists this as `companies.vat_period_type`, with `NULL` carrying the
       "not registered" state. Every VAT-aware surface — momsangivelse, output-VAT
       booking, dashboard deadline, obligations list — must gate on this state and
@@ -261,4 +262,12 @@ rules:
       treatment books the gross amount on the expense account and never writes
       a 4000 Købsmoms line. The treatment is refused on a registered company —
       they must use `standard` so the VAT flows through the input-VAT account
-      and reaches the momsangivelse correctly.
+      and reaches the momsangivelse correctly. The same § 37 absorption applies
+      to every Danish-VAT-charged bilag a non-registered company receives: a
+      domestic purchase and a representation bilag both resolve to
+      `non_deductible` (the § 42 partial representation deduction is a
+      registered-business relief, so it does not apply). EU-service reverse
+      charge is the one exception — for a non-registered company it triggers a
+      separate § 50 b erhvervelsesmoms registration owed to SKAT, which is out
+      of scope (see docs/compliance/out-of-scope.md), so it is refused rather
+      than silently absorbed.

@@ -36,7 +36,7 @@ import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-run
  */
 function refuseIfNotVatRegistered(db: Database): Envelope | null {
   if (getCompanySettings(db).vatPeriodType !== null) return null;
-  return errorEnvelope(["selskabet er ikke momsregistreret"]);
+  return errorEnvelope(["selskabet er ikke momsregistreret"], { code: "NOT_VAT_REGISTERED" });
 }
 
 // All monetary fields below are in kroner — decimal DKK with 2 decimals (NOT øre).

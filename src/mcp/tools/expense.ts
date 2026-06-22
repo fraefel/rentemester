@@ -27,11 +27,15 @@ const vatTreatmentEnum = z
       "(Momsloven § 37) — the entire VAT is absorbed into the cost basis; no 4000 " +
       "input-VAT line is written. Refused for a VAT-registered company. " +
       "When omitted, the treatment is INFERRED from the expense account's " +
-      "default_vat_code: a DK 25 % purchase account maps to 'standard' for a " +
-      "VAT-registered company but to 'non_deductible' for a non-registered one; " +
-      "an EU-service account maps to 'reverse_charge' and a representation " +
-      "account to 'representation'. An account with no recognised default_vat_code " +
-      "is refused — pass an explicit vatTreatment in that case.",
+      "default_vat_code AND the company's VAT registration. For a VAT-registered " +
+      "company: DK 25 % → 'standard', EU-service → 'reverse_charge', " +
+      "representation → 'representation'. For a NOT VAT-registered company " +
+      "(§ 37, no deduction): DK 25 % AND representation both → 'non_deductible' " +
+      "(the VAT is absorbed; the § 42 partial representation deduction does not " +
+      "apply), while EU-service reverse charge is REFUSED — it triggers a " +
+      "separate § 50 b erhvervelsesmoms registration that is out of scope. " +
+      "An account with no recognised default_vat_code is refused; pass an " +
+      "explicit vatTreatment in that case.",
   );
 
 export function registerExpenseTools(server: McpServer): void {

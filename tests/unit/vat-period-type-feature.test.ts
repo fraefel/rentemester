@@ -688,6 +688,32 @@ describe("setCompanyVatPeriodType — round-trip between cadence and null (#514)
       rmSync(ws, { recursive: true, force: true });
     }
   });
+
+  test("deregistration and re-registration each write an itemized audit_log entry", () => {
+    const { root: ws, slug } = makeWorkspace("set-vat-audit", "quarter");
+    try {
+      const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+      try {
+        migrate(db);
+        setCompanyVatPeriodType(db, null);
+        setCompanyVatPeriodType(db, "quarter");
+        const events = db
+          .query(
+            "SELECT event_type AS e, message AS m FROM audit_log WHERE entity_type = 'company' AND event_type LIKE 'company_vat_%' ORDER BY id ASC",
+          )
+          .all() as Array<{ e: string; m: string }>;
+        expect(events.map((r) => r.e)).toEqual([
+          "company_vat_deregistered",
+          "company_vat_registered",
+        ]);
+        expect(events[0]!.m).toContain("ikke momsregistreret");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 // The deregistration guard must not strand posted VAT activity. Coverage is

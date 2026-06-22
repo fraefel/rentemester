@@ -150,6 +150,8 @@ const WRITE_RESULT_LABEL_DA: Record<string, string> = {
   currency: "Valuta",
   paymentTermsDays: "Betalingsfrist (dage)",
   vatPeriodType: "Momsperiode",
+  vatPeriodLabel: "Momsstatus",
+  vatRegistered: "Momsregistreret",
   companyForm: "Selskabsform",
   industryText: "Branche",
   cvrStatus: "CVR-status",
@@ -215,6 +217,8 @@ function collectSummaryLines(result: Record<string, unknown>) {
     "currency",
     "paymentTermsDays",
     "vatPeriodType",
+    "vatPeriodLabel",
+    "vatRegistered",
     "companyForm",
     "industryText",
     "cvrStatus",
@@ -276,6 +280,10 @@ const VALUE_LABEL_DA: Record<string, Record<string, string>> = {
     month: "måned",
     quarter: "kvartal",
     "half-year": "halvår",
+  },
+  vatRegistered: {
+    true: "Ja",
+    false: "Nej",
   },
   fiscalYearLabelStrategy: {
     "end-year": "slutår",

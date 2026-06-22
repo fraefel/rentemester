@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { insertAuditLog, resolveActor } from "./actor";
+import { insertAuditLog, resolveActor, type ResolveActorInput } from "./actor";
 import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { isValidIsoDate as looksLikeIsoDate, addDays, todayIsoDate, MONTH_NAMES_DA } from "./dates";
 
@@ -171,6 +171,7 @@ export function vatPeriodsForYear(year: number, type: VatPeriodType | null): Vat
 export function setCompanyVatPeriodType(
   db: Database,
   type: VatPeriodType | null,
+  actor: ResolveActorInput = {},
 ): { ok: boolean; changed: boolean; errors: string[] } {
   if (type !== null && !VAT_PERIOD_TYPES.has(type)) {
     return {
@@ -242,14 +243,36 @@ export function setCompanyVatPeriodType(
           ok: false,
           changed: false,
           errors: [
-            "selskabet har bogført momsaktivitet i en åben momsperiode — luk perioden og indberet momsangivelsen før selskabet markeres som ikke-momsregistreret (kør 'vat momsangivelse' efterfulgt af 'period close')",
+            "selskabet har bogført momsaktivitet i en åben momsperiode — luk og indberet perioden før selskabet markeres som ikke-momsregistreret: kør 'period close' for at lukke momsperioden, derefter 'vat momsangivelse' for den indberetningsklare angivelse, og indberet via TastSelv",
           ],
         };
       }
     }
   }
   db.query("UPDATE companies SET vat_period_type = ? WHERE id = 1").run(type);
-  return { ok: true, changed: before.t !== type, errors: [] };
+  const changed = before.t !== type;
+  if (changed) {
+    // Itemize the registration-state transition in the append-only audit_log
+    // so deregistering (registered → not-registered), re-registering, or a
+    // cadence change is attributable and visible in the company history —
+    // not a silent UPDATE. A deregistration in particular ends the company's
+    // VAT obligation and must leave a trail.
+    const label = (t: string | null) => (t === null ? "ikke momsregistreret" : t);
+    const eventType =
+      type === null
+        ? "company_vat_deregistered"
+        : before.t === null
+          ? "company_vat_registered"
+          : "company_vat_period_changed";
+    insertAuditLog(db, {
+      ...actor,
+      eventType,
+      entityType: "company",
+      entityId: 1,
+      message: `Momsregistrering ændret: ${label(before.t)} → ${label(type)}`,
+    });
+  }
+  return { ok: true, changed, errors: [] };
 }
 
 export type CloseAccountingPeriodInput = {

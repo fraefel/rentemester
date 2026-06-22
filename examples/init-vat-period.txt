@@ -7,3 +7,14 @@ rentemester init --company <sti> \
   --vat-period half-year \
   --name "Eksempel ApS" \
   --cvr DK12345678
+
+# Eksempel: opret en virksomhed der IKKE er momsregistreret (fx et
+# holdingselskab, en frivilligt momsfritaget virksomhed eller en
+# mikrovirksomhed under § 48-tærsklen). Brug --no-vat (alias: --vat-period
+# none). Momsangivelse og -frister slås fra, og bilag med moms bogføres med
+# 'expense book --vat-treatment non_deductible', så momsen absorberes i
+# udgiften (momsloven § 37).
+rentemester init --company <sti> \
+  --no-vat \
+  --name "Holding ApS" \
+  --cvr DK87654321

@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { getInvoiceStatus } from "./invoice-payments";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
+import { resolveAccountRole } from "./account-roles";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { roundDkk } from "./money";
 
@@ -88,6 +89,9 @@ export function writeOffInvoiceBadDebt(db: Database, input: WriteOffInvoiceBadDe
   const vatRatioDkk = originalVatAmountDkk / grossInvoiceAmountDkk;
   const vatAmountDkk = currency === "DKK" ? vatAmount : roundDkk(grossAmountDkk * vatRatioDkk);
   const netAmountDkk = currency === "DKK" ? netAmount : roundDkk(grossAmountDkk - vatAmountDkk);
+  const outputVat = input.vatAccountNo ? { ok: true as const, accountNo: input.vatAccountNo } : resolveAccountRole(db, "output_vat");
+  const debtors = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
+  if (!outputVat.ok || !debtors.ok) return { ok: false, appliedRules: [RULE_ID, VAT_RULE_ID], errors: [!outputVat.ok ? outputVat.error : debtors.error] };
 
   try {
     const result = db.transaction(() => {
@@ -103,8 +107,8 @@ export function writeOffInvoiceBadDebt(db: Database, input: WriteOffInvoiceBadDe
         createdByProgram: input.createdByProgram,
         lines: [
           { accountNo: input.expenseAccountNo ?? "3080", debitAmount: netAmountDkk, vatCode: "DK_BAD_DEBT_25", text: `Bad debt loss basis ${invoice.invoice_no}` },
-          { accountNo: input.vatAccountNo ?? "1200", debitAmount: vatAmountDkk, text: `Output VAT relief ${invoice.invoice_no}` },
-          { accountNo: input.receivableAccountNo ?? "1100", creditAmount: grossAmountDkk, text: `Write off receivable ${invoice.invoice_no}` },
+          { accountNo: outputVat.accountNo, debitAmount: vatAmountDkk, text: `Output VAT relief ${invoice.invoice_no}` },
+          { accountNo: debtors.accountNo, creditAmount: grossAmountDkk, text: `Write off receivable ${invoice.invoice_no}` },
         ],
       });
       if (!journal.ok) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));

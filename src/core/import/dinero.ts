@@ -38,6 +38,7 @@ import type {
   ParseResult,
   SourceParser,
 } from "./types";
+import type { AccountRole } from "../account-roles";
 
 const SYSTEM = "dinero";
 const LABEL = "Dinero (data export — chart of accounts, master data & opening balance)";
@@ -72,6 +73,16 @@ const VAT_CODE_MAP: Record<string, string> = {
   // Representation has a special limited-deduction code.
   REP: "REPRESENTATION_SPECIAL",
 };
+
+/** Dinero's source-native VAT control accounts. These exact identifiers are
+ * source-system evidence, not Rentemester fallback numbers: they are used only
+ * while parsing a Dinero chart and never applied to another importer or to a
+ * manually created journal. */
+export const DINERO_VAT_CONTROL_ACCOUNTS = {
+  "64000": { role: "output_vat", normalBalance: "credit" },
+  "64040": { role: "reverse_charge_vat", normalBalance: "credit" },
+  "64060": { role: "input_vat", normalBalance: "debit" },
+} as const satisfies Record<string, { role: AccountRole; normalBalance: ImportNormalBalance }>;
 
 // Dinero codes Rentemester has no equivalent for. Listed explicitly so the
 // parser can tell a deliberately-unmapped code apart from an unrecognised one
@@ -109,6 +120,8 @@ function classifyAccount(
   dineroType: string,
   accountNo: string,
 ): { type: ImportAccountType; normalBalance: ImportNormalBalance } | null {
+  const vatControl = DINERO_VAT_CONTROL_ACCOUNTS[accountNo as keyof typeof DINERO_VAT_CONTROL_ACCOUNTS];
+  if (vatControl) return { type: "vat", normalBalance: vatControl.normalBalance };
   const t = dineroType.trim().toLowerCase();
   const no = Number(accountNo);
   if (t === "aktiv") return { type: "asset", normalBalance: "debit" };
@@ -366,6 +379,7 @@ function parseDineroSource(input: MultiArtifactSource): ParseResult {
 
   const companyMasterData = parseFirmaoplysninger(firma.text, errors);
   const { accounts, unmappedVatCodes } = parseKontoplan(kontoplan.text, kontoplan.name, errors);
+  const accountRoleProposals = deriveAccountRoleProposals(accounts);
 
   if (accounts.length === 0) {
     errors.push(`${kontoplan.name}: no accounts parsed from the chart of accounts`);
@@ -413,12 +427,41 @@ function parseDineroSource(input: MultiArtifactSource): ParseResult {
       // import (#193). The framework dispatches on exactly this.
       cutOverDate,
       chartOfAccounts: accounts,
+      ...(accountRoleProposals.length > 0 ? { accountRoleProposals } : {}),
       openingBalances,
       ...(historicalEntries.length > 0 ? { historicalEntries } : {}),
       ...(companyMasterData ? { companyMasterData } : {}),
       ...(unmappedVatCodes.length > 0 ? { unmappedVatCodes } : {}),
     },
   };
+}
+
+/** Conservative name/VAT-code evidence only. Number ranges are intentionally
+ * excluded: imported charts must never inherit Rentemester's native numbers. */
+export function deriveAccountRoleProposals(accounts: ImportAccount[]): Array<{ role: AccountRole; accountNo: string; source: string }> {
+  const proposals: Array<{ role: AccountRole; accountNo: string; source: string }> = [];
+  const add = (role: AccountRole, account: ImportAccount, evidence: string) => proposals.push({ role, accountNo: account.accountNo, source: `dinero:chart:${evidence}` });
+  for (const account of accounts) {
+    const name = account.name.toLowerCase();
+    const vatControl = DINERO_VAT_CONTROL_ACCOUNTS[account.accountNo as keyof typeof DINERO_VAT_CONTROL_ACCOUNTS];
+    if (vatControl && account.normalizedType === "vat" && account.normalBalance === vatControl.normalBalance) {
+      add(vatControl.role, account, `control-account-${account.accountNo}`);
+      continue;
+    }
+    if (account.normalizedType === "asset" && /\b(bank|bankkonto)\b/.test(name)) add("bank", account, "name-bank");
+    if (account.normalizedType === "asset" && /debitor|tilgodehavende.*(kunde|salg)|kundetilgodehavende/.test(name)) add("debtors", account, "name-debtors");
+    if (account.normalizedType === "liability" && /kreditor|leverandørgæld/.test(name)) add("creditors", account, "name-creditors");
+    // U25/I25 live on revenue/expense base accounts and are never evidence for
+    // the output/input VAT control accounts. Only an explicitly classified VAT
+    // account may propose those roles (Dinero's exact mapping is centralised by
+    // the #545 source adapter).
+    if (account.normalizedType === "vat" && account.normalBalance === "credit" && /salgsmoms|udgående moms/.test(name)) add("output_vat", account, "control-name-output-vat");
+    if (account.normalizedType === "vat" && account.normalBalance === "debit" && /købsmoms|indgående moms/.test(name)) add("input_vat", account, "control-name-input-vat");
+    if (account.normalizedType === "vat" && account.normalBalance === "credit" && /omvendt.*moms|erhvervelsesmoms/.test(name)) add("reverse_charge_vat", account, "control-name-reverse-charge");
+    if (account.normalizedType === "liability" && /skyldig moms|momsafregning/.test(name)) add("vat_settlement", account, "name-vat-settlement");
+    if (account.normalizedType === "expense" && /drift|administration|kontor/.test(name)) add("operational_default", account, "name-operational");
+  }
+  return proposals;
 }
 
 /**

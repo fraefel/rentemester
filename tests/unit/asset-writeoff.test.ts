@@ -9,6 +9,7 @@ import { seedAccounts } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
 import { listExceptions } from "../../src/core/exceptions";
 import { postImmediateWriteOff, STRAKSAFSKRIVNING_THRESHOLD_DKK, straksafskrivningThresholdForYear } from "../../src/core/assets";
+import { confirmAccountRole } from "../../src/core/account-roles";
 
 function setup(label: string, amountIncVat: number, opts: { withDoc?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -46,6 +47,8 @@ function setup(label: string, amountIncVat: number, opts: { withDoc?: boolean } 
 describe("immediate write-off (straksafskrivning)", () => {
   test("posts a balanced write-off entry for an eligible small purchase with explicit confirmation", () => {
     const { db, documentId, cleanup } = setup("wo-ok", 5000);
+    db.run("INSERT INTO accounts (account_no, name, type, normal_balance) VALUES ('9910', 'Imported bank', 'asset', 'debit')");
+    expect(confirmAccountRole(db, "bank", "9910", "user:reviewer").ok).toBe(true);
     const result = postImmediateWriteOff(db, {
       name: "Cordless drill",
       category: "tools",
@@ -70,6 +73,7 @@ describe("immediate write-off (straksafskrivning)", () => {
     const credit = lines.reduce((s, l) => s + l.credit_amount, 0);
     expect(debit).toBe(credit);
     expect(debit).toBe(5000);
+    expect(lines[1]).toMatchObject({ account_no: "9910", credit_amount: 5000 });
 
     // threshold/rule metadata is persisted on the record
     const row = db.query("SELECT confirmed, threshold_rule_source, threshold_dkk FROM asset_writeoffs WHERE id = ?")

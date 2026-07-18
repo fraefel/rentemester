@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 103 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 104 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-103 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+104 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -170,6 +170,7 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | Tool(s) | `data`-felter |
 |---|---|
 | `accounts_list` | `{ accounts: [{ accountNo, name, type, defaultVatCode }], count }` |
+| `accounts_roles_status` | `{ status, missing[], ambiguous[], proposals[], candidates[], reasons[], roles[] }`; forslag er read-only og bliver aldrig implicitte posting-defaults. |
 | `journal_list` | `{ entries: [{ id, entryNo, transactionDate, text, currency, amountForeign, amountDkk, fxRateToDkk, documentId, sourceBankTransactionId, status, reversalOfEntryId }], total, count, limit, offset, hasMore, nextOffset? }` (pagineret) |
 | `journal_dry_run` | `{ entryId, entryNo, previousHash, entryHash, accountEffects: [{ accountNo, accountName, balanceBefore, balanceAfter, delta }] }` — ikke-bindende forhåndsvisning af `journal_post`: felterne beskriver hvad posteringen *ville* få. `accountEffects` lister saldo før/efter pr. berørt konto (debet-minus-kredit-netto, i kroner). Ved en ugyldig payload er konvolutten `ok=false` med `errors[]`, og `data` mangler. |
 | `bank_list` | `{ rows: [...], total, count, limit, offset, hasMore, nextOffset? }` (pagineret) |
@@ -183,6 +184,7 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 
 | Tool | `data`-felter |
 |---|---|
+| `accounts_role_confirm` | `{ resolution, status, missing[], ambiguous[], proposals[], candidates[], reasons[], roles[] }`; `resolution` indeholder konto, version, actor og confirmation-proveniens. |
 | `journal_post` | `{ entryId, entryNo, entryHash }` |
 | `invoice_issue` | `{ documentId, invoiceNumber, storedPath, sha256, pdfDocumentId?, pdfStoredPath?, pdfSha256? }` — feltet hedder `documentId` (ikke `invoiceDocumentId`); `invoiceNumber` (ikke `invoiceNo`). |
 | `customer_create` / `vendor_create` | `{ customerId }` / `{ vendorId }` |
@@ -209,20 +211,21 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
-- **Read-tools**: 47
-- **Write-reversible**: 11
-- **Write-irreversible**: 42
+- **Read-tools**: 48
+- **Write-reversible**: 12
+- **Write-irreversible**: 43
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **103**
+- **Total**: **104**
 
 ## Read-tools
 
-47 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
+48 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
 frit og parallelt.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
 | `accounts_list` | `accounts list` | `{ company }` | Lister kontoplanen. |
+| `accounts_roles_status` | `accounts roles-status` | `{ company }` | Viser bekræftede kontoroller, importforslag, tvetydigheder og den read-only posting-resolution. |
 | `accrual_register_report` | `accrual register-report` | `{ company }` | Register af periodeafgrænsningsposter med bogførte perioder, periodiseret beløb og resterende balanceeksponering. |
 | `asset_register_report` | `asset register-report` | `{ company }` | Aktivregister med akkumulerede afskrivninger og bogført værdi. |
 | `audit_log_list` | `gdpr audit-log` (delvis) | `{ company, fromDate?, toDate?, eventTypeLike?, actorLike?, limit?, offset? }` | Filtreret, pagineret read af audit_log — den menneskelæsbare revisionsspor over hvad agenten/cockpittet/CLI'en har gjort. Append-only på server-siden. |
@@ -315,11 +318,12 @@ uden at kernen kaldes.
 
 ### write-reversible
 
-11 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
+12 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
 append-only finanskæde.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
+| `accounts_role_confirm` | `accounts role-confirm` | `{ company, role, accountNo, confirm }` | Bekræfter eksplicit ét kompatibelt kontorolle-forslag med actor- og versionsspor; senere confirmation kan ændre mappingen. |
 | `bank_import` | `bank import` | `{ company, csvPath \| csvContent, account?, profile?, confirm }` | Importerer banktransaktioner fra CSV. Deterministisk via `sourceFileHash`. |
 | `budget_set` | `budget set` | `{ company, accountNo, period, amount, notes?, confirm }` | Sætter et budget for én konto i én kalendermåned. Append-only revisioner — seneste vinder. |
 | `company_sync_cvr` | `company sync-cvr` | `{ company, confirm }` | Henter virksomhedens stamdata fra CVR og opdaterer companies-rækken. Regnskabsåret røres ikke. |
@@ -334,7 +338,7 @@ append-only finanskæde.
 
 ### write-irreversible
 
-42 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
+43 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
 revisionsklare/eksterne artefakter; kan kun "rulles tilbage" via en
 modpostering.
 
@@ -379,6 +383,7 @@ modpostering.
 | `system_backup_destination_remove` | `system backup-remove-destination` | `{ company, id, confirm }` | Fjerner en konfigureret backup-destination. |
 | `system_backup_lock` | `system backup-lock` | `{ company, enforced, graceDays?, at?, confirm }` | Konfigurerer den frivillige bogførings-lås. |
 | `system_backup_place` | `system backup-place` | `{ company, archivePath, destinationId, actorKind?, at?, note?, confirm }` | Kopierer et backup-arkiv til en lokal/synkroniseret destination og verificerer med sha256. |
+| `system_backup_verify_remote_placement` | `system backup-verify-remote-placement` | `{ company, destinationId, backupId, archiveSha256, archiveSizeBytes, remoteProvider, remoteObjectId, remoteObjectName, remoteParentId, maxMetadataAgeMs?, actorKind?, at?, note?, confirm }` | Verificerer remote objektidentitet, placering, størrelse og checksum via provider-adapter før evidensen registreres som verificeret. |
 | `system_export_authority` | `system export-authority` | `{ company, from, to, out, requestedAt?, requester?, confirm }` | Eksporterer materiale til myndighedsudlevering. |
 | `vat_post_eu_service_purchase` | `vat post-eu-service-purchase` | `{ company, payload: ReverseChargePurchaseInput, confirm }` | Bogfører EU-servicekøb med reverse charge. |
 | `vat_post_representation_purchase` | `vat post-representation-purchase` | `{ company, payload: RepresentationPurchaseInput, confirm }` | Bogfører repræsentationsudgift med delvis momsfradrag. |

@@ -1,7 +1,7 @@
 import { migrate } from "../core/db";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandDispatch } from "../cli-dispatch";
-import { accountRoleStatus, resolveAccountRole, ACCOUNT_ROLES } from "../core/account-roles";
+import { accountRoleStatus, resolveAccountRole, ACCOUNT_ROLES, confirmAccountRole } from "../core/account-roles";
 
 export function register(dispatch: CommandDispatch): void {
   dispatch.on("accounts", "list", (ctx) => {
@@ -29,8 +29,26 @@ export function register(dispatch: CommandDispatch): void {
     migrate(db);
     const status = accountRoleStatus(db);
     const roles = ACCOUNT_ROLES.map((role) => resolveAccountRole(db, role));
-    console.log(JSON.stringify({ ok: true, ...status, roles }, null, 2));
+    ctx.emitResult({ ok: true, ...status, roles });
     db.close();
+  });
+  dispatch.on("accounts", "role-confirm", (ctx) => {
+    const role = ctx.arg("--role");
+    const accountNo = ctx.arg("--account");
+    if (!role || !ACCOUNT_ROLES.includes(role as typeof ACCOUNT_ROLES[number]) || !accountNo) {
+      ctx.fatal("brug: accounts role-confirm --company <path> --role <role> --account <kontonr>; kør accounts roles-status først for forslag og blokeringer");
+    }
+    const db = openCommandDb(ctx);
+    migrate(db);
+    const actor = ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor();
+    if (!actor) ctx.fatal("actor required for mutations");
+    const result = confirmAccountRole(db, role as typeof ACCOUNT_ROLES[number], accountNo, actor, "rentemester-cli", "explicit");
+    const status = accountRoleStatus(db);
+    ctx.emitResult(result.ok
+      ? { ok: true, resolution: result.resolution, ...status, roles: ACCOUNT_ROLES.map((item) => resolveAccountRole(db, item)) }
+      : { ok: false, errors: [result.error], ...status, roles: ACCOUNT_ROLES.map((item) => resolveAccountRole(db, item)) });
+    db.close();
+    if (!result.ok) process.exit(1);
   });
 }
 

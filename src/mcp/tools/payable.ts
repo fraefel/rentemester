@@ -146,7 +146,7 @@ export function registerPayableTools(server: McpServer): void {
         paymentAccount: z
           .string()
           .optional()
-          .describe("Account number the payment is credited to. Defaults to account 2000 (Bank)."),
+          .describe("Account number the payment is credited to. Defaults to the confirmed bank role."),
         note: z.string().optional().describe("Optional free-text note stored on the payment."),
         confirm: confirmField,
       },

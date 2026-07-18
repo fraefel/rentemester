@@ -275,6 +275,9 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
   const deductibleVatAmount = percentOfDkk(fullVatAmount, 25);
   const nonDeductibleVatAmount = subtractDkk(fullVatAmount, deductibleVatAmount);
   const grossAmount = addDkk(input.netAmount, fullVatAmount);
+  const inputVat = resolveAccountRole(db, "input_vat");
+  const payment = input.paymentAccountNo ? { ok: true as const, accountNo: input.paymentAccountNo } : resolveAccountRole(db, "bank");
+  if (!inputVat.ok || !payment.ok) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: [!inputVat.ok ? inputVat.error : payment.error] };
 
   const result = postJournalEntry(db, {
     transactionDate: input.transactionDate,
@@ -303,8 +306,8 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
         vatCode: "REPRESENTATION_NON_DEDUCTIBLE_VAT",
         text: "Non-deductible representation VAT (75%)"
       },
-      { accountNo: "4000", debitAmount: deductibleVatAmount, text: "Deductible representation VAT (25%)" },
-      { accountNo: input.paymentAccountNo ?? "2000", creditAmount: grossAmount, text: "Payment / liability" },
+      { accountNo: inputVat.accountNo, debitAmount: deductibleVatAmount, text: "Deductible representation VAT (25%)" },
+      { accountNo: payment.accountNo, creditAmount: grossAmount, text: "Payment / liability" },
     ],
   });
 

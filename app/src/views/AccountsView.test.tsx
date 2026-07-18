@@ -59,8 +59,11 @@ const sample = {
       status: "incomplete",
       missing: ["vat_settlement"],
       ambiguous: [],
+      proposals: [{ role: "vat_settlement", accountNo: "4500", source: "dinero:chart:name-vat-settlement", proposedAt: "2026-07-18 06:00:00", compatible: true }],
+      candidates: [{ role: "vat_settlement", accountNo: "4500", source: "dinero:chart:name-vat-settlement", proposedAt: "2026-07-18 06:00:00", compatible: true }],
+      reasons: [{ role: "vat_settlement", reason: "account role 'vat_settlement' has no active confirmed mapping" }],
       resolutions: [
-        { ok: true, role: "bank", accountNo: "2000", version: 1 },
+        { ok: true, role: "bank", accountNo: "2000", version: 1, confirmedBy: "system", confirmationSource: "native_seed" },
         { ok: false, role: "vat_settlement", error: "account role 'vat_settlement' has no active confirmed mapping" },
       ],
     },
@@ -135,5 +138,6 @@ describe("AccountsView (#344)", () => {
     const bankRole = screen.getByText("Bankkonto").closest("tr")!;
     expect(within(bankRole as HTMLElement).getByText("2000")).toBeInTheDocument();
     expect(screen.getByText(/Kræver menneskelig afklaring/)).toBeInTheDocument();
+    expect(screen.getByText(/Importforslag: Momsafregning → 4500/)).toBeInTheDocument();
   });
 });

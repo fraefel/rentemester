@@ -3,6 +3,7 @@ import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { getInvoiceStatus } from "./invoice-payments";
 import { insertAuditLog } from "./actor";
 import { roundDkk } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 const RULE_ID = "DK-INVOICE-REFUND-001";
 
@@ -78,6 +79,10 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
   const amount = roundDkk(input.amount ?? Math.abs(Number(bank.amount)));
   if (amount > creditBalance) return { ok: false, appliedRules: [RULE_ID], errors: [`refund amount ${amount} exceeds refundable credit balance ${creditBalance}`] };
   const refundDate = input.refundDate ?? bank.transaction_date;
+  const bankRole = input.bankAccountNo ? { ok: true as const, accountNo: input.bankAccountNo } : resolveAccountRole(db, "bank");
+  const debtorsRole = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
+  const roleErrors = [bankRole, debtorsRole].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
+  if (roleErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: roleErrors };
 
   try {
     const result = db.transaction(() => {
@@ -104,8 +109,8 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         lines: [
-          { accountNo: input.receivableAccountNo ?? "1100", debitAmount: amount, text: `Refund clearing ${invoice.invoice_no}` },
-          { accountNo: input.bankAccountNo ?? "2000", creditAmount: amount, text: `Bank refund ${invoice.invoice_no}` },
+          { accountNo: debtorsRole.accountNo, debitAmount: amount, text: `Refund clearing ${invoice.invoice_no}` },
+          { accountNo: bankRole.accountNo, creditAmount: amount, text: `Bank refund ${invoice.invoice_no}` },
         ],
       });
       if (!journal.ok) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));

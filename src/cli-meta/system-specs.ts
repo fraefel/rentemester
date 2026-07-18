@@ -94,4 +94,5 @@ export const systemSpecs: CommandSpec[] = [
   { key: "audit verify", usage: "audit verify --company <path>", description: "Verificerer audit-kæde og bogføringsintegritet.", allowedFlags: ["--company"] },
   { key: "accounts list", usage: "accounts list --company <path>", description: "Lister kontoplanen.", allowedFlags: ["--company"] },
   { key: "accounts roles-status", usage: "accounts roles-status --company <path>", description: "Viser bekræftede konto-roller, mangler og tvetydige importforslag (read-only).", allowedFlags: ["--company"] },
+  { key: "accounts role-confirm", usage: "accounts role-confirm --company <path> --role <role> --account <kontonr>", description: "Bekræfter en kompatibel kontorolle med actor-audit.", allowedFlags: ["--company", "--role", "--account"] },
 ];

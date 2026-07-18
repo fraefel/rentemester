@@ -21,6 +21,8 @@ import { postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core
 import { resolveSource } from "../../src/core/import/source";
 import { dineroParser } from "../../src/core/import/dinero";
 import { reconcileChartOfAccounts, reconcileCompanyMasterData } from "../../src/core/import/reconcile";
+import { runImport } from "../../src/core/import/framework";
+import { accountRoleStatus, resolveAccountRole } from "../../src/core/account-roles";
 
 const FIXTURE = join(import.meta.dir, "../../examples/import-dinero");
 
@@ -39,7 +41,19 @@ describe("Dinero parser: multi-file export -> normalised source", () => {
     expect(parsed.errors).toEqual([]);
     expect(parsed.ok).toBe(true);
     expect(parsed.source!.sourceSystem).toBe("dinero");
-    expect(parsed.source!.chartOfAccounts.length).toBe(17);
+    expect(parsed.source!.chartOfAccounts.length).toBe(20);
+    expect(parsed.source!.accountRoleProposals).toEqual(expect.arrayContaining([
+      { role: "bank", accountNo: "5510", source: "dinero:chart:name-bank" },
+      { role: "debtors", accountNo: "5520", source: "dinero:chart:name-debtors" },
+      { role: "vat_settlement", accountNo: "55000", source: "dinero:chart:name-vat-settlement" },
+      { role: "output_vat", accountNo: "64000", source: "dinero:chart:control-account-64000" },
+      { role: "reverse_charge_vat", accountNo: "64040", source: "dinero:chart:control-account-64040" },
+      { role: "input_vat", accountNo: "64060", source: "dinero:chart:control-account-64060" },
+    ]));
+    expect(parsed.source!.accountRoleProposals).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "output_vat", accountNo: "1000" }),
+      expect.objectContaining({ role: "input_vat", accountNo: "3000" }),
+    ]));
   });
 
   test("fails clearly when a required file is missing", () => {
@@ -68,6 +82,9 @@ describe("Dinero parser: multi-file export -> normalised source", () => {
     expect(by("60000").normalizedType).toBe("equity");
     expect(by("60000").normalBalance).toBe("credit");
     expect(by("60040").normalizedType).toBe("equity");
+    expect(by("64000")).toMatchObject({ normalizedType: "vat", normalBalance: "credit" });
+    expect(by("64040")).toMatchObject({ normalizedType: "vat", normalBalance: "credit" });
+    expect(by("64060")).toMatchObject({ normalizedType: "vat", normalBalance: "debit" });
   });
 
   test("maps Dinero Momstype codes to Rentemester VAT codes", () => {
@@ -102,6 +119,26 @@ describe("Dinero parser: multi-file export -> normalised source", () => {
 });
 
 describe("Dinero reconciliation into the live ledger", () => {
+  test("lands Dinero VAT control accounts as unconfirmed per-company proposals instead of native defaults", () => {
+    const { root, db } = freshCompany("rentemester-dinero-vat-roles-");
+    try {
+      const source = dineroParser.parseSource!(resolveSource(FIXTURE)).source!;
+      const imported = runImport(db, source, { createdBy: "user:tester", createdByProgram: "dinero-role-test" });
+      expect(imported.ok).toBe(true);
+      for (const role of ["output_vat", "reverse_charge_vat", "input_vat"] as const) {
+        expect(resolveAccountRole(db, role).ok).toBe(false);
+      }
+      expect(accountRoleStatus(db).proposals).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: "output_vat", accountNo: "64000", compatible: true }),
+        expect.objectContaining({ role: "reverse_charge_vat", accountNo: "64040", compatible: true }),
+        expect.objectContaining({ role: "input_vat", accountNo: "64060", compatible: true }),
+      ]));
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("creates missing accounts with correct type / normal_balance / VAT code", () => {
     const { root, db } = freshCompany("rentemester-dinero-chart-");
     try {

@@ -75,8 +75,8 @@ export function registerExpenseTools(server: McpServer): void {
           .string()
           .optional()
           .describe(
-            "Account number the payment is credited to. Defaults to account 2000 " +
-              "(Bank); set it only when the payment came from a different account.",
+            "Account number the payment is credited to. Defaults to the confirmed bank role; " +
+              "set it only when the payment came from a different account.",
           ),
         date: z
           .string()

@@ -38,8 +38,9 @@ export function register(dispatch: CommandDispatch): void {
     const db = openCommandDb(ctx);
     migrate(db);
     const result = runImportFromSource(db, parser, file, {
-      createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined,
+      createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? undefined,
       createdByProgram: "rentemester-import-cli",
+      dryRun: ctx.hasFlag("--dry-run"),
     });
     ctx.emitResult(result as unknown as Record<string, unknown>);
     db.close();

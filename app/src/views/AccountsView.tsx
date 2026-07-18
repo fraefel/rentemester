@@ -192,6 +192,8 @@ function AccountRolesCard({ accountRoles }: Pick<CompanyAccounts, "accountRoles"
           ))}
         </tbody>
       </table>
+      {accountRoles.proposals.length > 0 && <p className="muted">Importforslag: {accountRoles.proposals.map((proposal) => `${ACCOUNT_ROLE_LABELS[proposal.role]} → ${proposal.accountNo} (${proposal.source})`).join(", ")}</p>}
+      {accountRoles.reasons.length > 0 && <p className="warning">{accountRoles.reasons.map((reason) => `${ACCOUNT_ROLE_LABELS[reason.role]}: ${reason.reason}`).join(" · ")}</p>}
     </section>
   );
 }

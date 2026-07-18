@@ -3,6 +3,7 @@ import { applyInvoicePayment, getInvoiceStatus } from "./invoice-payments";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
 import { roundDkk } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 const RULE_ID = "DK-INVOICE-SETTLEMENT-001";
 const COMBINED_RULE_ID = "DK-INVOICE-COMBINED-SETTLEMENT-001";
@@ -120,6 +121,10 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
   if (!before.ok) return { ok: false, appliedRules: [RULE_ID], errors: before.errors };
   const principalOpenBalance = roundDkk(Number(before.openBalance ?? 0));
   const claimOpenBalance = roundDkk(Number(before.claimOpenBalance ?? 0));
+  const bankRole = input.bankAccountNo ? { ok: true as const, accountNo: input.bankAccountNo } : resolveAccountRole(db, "bank");
+  const debtorsRole = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
+  const roleErrors = [bankRole, debtorsRole].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
+  if (roleErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: roleErrors };
 
   try {
     const result = db.transaction(() => {
@@ -171,8 +176,8 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
           createdBy: input.createdBy,
           createdByProgram: input.createdByProgram,
           lines: [
-            { accountNo: input.bankAccountNo ?? "2000", debitAmount: journalAmountDkk, text: `Bank receipt ${invoice.invoice_no}` },
-            { accountNo: input.receivableAccountNo ?? "1100", creditAmount: journalAmountDkk, text: `Principal and claim settlement ${invoice.invoice_no}` },
+            { accountNo: bankRole.accountNo, debitAmount: journalAmountDkk, text: `Bank receipt ${invoice.invoice_no}` },
+            { accountNo: debtorsRole.accountNo, creditAmount: journalAmountDkk, text: `Principal and claim settlement ${invoice.invoice_no}` },
           ],
         });
         if (!journal.ok || journal.entryId == null) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));
@@ -186,8 +191,8 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
         journalEntryId,
         paymentDate,
         amount: principalAmount,
-        bankAccountNo: input.bankAccountNo,
-        receivableAccountNo: input.receivableAccountNo,
+        bankAccountNo: bankRole.accountNo,
+        receivableAccountNo: debtorsRole.accountNo,
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         note: `Bank settlement from transaction ${bank.id}`,

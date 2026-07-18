@@ -187,4 +187,59 @@ describe("import framework: normalised source -> primobalance", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("dry-run executes the same role/chart/posting path and rolls every database write back", () => {
+    const { root, db } = freshCompany("rentemester-import-dry-role-");
+    try {
+      const source = balancedSource();
+      source.chartOfAccounts.push({ accountNo: "9910", name: "Imported operating bank", normalizedType: "asset", normalBalance: "debit" });
+      source.accountRoleProposals = [{ role: "bank", accountNo: "9910", source: "test:chart:name-bank" }];
+      const before = {
+        accounts: (db.query("SELECT COUNT(*) AS n FROM accounts").get() as { n: number }).n,
+        mappings: (db.query("SELECT COUNT(*) AS n FROM account_role_mappings").get() as { n: number }).n,
+        proposals: (db.query("SELECT COUNT(*) AS n FROM account_role_proposals").get() as { n: number }).n,
+        audit: (db.query("SELECT COUNT(*) AS n FROM audit_log").get() as { n: number }).n,
+      };
+      const result = runImport(db, source, { createdBy: "user:tester", dryRun: true });
+      expect(result).toMatchObject({ ok: true, dryRun: true, accountRoleProposals: source.accountRoleProposals });
+      expect(db.query("SELECT COUNT(*) AS n FROM accounts").get()).toEqual({ n: before.accounts });
+      expect(db.query("SELECT COUNT(*) AS n FROM account_role_mappings").get()).toEqual({ n: before.mappings });
+      expect(db.query("SELECT COUNT(*) AS n FROM account_role_proposals").get()).toEqual({ n: before.proposals });
+      expect(db.query("SELECT COUNT(*) AS n FROM audit_log").get()).toEqual({ n: before.audit });
+      expect(getOpeningBalance(db)).toBeNull();
+      expect(resolveAccountRoleForTest(db, "bank")).toBe("2000");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a late posting rejection rolls chart and role proposals back atomically", () => {
+    const { root, db } = freshCompany("rentemester-import-atomic-role-");
+    try {
+      const source = balancedSource();
+      source.chartOfAccounts = [
+        { accountNo: "9910", name: "Imported operating bank", normalizedType: "asset", normalBalance: "debit" },
+        { accountNo: "9991", name: "Unclassified balancing account" },
+      ];
+      source.openingBalances = [
+        { accountNo: "9910", debitAmount: 80000 },
+        { accountNo: "9991", creditAmount: 80000 },
+      ];
+      source.accountRoleProposals = [{ role: "bank", accountNo: "9910", source: "test:chart:name-bank" }];
+      const result = runImport(db, source, { createdBy: "user:tester" });
+      expect(result.ok).toBe(false);
+      expect(db.query("SELECT 1 FROM accounts WHERE account_no = '9910'").get()).toBeNull();
+      expect(db.query("SELECT COUNT(*) AS n FROM account_role_proposals").get()).toEqual({ n: 0 });
+      expect(resolveAccountRoleForTest(db, "bank")).toBe("2000");
+      expect(getOpeningBalance(db)).toBeNull();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
+
+function resolveAccountRoleForTest(db: ReturnType<typeof openDb>, role: string): string | null {
+  return (db.query("SELECT account_no FROM account_role_mappings WHERE role = ? AND status = 'confirmed'").get(role) as { account_no: string } | null)?.account_no ?? null;
+}

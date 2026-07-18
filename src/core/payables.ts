@@ -286,8 +286,13 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
 
   const netAmount = subtractDkk(grossAmount, vatAmount);
   const creditor = resolveAccountRole(db, "creditors");
-  const inputVat = input.vatAccountNo?.trim() ? { ok: true as const, accountNo: input.vatAccountNo.trim() } : resolveAccountRole(db, "input_vat");
-  if (!creditor.ok || !inputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [!creditor.ok ? creditor.error : inputVat.error] };
+  if (!creditor.ok) return { ok: false, appliedRules: [RULE_ID], errors: [creditor.error] };
+  let inputVatAccountNo: string | null = null;
+  if (vatTreatment === "standard") {
+    const inputVat = input.vatAccountNo?.trim() ? { ok: true as const, accountNo: input.vatAccountNo.trim() } : resolveAccountRole(db, "input_vat");
+    if (!inputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [inputVat.error] };
+    inputVatAccountNo = inputVat.accountNo;
+  }
   const supplierName = document.sender_name?.trim() || null;
   const text = supplierName
     ? `Kreditorpost: bilag fra ${supplierName} (bilag ${input.documentId})`
@@ -299,13 +304,13 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
   const lines = purchaseVatLines && vatTreatment === "standard"
     ? [
         ...purchaseVatLines.map((line) => ({ accountNo: expenseAccountNo, debitAmount: line.netAmount, vatCode: line.classification === "dk_purchase_25" ? "DK_PURCHASE_25" : "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? (line.classification === "dk_purchase_25" ? "Udgift, momspligtigt grundbeløb" : "Udgift, momsfrit grundbeløb") })),
-        { accountNo: inputVat.accountNo, debitAmount: vatAmount, text: "Købsmoms" },
+        { accountNo: inputVatAccountNo!, debitAmount: vatAmount, text: "Købsmoms" },
         { accountNo: creditor.accountNo, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
       ]
     : vatTreatment === "standard"
     ? [
         { accountNo: expenseAccountNo, debitAmount: netAmount, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, grundbeløb" },
-        { accountNo: inputVat.accountNo, debitAmount: vatAmount, text: "Købsmoms" },
+        { accountNo: inputVatAccountNo!, debitAmount: vatAmount, text: "Købsmoms" },
         { accountNo: creditor.accountNo, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
       ]
     : [

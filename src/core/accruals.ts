@@ -40,6 +40,7 @@ import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate, diffDays } from "./dates";
 import { fromOre, roundDkk, sumDkk, toOre } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 const ACCRUAL_RULE_ID = "DK-BOOKKEEPING-ACCRUAL-001";
 
@@ -60,9 +61,6 @@ const DEFAULT_BALANCE_ACCOUNT: Record<AccrualType, string> = {
   accrued_expense: "7300", // Skyldige omkostninger (liability)
   deferred_revenue: "7310", // Forudbetalt indtægt (liability)
 };
-
-/** Default settlement (payment) account — the company bank account. */
-const DEFAULT_SETTLEMENT_ACCOUNT = "2000";
 
 /**
  * One recognition period of an accrual's schedule. `periodIndex` is 1-based;
@@ -307,7 +305,11 @@ export function registerAccrual(
   if (errors.length > 0) return { ok: false, appliedRules: [ACCRUAL_RULE_ID], errors };
 
   const balanceAccountNo = input.balanceAccountNo ?? DEFAULT_BALANCE_ACCOUNT[input.accrualType];
-  const settlementAccountNo = input.settlementAccountNo ?? DEFAULT_SETTLEMENT_ACCOUNT;
+  const settlement = input.settlementAccountNo
+    ? { ok: true as const, accountNo: input.settlementAccountNo }
+    : resolveAccountRole(db, "bank");
+  if (!settlement.ok) return { ok: false, appliedRules: [ACCRUAL_RULE_ID], errors: [settlement.error] };
+  const settlementAccountNo = settlement.accountNo;
   const resultAccountNo = input.resultAccountNo.trim();
 
   const balanceAccount = loadAccount(db, balanceAccountNo);
@@ -536,10 +538,15 @@ export function recognizeAccrualPeriod(
 
   const period = schedule[input.periodIndex - 1]!;
   const transactionDate = input.transactionDate ?? period.recognitionDate;
-  const settlementAccountNo = input.settlementAccountNo ?? DEFAULT_SETTLEMENT_ACCOUNT;
+  let settlementAccountNo = input.settlementAccountNo ?? "";
 
   // accrued_expense recognition touches the settlement account — validate it.
   if (accrual.accrual_type === "accrued_expense") {
+    if (!settlementAccountNo) {
+      const settlement = resolveAccountRole(db, "bank");
+      if (!settlement.ok) return { ok: false, appliedRules: [ACCRUAL_RULE_ID], errors: [settlement.error] };
+      settlementAccountNo = settlement.accountNo;
+    }
     const settlementAccount = loadAccount(db, settlementAccountNo);
     if (!settlementAccount || !settlementAccount.active) {
       return {

@@ -8,6 +8,7 @@ import { openDb, migrate } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
 import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { buildVatReport, postRepresentationPurchase } from "../../src/core/vat";
+import { confirmAccountRole } from "../../src/core/account-roles";
 
 describe("representation VAT", () => {
   test("posts a representation purchase with only 25 percent deductible input VAT", () => {
@@ -19,6 +20,9 @@ describe("representation VAT", () => {
     const db = openDb(ensureCompanyDirs(root).db);
     migrate(db);
     seedAccounts(db);
+    db.run("INSERT INTO accounts (account_no, name, type, normal_balance) VALUES ('9910', 'Imported bank', 'asset', 'debit'), ('9950', 'Imported input VAT', 'vat', 'debit')");
+    expect(confirmAccountRole(db, "bank", "9910", "user:reviewer").ok).toBe(true);
+    expect(confirmAccountRole(db, "input_vat", "9950", "user:reviewer").ok).toBe(true);
 
     const doc = ingestDocument(db, root, sourceFile, {
       source: "email",
@@ -52,8 +56,8 @@ describe("representation VAT", () => {
     expect(lines).toHaveLength(4);
     expect(lines[0]).toMatchObject({ account_no: "3070", debit_amount: 1000, vat_code: "REPRESENTATION_SPECIAL" });
     expect(lines[1]).toMatchObject({ account_no: "3070", debit_amount: 187.5, credit_amount: 0 });
-    expect(lines[2]).toMatchObject({ account_no: "4000", debit_amount: 62.5, credit_amount: 0 });
-    expect(lines[3]).toMatchObject({ account_no: "2000", debit_amount: 0, credit_amount: 1250 });
+    expect(lines[2]).toMatchObject({ account_no: "9950", debit_amount: 62.5, credit_amount: 0 });
+    expect(lines[3]).toMatchObject({ account_no: "9910", debit_amount: 0, credit_amount: 1250 });
 
     const vat = buildVatReport(db, "2026-05-01", "2026-05-31");
     expect(vat.ok).toBe(true);

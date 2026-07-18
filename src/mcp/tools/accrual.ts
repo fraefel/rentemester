@@ -80,7 +80,7 @@ export function registerAccrualTools(server: McpServer): void {
         settlementAccountNo: z
           .string()
           .optional()
-          .describe("Optional settlement/payment account for the registration entry's other leg (default '2000')."),
+          .describe("Optional settlement/payment account for the registration entry's other leg (defaults to the confirmed bank role)."),
         documentId: z
           .number()
           .int()
@@ -163,7 +163,7 @@ export function registerAccrualTools(server: McpServer): void {
         settlementAccountNo: z
           .string()
           .optional()
-          .describe("Optional settlement account, used only by accrued_expense recognition (default '2000')."),
+          .describe("Optional settlement account, used only by accrued_expense recognition (defaults to the confirmed bank role)."),
         confirm: confirmField,
       },
       outputSchema: envelopeShape,

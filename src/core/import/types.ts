@@ -20,10 +20,11 @@
 
 /**
  * The Rentemester account types — mirrors the `accounts.type` CHECK constraint
- * in src/core/schema.sql (the `vat` type is reserved for the seeded moms
- * accounts and is never produced by an importer).
+ * in src/core/schema.sql. Importers may emit `vat` only from explicit
+ * source-system control-account evidence, never from a sales/purchase base
+ * account's default VAT code.
  */
-export type ImportAccountType = "asset" | "liability" | "equity" | "income" | "expense";
+export type ImportAccountType = "asset" | "liability" | "equity" | "income" | "expense" | "vat";
 
 /** A Rentemester `normal_balance` value (mirrors the schema CHECK constraint). */
 export type ImportNormalBalance = "debit" | "credit";
@@ -113,6 +114,8 @@ export type ImportSource = {
   cutOverDate: string;
   /** The source system's chart of accounts. */
   chartOfAccounts: ImportAccount[];
+  /** Explainable, unconfirmed semantic role candidates from chart evidence. */
+  accountRoleProposals?: Array<{ role: import("../account-roles").AccountRole; accountNo: string; source: string }>;
   /** Per-account opening balances (the primobalance to be posted). */
   openingBalances: ImportOpeningBalanceLine[];
   /** Optional historical entries — captured but not posted by `runImport`. */
@@ -220,6 +223,8 @@ export type SourceParser = {
 export type ImportOptions = {
   createdBy?: string;
   createdByProgram?: string;
+  /** Execute the complete DB path inside a transaction and always roll it back. */
+  dryRun?: boolean;
   /**
    * The company root directory — where `ingestDocument` stores receipt
    * originals (#196). When omitted, `runImportFromSource` derives it from the
@@ -276,6 +281,8 @@ export type CompanyReconciliationResult = {
  */
 export type ImportResult = {
   ok: boolean;
+  /** True when all database mutations were deliberately rolled back. */
+  dryRun?: boolean;
   sourceSystem: string;
   cutOverDate?: string;
   entryId?: number;
@@ -300,6 +307,8 @@ export type ImportResult = {
   chart?: ChartReconciliationResult;
   /** Company-master-data reconciliation outcome, when the source carried one. */
   company?: CompanyReconciliationResult;
+  /** Pure importer suggestions shown for explicit review; never confirmations. */
+  accountRoleProposals?: ImportSource["accountRoleProposals"];
   /**
    * Bilag (receipt) ingest outcome (#196), when the export shipped receipts:
    * how many were ingested and linked to their voucher's journal entry, and

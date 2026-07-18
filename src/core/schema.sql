@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS account_role_mappings (
   status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','superseded','inactive')),
   version INTEGER NOT NULL,
   confirmed_by TEXT NOT NULL,
+  confirmation_source TEXT NOT NULL DEFAULT 'explicit' CHECK(confirmation_source IN ('native_seed','explicit')),
   confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(role, version)
 );

@@ -10,3 +10,6 @@ Nummer;Navn;Type;Momstype;Total
 60000;Registreret kapital mv.;Passiv;;-40000,00
 60010;Overført resultat fra tidligere år;Passiv;;-87200,50
 60040;Udbytte;Passiv;;-25000,00
+64000;Salgsmoms (udgående moms);Passiv;;0,00
+64040;Moms af ydelser fra udlandet;Passiv;;0,00
+64060;Købsmoms (indgående moms);Passiv;;0,00

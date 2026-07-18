@@ -19,6 +19,7 @@ export type PostIssuedInvoiceInput = {
 
 
 function issuedInvoiceJournalLines(doc: { invoice_no: string }, payload: any, grossAmount: number, netAmount: number, vatAmount: number, input: PostIssuedInvoiceInput) {
+  if (!input.receivableAccountNo || !input.outputVatAccountNo) throw new Error("resolved debtors and output VAT account roles are required");
   const vatTreatment = payload?.vatTreatment ?? "standard";
   const isDomesticReverseCharge = vatTreatment === "domestic_reverse_charge";
   const isForeignReverseCharge = vatTreatment === "foreign_reverse_charge";
@@ -33,7 +34,7 @@ function issuedInvoiceJournalLines(doc: { invoice_no: string }, payload: any, gr
   // domestic §46 reverse charge.
   const reverseChargeVatCode = isDomesticReverseCharge ? "DOMESTIC_REVERSE_CHARGE_EXEMPT" : "REVERSE_CHARGE_EXEMPT";
   const lines: Array<{ accountNo: string; debitAmount?: number; creditAmount?: number; vatCode?: string; text: string }> = [
-    { accountNo: input.receivableAccountNo ?? "1100", debitAmount: grossAmount, text: `Receivable ${doc.invoice_no}` },
+    { accountNo: input.receivableAccountNo, debitAmount: grossAmount, text: `Receivable ${doc.invoice_no}` },
   ];
   const projection = projectVatLines(payload?.lines, vatTreatment, payload?.totals?.vatRate);
   // Validation at issuance makes this fail-closed check defensive for legacy
@@ -60,7 +61,7 @@ function issuedInvoiceJournalLines(doc: { invoice_no: string }, payload: any, gr
     last.creditAmount = roundDkk(Number(last.creditAmount) + netAmount - roundedBases);
   }
   if (vatAmount > 0) {
-    lines.push({ accountNo: input.outputVatAccountNo ?? "1200", creditAmount: vatAmount, text: `Output VAT ${doc.invoice_no}` });
+    lines.push({ accountNo: input.outputVatAccountNo, creditAmount: vatAmount, text: `Output VAT ${doc.invoice_no}` });
   }
   return { lines, isReverseCharge: isReverseCharge || projection.lines.some((line) => line.taxClassification === "reverse_charge") };
 }

@@ -29,7 +29,7 @@ export const payableSpecs: CommandSpec[] = [
       "--bank-transaction-id skal pege på en UDGÅENDE (negativ) DKK-bankpost, der ikke allerede er bogført eller anvendt.",
       "--amount er valgfri; udelades den, bruges bankpostens beløb. Angives den, skal den matche bankpostens beløb og må ikke overstige den åbne saldo.",
       "--date er valgfri bogføringsdato YYYY-MM-DD; udelades den, bruges bankpostens dato.",
-      "--payment-account: betalingskontoen der krediteres; standard er 2000 (Bank).",
+      "--payment-account: betalingskontoen der krediteres; standard er den bekræftede bankrolle.",
     ],
   },
   {

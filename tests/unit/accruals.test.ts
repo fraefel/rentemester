@@ -17,6 +17,7 @@ import {
   buildAccrualRegisterReport,
   listDueAccrualRecognitionPeriods,
 } from "../../src/core/accruals";
+import { confirmAccountRole } from "../../src/core/account-roles";
 
 function setup(label: string) {
   const root = mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -116,6 +117,8 @@ describe("accrual recognition schedule", () => {
 describe("prepaid expense accrual (forudbetalt omkostning)", () => {
   test("registration parks the cost on the asset account; recognition releases it to expense", () => {
     const { db, documentId, cleanup } = setup("accrual-prepaid");
+    db.run("INSERT INTO accounts (account_no, name, type, normal_balance) VALUES ('9910', 'Imported bank', 'asset', 'debit')");
+    expect(confirmAccountRole(db, "bank", "9910", "user:reviewer").ok).toBe(true);
     const reg = registerAccrual(db, {
       accrualType: "prepaid_expense",
       description: "Årsforsikring 2026",
@@ -134,7 +137,7 @@ describe("prepaid expense accrual (forudbetalt omkostning)", () => {
     // Registration: debit 1300 (asset), credit 2000 (bank).
     expect(lines(db, reg.entryId!)).toEqual([
       { account_no: "1300", debit_amount: 12000, credit_amount: 0 },
-      { account_no: "2000", debit_amount: 0, credit_amount: 12000 },
+      { account_no: "9910", debit_amount: 0, credit_amount: 12000 },
     ]);
 
     const period1 = recognizeAccrualPeriod(db, { accrualId: reg.accrualId!, periodIndex: 1 });

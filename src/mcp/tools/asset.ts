@@ -190,7 +190,7 @@ export function registerAssetTools(server: McpServer): void {
         paymentAccount: z
           .string()
           .optional()
-          .describe("Optional account number for the credit (payment) side, e.g. a bank account '2000'."),
+          .describe("Optional account number for the credit (payment) side; defaults to the confirmed bank role."),
         note: z.string().optional().describe("Optional free-text note stored with the write-off."),
         confirm: confirmField,
       },

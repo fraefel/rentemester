@@ -50,7 +50,7 @@ const IMPORT_RULE = "DK-BOOKKEEPING-BALANCED-001";
  * `ImportSource` always produces the same `auditTrail` and (on a fresh
  * company) the same `entryNo`.
  */
-export function runImport(
+function runImportImpl(
   db: Database,
   source: ImportSource,
   options: ImportOptions = {},
@@ -219,6 +219,7 @@ export function runImport(
         `Unmapped VAT code(s) — review required: ${chartResult.unmappedVatCodes.join("; ")}`,
       );
     }
+    if ((source.accountRoleProposals?.length ?? 0) > 0) auditTrail.push(`Reviewed ${source.accountRoleProposals!.length} unconfirmed account-role proposal(s) with chart reconciliation`);
     for (const diff of chartResult.differences) auditTrail.push(`Chart difference: ${diff}`);
     for (const conflict of chartResult.conflicts) {
       auditTrail.push(`Chart conflict — review required: ${conflict}`);
@@ -351,6 +352,35 @@ export function runImport(
   };
 }
 
+class ImportRollback extends Error {
+  constructor(readonly result: ImportResult) {
+    super("import transaction rolled back");
+  }
+}
+
+/**
+ * The complete ledger landing is atomic. A structured business rejection rolls
+ * chart/master-data/proposal/posting changes back together. Dry-run executes
+ * the same path, then deliberately rolls it back and returns the preview.
+ */
+export function runImport(db: Database, source: ImportSource, options: ImportOptions = {}): ImportResult {
+  try {
+    return db.transaction(() => {
+      const result = runImportImpl(db, source, options);
+      const withProposals: ImportResult = {
+        ...result,
+        ...(source.accountRoleProposals?.length ? { accountRoleProposals: source.accountRoleProposals } : {}),
+      };
+      if (!withProposals.ok) throw new ImportRollback(withProposals);
+      if (options.dryRun) throw new ImportRollback({ ...withProposals, dryRun: true });
+      return withProposals;
+    }, { immediate: true })();
+  } catch (error) {
+    if (error instanceof ImportRollback) return error.result;
+    throw error;
+  }
+}
+
 /**
  * Runs an import end-to-end from an export PATH using a `SourceParser`. It
  * resolves the path (a directory, a `.zip`'s unpacked tree, or a single file)
@@ -428,7 +458,7 @@ export function runImportFromSource(
   // (outside the live ledger) and their closing `SaldoBalance` is checked for
   // roll-forward consistency into the next year's opening balance. Archiving
   // is purely additive: it never affects whether the ledger import succeeded.
-  if (result.ok && parser.system === "dinero" && typeof parser.parseSource === "function") {
+  if (result.ok && !result.dryRun && parser.system === "dinero" && typeof parser.parseSource === "function") {
     archivePreCutOverYears(db, resolved, result);
     // --- bilag (receipts) ingest (#196) ------------------------------------
     // A Dinero export ships the actual receipts. Ingest each cut-over-year

@@ -3,6 +3,7 @@ import { postJournalEntry } from "./ledger";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate, addDays, diffDays, todayIsoDate } from "./dates";
 import { addDkk, roundDkk, subtractDkk, sumDkk } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 export type ApplyInvoicePaymentInput = {
   invoiceDocumentId: number;
@@ -158,8 +159,8 @@ function buildForeignPaymentLines(args: {
   grossForeign: number;
   openForeignBefore: number;
   paymentAmountDkk: number;
-  bankAccountNo?: string;
-  receivableAccountNo?: string;
+  bankAccountNo: string;
+  receivableAccountNo: string;
 }): { lines: JournalLineInput[]; fxApplied: boolean } {
   const payload = args.payloadJson ? JSON.parse(args.payloadJson) : null;
   const invoiceRate = Number(payload?.totals?.fxRateToDkk ?? 0);
@@ -176,8 +177,8 @@ function buildForeignPaymentLines(args: {
   }
 
   const lines: JournalLineInput[] = [
-    { accountNo: args.bankAccountNo ?? "2000", debitAmount: args.paymentAmountDkk, text: `Payment receipt ${args.invoiceNo}` },
-    { accountNo: args.receivableAccountNo ?? "1100", creditAmount: receivableReliefDkk, text: `Receivable settlement ${args.invoiceNo}` },
+    { accountNo: args.bankAccountNo, debitAmount: args.paymentAmountDkk, text: `Payment receipt ${args.invoiceNo}` },
+    { accountNo: args.receivableAccountNo, creditAmount: receivableReliefDkk, text: `Receivable settlement ${args.invoiceNo}` },
   ];
   const fxDelta = roundDkk(subtractDkk(args.paymentAmountDkk, receivableReliefDkk));
   if (fxDelta > 0) {
@@ -392,6 +393,15 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
     return { ok: false, appliedRules: [RULE_ID, CORRECTION_BALANCE_RULE_ID], errors: [`payment amount ${amount} exceeds open invoice balance ${openBalance}`] };
   }
 
+  let postingAccounts: { bankAccountNo: string; receivableAccountNo: string } | undefined;
+  if (input.journalEntryId === undefined) {
+    const bankRole = input.bankAccountNo ? { ok: true as const, accountNo: input.bankAccountNo } : resolveAccountRole(db, "bank");
+    const debtorsRole = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
+    const roleErrors = [bankRole, debtorsRole].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
+    if (roleErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: roleErrors };
+    postingAccounts = { bankAccountNo: bankRole.accountNo, receivableAccountNo: debtorsRole.accountNo };
+  }
+
   let fxRealisedApplied = false;
   try {
     const result = db.transaction(() => {
@@ -404,8 +414,8 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
         let lines: JournalLineInput[];
         if (invoiceCurrency === "DKK") {
           lines = [
-            { accountNo: input.bankAccountNo ?? "2000", debitAmount: paymentAmountDkk, text: `Payment receipt ${invoice.invoice_no}` },
-            { accountNo: input.receivableAccountNo ?? "1100", creditAmount: paymentAmountDkk, text: `Receivable settlement ${invoice.invoice_no}` },
+            { accountNo: postingAccounts!.bankAccountNo, debitAmount: paymentAmountDkk, text: `Payment receipt ${invoice.invoice_no}` },
+            { accountNo: postingAccounts!.receivableAccountNo, creditAmount: paymentAmountDkk, text: `Receivable settlement ${invoice.invoice_no}` },
           ];
         } else {
           const built = buildForeignPaymentLines({
@@ -415,8 +425,8 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
             grossForeign: roundDkk(Number(invoice.amount_inc_vat ?? 0)),
             openForeignBefore: openBalance,
             paymentAmountDkk,
-            bankAccountNo: input.bankAccountNo,
-            receivableAccountNo: input.receivableAccountNo,
+            bankAccountNo: postingAccounts!.bankAccountNo,
+            receivableAccountNo: postingAccounts!.receivableAccountNo,
           });
           lines = built.lines;
           fxRealisedApplied = built.fxApplied;

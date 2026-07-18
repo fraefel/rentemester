@@ -60,6 +60,7 @@ describe("#295 — every write tool's description ends with a consistent write-c
   test("the previously-untokened backup + workspace tools carry an explicit class token", () => {
     const TOKEN = /\b(write-reversible|write-irreversible)\b/;
     for (const name of [
+      "accounts_role_confirm",
       "system_backup_archive",
       "system_backup_destination_add",
       "system_backup_destination_remove",

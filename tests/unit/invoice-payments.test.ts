@@ -11,6 +11,7 @@ import { applyInvoicePayment, getInvoiceStatus } from "../../src/core/invoice-pa
 import { issueCreditNote } from "../../src/core/credit-notes";
 import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 import { writeOffInvoiceBadDebt } from "../../src/core/invoice-bad-debt";
+import { confirmAccountRole } from "../../src/core/account-roles";
 
 describe("invoice payments", () => {
   test("applies payment to issued invoice and tracks open balance without over-application", () => {
@@ -32,6 +33,9 @@ describe("invoice payments", () => {
       dueDate: "2026-06-15"
     });
     expect(issued.ok).toBe(true);
+    db.run("INSERT INTO accounts (account_no, name, type, normal_balance) VALUES ('9910', 'Imported bank', 'asset', 'debit'), ('9920', 'Imported debtors', 'asset', 'debit')");
+    expect(confirmAccountRole(db, "bank", "9910", "user:reviewer").ok).toBe(true);
+    expect(confirmAccountRole(db, "debtors", "9920", "user:reviewer").ok).toBe(true);
 
     const first = applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
@@ -42,6 +46,10 @@ describe("invoice payments", () => {
     expect(first.ok).toBe(true);
     expect(first.openBalance).toBe(250);
     expect(first.appliedRules).toContain("DK-INVOICE-PAYMENT-001");
+    expect(db.query("SELECT a.account_no FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id WHERE jl.journal_entry_id = ? ORDER BY jl.id").all(first.journalEntryId!)).toEqual([
+      { account_no: "9910" },
+      { account_no: "9920" },
+    ]);
 
     const status1 = getInvoiceStatus(db, issued.documentId!, "2026-06-20");
     expect(status1.ok).toBe(true);

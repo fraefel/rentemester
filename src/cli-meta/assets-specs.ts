@@ -40,7 +40,7 @@ export const assetSpecs: CommandSpec[] = [
       "--threshold-source er PÅKRÆVET og skal indeholde en konkret kildehenvisning til den regel/beløbsgrænse, du anvender (fx 'AL § 6, stk. 1, nr. 2' eller en SKAT-vejledning) — Rentemester gemmer henvisningen, men afgør ikke skattereglen for dig.",
       "Beløbsgrænsen Rentemester bruger som arbejdsgang-værn er vejledende (ca. 33.100 kr.); overskrider --cost den, blokeres straksafskrivningen, og en undtagelse lægges i kø til manuel vurdering.",
       "--document-id skal pege på et indlæst købsbilag; mangler bilaget, blokeres write-off'en, og en undtagelse lægges i kø.",
-      "--expense-account: kontoen omkostningen bogføres på. --payment-account: betalingskontoen (standard 2000 Bank). --date: bogføringsdato YYYY-MM-DD.",
+      "--expense-account: kontoen omkostningen bogføres på. --payment-account: betalingskontoen (standard er den bekræftede bankrolle). --date: bogføringsdato YYYY-MM-DD.",
     ],
   },
   { key: "asset register-report", usage: "asset register-report --company <path>", description: "Viser aktivregister med akkumulerede afskrivninger og bogført værdi.", allowedFlags: ["--company"] },

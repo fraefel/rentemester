@@ -3,6 +3,7 @@ import { getInvoiceStatus } from "./invoice-payments";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
 import { roundDkk } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 const RULE_ID = "DK-INVOICE-CLAIM-SETTLEMENT-001";
 
@@ -75,6 +76,10 @@ export function settleInvoiceClaimsFromBank(db: Database, input: SettleInvoiceCl
   const amount = roundDkk(input.amount ?? Number(bank.amount));
   if (amount > claimOpenBalance) return { ok: false, appliedRules: [RULE_ID], errors: [`claim receipt amount ${amount} exceeds claim open balance ${claimOpenBalance}`] };
   const paymentDate = input.paymentDate ?? bank.transaction_date;
+  const bankRole = input.bankAccountNo ? { ok: true as const, accountNo: input.bankAccountNo } : resolveAccountRole(db, "bank");
+  const debtorsRole = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
+  const roleErrors = [bankRole, debtorsRole].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
+  if (roleErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: roleErrors };
 
   try {
     const result = db.transaction(() => {
@@ -101,8 +106,8 @@ export function settleInvoiceClaimsFromBank(db: Database, input: SettleInvoiceCl
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         lines: [
-          { accountNo: input.bankAccountNo ?? "2000", debitAmount: amount, text: `Bank claim receipt ${invoice.invoice_no}` },
-          { accountNo: input.receivableAccountNo ?? "1100", creditAmount: amount, text: `Claim receivable settlement ${invoice.invoice_no}` },
+          { accountNo: bankRole.accountNo, debitAmount: amount, text: `Bank claim receipt ${invoice.invoice_no}` },
+          { accountNo: debtorsRole.accountNo, creditAmount: amount, text: `Claim receivable settlement ${invoice.invoice_no}` },
         ],
       });
       if (!journal.ok) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));

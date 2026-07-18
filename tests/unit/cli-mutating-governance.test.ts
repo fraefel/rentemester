@@ -99,6 +99,7 @@ describe("MUTATING_COMMANDS governance-klasser (audit AGENT-1/AGENT-2)", () => {
   //     redaktionen `gdpr erase`/`forget` ER gated.)
   //   - `import archive`/`systems`: read-only.
   const DB_OR_AUDIT_WRITING_COMMANDS: string[] = [
+    "accounts role-confirm",
     "company sync-cvr",
     "company set-profile",
     "import run",

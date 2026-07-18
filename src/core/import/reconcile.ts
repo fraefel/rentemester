@@ -29,6 +29,7 @@ import type {
   CompanyReconciliationResult,
   ImportSource,
 } from "./types";
+import { persistAccountRoleProposals } from "../account-roles";
 
 const CHART_RULE = "DK-IMPORT-CHART-RECONCILE-001";
 const COMPANY_RULE = "DK-IMPORT-COMPANY-RECONCILE-001";
@@ -146,13 +147,17 @@ export function reconcileChartOfAccounts(
       created.push(accountNo);
     }
 
+    const roleProposalResult = persistAccountRoleProposals(db, source.accountRoleProposals ?? []);
+
     insertAuditLog(db, {
       eventType: "import_chart_reconcile",
       entityType: "accounts",
       message:
         `Reconciled chart of accounts from '${source.sourceSystem}': ` +
         `${created.length} created, ${existing.length} already present, ` +
-        `${updated.length} reclassified, ${conflicts.length} conflict(s)`,
+        `${updated.length} reclassified, ${conflicts.length} conflict(s); ` +
+        `${roleProposalResult.stored} account-role proposal(s) recorded, ` +
+        `${roleProposalResult.reviewRequired.length} native role(s) deactivated for review`,
       createdBy: options.createdBy,
       createdByProgram: options.createdByProgram,
     });

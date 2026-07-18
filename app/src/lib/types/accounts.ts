@@ -22,7 +22,7 @@ export type AccountRole =
 
 /** The server's read-only, fail-closed role lookup (a dry run, not a write). */
 export type AccountRoleResolution =
-  | { ok: true; role: AccountRole; accountNo: string; version: number }
+  | { ok: true; role: AccountRole; accountNo: string; version: number; confirmedBy: string; confirmationSource: "native_seed" | "explicit" }
   | { ok: false; role: AccountRole; error: string };
 
 export type AccountRoles = {
@@ -30,6 +30,9 @@ export type AccountRoles = {
   missing: AccountRole[];
   ambiguous: AccountRole[];
   resolutions: AccountRoleResolution[];
+  proposals: Array<{ role: AccountRole; accountNo: string; source: string; proposedAt: string; compatible: boolean; reason?: string }>;
+  candidates: Array<{ role: AccountRole; accountNo: string; source: string; proposedAt: string; compatible: boolean; reason?: string }>;
+  reasons: Array<{ role: AccountRole; reason: string }>;
 };
 
 export type CompanyAccounts = {

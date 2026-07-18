@@ -10,6 +10,7 @@ import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { fromOre, roundDkk, toOre } from "./money";
 import { companySequenceScope, fiscalYearLabelFromDate, nextSequenceValue, reserveSequenceValue } from "./sequences";
 import { retainUntilForDate } from "./retention";
+import { resolveAccountRole } from "./account-roles";
 
 export type IssueCreditNoteInput = {
   originalInvoiceDocumentId: number;
@@ -152,7 +153,7 @@ function creditNoteLinesFromOriginalJournal(db: Database, originalInvoiceDocumen
   return reversedLines;
 }
 
-function fallbackCreditNoteLines(originalInvoiceNo: string, payload: any, grossAmount: number, netAmount: number, vatAmount: number) {
+function fallbackCreditNoteLines(originalInvoiceNo: string, payload: any, grossAmount: number, netAmount: number, vatAmount: number, debtorsAccountNo: string, outputVatAccountNo?: string) {
   const vatTreatment = payload?.vatTreatment ?? "standard";
   const isDomesticReverseCharge = vatTreatment === "domestic_reverse_charge";
   const isReverseCharge = isDomesticReverseCharge || vatTreatment === "foreign_reverse_charge";
@@ -170,10 +171,11 @@ function fallbackCreditNoteLines(originalInvoiceNo: string, payload: any, grossA
       vatCode: isReverseCharge ? reverseChargeVatCode : "DK_SALE_25",
       text: `Revenue reversal ${originalInvoiceNo}`
     },
-    { accountNo: "1100", creditAmount: grossAmount, text: `Receivable reversal ${originalInvoiceNo}` },
+    { accountNo: debtorsAccountNo, creditAmount: grossAmount, text: `Receivable reversal ${originalInvoiceNo}` },
   ];
   if (!isReverseCharge && vatAmount > 0) {
-    lines.splice(1, 0, { accountNo: "1200", debitAmount: vatAmount, text: `VAT reversal ${originalInvoiceNo}` });
+    if (!outputVatAccountNo) throw new Error("resolved output VAT account role is required for credit-note fallback");
+    lines.splice(1, 0, { accountNo: outputVatAccountNo, debitAmount: vatAmount, text: `VAT reversal ${originalInvoiceNo}` });
   }
   return { lines, isReverseCharge };
 }
@@ -206,6 +208,17 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
   const vatRatio = originalGrossAmount > 0 ? originalVatAmount / originalGrossAmount : 0;
   const vatAmount = roundDkk(grossAmount * vatRatio);
   const netAmount = roundDkk(grossAmount - vatAmount);
+  const originalJournalLines = creditNoteLinesFromOriginalJournal(db, original.id, originalGrossAmount, grossAmount);
+  let fallback: ReturnType<typeof fallbackCreditNoteLines> | null = null;
+  if (!originalJournalLines) {
+    const debtors = resolveAccountRole(db, "debtors");
+    if (!debtors.ok) return { ok: false, appliedRules: [RULE_ID], errors: [debtors.error] };
+    const treatment = payload?.vatTreatment ?? "standard";
+    const needsOutputVat = treatment !== "domestic_reverse_charge" && treatment !== "foreign_reverse_charge" && vatAmount > 0;
+    const outputVat = needsOutputVat ? resolveAccountRole(db, "output_vat") : null;
+    if (outputVat && !outputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [outputVat.error] };
+    fallback = fallbackCreditNoteLines(original.invoice_no, payload, grossAmount, netAmount, vatAmount, debtors.accountNo, outputVat?.ok ? outputVat.accountNo : undefined);
+  }
   const explicitCreditNoteNumber = input.creditNoteNumber?.trim();
   if (explicitCreditNoteNumber) {
     const scopeError = validateManualCreditNoteNumberScope(db, input.issueDate, explicitCreditNoteNumber);
@@ -277,14 +290,13 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
         retainUntilForDate(db, input.issueDate),
       ) as { id: number };
 
-      const fallback = fallbackCreditNoteLines(creditNoteNumber, payload, grossAmount, netAmount, vatAmount);
       const journal = postJournalEntry(db, {
         transactionDate: input.issueDate,
         text: `Credit note ${creditNoteNumber} for invoice ${original.invoice_no}`,
         documentId: doc.id,
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
-        lines: creditNoteLinesFromOriginalJournal(db, original.id, originalGrossAmount, grossAmount) ?? fallback.lines,
+        lines: originalJournalLines ?? fallback!.lines,
       });
       if (!journal.ok) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));
 
@@ -297,7 +309,8 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
         createdByProgram: input.createdByProgram,
       });
 
-      return { ok: true as const, docId: doc.id, creditNoteNumber, sha256: hash, journal, isReverseCharge: fallback.isReverseCharge };
+      const treatment = payload?.vatTreatment ?? "standard";
+      return { ok: true as const, docId: doc.id, creditNoteNumber, sha256: hash, journal, isReverseCharge: treatment === "domestic_reverse_charge" || treatment === "foreign_reverse_charge" };
     }, { immediate: true })();
 
     if (!result.ok) return { ok: false, appliedRules: [RULE_ID], errors: [result.error] };

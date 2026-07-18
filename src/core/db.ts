@@ -129,6 +129,10 @@ export function migrate(db: Database) {
   if (!hasColumn(db, "documents", "supplier_country_code")) db.exec("ALTER TABLE documents ADD COLUMN supplier_country_code TEXT;");
   if (!hasColumn(db, "documents", "supplier_identifier_kind")) db.exec("ALTER TABLE documents ADD COLUMN supplier_identifier_kind TEXT;");
   if (!hasColumn(db, "documents", "supplier_identity_status")) db.exec("ALTER TABLE documents ADD COLUMN supplier_identity_status TEXT;");
+  if (!hasColumn(db, "account_role_mappings", "confirmation_source")) {
+    db.exec("ALTER TABLE account_role_mappings ADD COLUMN confirmation_source TEXT NOT NULL DEFAULT 'explicit' CHECK(confirmation_source IN ('native_seed','explicit'));");
+    db.run("UPDATE account_role_mappings SET confirmation_source = 'native_seed' WHERE confirmed_by = 'system'");
+  }
   // EJER-3: customers.payment_terms_days became nullable — NULL means "ingen
   // eksplicit kundefrist; arv virksomhedens profilfrist på fakturatidspunktet".
   // Older ledgers carry the legacy NOT NULL DEFAULT 30 definition, which SQLite

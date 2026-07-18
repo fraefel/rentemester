@@ -7,6 +7,7 @@ import { migrate, openDb } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { ingestDocument, validateDocumentMetadata } from "../../src/core/documents";
 import { registerPayable } from "../../src/core/payables";
+import { confirmAccountRole } from "../../src/core/account-roles";
 
 const metadata = {
   source: "email", issueDate: "2026-07-18", invoiceNo: "MIX-1", deliveryDescription: "Blandet køb", amountIncVat: 1888.75, currency: "DKK",
@@ -19,13 +20,16 @@ describe("#530 mixed purchase VAT lines", () => {
     expect(validateDocumentMetadata(metadata).ok).toBe(true); // formerly rejected as 411.25 uniform VAT
     const root = mkdtempSync(join(tmpdir(), "rentemester-mixed-vat-"));
     const db = openDb(ensureCompanyDirs(root).db); migrate(db); db.run("INSERT INTO companies (name, vat_period_type) VALUES ('Rentemester ApS', 'quarter')"); seedAccounts(db);
+    db.run("INSERT INTO accounts (account_no, name, type, normal_balance) VALUES ('9930', 'Imported creditors', 'liability', 'credit'), ('9950', 'Imported input VAT', 'vat', 'debit')");
+    expect(confirmAccountRole(db, "creditors", "9930", "user:reviewer").ok).toBe(true);
+    expect(confirmAccountRole(db, "input_vat", "9950", "user:reviewer").ok).toBe(true);
     const file = join(root, "voucher.txt"); writeFileSync(file, "mixed purchase");
     const ingested = ingestDocument(db, root, file, metadata); expect(ingested.ok).toBe(true);
     expect(JSON.parse((db.query("SELECT payload_json FROM documents WHERE id = ?").get(ingested.documentId!) as any).payload_json).purchaseVatLines).toEqual(metadata.purchaseVatLines);
     const payable = registerPayable(db, { documentId: ingested.documentId!, billDate: "2026-07-18", dueDate: "2026-08-18", expenseAccountNo: "3000" });
     if (!payable.ok) throw new Error(payable.errors.join("; "));
-    expect(db.query("SELECT jl.debit_amount, jl.credit_amount, jl.vat_code FROM journal_lines jl WHERE jl.journal_entry_id = ? ORDER BY jl.id").all(payable.entryId!)).toEqual([
-      { debit_amount: 975, credit_amount: 0, vat_code: "DK_PURCHASE_25" }, { debit_amount: 670, credit_amount: 0, vat_code: "DK_PURCHASE_EXEMPT" }, { debit_amount: 243.75, credit_amount: 0, vat_code: null }, { debit_amount: 0, credit_amount: 1888.75, vat_code: null },
+    expect(db.query("SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id WHERE jl.journal_entry_id = ? ORDER BY jl.id").all(payable.entryId!)).toEqual([
+      { account_no: "3000", debit_amount: 975, credit_amount: 0, vat_code: "DK_PURCHASE_25" }, { account_no: "3000", debit_amount: 670, credit_amount: 0, vat_code: "DK_PURCHASE_EXEMPT" }, { account_no: "9950", debit_amount: 243.75, credit_amount: 0, vat_code: null }, { account_no: "9930", debit_amount: 0, credit_amount: 1888.75, vat_code: null },
     ]);
     db.close(); rmSync(root, { recursive: true, force: true });
   });

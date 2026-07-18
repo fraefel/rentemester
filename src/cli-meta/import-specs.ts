@@ -4,9 +4,9 @@ import type { CommandSpec } from "./_shared";
 export const importSpecs: CommandSpec[] = [
   {
     key: "import run",
-    usage: "import run --company <path> --file <export-file> [--system <id>]",
+    usage: "import run --company <path> --file <export-file> [--system <id>] [--dry-run]",
     description: "Migrerer en virksomhed fra et andet bogføringssystem ind i Rentemester. Parser eksportfilen med den valgte per-system-parser og bogfører resultatet som virksomhedens primobalance (#179). Idempotent: præcis én import/primobalance pr. virksomhed.",
-    allowedFlags: ["--company", "--file", "--system"],
+    allowedFlags: ["--company", "--file", "--system", "--dry-run"],
     examplePath: "examples/import-synthetic.csv",
     exampleHint: "rentemester import run --example",
     inputNotes: [

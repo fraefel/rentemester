@@ -23,6 +23,7 @@ import { insertAuditLog } from "./actor";
 import { recordException } from "./exceptions";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { fromOre, roundDkk, toOre } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 const DEPR_RULE_ID = "DK-ASSET-DEPR-001";
 const WRITEOFF_RULE_ID = "DK-ASSET-WRITEOFF-001";
@@ -564,7 +565,11 @@ export function postImmediateWriteOff(db: Database, input: ImmediateWriteOffInpu
     return { ok: false, appliedRules: [WRITEOFF_RULE_ID], errors: [`purchase document ${input.purchaseDocumentId} already has immediate write-off ${existing.id}`] };
   }
 
-  const paymentAccountNo = input.paymentAccountNo ?? "2000";
+  const payment = input.paymentAccountNo
+    ? { ok: true as const, accountNo: input.paymentAccountNo }
+    : resolveAccountRole(db, "bank");
+  if (!payment.ok) return { ok: false, appliedRules: [WRITEOFF_RULE_ID], errors: [payment.error] };
+  const paymentAccountNo = payment.accountNo;
 
   try {
     const result = db.transaction(() => {

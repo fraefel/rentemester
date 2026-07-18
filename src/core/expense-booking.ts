@@ -254,8 +254,9 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       ? `Udgift fra ${supplierName} (banktransaktion ${bank.id})`
       : `Udgift (banktransaktion ${bank.id})`);
   const payment = input.paymentAccountNo ? { ok: true as const, accountNo: input.paymentAccountNo } : resolveAccountRole(db, "bank");
-  const inputVat = resolveAccountRole(db, "input_vat");
-  if (!payment.ok || !inputVat.ok) return { ok: false, appliedRules: [], errors: [!payment.ok ? payment.error : inputVat.error] };
+  if (!payment.ok) return { ok: false, appliedRules: [], errors: [payment.error] };
+  const inputVat = vatTreatment === "standard" ? resolveAccountRole(db, "input_vat") : null;
+  if (inputVat && !inputVat.ok) return { ok: false, appliedRules: [], errors: [inputVat.error] };
   const paymentAccountNo = payment.accountNo;
   const fxBasis = resolveFxBookingBasis(document, bank);
   if (!fxBasis.ok) return { ok: false, appliedRules: [], errors: [fxBasis.error] };
@@ -288,7 +289,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       if (line.classification === "dk_purchase_25") return [{ accountNo: account.account_no, debitAmount: net, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, momspligtigt grundbeløb" }];
       return [{ accountNo: account.account_no, debitAmount: net, vatCode: "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? "Udgift, momsfrit grundbeløb" }];
     });
-    lines.push({ accountNo: inputVat.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" }, { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text });
+    lines.push({ accountNo: inputVat!.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" }, { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text });
     const result = postJournalEntry(db, { transactionDate, text, documentId: input.documentId, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata, lines });
     return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment };
   }
@@ -323,7 +324,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       ...journalMetadata,
       lines: [
         { accountNo: account.account_no, debitAmount: netAmountDkk, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, grundbeløb" },
-        { accountNo: inputVat.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" },
+        { accountNo: inputVat!.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" },
         { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text },
       ],
     });

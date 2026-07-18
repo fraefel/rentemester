@@ -88,6 +88,60 @@ describe("InvoiceIssueModal", () => {
     ).toBeInTheDocument();
   });
 
+  test("prefills seller CVR from company settings", async () => {
+    mockFetch(companyRoute());
+    render(
+      <InvoiceIssueModal slug="acme-aps" onIssued={noop} onClose={noop} />,
+    );
+
+    expect(
+      await screen.findByDisplayValue("DK12345678"),
+    ).toBe(screen.getByLabelText("Sælger CVR/moms"));
+  });
+
+  test("does not overwrite a seller CVR typed before settings resolve", async () => {
+    let resolveCompany!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const path = url.replace(/^https?:\/\/[^/]+/, "").split("?")[0];
+        if (path === "/api/companies/acme-aps/company") {
+          return new Promise<Response>((resolve) => {
+            resolveCompany = resolve;
+          });
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              contacts: { customers: [], vendors: [] },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }),
+    );
+    render(
+      <InvoiceIssueModal slug="acme-aps" onIssued={noop} onClose={noop} />,
+    );
+
+    const sellerVat = screen.getByLabelText("Sælger CVR/moms");
+    await userEvent.type(sellerVat, "DK87654321");
+    resolveCompany(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          company: companySettings({ cvr: "DK12345678", payment: null }),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    await screen.findByText(/udstedes uden betalingsoplysninger/);
+    expect(sellerVat).toHaveValue("DK87654321");
+  });
+
   test("Tilføj linje adds another editable line-item row", async () => {
     mockFetch(companyRoute());
     render(

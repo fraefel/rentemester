@@ -12,7 +12,7 @@ const jsonLd = {
   step: [
     { "@type": "HowToStep", position: 1, name: "Installer Bun", text: "Installer Bun runtime (1.2+) hvis du ikke allerede har det." },
     { "@type": "HowToStep", position: 2, name: "Klon repoet", text: "Klon Rentemester fra GitHub." },
-    { "@type": "HowToStep", position: 3, name: "Installer dependencies", text: "Kør bun install i projektmappen." },
+    { "@type": "HowToStep", position: 3, name: "Installer og byg", text: "Installer både backend- og cockpit-afhængigheder, og byg cockpittet før serve startes." },
     { "@type": "HowToStep", position: 4, name: "Opret workspace og virksomhed", text: "Kør init-kommandoen med både --workspace og --company, så virksomheden registreres i workspacet og er synlig i cockpittet." },
     { "@type": "HowToStep", position: 5, name: "Tjek installation", text: "Kør system healthcheck for at verificere." },
     { "@type": "HowToStep", position: 6, name: "Start cockpittet", text: "Kør serve --workspace for at åbne den lokale web-UI." },
@@ -26,7 +26,7 @@ const jsonLd = {
   pathname="/docs/installation"
   pageType="Article"
   datePublished="2026-05-18"
-  dateModified="2026-06-14"
+  dateModified="2026-07-18"
   ogImage="/og-installation.png"
   jsonLd={jsonLd}
 >
@@ -57,9 +57,13 @@ const jsonLd = {
     <pre><code>git clone {SITE.github}.git
 cd rentemester</code></pre>
 
-    <h2>2. Installer afhængigheder</h2>
-    <pre><code>bun install</code></pre>
-    <p>Bun henter <code>@modelcontextprotocol/sdk</code> og <code>zod</code>. Der er ikke meget mere — Rentemester holder afhængighedslisten kort med vilje.</p>
+    <h2>2. Installer afhængigheder og byg cockpittet</h2>
+    <pre><code>bun install --frozen-lockfile
+cd app
+bun install --frozen-lockfile
+bun run build
+cd ..</code></pre>
+    <p>Det første install klargør CLI'en og MCP-serveren. Det andet install og <code>bun run build</code> opretter <code>app/dist</code>, som <code>serve</code> leverer som cockpit-UI. Uden det build starter JSON-API'et stadig, men browseren har ingen færdig UI at vise.</p>
 
     <h2>3. Opret workspace og første virksomhed</h2>
     <p>Vælg en tom workspace-mappe — den bliver hjemstavn for alle dine virksomheder — og initialisér din første virksomhed som en undermappe:</p>

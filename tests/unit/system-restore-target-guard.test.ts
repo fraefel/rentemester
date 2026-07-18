@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { restoreSystemBackup } from "../../src/core/system-restore";
 import { removePathWithRetry } from "../../src/core/fs-cleanup";
-import { createBackupInIsolatedProcess } from "./_isolated-backup-fixture";
+import { createBackupInIsolatedProcess, ISOLATED_BACKUP_TIMEOUT_MS } from "./_isolated-backup-fixture";
 
 function makeBackup(prefix: string) {
   const sourceRoot = mkdtempSync(join(tmpdir(), `${prefix}-src-`));
@@ -42,7 +42,7 @@ describe("restore target guard (KODE-8)", () => {
 
     removePathWithRetry(sourceRoot);
     removePathWithRetry(target);
-  });
+  }, ISOLATED_BACKUP_TIMEOUT_MS);
 
   test("an empty target directory still restores cleanly", () => {
     const { sourceRoot, backupDir } = makeBackup("rentemester-restore-guard-empty");
@@ -54,7 +54,7 @@ describe("restore target guard (KODE-8)", () => {
 
     removePathWithRetry(sourceRoot);
     removePathWithRetry(target);
-  });
+  }, ISOLATED_BACKUP_TIMEOUT_MS);
 
   test("a non-existent target path restores cleanly (created fresh)", () => {
     const { sourceRoot, backupDir } = makeBackup("rentemester-restore-guard-new");
@@ -67,5 +67,5 @@ describe("restore target guard (KODE-8)", () => {
 
     removePathWithRetry(sourceRoot);
     removePathWithRetry(parent);
-  });
+  }, ISOLATED_BACKUP_TIMEOUT_MS);
 });

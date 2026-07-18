@@ -6,7 +6,7 @@ import { closeThenCleanup, removePathWithRetry, renamePathWithRetry, retryTransi
 import { resolveManifestPath } from "../../src/core/system-restore";
 import { openDb } from "../../src/core/db";
 import { restoreSystemBackup } from "../../src/core/system-restore";
-import { createBackupInIsolatedProcess } from "./_isolated-backup-fixture";
+import { createBackupInIsolatedProcess, ISOLATED_BACKUP_TIMEOUT_MS } from "./_isolated-backup-fixture";
 
 function errno(code: string): NodeJS.ErrnoException {
   return Object.assign(new Error(code), { code });
@@ -47,7 +47,7 @@ describe("Windows filesystem safety", () => {
       removePathWithRetry(targetRoot);
       removePathWithRetry(outsideRoot);
     }
-  });
+  }, ISOLATED_BACKUP_TIMEOUT_MS);
 
   test("retries only transient Windows cleanup failures with bounded backoff", () => {
     let attempts = 0;

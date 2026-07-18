@@ -1,5 +1,11 @@
-import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { ensureCompanyDirs } from "../../src/core/paths";
+import { migrate, openDb } from "../../src/core/db";
+import { createSystemBackup } from "../../src/core/system-backups";
+
+// Fixture creation takes 5–8 seconds on GitHub's native Windows runner. Bun's
+// default per-test timeout is 5 seconds and kills dangling child processes, so
+// every test that uses this process boundary must opt into a realistic budget.
+export const ISOLATED_BACKUP_TIMEOUT_MS = 30_000;
 
 /**
  * Creates a real signed backup in a short-lived Bun process. Bun's SQLite
@@ -8,37 +14,46 @@ import { join } from "node:path";
  * the restore code instead of the test runner's own cached statements.
  */
 export function createBackupInIsolatedProcess(sourceRoot: string, createdAt: string) {
-  const pathsModule = join(import.meta.dir, "../../src/core/paths.ts");
-  const dbModule = join(import.meta.dir, "../../src/core/db.ts");
-  const backupModule = join(import.meta.dir, "../../src/core/system-backups.ts");
-  const probe = [
-    `const { ensureCompanyDirs } = await import(${JSON.stringify(pathsModule)});`,
-    `const { migrate, openDb } = await import(${JSON.stringify(dbModule)});`,
-    `const { createSystemBackup } = await import(${JSON.stringify(backupModule)});`,
-    "const sourceRoot = process.argv[1];",
-    "const createdAt = process.argv[2];",
-    "const db = openDb(ensureCompanyDirs(sourceRoot).db, { journalMode: 'DELETE' });",
-    "try {",
-    "  migrate(db);",
-    "  const backup = createSystemBackup(db, sourceRoot, { createdAt });",
-    "  if (!backup.ok || !backup.backupDir) {",
-    "    console.error(backup.errors.join('; ') || 'backup fixture failed');",
-    "    process.exitCode = 1;",
-    "  } else {",
-    "    process.stdout.write(JSON.stringify({ backupDir: backup.backupDir }));",
-    "  }",
-    "} finally {",
-    "  db.close();",
-    "}",
-  ].join("\n");
-
-  const result = spawnSync(process.execPath, ["--eval", probe, sourceRoot, createdAt], {
-    encoding: "utf8",
+  // Use Bun's native subprocess API and execute this file as a script. A real
+  // worker file avoids --eval quoting and preserves explicit exit diagnostics.
+  const result = Bun.spawnSync({
+    cmd: [process.execPath, import.meta.path, sourceRoot, createdAt],
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if (result.status !== 0) {
-    throw new Error(`isolated backup fixture failed (${result.status}): ${result.stderr.trim()}`);
+  const stderr = result.stderr.toString().trim();
+  if (!result.success) {
+    const signal = result.signalCode ? `, signal ${result.signalCode}` : "";
+    throw new Error(`isolated backup fixture failed (exit ${result.exitCode}${signal}): ${stderr}`);
   }
-  const parsed = JSON.parse(result.stdout) as { backupDir?: string };
+  const parsed = JSON.parse(result.stdout.toString()) as { backupDir?: string };
   if (!parsed.backupDir) throw new Error("isolated backup fixture returned no backupDir");
   return parsed.backupDir;
+}
+
+function runBackupWorker() {
+  const sourceRoot = process.argv[2];
+  const createdAt = process.argv[3];
+  if (!sourceRoot || !createdAt) throw new Error("isolated backup fixture requires sourceRoot and createdAt");
+
+  const db = openDb(ensureCompanyDirs(sourceRoot).db, { journalMode: "DELETE" });
+  try {
+    migrate(db);
+    const backup = createSystemBackup(db, sourceRoot, { createdAt });
+    if (!backup.ok || !backup.backupDir) {
+      throw new Error(backup.errors.join("; ") || "backup fixture failed");
+    }
+    process.stdout.write(JSON.stringify({ backupDir: backup.backupDir }));
+  } finally {
+    db.close();
+  }
+}
+
+if (import.meta.main) {
+  try {
+    runBackupWorker();
+  } catch (error) {
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

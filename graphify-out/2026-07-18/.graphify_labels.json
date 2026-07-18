@@ -3623,7 +3623,15 @@
   "3621": "E-faktura via Digisense — opsætning og brug",
   "3622": "server-mutations.test.ts",
   "3623": "gdpr.ts",
-  "3624": "liquidity-forecast.test.ts",
-  "3625": "human-output-cli.test.ts",
-  "3626": "company-cvr-sync.test.ts"
+  "3624": "setCompanyVatPeriodType",
+  "3625": "CompanyForm.tsx",
+  "3626": "company-cvr-sync.test.ts",
+  "3627": "server-write-payables.test.ts",
+  "3628": "static.ts",
+  "3629": "payable.ts",
+  "3630": "server-write-invoices.test.ts",
+  "3631": "invoice-settlement-concurrency.test.ts",
+  "3632": "payable.ts",
+  "3633": "renderSaftXml",
+  "3634": "human-output-cli.test.ts"
 }

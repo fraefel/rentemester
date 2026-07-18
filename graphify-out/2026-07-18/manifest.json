@@ -1600,8 +1600,8 @@
     "semantic_hash": ""
   },
   "src/core/atomic-file.ts": {
-    "mtime": 1784396790.8919795,
-    "ast_hash": "7532e67a2c6a4e0ff6b77abfe077ecae",
+    "mtime": 1784399168.1299357,
+    "ast_hash": "252266859cde180626ac733c5360804e",
     "semantic_hash": ""
   },
   "src/core/audit-log.ts": {
@@ -2130,7 +2130,7 @@
     "semantic_hash": ""
   },
   "src/core/system-restore.ts": {
-    "mtime": 1784398689.892187,
+    "mtime": 1784399168.1301677,
     "ast_hash": "6f7810dd865c12dac72f306126998d20",
     "semantic_hash": ""
   },
@@ -2720,8 +2720,8 @@
     "semantic_hash": ""
   },
   "tests/unit/atomic-file-fsync.test.ts": {
-    "mtime": 1784396790.9028647,
-    "ast_hash": "cef8b6cb094917e7300f902a2b898bb0",
+    "mtime": 1784399168.1305137,
+    "ast_hash": "6d967b62c13f3032174dea4440fbe1e5",
     "semantic_hash": ""
   },
   "tests/unit/audit-log-integrity.test.ts": {
@@ -4070,12 +4070,12 @@
     "semantic_hash": ""
   },
   "tests/unit/system-restore-target-guard.test.ts": {
-    "mtime": 1784398526.9488125,
+    "mtime": 1784399168.1306822,
     "ast_hash": "6c007b5da29b99ca22f3dd049474ba0a",
     "semantic_hash": ""
   },
   "tests/unit/system-restore.test.ts": {
-    "mtime": 1784398434.1267803,
+    "mtime": 1784399168.1309187,
     "ast_hash": "61af9c130005bb6be3192c68a1922924",
     "semantic_hash": ""
   },
@@ -4180,7 +4180,7 @@
     "semantic_hash": ""
   },
   "tests/unit/windows-filesystem-safety.test.ts": {
-    "mtime": 1784398527.0870326,
+    "mtime": 1784399168.1310964,
     "ast_hash": "7603263fe1228695159fce0910e47944",
     "semantic_hash": ""
   },
@@ -5190,8 +5190,8 @@
     "semantic_hash": ""
   },
   "tests/unit/_isolated-backup-fixture.ts": {
-    "mtime": 1784398526.8172588,
-    "ast_hash": "9660854df23a81b25811755d0c6f6de1",
+    "mtime": 1784399518.4480019,
+    "ast_hash": "44350cb11918a0e6a38a66bf6d3b5fd5",
     "semantic_hash": ""
   }
 }

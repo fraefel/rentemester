@@ -5,6 +5,40 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 describe("documents ingest CLI", () => {
+  test("#530 list JSON preserves the exact mixed purchase VAT split", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-doccli-mixed-"));
+    const company = join(root, "company");
+    const file = join(root, "mixed.txt");
+    const metadataFile = join(root, "mixed.json");
+    const split = [
+      { classification: "dk_purchase_25", netAmount: 975, vatAmount: 243.75 },
+      { classification: "exempt", netAmount: 670, vatAmount: 0 },
+    ];
+    writeFileSync(file, "Advokatfaktura med udlæg\n1888,75 DKK\n");
+    writeFileSync(metadataFile, JSON.stringify({
+      source: "email", issueDate: "2026-07-18", invoiceNo: "MIX-CLI-530", deliveryDescription: "Selskabsstiftelse", amountIncVat: 1888.75, vatAmount: 243.75, currency: "DKK",
+      sender: { name: "Advokat ApS", address: "Vej 1", vatOrCvr: "DK11223344" },
+      recipient: { name: "Rentemester ApS", address: "Vej 2", vatOrCvr: "DK12345678" },
+      purchaseVatLines: split,
+    }));
+    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    await Bun.$`bun run src/cli.ts documents ingest --company ${company} --file ${file} --metadata ${metadataFile}`.quiet();
+    const listed = Bun.spawn(["bun", "run", "src/cli.ts", "documents", "list", "--company", company, "--format", "json"], {
+      cwd: process.cwd(), stdout: "pipe", stderr: "pipe",
+    });
+    const stdout = await new Response(listed.stdout).text();
+    const stderr = await new Response(listed.stderr).text();
+    expect(await listed.exited).toBe(0);
+    expect(stderr).toBe("");
+    expect(JSON.parse(stdout)[0]).toMatchObject({
+      supplier_country_code: "DK",
+      supplier_identifier_kind: "dk_cvr",
+      supplier_identity_status: "resolved",
+      purchase_vat_lines: split,
+    });
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("returns exit code 0 for valid foreign-currency cash-register receipt metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-doccli-cash-"));
     const company = join(root, "company");

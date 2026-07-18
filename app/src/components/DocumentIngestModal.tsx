@@ -19,6 +19,12 @@ import { LockBanner } from "./LockBanner";
 /** Shape of the API error the cockpit's `api.ts` throws. */
 type MaybeApiError = { code?: string; message?: string };
 
+type EditablePurchaseVatLine = {
+  classification: "dk_purchase_25" | "exempt";
+  netAmount: string;
+  vatAmount: string;
+};
+
 export type DocumentIngestModalProps = {
   /** Company slug the ingest targets. */
   slug: string;
@@ -64,6 +70,8 @@ export function DocumentIngestModal({
   const [recipientName, setRecipientName] = useState("");
   const [recipientAddress, setRecipientAddress] = useState("");
   const [recipientVat, setRecipientVat] = useState("");
+  const [reverseChargeWordingConfirmed, setReverseChargeWordingConfirmed] = useState(false);
+  const [purchaseVatLines, setPurchaseVatLines] = useState<EditablePurchaseVatLine[]>([]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +130,27 @@ export function DocumentIngestModal({
       setError("Momsbeløb skal være et tal.");
       return;
     }
+    let parsedPurchaseVatLines: NonNullable<DocumentIngestMetadata["purchaseVatLines"]> = [];
+    try {
+      parsedPurchaseVatLines = isPurchaseSale ? purchaseVatLines.map((line, index) => {
+        const netAmount = Number(line.netAmount);
+        const lineVatAmount = line.vatAmount.trim() === "" ? 0 : Number(line.vatAmount);
+        if (!line.netAmount.trim() || !Number.isFinite(netAmount) || netAmount < 0) {
+          throw new Error(`Nettobeløb på momslinje ${index + 1} skal være et ikke-negativt tal.`);
+        }
+        if (!Number.isFinite(lineVatAmount) || lineVatAmount < 0) {
+          throw new Error(`Momsbeløb på momslinje ${index + 1} skal være et ikke-negativt tal.`);
+        }
+        return {
+          classification: line.classification,
+          netAmount,
+          vatAmount: lineVatAmount,
+        };
+      }) : [];
+    } catch (lineError) {
+      setError(lineError instanceof Error ? lineError.message : "Momsfordelingen er ugyldig.");
+      return;
+    }
 
     const metadata: DocumentIngestMetadata = {
       source: source.trim(),
@@ -134,6 +163,12 @@ export function DocumentIngestModal({
       metadata.deliveryDescription = deliveryDescription.trim();
     if (amountNum !== undefined) metadata.amountIncVat = amountNum;
     if (vatNum !== undefined) metadata.vatAmount = vatNum;
+    if (isPurchaseSale && parsedPurchaseVatLines.length > 0) {
+      metadata.purchaseVatLines = parsedPurchaseVatLines;
+    }
+    if (isPurchaseSale && reverseChargeWordingConfirmed) {
+      metadata.reverseChargeWordingConfirmed = true;
+    }
     if (senderName.trim() || senderAddress.trim() || senderVat.trim() || senderCountryCode.trim() || senderIdentifierKind) {
       metadata.sender = {
         name: senderName.trim() || undefined,
@@ -334,6 +369,68 @@ export function DocumentIngestModal({
             )}
 
             {isPurchaseSale && (
+              <fieldset className="modal-field">
+                <legend>Momsfordeling (valgfri)</legend>
+                <p className="muted">
+                  Brug linjer når kun en del af fakturaen er momspligtig. Summen
+                  af nettobeløb og moms skal svare til fakturaens total.
+                </p>
+                {purchaseVatLines.map((line, index) => (
+                  <div className="modal-field-grid" key={index}>
+                    <label className="modal-field">
+                      Momsart {index + 1}
+                      <select
+                        value={line.classification}
+                        onChange={(e) => setPurchaseVatLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, classification: e.target.value as EditablePurchaseVatLine["classification"] } : item))}
+                        disabled={busy}
+                      >
+                        <option value="dk_purchase_25">Dansk køb, 25 %</option>
+                        <option value="exempt">Momsfrit/udlæg</option>
+                      </select>
+                    </label>
+                    <label className="modal-field">
+                      Nettobeløb {index + 1}
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={line.netAmount}
+                        onChange={(e) => setPurchaseVatLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, netAmount: e.target.value } : item))}
+                        disabled={busy}
+                      />
+                    </label>
+                    <label className="modal-field">
+                      Momsbeløb {index + 1}
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={line.vatAmount}
+                        onChange={(e) => setPurchaseVatLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, vatAmount: e.target.value } : item))}
+                        disabled={busy}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      aria-label={`Fjern momslinje ${index + 1}`}
+                      onClick={() => setPurchaseVatLines((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                      disabled={busy}
+                    >
+                      Fjern
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setPurchaseVatLines((current) => [...current, { classification: "dk_purchase_25", netAmount: "", vatAmount: "" }])}
+                  disabled={busy}
+                >
+                  Tilføj momslinje
+                </button>
+              </fieldset>
+            )}
+
+            {isPurchaseSale && (
               <>
                 <div className="modal-field-grid">
                   <label className="modal-field">
@@ -405,6 +502,17 @@ export function DocumentIngestModal({
                     disabled={busy}
                   />
                 </label>
+                {senderIdentifierKind === "non_eu" && (
+                  <label className="modal-field checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={reverseChargeWordingConfirmed}
+                      onChange={(e) => setReverseChargeWordingConfirmed(e.target.checked)}
+                      disabled={busy}
+                    />
+                    Jeg har kontrolleret, at bilaget indeholder ordlyd om omvendt betalingspligt
+                  </label>
+                )}
               </>
             )}
 

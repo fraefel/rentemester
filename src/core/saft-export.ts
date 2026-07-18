@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { Database } from "bun:sqlite";
-import { purchaseVatLinesFromPayload } from "./documents";
+import { parsePurchaseVatLinesPayload } from "./documents";
+import { resolvePersistedSupplierIdentity } from "./supplier-identity";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { formatAmount, roundDkk, sumDkk } from "./money";
@@ -129,11 +130,15 @@ type PurchaseInvoiceRow = {
   invoiceDate: string | null;
   supplierName: string | null;
   supplierVatOrCvr: string | null;
+  supplierCountryCode: string | null;
+  supplierIdentifierKind: string | null;
+  supplierIdentityStatus: string | null;
   currency: string;
   netAmount: number | null;
   vatAmount: number | null;
   grossAmount: number | null;
   purchaseVatLines: unknown[] | null;
+  purchaseVatLinesErrors: string[];
 };
 
 type VatSummaryRow = {
@@ -158,6 +163,9 @@ type SupplierRow = {
   supplierId: number;
   name: string;
   vatOrCvr: string | null;
+  countryCode: string | null;
+  identifierKind: string | null;
+  identityStatus: string | null;
   address: string | null;
   email: string | null;
   phone: string | null;
@@ -331,6 +339,7 @@ function fetchSalesInvoices(db: Database, periodStart: string, periodEnd: string
 function fetchPurchaseInvoices(db: Database, periodStart: string, periodEnd: string): PurchaseInvoiceRow[] {
   return (db.query(
     `SELECT document_no, invoice_no, invoice_date, supplier_name, sender_vat_cvr,
+            supplier_country_code, supplier_identifier_kind, supplier_identity_status,
             currency, amount_inc_vat, vat_amount, payload_json
      FROM documents
      WHERE document_type = 'purchase_sale'
@@ -339,17 +348,25 @@ function fetchPurchaseInvoices(db: Database, periodStart: string, periodEnd: str
   ).all(periodStart, periodEnd) as any[]).map((row) => {
     const gross = row.amount_inc_vat == null ? null : Number(row.amount_inc_vat);
     const vat = row.vat_amount == null ? null : Number(row.vat_amount);
+    const parsedPurchaseVatLines = parsePurchaseVatLinesPayload(row.payload_json, {
+      amountIncVat: gross,
+      vatAmount: vat,
+    });
     return {
       documentNo: row.document_no,
       invoiceNo: row.invoice_no ?? null,
       invoiceDate: row.invoice_date ?? null,
       supplierName: row.supplier_name ?? null,
       supplierVatOrCvr: row.sender_vat_cvr ?? null,
+      supplierCountryCode: row.supplier_country_code ?? null,
+      supplierIdentifierKind: row.supplier_identifier_kind ?? null,
+      supplierIdentityStatus: row.supplier_identity_status ?? null,
       currency: row.currency ?? "DKK",
       netAmount: gross == null || vat == null ? null : roundDkk(gross - vat),
       vatAmount: vat,
       grossAmount: gross,
-      purchaseVatLines: purchaseVatLinesFromPayload(row.payload_json),
+      purchaseVatLines: parsedPurchaseVatLines.lines,
+      purchaseVatLinesErrors: parsedPurchaseVatLines.status === "invalid" ? parsedPurchaseVatLines.errors : [],
     };
   });
 }
@@ -376,12 +393,15 @@ function fetchCustomers(db: Database): CustomerRow[] {
 
 function fetchSuppliers(db: Database): SupplierRow[] {
   return (db.query(
-    `SELECT id, name, vat_or_cvr, address, email, phone, default_expense_account, default_vat_treatment
+    `SELECT id, name, vat_or_cvr, country_code, identifier_kind, identity_status, address, email, phone, default_expense_account, default_vat_treatment
      FROM vendors ORDER BY id ASC`,
   ).all() as any[]).map((row) => ({
     supplierId: Number(row.id),
     name: row.name,
     vatOrCvr: row.vat_or_cvr ?? null,
+    countryCode: row.country_code ?? null,
+    identifierKind: row.identifier_kind ?? null,
+    identityStatus: row.identity_status ?? null,
     address: row.address ?? null,
     email: row.email ?? null,
     phone: row.phone ?? null,
@@ -548,6 +568,9 @@ function renderSaftXml(input: {
     xmlTag("InvoiceDate", invoice.invoiceDate, "        "),
     xmlTag("SupplierName", invoice.supplierName, "        "),
     xmlTag("SupplierTaxID", invoice.supplierVatOrCvr, "        "),
+    xmlTag("SupplierCountryCode", invoice.supplierCountryCode, "        "),
+    xmlTag("SupplierIdentifierKind", invoice.supplierIdentifierKind, "        "),
+    xmlTag("SupplierIdentityStatus", invoice.supplierIdentityStatus, "        "),
     xmlTag("DocumentCurrencyCode", invoice.currency, "        "),
     xmlTag("NetTotal", money(invoice.netAmount), "        "),
     xmlTag("TaxPayable", money(invoice.vatAmount), "        "),
@@ -616,6 +639,9 @@ function renderSaftXml(input: {
       xmlTag("SupplierID", supplier.supplierId, "        "),
       xmlTag("SupplierName", supplier.name, "        "),
       xmlTag("SupplierTaxID", supplier.vatOrCvr, "        "),
+      xmlTag("SupplierCountryCode", supplier.countryCode, "        "),
+      xmlTag("SupplierIdentifierKind", supplier.identifierKind, "        "),
+      xmlTag("SupplierIdentityStatus", supplier.identityStatus, "        "),
       xmlTag("Address", supplier.address, "        "),
       xmlTag("Email", supplier.email, "        "),
       xmlTag("Telephone", supplier.phone, "        "),
@@ -684,7 +710,20 @@ export function exportSaftPackage(db: Database, companyRoot: string, input: Expo
   // clearly (before writing anything) when a purchase document in the period
   // cannot be represented, rather than emitting a silently incomplete record.
   for (const purchase of purchaseInvoices) {
-    if (!purchase.supplierVatOrCvr) {
+    for (const error of purchase.purchaseVatLinesErrors) {
+      errors.push(`purchase document ${purchase.documentNo} has invalid persisted purchaseVatLines: ${error}`);
+    }
+    const supplierIdentity = resolvePersistedSupplierIdentity({
+      supplierVatOrCvr: purchase.supplierVatOrCvr,
+      supplierCountryCode: purchase.supplierCountryCode,
+      supplierIdentifierKind: purchase.supplierIdentifierKind,
+      supplierIdentityStatus: purchase.supplierIdentityStatus,
+    });
+    if (!supplierIdentity.ok) {
+      errors.push(`purchase document ${purchase.documentNo} has unresolved supplier identity: ${supplierIdentity.errors.join("; ")}`);
+    }
+    const resolvedNonEuWithoutTaxId = supplierIdentity.ok && supplierIdentity.identifierKind === "non_eu";
+    if (!purchase.supplierVatOrCvr && !resolvedNonEuWithoutTaxId) {
       errors.push(`purchase document ${purchase.documentNo} is missing supplier tax id (sender_vat_cvr) required for the SAF-T purchase profile`);
     }
     if (purchase.grossAmount == null) {

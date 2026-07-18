@@ -1,6 +1,6 @@
 // Tests: src/mcp/server.ts, src/mcp/tools (MCP server end-to-end)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
@@ -345,6 +345,40 @@ describe("MCP tools full surface (#78)", () => {
     expect(structured?.ok).toBe(true);
     expect(Array.isArray(structured?.data?.accounts)).toBe(true);
     expect(structured?.data?.count).toBeGreaterThan(0);
+  });
+
+  test("#529/#530 documents roundtrip preserves non-EU identity and purchase split", async () => {
+    const filePath = join(companyRoot, "us-saas-529.txt");
+    writeFileSync(filePath, "US SaaS invoice\n100 DKK\n");
+    const ingest = await client.send("tools/call", {
+      name: "documents_ingest",
+      arguments: {
+        company: companyRoot,
+        filePath,
+        metadata: {
+          source: "mcp-test", issueDate: "2026-07-18", invoiceNo: "MCP-US-529", deliveryDescription: "US SaaS", amountIncVat: 100, vatAmount: 0, currency: "DKK",
+          sender: { name: "US SaaS Inc.", address: "New York", countryCode: "US", identifierKind: "non_eu" },
+          recipient: { name: "Rentemester ApS", address: "Vej 1", vatOrCvr: "DK12345678" },
+          purchaseVatLines: [{ classification: "exempt", netAmount: 100, vatAmount: 0 }],
+          reverseChargeWordingConfirmed: true,
+        },
+        confirm: true,
+      },
+    });
+    expect(ingest.error).toBeUndefined();
+    expect(ingest.result?.structuredContent?.ok).toBe(true);
+    const list = await client.send("tools/call", {
+      name: "documents_list",
+      arguments: { company: companyRoot },
+    });
+    const document = list.result?.structuredContent?.data?.documents?.find((row: any) => row.supplierCountryCode === "US");
+    expect(document).toMatchObject({
+      supplierCountryCode: "US",
+      supplierIdentifierKind: "non_eu",
+      supplierIdentityStatus: "resolved",
+      senderVatOrCvr: null,
+      purchaseVatLines: [{ classification: "exempt", netAmount: 100, vatAmount: 0 }],
+    });
   });
 
   test("bank_list on a fresh company returns empty result set", async () => {

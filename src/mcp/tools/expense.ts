@@ -18,14 +18,15 @@ const vatTreatmentEnum = z
   .describe(
     "How VAT on the expense is treated. " +
       "'standard' = ordinary Danish purchase VAT, deducted as input VAT (default for a registered company). " +
-      "'reverse_charge' = EU/foreign purchase where the buyer self-accounts for VAT " +
+      "'reverse_charge' = foreign service purchase (EU or non-EU) where the buyer self-accounts for VAT; persisted supplier identity selects the correct treatment " +
       "(omvendt betalingspligt). " +
       "'representation' = entertainment/representation costs with the statutory " +
       "limited VAT deduction. " +
       "'exempt' = the expense carries no deductible VAT. " +
-      "'non_deductible' = a VAT-charged bilag at a NOT VAT-registered company " +
-      "(Momsloven § 37) — the entire VAT is absorbed into the cost basis; no 4000 " +
-      "input-VAT line is written. Refused for a VAT-registered company. " +
+      "'non_deductible' = VAT with no deduction right (for example foreign local tax, " +
+      "or a purchase at a NOT VAT-registered company under Momsloven § 37) — the " +
+      "entire VAT is absorbed into the cost basis and no 4000 input-VAT line is " +
+      "written. It may also be selected explicitly by a VAT-registered company. " +
       "When omitted, the treatment is INFERRED from the expense account's " +
       "default_vat_code AND the company's VAT registration. For a VAT-registered " +
       "company: DK 25 % → 'standard', EU-service → 'reverse_charge', " +

@@ -27,7 +27,8 @@ import { getCompanySettings } from "./company";
 import { isValidIsoDate as looksLikeIsoDate, diffDays, todayIsoDate } from "./dates";
 import { absDkk, compareDkk, percentOfDkk, roundDkk, subtractDkk, sumDkk } from "./money";
 import { resolveAccountRole } from "./account-roles";
-import { purchaseVatLinesFromPayload } from "./documents";
+import { parsePurchaseVatLinesPayload } from "./documents";
+import { deductibleDanishPurchaseSupplierErrors } from "./supplier-identity";
 
 const RULE_ID = "DK-PAYABLE-001";
 const PAYMENT_RULE_ID = "DK-PAYABLE-PAYMENT-001";
@@ -221,7 +222,8 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
   if (!account.active) return { ok: false, appliedRules: [RULE_ID], errors: [`account ${expenseAccountNo} is inactive`] };
 
   const document = db.query(
-    `SELECT id, document_type, invoice_no, amount_inc_vat, vat_amount, currency, sender_name, payload_json
+    `SELECT id, document_type, invoice_no, amount_inc_vat, vat_amount, currency, sender_name, payload_json,
+            sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
      FROM documents WHERE id = ?`,
   ).get(input.documentId) as {
     id: number;
@@ -232,6 +234,10 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
     currency: string;
     sender_name: string | null;
     payload_json: string | null;
+    sender_vat_cvr: string | null;
+    supplier_country_code: string | null;
+    supplier_identifier_kind: string | null;
+    supplier_identity_status: string | null;
   } | null;
   if (!document) return { ok: false, appliedRules: [RULE_ID], errors: [`document ${input.documentId} does not exist`] };
   if (document.document_type !== "purchase_sale" && document.document_type !== "cash_register_receipt") {
@@ -243,7 +249,14 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
 
   const grossAmount = roundDkk(Number(document.amount_inc_vat ?? 0));
   const vatAmount = roundDkk(Number(document.vat_amount ?? 0));
-  const purchaseVatLines = purchaseVatLinesFromPayload(document.payload_json);
+  const parsedPurchaseVatLines = parsePurchaseVatLinesPayload(document.payload_json, {
+    amountIncVat: document.amount_inc_vat,
+    vatAmount: document.vat_amount,
+  });
+  if (parsedPurchaseVatLines.status === "invalid") {
+    return { ok: false, appliedRules: [RULE_ID], errors: parsedPurchaseVatLines.errors.map((error) => `document ${input.documentId} has invalid persisted purchaseVatLines: ${error}`) };
+  }
+  const purchaseVatLines = parsedPurchaseVatLines.lines;
   if (!(grossAmount > 0)) return { ok: false, appliedRules: [RULE_ID], errors: [`document ${input.documentId} must have amount_inc_vat > 0`] };
   if (vatAmount < 0 || vatAmount > grossAmount) return { ok: false, appliedRules: [RULE_ID], errors: [`document ${input.documentId} has invalid vat_amount ${vatAmount}`] };
 
@@ -264,6 +277,15 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
         "selskabet er ikke momsregistreret — brug vatTreatment 'non_deductible', så den fakturerede moms absorberes i udgiften (momsloven § 37)",
       ],
     };
+  }
+  if (vatTreatment === "standard") {
+    const supplierErrors = deductibleDanishPurchaseSupplierErrors({
+      supplierVatOrCvr: document.sender_vat_cvr,
+      supplierCountryCode: document.supplier_country_code,
+      supplierIdentifierKind: document.supplier_identifier_kind,
+      supplierIdentityStatus: document.supplier_identity_status,
+    });
+    if (supplierErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: supplierErrors };
   }
   if (vatTreatment === "exempt" && vatAmount !== 0) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["exempt payable registration requires document vat_amount = 0"] };
@@ -298,9 +320,6 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
     ? `Kreditorpost: bilag fra ${supplierName} (bilag ${input.documentId})`
     : `Kreditorpost (bilag ${input.documentId})`;
 
-  if (purchaseVatLines && vatTreatment === "standard" && purchaseVatLines.some((line) => line.classification === "eu_service_reverse_charge" || line.classification === "domestic_reverse_charge")) {
-    return { ok: false, appliedRules: [RULE_ID], errors: ["mixed purchaseVatLines with reverse-charge classifications require a dedicated reverse-charge booking"] };
-  }
   const lines = purchaseVatLines && vatTreatment === "standard"
     ? [
         ...purchaseVatLines.map((line) => ({ accountNo: expenseAccountNo, debitAmount: line.netAmount, vatCode: line.classification === "dk_purchase_25" ? "DK_PURCHASE_25" : "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? (line.classification === "dk_purchase_25" ? "Udgift, momspligtigt grundbeløb" : "Udgift, momsfrit grundbeløb") })),

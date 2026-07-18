@@ -131,6 +131,13 @@ describe("authority export", () => {
     expect(exportedDocs.some((doc: any) => doc.documentType === "issued_invoice")).toBe(true);
     expect(exportedDocs.some((doc: any) => doc.documentType === "issued_invoice_pdf")).toBe(true);
     expect(exportedDocs.some((doc: any) => doc.documentType === "purchase_sale")).toBe(true);
+    expect(exportedDocs.find((doc: any) => doc.id === ingested.documentId)).toMatchObject({
+      supplierName: "Leverandør ApS",
+      supplierVatOrCvr: "DK11223344",
+      supplierCountryCode: "DK",
+      supplierIdentifierKind: "dk_cvr",
+      supplierIdentityStatus: "resolved",
+    });
     expect(exportedDocs.every((doc: any) => doc.exportedReadablePath === null || doc.exportedReadablePath.startsWith("documents-readable/"))).toBe(true);
     expect(exportedDocs.every((doc: any) => doc.storedPathRelativeToCompany === null || !doc.storedPathRelativeToCompany.startsWith("/"))).toBe(true);
     expect(exportedDocs.every((doc: any) => typeof doc.retainUntil === "string")).toBe(true);

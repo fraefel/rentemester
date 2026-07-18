@@ -385,7 +385,14 @@ export function DocumentsView() {
                   <td>
                     {DOC_TYPE_LABELS[doc.documentType] ?? doc.documentType}
                   </td>
-                  <td>{doc.supplierName ?? "—"}</td>
+                  <td>
+                    <div>{doc.supplierName ?? "—"}</div>
+                    {(doc.supplierCountryCode || doc.supplierIdentifierKind || doc.supplierIdentityStatus) && (
+                      <div className="muted">
+                        {doc.supplierCountryCode ?? "—"} · {doc.supplierIdentifierKind ?? "—"} · {doc.supplierIdentityStatus ?? "—"}
+                      </div>
+                    )}
+                  </td>
                   <td>{doc.invoiceNo ?? "—"}</td>
                   <td className="entry-date">{doc.invoiceDate ?? "—"}</td>
                   <td className="num">

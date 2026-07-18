@@ -9,6 +9,10 @@ export type DocumentRow = {
   filename: string | null;
   documentType: string;
   supplierName: string | null;
+  supplierVatOrCvr: string | null;
+  supplierCountryCode: string | null;
+  supplierIdentifierKind: string | null;
+  supplierIdentityStatus: string | null;
   invoiceNo: string | null;
   invoiceDate: string | null;
   amountIncVat: number | null;

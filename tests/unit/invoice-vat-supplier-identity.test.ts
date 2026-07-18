@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveSupplierIdentity } from "../../src/core/supplier-identity";
+import { deductibleDanishPurchaseSupplierErrors, resolvePersistedSupplierIdentity, resolveSupplierIdentity } from "../../src/core/supplier-identity";
 import { projectVatLines } from "../../src/core/vat-lines";
 import { validateInvoice } from "../../src/core/invoice";
 
@@ -8,6 +8,42 @@ describe("supplier identity and mixed VAT lines", () => {
     expect(resolveSupplierIdentity({ country: "US", identifier: "12-3456789", identifierKind: "non_eu" })).toMatchObject({ ok: true, euVatRegistered: false });
     expect(resolveSupplierIdentity({ country: "US", identifier: "US123", identifierKind: "eu_vat" })).toMatchObject({ ok: false, status: "human_resolution_required" });
     expect(resolveSupplierIdentity({ country: "DE", identifier: "123" })).toMatchObject({ ok: false, status: "human_resolution_required" });
+  });
+
+  test("an explicitly unresolved persisted identity never falls back to VAT-number guessing", () => {
+    expect(resolvePersistedSupplierIdentity({
+      supplierVatOrCvr: "DE123456789",
+      supplierCountryCode: "DE",
+      supplierIdentifierKind: "eu_vat",
+      supplierIdentityStatus: "human_resolution_required",
+    })).toMatchObject({ ok: false, status: "human_resolution_required" });
+    expect(resolvePersistedSupplierIdentity({
+      supplierVatOrCvr: "DE123456789",
+      supplierCountryCode: null,
+      supplierIdentifierKind: null,
+      supplierIdentityStatus: "human_resolution_required",
+    })).toMatchObject({ ok: false, status: "human_resolution_required" });
+  });
+
+  test("Danish input VAT requires a Danish supplier on every document type", () => {
+    expect(deductibleDanishPurchaseSupplierErrors({
+      supplierVatOrCvr: "DK11223344",
+      supplierCountryCode: "DK",
+      supplierIdentifierKind: "dk_cvr",
+      supplierIdentityStatus: "resolved",
+    })).toEqual([]);
+    expect(deductibleDanishPurchaseSupplierErrors({
+      supplierVatOrCvr: "DE123456789",
+      supplierCountryCode: "DE",
+      supplierIdentifierKind: "eu_vat",
+      supplierIdentityStatus: "resolved",
+    }).join(" ")).toContain("eu_vat/DE");
+    expect(deductibleDanishPurchaseSupplierErrors({
+      supplierVatOrCvr: null,
+      supplierCountryCode: null,
+      supplierIdentifierKind: null,
+      supplierIdentityStatus: null,
+    }).join(" ")).toContain("resolved Danish supplier identity");
   });
 
   test("projects, validates and totals explicit mixed tax lines", () => {

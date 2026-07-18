@@ -40,7 +40,7 @@ type MaybeApiError = { code?: string; message?: string };
 
 const VAT_TREATMENT_LABELS: Record<ExpenseVatTreatment, string> = {
   standard: "Standard (25% købsmoms)",
-  reverse_charge: "Omvendt betalingspligt (EU-ydelse)",
+  reverse_charge: "Omvendt betalingspligt (udenlandsk ydelse)",
   representation: "Repræsentation (delvis fradragsret)",
   exempt: "Momsfri",
   non_deductible: "Ikke fradragsberettiget (momsen absorberes i udgiften)",
@@ -79,7 +79,17 @@ export function DocumentBookExpenseModal({
         const gross = res.document.amountIncVat;
         if (gross !== null) {
           const exact = res.unmatchedOutgoingBank.filter(
-            (t) => Math.abs(Math.abs(t.amount) - Math.abs(gross)) < 0.005,
+            (t) => {
+              const documentCurrency = res.document.currency.toUpperCase();
+              const bankCurrency = t.currency.toUpperCase();
+              if (bankCurrency === documentCurrency) {
+                return Math.abs(Math.abs(t.amount) - Math.abs(gross)) < 0.005;
+              }
+              if (bankCurrency === "DKK" && documentCurrency !== "DKK" && t.fxRateToDkk && t.fxRateToDkk > 0) {
+                return Math.abs(Math.abs(t.amount) - Math.abs(gross * t.fxRateToDkk)) < 0.005;
+              }
+              return false;
+            },
           );
           if (exact.length === 1) setBankTransactionId(exact[0]!.id);
         }
@@ -169,13 +179,16 @@ export function DocumentBookExpenseModal({
               {done.grossAmount !== null && (
                 <p className="muted">
                   Bruttobeløb: {formatKroner(done.grossAmount, currency)} ·
+                  {currency !== "DKK" && done.grossAmountDkk !== null && (
+                    <> {formatKroner(done.grossAmountDkk, "DKK")} ·</>
+                  )}
                   Nettobeløb:{" "}
-                  {done.netAmount !== null
-                    ? formatKroner(done.netAmount, currency)
+                  {done.netAmountDkk !== null || done.netAmount !== null
+                    ? formatKroner(done.netAmountDkk ?? done.netAmount!, "DKK")
                     : "—"}{" "}
                   · Købsmoms:{" "}
-                  {done.vatAmount !== null
-                    ? formatKroner(done.vatAmount, currency)
+                  {done.vatAmountDkk !== null || done.vatAmount !== null
+                    ? formatKroner(done.vatAmountDkk ?? done.vatAmount!, "DKK")
                     : "—"}
                   .
                 </p>
@@ -217,6 +230,17 @@ export function DocumentBookExpenseModal({
                     moms-beregning dannes af regnskabskernen — samme vej som
                     via kommandolinjen.
                   </p>
+                  {(doc.supplierCountryCode || doc.supplierIdentifierKind || doc.supplierIdentityStatus) && (
+                    <p className="muted">
+                      Leverandøridentitet: {doc.supplierCountryCode ?? "—"} · {doc.supplierIdentifierKind ?? "—"} · {doc.supplierIdentityStatus ?? "—"}
+                      {doc.supplierVatOrCvr ? ` · ${doc.supplierVatOrCvr}` : ""}
+                    </p>
+                  )}
+                  {doc.purchaseVatLines && doc.purchaseVatLines.length > 0 && (
+                    <div className="muted" aria-label="Momsfordeling">
+                      Momsfordeling: {doc.purchaseVatLines.map((line) => `${line.classification}: ${formatKroner(line.netAmount, currency)} + ${formatKroner(line.vatAmount ?? 0, currency)}`).join(" · ")}
+                    </div>
+                  )}
                 </>
               )}
             </div>

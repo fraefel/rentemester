@@ -99,6 +99,55 @@ describe("DocumentIngestModal", () => {
     expect(onIngested).toHaveBeenCalled();
   });
 
+  test("#530 sends a mixed taxable and exempt purchase split", async () => {
+    mockFetch(ingestRoute());
+    render(
+      <DocumentIngestModal slug="acme-aps" onIngested={noop} onClose={noop} />,
+    );
+    await userEvent.upload(screen.getByLabelText("Bilagsfil"), receiptFile("advokat.txt"));
+    await userEvent.type(screen.getByLabelText("Beløb inkl. moms"), "1888.75");
+    await userEvent.type(screen.getByLabelText("Momsbeløb"), "243.75");
+
+    await userEvent.click(screen.getByRole("button", { name: "Tilføj momslinje" }));
+    await userEvent.type(screen.getByLabelText("Nettobeløb 1"), "975");
+    await userEvent.type(screen.getByLabelText("Momsbeløb 1"), "243.75");
+    await userEvent.click(screen.getByRole("button", { name: "Tilføj momslinje" }));
+    await userEvent.selectOptions(screen.getByLabelText("Momsart 2"), "exempt");
+    await userEvent.type(screen.getByLabelText("Nettobeløb 2"), "670");
+    await userEvent.type(screen.getByLabelText("Momsbeløb 2"), "0");
+
+    await userEvent.click(screen.getByRole("button", { name: "Indlæs bilag" }));
+    await waitFor(() => {
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const ingestCall = calls.find((call) => String(call[0]).includes("/documents/ingest"));
+      expect(ingestCall).toBeDefined();
+      const sent = JSON.parse(String((ingestCall![1] as RequestInit).body));
+      expect(sent.metadata.purchaseVatLines).toEqual([
+        { classification: "dk_purchase_25", netAmount: 975, vatAmount: 243.75 },
+        { classification: "exempt", netAmount: 670, vatAmount: 0 },
+      ]);
+    });
+  });
+
+  test("#529 submits explicit reverse-charge wording evidence for a non-EU supplier", async () => {
+    mockFetch(ingestRoute());
+    render(
+      <DocumentIngestModal slug="acme-aps" onIngested={noop} onClose={noop} />,
+    );
+    await userEvent.upload(screen.getByLabelText("Bilagsfil"), receiptFile("us-saas.txt"));
+    await userEvent.selectOptions(screen.getByLabelText("Identitetstype"), "non_eu");
+    const evidence = screen.getByLabelText("Jeg har kontrolleret, at bilaget indeholder ordlyd om omvendt betalingspligt");
+    await userEvent.click(evidence);
+    await userEvent.click(screen.getByRole("button", { name: "Indlæs bilag" }));
+    await waitFor(() => {
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const ingestCall = calls.find((call) => String(call[0]).includes("/documents/ingest"));
+      expect(ingestCall).toBeDefined();
+      const sent = JSON.parse(String((ingestCall![1] as RequestInit).body));
+      expect(sent.metadata.reverseChargeWordingConfirmed).toBe(true);
+    });
+  });
+
   test("shows a receipt with the document number after success", async () => {
     mockFetch(ingestRoute());
     render(

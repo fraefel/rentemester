@@ -70,6 +70,9 @@ function makeFixture(label: string) {
       address: "Testvej 1",
       vatOrCvr: "DK12345678",
     },
+    purchaseVatLines: [
+      { classification: "dk_purchase_25", netAmount: 1000, vatAmount: 250 },
+    ],
     paymentDetails: "Bank transfer",
   });
   if (!ingested.ok) throw new Error("fixture ingest failed: " + (ingested.errors ?? []).join("; "));
@@ -131,6 +134,13 @@ describe("GET /api/companies/:slug/documents/:id/booking-options", () => {
     expect(options.document.amountIncVat).toBe(1250);
     expect(options.document.vatAmount).toBe(250);
     expect(options.document.supplierName).toBe("Office World ApS");
+    expect(options.document).toMatchObject({
+      supplierVatOrCvr: "DK11223344",
+      supplierCountryCode: "DK",
+      supplierIdentifierKind: "dk_cvr",
+      supplierIdentityStatus: "resolved",
+      purchaseVatLines: [{ classification: "dk_purchase_25", netAmount: 1000, vatAmount: 250 }],
+    });
     // Every entry in the expense-account list is type=expense and active.
     expect(Array.isArray(options.expenseAccounts)).toBe(true);
     expect(options.expenseAccounts.length).toBeGreaterThan(0);
@@ -182,6 +192,7 @@ describe("POST /api/companies/:slug/documents/book-expense", () => {
     expect(res.body.booking.grossAmount).toBe(1250);
     expect(res.body.booking.netAmount).toBe(1000);
     expect(res.body.booking.vatAmount).toBe(250);
+    expect(res.body.booking).toMatchObject({ grossAmountForeign: 1250, grossAmountDkk: 1250, netAmountDkk: 1000, vatAmountDkk: 250, fxRateToDkk: 1 });
     // After booking the GET endpoint shows the document as linked.
     const after = await getJson(
       cfg,

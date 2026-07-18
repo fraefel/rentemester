@@ -57,10 +57,14 @@ export const documentMetadataFields = {
       .optional()
       .describe("VAT amount, in kroner (decimal DKK, 2 decimals — NOT øre)."),
     purchaseVatLines: z.array(z.object({
-      classification: z.enum(["dk_purchase_25", "exempt", "eu_service_reverse_charge", "domestic_reverse_charge"]),
+      classification: z.enum(["dk_purchase_25", "exempt"]),
       netAmount: z.number().nonnegative().describe("Tax base in kroner."),
       vatAmount: z.number().nonnegative().optional().describe("VAT amount in kroner; 25% for dk_purchase_25, otherwise zero."),
     })).min(1).optional().describe("Optional durable purchase VAT split. Its net and VAT totals must reconcile exactly with the document totals."),
+    reverseChargeWordingConfirmed: z
+      .boolean()
+      .optional()
+      .describe("True only when a human has confirmed that the supplier invoice contains reverse-charge wording; required with the other invoice evidence before non-EU input-VAT deduction."),
     paymentDetails: z
       .string()
       .optional()

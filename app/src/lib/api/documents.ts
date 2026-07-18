@@ -112,6 +112,8 @@ export type UnmatchedBankOption = {
   text: string;
   amount: number;
   currency: string;
+  amountDkk: number | null;
+  fxRateToDkk: number | null;
   reference: string | null;
 };
 
@@ -123,6 +125,11 @@ export type DocumentBookingOptionsDocument = {
   invoiceNo: string | null;
   invoiceDate: string | null;
   supplierName: string | null;
+  supplierVatOrCvr: string | null;
+  supplierCountryCode: string | null;
+  supplierIdentifierKind: string | null;
+  supplierIdentityStatus: string | null;
+  purchaseVatLines: Array<{ classification: string; netAmount: number; vatAmount?: number }> | null;
   amountIncVat: number | null;
   vatAmount: number | null;
   currency: string;
@@ -163,6 +170,11 @@ export type DocumentBookExpenseSummary = {
   netAmount: number | null;
   vatAmount: number | null;
   vatTreatment: string | null;
+  grossAmountForeign: number | null;
+  grossAmountDkk: number | null;
+  netAmountDkk: number | null;
+  vatAmountDkk: number | null;
+  fxRateToDkk: number | null;
 };
 
 /** Input for `api.importData` — the file name + text, plus the CVR-enrich opt-in. */
@@ -209,7 +221,8 @@ export type DocumentIngestMetadata = {
   sender?: { name?: string; address?: string; vatOrCvr?: string; countryCode?: string; identifierKind?: "dk_cvr" | "eu_vat" | "non_eu" };
   recipient?: { name?: string; address?: string; vatOrCvr?: string };
   vatAmount?: number;
-  purchaseVatLines?: Array<{ classification: "dk_purchase_25" | "exempt" | "eu_service_reverse_charge" | "domestic_reverse_charge"; netAmount: number; vatAmount?: number }>;
+  purchaseVatLines?: Array<{ classification: "dk_purchase_25" | "exempt"; netAmount: number; vatAmount?: number }>;
+  reverseChargeWordingConfirmed?: boolean;
   paymentDetails?: string;
 };
 

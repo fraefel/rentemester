@@ -24,6 +24,10 @@ export type DocumentRow = {
   filename: string | null;
   documentType: string;
   supplierName: string | null;
+  supplierVatOrCvr: string | null;
+  supplierCountryCode: string | null;
+  supplierIdentifierKind: string | null;
+  supplierIdentityStatus: string | null;
   invoiceNo: string | null;
   invoiceDate: string | null;
   amountIncVat: number | null;
@@ -81,6 +85,10 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
                 d.original_filename AS filename,
                 d.document_type   AS documentType,
                 d.supplier_name   AS supplierName,
+                d.sender_vat_cvr  AS supplierVatOrCvr,
+                d.supplier_country_code AS supplierCountryCode,
+                d.supplier_identifier_kind AS supplierIdentifierKind,
+                d.supplier_identity_status AS supplierIdentityStatus,
                 d.invoice_no      AS invoiceNo,
                 d.invoice_date    AS invoiceDate,
                 d.amount_inc_vat  AS amountIncVat,
@@ -122,6 +130,10 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       filename: string | null;
       documentType: string;
       supplierName: string | null;
+      supplierVatOrCvr: string | null;
+      supplierCountryCode: string | null;
+      supplierIdentifierKind: string | null;
+      supplierIdentityStatus: string | null;
       invoiceNo: string | null;
       invoiceDate: string | null;
       amountIncVat: number | null;
@@ -143,6 +155,10 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       filename: r.filename,
       documentType: r.documentType,
       supplierName: r.supplierName,
+      supplierVatOrCvr: r.supplierVatOrCvr,
+      supplierCountryCode: r.supplierCountryCode,
+      supplierIdentifierKind: r.supplierIdentifierKind,
+      supplierIdentityStatus: r.supplierIdentityStatus,
       invoiceNo: r.invoiceNo,
       invoiceDate: r.invoiceDate,
       amountIncVat:
@@ -242,6 +258,8 @@ export type UnmatchedBankOption = {
   /** Original signed kroner amount — outgoing payments are negative. */
   amount: number;
   currency: string;
+  amountDkk: number | null;
+  fxRateToDkk: number | null;
   reference: string | null;
 };
 
@@ -253,6 +271,11 @@ export type DocumentBookingOptionsDocument = {
   invoiceNo: string | null;
   invoiceDate: string | null;
   supplierName: string | null;
+  supplierVatOrCvr: string | null;
+  supplierCountryCode: string | null;
+  supplierIdentifierKind: string | null;
+  supplierIdentityStatus: string | null;
+  purchaseVatLines: unknown[] | null;
   amountIncVat: number | null;
   vatAmount: number | null;
   currency: string;
@@ -295,7 +318,9 @@ export function buildDocumentBookingOptions(
     const doc = db
       .query(
         `SELECT id, document_no, document_type, invoice_no, invoice_date,
-                supplier_name, amount_inc_vat, vat_amount, currency
+                supplier_name, sender_vat_cvr, supplier_country_code,
+                supplier_identifier_kind, supplier_identity_status,
+                amount_inc_vat, vat_amount, currency, payload_json
            FROM documents
           WHERE id = ?`,
       )
@@ -307,9 +332,14 @@ export function buildDocumentBookingOptions(
           invoice_no: string | null;
           invoice_date: string | null;
           supplier_name: string | null;
+          sender_vat_cvr: string | null;
+          supplier_country_code: string | null;
+          supplier_identifier_kind: string | null;
+          supplier_identity_status: string | null;
           amount_inc_vat: number | null;
           vat_amount: number | null;
           currency: string;
+          payload_json: string | null;
         }
       | null;
     if (!doc) {
@@ -340,6 +370,8 @@ export function buildDocumentBookingOptions(
                 bt.text         AS text,
                 bt.amount       AS amount,
                 bt.currency     AS currency,
+                bt.amount_dkk   AS amountDkk,
+                bt.fx_rate_to_dkk AS fxRateToDkk,
                 bt.reference    AS reference
            FROM bank_transactions bt
           WHERE bt.amount < 0
@@ -356,6 +388,8 @@ export function buildDocumentBookingOptions(
       text: string;
       amount: number;
       currency: string;
+      amountDkk: number | null;
+      fxRateToDkk: number | null;
       reference: string | null;
     }>).map((r) => ({
       id: r.id,
@@ -363,6 +397,8 @@ export function buildDocumentBookingOptions(
       text: r.text,
       amount: roundKroner(r.amount),
       currency: r.currency,
+      amountDkk: r.amountDkk === null ? null : roundKroner(r.amountDkk),
+      fxRateToDkk: r.fxRateToDkk === null ? null : Number(r.fxRateToDkk),
       reference: r.reference,
     }));
     return {
@@ -373,6 +409,11 @@ export function buildDocumentBookingOptions(
         invoiceNo: doc.invoice_no,
         invoiceDate: doc.invoice_date,
         supplierName: doc.supplier_name,
+        supplierVatOrCvr: doc.sender_vat_cvr,
+        supplierCountryCode: doc.supplier_country_code,
+        supplierIdentifierKind: doc.supplier_identifier_kind,
+        supplierIdentityStatus: doc.supplier_identity_status,
+        purchaseVatLines: purchaseVatLinesFromPayload(doc.payload_json),
         amountIncVat:
           doc.amount_inc_vat === null
             ? null

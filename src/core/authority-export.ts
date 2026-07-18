@@ -8,7 +8,7 @@ import { effectiveRetainUntil } from "./retention";
 import { writeFileAtomic } from "./atomic-file";
 import { buildTrialBalance } from "./financial-statements";
 import { formatAmount } from "./money";
-import { purchaseVatLinesFromPayload } from "./documents";
+import { parsePurchaseVatLinesPayload } from "./documents";
 
 const RULE_ID = "DK-BOOKKEEPING-AUTHORITY-EXPORT-001";
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
@@ -88,6 +88,12 @@ type DocumentRecord = {
   amountIncVat: number | null;
   vatAmount: number | null;
   purchaseVatLines: unknown[] | null;
+  purchaseVatLinesErrors: string[];
+  supplierName: string | null;
+  supplierVatOrCvr: string | null;
+  supplierCountryCode: string | null;
+  supplierIdentifierKind: string | null;
+  supplierIdentityStatus: string | null;
   status: string;
   retainUntil: string | null;
 };
@@ -464,14 +470,14 @@ function fetchJournalEntries(db: Database, periodStart: string, periodEnd: strin
 function fetchDocuments(db: Database, journalEntries: JournalEntryRecord[], periodStart: string, periodEnd: string): DocumentRecord[] {
   const linkedIds = uniqueIds(journalEntries.map((entry) => entry.documentId));
   const linkedDocuments = linkedIds.length === 0 ? [] : db.query(
-    `SELECT id, document_no, document_type, invoice_no, invoice_date, original_filename, stored_path, mime_type, source,
-            amount_inc_vat, vat_amount, payload_json, status, retain_until
+    `SELECT id, document_no, document_type, invoice_no, invoice_date, original_filename, stored_path, mime_type, source, supplier_name,
+            amount_inc_vat, vat_amount, payload_json, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status, status, retain_until
      FROM documents WHERE id IN (${linkedIds.map(() => "?").join(",")})`
   ).all(...linkedIds) as any[];
 
   const issuedInPeriod = db.query(
-    `SELECT id, document_no, document_type, invoice_no, invoice_date, original_filename, stored_path, mime_type, source,
-            amount_inc_vat, vat_amount, payload_json, status, retain_until
+    `SELECT id, document_no, document_type, invoice_no, invoice_date, original_filename, stored_path, mime_type, source, supplier_name,
+            amount_inc_vat, vat_amount, payload_json, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status, status, retain_until
      FROM documents
      WHERE invoice_date BETWEEN ? AND ?
      ORDER BY id ASC`
@@ -479,6 +485,10 @@ function fetchDocuments(db: Database, journalEntries: JournalEntryRecord[], peri
 
   const dedup = new Map<number, DocumentRecord>();
   for (const row of [...linkedDocuments, ...issuedInPeriod]) {
+    const parsedPurchaseVatLines = parsePurchaseVatLinesPayload(row.payload_json, {
+      amountIncVat: row.amount_inc_vat,
+      vatAmount: row.vat_amount,
+    });
     dedup.set(row.id, {
       id: row.id,
       documentNo: row.document_no ?? null,
@@ -491,7 +501,13 @@ function fetchDocuments(db: Database, journalEntries: JournalEntryRecord[], peri
       source: row.source,
       amountIncVat: row.amount_inc_vat == null ? null : Number(row.amount_inc_vat),
       vatAmount: row.vat_amount == null ? null : Number(row.vat_amount),
-      purchaseVatLines: purchaseVatLinesFromPayload(row.payload_json),
+      purchaseVatLines: parsedPurchaseVatLines.lines,
+      purchaseVatLinesErrors: parsedPurchaseVatLines.status === "invalid" ? parsedPurchaseVatLines.errors : [],
+      supplierName: row.supplier_name ?? null,
+      supplierVatOrCvr: row.sender_vat_cvr ?? null,
+      supplierCountryCode: row.supplier_country_code ?? null,
+      supplierIdentifierKind: row.supplier_identifier_kind ?? null,
+      supplierIdentityStatus: row.supplier_identity_status ?? null,
       status: row.status,
       retainUntil: effectiveRetainUntil(db, row.retain_until, row.invoice_date ?? null),
     });
@@ -666,11 +682,12 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   );
   const machineReadableDir = join(exportDir, "machine-readable");
   const documentsDir = join(exportDir, "documents-readable");
-  mkdirSync(machineReadableDir, { recursive: true });
-  mkdirSync(documentsDir, { recursive: true });
-
   const journalEntries = fetchJournalEntries(db, input.periodStart, input.periodEnd);
   const documents = fetchDocuments(db, journalEntries, input.periodStart, input.periodEnd);
+  const invalidPurchaseSplits = documents.flatMap((document) =>
+    document.purchaseVatLinesErrors.map((error) => `document ${document.documentNo ?? document.id} has invalid persisted purchaseVatLines: ${error}`),
+  );
+  if (invalidPurchaseSplits.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: invalidPurchaseSplits };
   const bankTransactions = fetchBankTransactions(db, journalEntries, input.periodStart, input.periodEnd);
   const auditLog = fetchAuditLog(db, input.periodStart, input.periodEnd);
   const exceptions = fetchExceptions(db, input.periodStart, input.periodEnd);
@@ -678,9 +695,12 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   const companies = fetchCompanies(db);
   const schemaMigrations = fetchSchemaMigrations(db);
 
+  mkdirSync(machineReadableDir, { recursive: true });
+  mkdirSync(documentsDir, { recursive: true });
+
   const outputs: ExportedFileMeta[] = [];
   writeExportJson(exportDir, join(machineReadableDir, "journal-entries.json"), journalEntries, outputs);
-  writeExportJson(exportDir, join(machineReadableDir, "documents.json"), documents.map((document) => ({
+  writeExportJson(exportDir, join(machineReadableDir, "documents.json"), documents.map(({ purchaseVatLinesErrors: _purchaseVatLinesErrors, ...document }) => ({
     ...document,
     storedPathRelativeToCompany: storedPathRelativeToCompany(companyRoot, document.storedPath),
     exportedReadablePath: document.storedPath ? join("documents-readable", exportFileName(document)).replace(/\\/g, "/") : null,

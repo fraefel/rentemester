@@ -6,7 +6,8 @@ import { requireCachedViesValidation, normalizeEuVatNumber } from "./vies";
 import { addDkk, compareDkk, fromOre, percentOfDkk, roundDkk, subtractDkk, sumDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
 import { emptyVatRubric, projectVatRubric, type VatRubric } from "./vat-rubric";
-import { resolveLegacySupplierIdentity } from "./supplier-identity";
+import { deductibleDanishPurchaseSupplierErrors, resolvePersistedSupplierIdentity, type SupplierIdentityResolution } from "./supplier-identity";
+import { parsePurchaseVatLinesPayload } from "./documents";
 
 /** Absolute difference between two DKK amounts, expressed in whole øre. */
 function oreDifference(left: number, right: number): number {
@@ -46,13 +47,18 @@ export type VatPeriodReport = {
    * A.B.3.3.1.5.
    */
   domesticReverseChargeSalesBase: number;
+  /** EU service reverse-charge purchase base only. This feeds rubrik A and the
+   * EU-goods limitation warning; non-EU services are kept separate below. */
   reverseChargePurchaseBase: number;
+  /** Service-purchase base from suppliers outside the EU. It contributes to
+   * foreign-service reverse-charge VAT, but never to EU-only rubrik A. */
+  nonEuServiceReverseChargePurchaseBase: number;
   /**
-   * Output VAT actually booked on account 1200 by EU service reverse-charge
-   * purchases (the credit side of postEuServiceReverseChargePurchase). This is
+   * Output VAT actually booked on the reverse-charge VAT role by foreign
+   * service purchases (EU and non-EU). This is
    * the *booked* sum — the øre-rounded VAT of each individual purchase added up
    * — which can differ by up to 1 øre per purchase from 25% of the summed
-   * reverseChargePurchaseBase. The momsangivelse uses this figure for "Moms af
+   * combined EU/non-EU foreign-service base. The momsangivelse uses this figure for "Moms af
    * ydelseskøb i udlandet" so that rubrik, and the salgsmoms derived by
    * subtracting it from the booked outputVat, are both exact.
    */
@@ -90,6 +96,7 @@ export type VatPeriodReport = {
 
 const RULE_ID = "DK-VAT-REPORT-001";
 const REVERSE_CHARGE_RULE_ID = "DK-VAT-REVERSE-CHARGE-001";
+const NON_EU_REVERSE_CHARGE_RULE_ID = "DK-VAT-NON-EU-SERVICE-REVERSE-CHARGE-001";
 const REPRESENTATION_RULE_ID = "DK-VAT-REPRESENTATION-001";
 const REGISTRATION_RULE_ID = "DK-VAT-REGISTRATION-001";
 
@@ -112,6 +119,8 @@ function companyIsVatRegistered(db: Database): boolean {
 // deduction (or silently absorb VAT the company actually owes SKAT).
 const NON_REGISTERED_EU_SERVICE_MSG =
   "selskabet er ikke momsregistreret — EU-ydelseskøb med omvendt betalingspligt udløser særskilt registreringspligt for erhvervelsesmoms (momsloven § 46, stk. 1, nr. 3, jf. § 50 b) fra første krone uden fradrag (§ 37); det håndterer Rentemester ikke endnu. Registrér selskabet for erhvervelsesmoms og søg rådgivning — bogfør ikke købet som reverse charge her";
+const NON_REGISTERED_NON_EU_SERVICE_MSG =
+  "selskabet er ikke momsregistreret — ydelseskøb fra en leverandør uden for EU med omvendt betalingspligt kræver særskilt momsbehandling uden automatisk fradrag; det håndterer Rentemester ikke endnu. Registrér selskabet og søg rådgivning før bogføring";
 
 // Representation for a NOT VAT-registered company: the § 42 partial deduction
 // is a registered-business relief, and § 37 grants no deduction at all, so the
@@ -189,48 +198,29 @@ export type RepresentationPurchaseInput = {
   createdByProgram?: string;
 };
 
-
-export function postEuServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+function reverseChargeInputErrors(input: ReverseChargePurchaseInput): string[] {
   const errors: string[] = [];
   if (!looksLikeIsoDate(input.transactionDate)) errors.push("transactionDate must be YYYY-MM-DD");
   if (typeof input.text !== "string" || input.text.trim().length === 0) errors.push("text is required");
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!Number.isFinite(input.netAmount) || input.netAmount <= 0) errors.push("netAmount must be a positive number");
   if (typeof input.expenseAccountNo !== "string" || input.expenseAccountNo.trim().length === 0) errors.push("expenseAccountNo is required");
-  if (errors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors };
+  return errors;
+}
 
-  // A non-registered company cannot book deductible reverse-charge VAT (§ 37);
-  // the purchase instead triggers a § 50 b erhvervelsesmoms registration that
-  // is out of scope. Refuse rather than book a forbidden 4000 line.
-  if (!companyIsVatRegistered(db)) {
-    return { ok: false, appliedRules: [REGISTRATION_RULE_ID, REVERSE_CHARGE_RULE_ID], errors: [NON_REGISTERED_EU_SERVICE_MSG] };
-  }
-
-  const documentRow = db.query(`SELECT sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status FROM documents WHERE id = ?`).get(input.documentId) as { sender_vat_cvr: string | null; supplier_country_code: string | null; supplier_identifier_kind: string | null; supplier_identity_status: string | null } | null;
-  if (!documentRow) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [`documentId ${input.documentId} does not exist`] };
-  // EU service reverse charge (momsloven §46) applies only to suppliers in
-  // *other* EU member states. A Danish supplier is a domestic purchase and
-  // must not be booked as reverse charge.
-  const identity = documentRow.supplier_identity_status === "resolved" && documentRow.supplier_country_code && documentRow.supplier_identifier_kind
-    ? { ok: true as const, country: documentRow.supplier_country_code, identifierKind: documentRow.supplier_identifier_kind, identifier: documentRow.sender_vat_cvr }
-    : resolveLegacySupplierIdentity(documentRow.sender_vat_cvr);
-  if (!identity.ok) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity requires human resolution before reverse-charge booking"] };
-  if (identity.identifierKind === "dk_cvr") {
-    return {
-      ok: false,
-      appliedRules: [REVERSE_CHARGE_RULE_ID],
-      errors: ["document supplier identity is Danish — EU service reverse charge applies only to other EU member states; book this as a domestic DK_PURCHASE_25 expense"],
-    };
-  }
-  if (identity.identifierKind === "non_eu") return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity is non-EU — use the applicable non-EU purchase treatment; do not fabricate an EU VAT ID"] };
-  const viesCheck = requireCachedViesValidation(db, identity.identifier, "document sender_vat_cvr");
-  if (!viesCheck.ok) return { ok: false, appliedRules: [...new Set([REVERSE_CHARGE_RULE_ID, ...viesCheck.appliedRules])], errors: viesCheck.errors };
-
+function postServiceReverseChargeLines(
+  db: Database,
+  input: ReverseChargePurchaseInput,
+  vatCode: "EU_SERVICE_REVERSE_CHARGE" | "NON_EU_SERVICE_REVERSE_CHARGE",
+  ruleId: string,
+  sourceLabel: string,
+): JournalPostResult {
   const vatAmount = percentOfDkk(input.netAmount, 25);
   const inputVat = resolveAccountRole(db, "input_vat");
   const outputVat = resolveAccountRole(db, "reverse_charge_vat");
   const bank = input.paymentAccountNo ? { ok: true as const, accountNo: input.paymentAccountNo } : resolveAccountRole(db, "bank");
-  if (!inputVat.ok || !outputVat.ok || !bank.ok) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [!inputVat.ok ? inputVat.error : !outputVat.ok ? outputVat.error : bank.error] };
+  const roleErrors = [inputVat, outputVat, bank].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
+  if (roleErrors.length > 0) return { ok: false, appliedRules: [ruleId], errors: roleErrors };
   const result = postJournalEntry(db, {
     transactionDate: input.transactionDate,
     text: input.text.trim(),
@@ -243,17 +233,236 @@ export function postEuServiceReverseChargePurchase(db: Database, input: ReverseC
     createdBy: input.createdBy,
     createdByProgram: input.createdByProgram,
     lines: [
-      { accountNo: input.expenseAccountNo, debitAmount: roundDkk(input.netAmount), vatCode: "EU_SERVICE_REVERSE_CHARGE", text: "EU service purchase base" },
+      { accountNo: input.expenseAccountNo, debitAmount: roundDkk(input.netAmount), vatCode, text: `${sourceLabel} service purchase base` },
       { accountNo: inputVat.accountNo, debitAmount: vatAmount, text: "Deductible reverse-charge input VAT" },
       { accountNo: bank.accountNo, creditAmount: roundDkk(input.netAmount), text: "Payment / liability" },
       { accountNo: outputVat.accountNo, creditAmount: vatAmount, text: "Reverse-charge output VAT" },
     ],
   });
-
   return {
     ...result,
-    appliedRules: result.ok ? [...new Set([...(result.appliedRules ?? []), REVERSE_CHARGE_RULE_ID])] : [...new Set([REVERSE_CHARGE_RULE_ID, ...(result.appliedRules ?? [])])],
+    appliedRules: result.ok ? [...new Set([...(result.appliedRules ?? []), ruleId])] : [...new Set([ruleId, ...(result.appliedRules ?? [])])],
   };
+}
+
+function resolveDocumentSupplierIdentity(
+  db: Database,
+  documentId: number,
+): SupplierIdentityResolution | null {
+  const row = db.query(
+    `SELECT sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
+       FROM documents
+      WHERE id = ?`,
+  ).get(documentId) as {
+    sender_vat_cvr: string | null;
+    supplier_country_code: string | null;
+    supplier_identifier_kind: string | null;
+    supplier_identity_status: string | null;
+  } | null;
+  if (!row) return null;
+  return resolvePersistedSupplierIdentity({
+    supplierVatOrCvr: row.sender_vat_cvr,
+    supplierCountryCode: row.supplier_country_code,
+    supplierIdentifierKind: row.supplier_identifier_kind,
+    supplierIdentityStatus: row.supplier_identity_status,
+  });
+}
+
+function unsupportedStructuredPurchaseLinesErrors(
+  db: Database,
+  documentId: number,
+  treatment: "reverse_charge" | "representation",
+): string[] {
+  const row = db.query(
+    `SELECT amount_inc_vat, vat_amount, payload_json
+       FROM documents
+      WHERE id = ?`,
+  ).get(documentId) as {
+    amount_inc_vat: number | null;
+    vat_amount: number | null;
+    payload_json: string | null;
+  } | null;
+  if (!row) return [`documentId ${documentId} does not exist`];
+  const parsed = parsePurchaseVatLinesPayload(row.payload_json, {
+    amountIncVat: row.amount_inc_vat,
+    vatAmount: row.vat_amount,
+  });
+  if (parsed.status === "invalid") {
+    return parsed.errors.map((error) => `document ${documentId} has invalid persisted purchaseVatLines: ${error}`);
+  }
+  if (parsed.status === "valid") {
+    return [`${treatment} purchase posting does not support structured purchaseVatLines; use a dedicated unsplit document or human resolution`];
+  }
+  return [];
+}
+
+function documentDanishInputVatSupplierErrors(db: Database, documentId: number): string[] {
+  const row = db.query(
+    `SELECT sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
+       FROM documents
+      WHERE id = ?`,
+  ).get(documentId) as {
+    sender_vat_cvr: string | null;
+    supplier_country_code: string | null;
+    supplier_identifier_kind: string | null;
+    supplier_identity_status: string | null;
+  } | null;
+  if (!row) return [`documentId ${documentId} does not exist`];
+  return deductibleDanishPurchaseSupplierErrors({
+    supplierVatOrCvr: row.sender_vat_cvr,
+    supplierCountryCode: row.supplier_country_code,
+    supplierIdentifierKind: row.supplier_identifier_kind,
+    supplierIdentityStatus: row.supplier_identity_status,
+  });
+}
+
+/**
+ * A non-EU invoice may be ingested without an EU VAT identifier (#529), but
+ * automatic input-VAT deduction is a separate, higher-evidence decision. The
+ * invoice must retain the supplier's home-country registration number, the
+ * Danish buyer VAT identifier, and explicit reverse-charge wording. Otherwise
+ * the purchase remains available for human resolution without creating a VAT
+ * journal entry.
+ */
+function nonEuReverseChargeEvidenceErrors(db: Database, documentId: number): string[] {
+  const row = db.query(
+    `SELECT sender_vat_cvr, recipient_vat_cvr, payload_json
+       FROM documents
+      WHERE id = ?`,
+  ).get(documentId) as {
+    sender_vat_cvr: string | null;
+    recipient_vat_cvr: string | null;
+    payload_json: string | null;
+  } | null;
+  if (!row) return [`documentId ${documentId} does not exist`];
+
+  const errors: string[] = [];
+  if (!row.sender_vat_cvr?.trim()) {
+    errors.push("non-EU reverse-charge input-VAT deduction requires the supplier's home-country registration number on the invoice");
+  }
+  const buyerVat = row.recipient_vat_cvr?.trim().toUpperCase().replace(/\s/g, "") ?? "";
+  if (!/^DK\d{8}$/.test(buyerVat)) {
+    errors.push("non-EU reverse-charge input-VAT deduction requires the Danish buyer VAT identifier (DK + 8 digits) on the invoice");
+  } else {
+    let configuredCompanyVat: string | null = null;
+    try {
+      configuredCompanyVat = getCompanySettings(db).cvr;
+    } catch {
+      configuredCompanyVat = null;
+    }
+    if (!configuredCompanyVat) {
+      errors.push("non-EU reverse-charge input-VAT deduction requires the ledger company's own CVR/VAT identifier to be configured");
+    } else if (buyerVat !== configuredCompanyVat) {
+      errors.push(`invoice buyer VAT identifier ${buyerVat} does not match the ledger company's configured VAT identifier ${configuredCompanyVat}`);
+    }
+  }
+  let wordingConfirmed = false;
+  try {
+    const payload = row.payload_json ? JSON.parse(row.payload_json) as unknown : null;
+    wordingConfirmed = Boolean(
+      payload
+      && typeof payload === "object"
+      && !Array.isArray(payload)
+      && (payload as Record<string, unknown>).reverseChargeWordingConfirmed === true,
+    );
+  } catch {
+    wordingConfirmed = false;
+  }
+  if (!wordingConfirmed) {
+    errors.push("non-EU reverse-charge input-VAT deduction requires confirmed reverse-charge wording on the invoice");
+  }
+  return errors;
+}
+
+
+export function postEuServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  const errors = reverseChargeInputErrors(input);
+  if (errors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors };
+  const splitErrors = unsupportedStructuredPurchaseLinesErrors(db, input.documentId, "reverse_charge");
+  if (splitErrors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: splitErrors };
+
+  // A non-registered company cannot book deductible reverse-charge VAT (§ 37);
+  // the purchase instead triggers a § 50 b erhvervelsesmoms registration that
+  // is out of scope. Refuse rather than book a forbidden 4000 line.
+  if (!companyIsVatRegistered(db)) {
+    return { ok: false, appliedRules: [REGISTRATION_RULE_ID, REVERSE_CHARGE_RULE_ID], errors: [NON_REGISTERED_EU_SERVICE_MSG] };
+  }
+
+  const identity = resolveDocumentSupplierIdentity(db, input.documentId);
+  if (!identity) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [`documentId ${input.documentId} does not exist`] };
+  // EU service reverse charge (momsloven §46) applies only to suppliers in
+  // *other* EU member states. A Danish supplier is a domestic purchase and
+  // must not be booked as reverse charge.
+  if (!identity.ok) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity requires human resolution before reverse-charge booking"] };
+  if (identity.identifierKind === "dk_cvr") {
+    return {
+      ok: false,
+      appliedRules: [REVERSE_CHARGE_RULE_ID],
+      errors: ["document supplier identity is Danish — EU service reverse charge applies only to other EU member states; book this as a domestic DK_PURCHASE_25 expense"],
+    };
+  }
+  if (identity.identifierKind === "non_eu") return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity is non-EU — use the applicable non-EU purchase treatment; do not fabricate an EU VAT ID"] };
+  const viesCheck = requireCachedViesValidation(db, identity.identifier, "document sender_vat_cvr");
+  if (!viesCheck.ok) return { ok: false, appliedRules: [...new Set([REVERSE_CHARGE_RULE_ID, ...viesCheck.appliedRules])], errors: viesCheck.errors };
+
+  return postServiceReverseChargeLines(db, input, "EU_SERVICE_REVERSE_CHARGE", REVERSE_CHARGE_RULE_ID, "EU");
+}
+
+/** Explicit treatment for services bought from a supplier outside the EU.
+ * Country + non_eu classification is enough to ingest and retain a voucher,
+ * while automatic input-VAT deduction additionally requires invoice evidence
+ * checked below. */
+export function postNonEuServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  const errors = reverseChargeInputErrors(input);
+  if (errors.length > 0) return { ok: false, appliedRules: [NON_EU_REVERSE_CHARGE_RULE_ID], errors };
+  const splitErrors = unsupportedStructuredPurchaseLinesErrors(db, input.documentId, "reverse_charge");
+  if (splitErrors.length > 0) return { ok: false, appliedRules: [NON_EU_REVERSE_CHARGE_RULE_ID], errors: splitErrors };
+  if (!companyIsVatRegistered(db)) {
+    return { ok: false, appliedRules: [REGISTRATION_RULE_ID, NON_EU_REVERSE_CHARGE_RULE_ID], errors: [NON_REGISTERED_NON_EU_SERVICE_MSG] };
+  }
+  const identity = resolveDocumentSupplierIdentity(db, input.documentId);
+  if (!identity) return { ok: false, appliedRules: [NON_EU_REVERSE_CHARGE_RULE_ID], errors: [`documentId ${input.documentId} does not exist`] };
+  if (!identity.ok || identity.identifierKind !== "non_eu") {
+    return { ok: false, appliedRules: [NON_EU_REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity must be resolved explicitly as non-EU before non-EU service reverse-charge booking"] };
+  }
+  const evidenceErrors = nonEuReverseChargeEvidenceErrors(db, input.documentId);
+  if (evidenceErrors.length > 0) {
+    return {
+      ok: false,
+      appliedRules: [NON_EU_REVERSE_CHARGE_RULE_ID],
+      errors: ["document requires human resolution before non-EU reverse-charge input-VAT deduction", ...evidenceErrors],
+    };
+  }
+  return postServiceReverseChargeLines(db, input, "NON_EU_SERVICE_REVERSE_CHARGE", NON_EU_REVERSE_CHARGE_RULE_ID, "Non-EU");
+}
+
+/**
+ * Expense-booking entry point for a foreign service. The user chooses one
+ * reverse-charge action; the immutable supplier identity on the document
+ * decides whether EU/VIES or non-EU provenance and VAT codes apply.
+ */
+export function postForeignServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  const errors = reverseChargeInputErrors(input);
+  if (errors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors };
+  const splitErrors = unsupportedStructuredPurchaseLinesErrors(db, input.documentId, "reverse_charge");
+  if (splitErrors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: splitErrors };
+  const identity = resolveDocumentSupplierIdentity(db, input.documentId);
+  if (!identity) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [`documentId ${input.documentId} does not exist`] };
+  if (!identity.ok) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity requires human resolution before reverse-charge booking"] };
+  if (identity.identifierKind === "dk_cvr") {
+    return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity is Danish — foreign service reverse charge is not applicable; use standard domestic purchase VAT"] };
+  }
+  if (!companyIsVatRegistered(db)) {
+    const ruleId = identity.identifierKind === "non_eu" ? NON_EU_REVERSE_CHARGE_RULE_ID : REVERSE_CHARGE_RULE_ID;
+    const message = identity.identifierKind === "non_eu" ? NON_REGISTERED_NON_EU_SERVICE_MSG : NON_REGISTERED_EU_SERVICE_MSG;
+    return { ok: false, appliedRules: [REGISTRATION_RULE_ID, ruleId], errors: [message] };
+  }
+  if (identity.identifierKind === "non_eu") {
+    return postNonEuServiceReverseChargePurchase(db, input);
+  }
+  const viesCheck = requireCachedViesValidation(db, identity.identifier, "document sender_vat_cvr");
+  if (!viesCheck.ok) return { ok: false, appliedRules: [...new Set([REVERSE_CHARGE_RULE_ID, ...viesCheck.appliedRules])], errors: viesCheck.errors };
+  return postServiceReverseChargeLines(db, input, "EU_SERVICE_REVERSE_CHARGE", REVERSE_CHARGE_RULE_ID, "EU");
 }
 
 export function postRepresentationPurchase(db: Database, input: RepresentationPurchaseInput): JournalPostResult {
@@ -270,6 +479,10 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
   if (!companyIsVatRegistered(db)) {
     return { ok: false, appliedRules: [REGISTRATION_RULE_ID, REPRESENTATION_RULE_ID], errors: [NON_REGISTERED_REPRESENTATION_MSG] };
   }
+  const splitErrors = unsupportedStructuredPurchaseLinesErrors(db, input.documentId, "representation");
+  if (splitErrors.length > 0) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: splitErrors };
+  const supplierErrors = documentDanishInputVatSupplierErrors(db, input.documentId);
+  if (supplierErrors.length > 0) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: supplierErrors };
 
   const fullVatAmount = percentOfDkk(input.netAmount, 25);
   const deductibleVatAmount = percentOfDkk(fullVatAmount, 25);
@@ -337,6 +550,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       foreignReverseChargeSalesBase: 0,
       domesticReverseChargeSalesBase: 0,
       reverseChargePurchaseBase: 0,
+      nonEuServiceReverseChargePurchaseBase: 0,
       reverseChargePurchaseOutputVat: 0,
       representationPurchaseBase: 0,
       badDebtReliefBase25: 0,
@@ -358,7 +572,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   }
 
   const rows = db.query(
-    `SELECT je.id as entry_id, je.status, je.reversal_of_entry_id, a.account_no, a.type as account_type, a.normal_balance, a.default_vat_code, jl.debit_amount, jl.credit_amount, jl.vat_code
+    `SELECT je.id as entry_id, je.status, je.reversal_of_entry_id, je.currency as entry_currency, a.account_no, a.type as account_type, a.normal_balance, a.default_vat_code, jl.debit_amount, jl.credit_amount, jl.vat_code
      FROM journal_entries je
      JOIN journal_lines jl ON jl.journal_entry_id = je.id
      JOIN accounts a ON a.id = jl.account_id
@@ -368,6 +582,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     entry_id: number;
     status: string;
     reversal_of_entry_id: number | null;
+    entry_currency: string;
     account_no: string;
     account_type: string;
     normal_balance: "debit" | "credit";
@@ -387,6 +602,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   let foreignReverseChargeSalesBase = 0;
   let domesticReverseChargeSalesBase = 0;
   let reverseChargePurchaseBase = 0;
+  let nonEuServiceReverseChargePurchaseBase = 0;
   let representationPurchaseBase = 0;
   // Reverse-charge output VAT is booked per purchase on account 1200, øre-
   // rounded per transaction. To recover the *booked* total (which can differ
@@ -408,6 +624,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   // (lineCount - 1)-øre tolerance on the reconciliation cross-check below.
   let outputVatBaseLines = 0;
   let inputVatBaseLines = 0;
+  let foreignOutputVatBaseLines = 0;
+  let foreignInputVatBaseLines = 0;
   const activeEntryIds = new Set<number>();
   const reversedEntryIds = new Set<number>();
   const reversalEntryIds = new Set<number>();
@@ -458,8 +676,17 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       errors.push(`journal entry ${row.entry_id} line on VAT-relevant account ${row.account_no} has no explicit vat_code; no VAT base was inferred — document and resolve the classification before filing`);
     }
 
-    if (row.vat_code === "DK_PURCHASE_25") { purchaseBase25 += debit - credit; inputVatBaseLines += 1; }
-    if (row.vat_code === "DK_SALE_25") { salesBase25 += credit - debit; outputVatBaseLines += 1; }
+    const isForeignCurrencyEntry = row.entry_currency !== "DKK";
+    if (row.vat_code === "DK_PURCHASE_25") {
+      purchaseBase25 += debit - credit;
+      inputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) foreignInputVatBaseLines += 1;
+    }
+    if (row.vat_code === "DK_SALE_25") {
+      salesBase25 += credit - debit;
+      outputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) foreignOutputVatBaseLines += 1;
+    }
     // JUR-2/KODE-2: keep the two reverse-charge sales bases apart so the
     // momsangivelse can route foreign → rubrik B (VIES) and domestic → rubrik C.
     if (row.vat_code === "REVERSE_CHARGE_EXEMPT") foreignReverseChargeSalesBase += credit - debit;
@@ -470,9 +697,31 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       // Reverse charge contributes to both output and input VAT.
       inputVatBaseLines += 1;
       outputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) {
+        foreignInputVatBaseLines += 1;
+        foreignOutputVatBaseLines += 1;
+      }
     }
-    if (row.vat_code === "REPRESENTATION_SPECIAL") { representationPurchaseBase += debit - credit; inputVatBaseLines += 1; }
-    if (row.vat_code === "DK_BAD_DEBT_25") { badDebtReliefBase25 += debit - credit; outputVatBaseLines += 1; }
+    if (row.vat_code === "NON_EU_SERVICE_REVERSE_CHARGE") {
+      nonEuServiceReverseChargePurchaseBase += debit - credit;
+      reverseChargeEntryIds.add(row.entry_id);
+      inputVatBaseLines += 1;
+      outputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) {
+        foreignInputVatBaseLines += 1;
+        foreignOutputVatBaseLines += 1;
+      }
+    }
+    if (row.vat_code === "REPRESENTATION_SPECIAL") {
+      representationPurchaseBase += debit - credit;
+      inputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) foreignInputVatBaseLines += 1;
+    }
+    if (row.vat_code === "DK_BAD_DEBT_25") {
+      badDebtReliefBase25 += debit - credit;
+      outputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) foreignOutputVatBaseLines += 1;
+    }
     // VAT-exempt domestic sales (momsloven §13) and OSS consumer sales carry
     // NO Danish output VAT, so they are tracked in their own bases and are
     // deliberately NOT added to outputVatBaseLines (the output-VAT
@@ -492,6 +741,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   domesticReverseChargeSalesBase = roundDkk(domesticReverseChargeSalesBase);
   const reverseChargeSalesBase = addDkk(foreignReverseChargeSalesBase, domesticReverseChargeSalesBase);
   reverseChargePurchaseBase = roundDkk(reverseChargePurchaseBase);
+  nonEuServiceReverseChargePurchaseBase = roundDkk(nonEuServiceReverseChargePurchaseBase);
   // Booked reverse-charge output VAT: the 1200 net booked on exactly the
   // entries that carry a reverse-charge base line. Summed as the øre-rounded
   // per-entry amounts so the figure equals what hit account 1200, not 25% of
@@ -505,16 +755,20 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   exemptSalesBase = roundDkk(exemptSalesBase);
   ossConsumerSalesBase = roundDkk(ossConsumerSalesBase);
 
-  const expectedOutputVat = subtractDkk(addDkk(percentOfDkk(salesBase25, 25), percentOfDkk(reverseChargePurchaseBase, 25)), percentOfDkk(badDebtReliefBase25, 25));
-  const expectedInputVat = addDkk(addDkk(percentOfDkk(purchaseBase25, 25), percentOfDkk(reverseChargePurchaseBase, 25)), percentOfDkk(percentOfDkk(representationPurchaseBase, 25), 25));
+  const foreignServiceReverseChargeBase = addDkk(reverseChargePurchaseBase, nonEuServiceReverseChargePurchaseBase);
+  const expectedOutputVat = subtractDkk(addDkk(percentOfDkk(salesBase25, 25), percentOfDkk(foreignServiceReverseChargeBase, 25)), percentOfDkk(badDebtReliefBase25, 25));
+  const expectedInputVat = addDkk(addDkk(percentOfDkk(purchaseBase25, 25), percentOfDkk(foreignServiceReverseChargeBase, 25)), percentOfDkk(percentOfDkk(representationPurchaseBase, 25), 25));
   const warnings: string[] = [];
   // Each VAT-bearing base line is rounded to øre independently when booked,
   // so the booked aggregate can differ from "25% of the summed base" by up to
   // 1 øre per line. Only the *first* line establishes the aggregate; the
   // remaining (n-1) lines can each drift it, so the tolerance is (n-1) øre.
   // A genuine mis-booking exceeds this small bound and still warns.
-  const outputVatTolerance = Math.max(0, outputVatBaseLines - 1);
-  const inputVatTolerance = Math.max(0, inputVatBaseLines - 1);
+  // Foreign-currency entries round the stated VAT and its net base into DKK
+  // independently before balancing. That conversion can add one further øre
+  // of legitimate drift per foreign base line.
+  const outputVatTolerance = Math.max(0, outputVatBaseLines - 1) + foreignOutputVatBaseLines;
+  const inputVatTolerance = Math.max(0, inputVatBaseLines - 1) + foreignInputVatBaseLines;
   if (oreDifference(outputVat, expectedOutputVat) > outputVatTolerance) {
     warnings.push(`output VAT mismatch: booked ${outputVat}, expected from base × rate ${expectedOutputVat}`);
   }
@@ -553,6 +807,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     foreignReverseChargeSalesBase,
     domesticReverseChargeSalesBase,
     reverseChargePurchaseBase,
+    nonEuServiceReverseChargePurchaseBase,
     reverseChargePurchaseOutputVat,
     representationPurchaseBase,
     badDebtReliefBase25,

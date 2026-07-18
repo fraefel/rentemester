@@ -24,6 +24,11 @@ vat_codes:
     rate: 0.25
     reverse_charge: true
     deductible_percentage: 1.0
+  - code: NON_EU_SERVICE_REVERSE_CHARGE
+    type: purchase
+    rate: 0.25
+    reverse_charge: true
+    deductible_percentage: 1.0
   - code: REPRESENTATION_SPECIAL
     type: purchase
     rate: 0.25
@@ -114,6 +119,29 @@ rules:
         - identical_vat_amounts_when_fully_deductible
         - reverse_charge_purchase_base
     explanation: Rentemester must deterministically book reverse-charge VAT on EU service purchases so VAT reporting includes both the payment liability and the deductible input tax when applicable.
+  - rule_id: DK-VAT-NON-EU-SERVICE-REVERSE-CHARGE-001
+    name: Non-EU service reverse-charge purchases must be explicitly selected and keep their country provenance
+    category: vat_posting
+    source_id: DK-MOMSLOVEN-2024-209
+    provisions:
+      - ref: "§ 46, stk. 1, nr. 3"
+        text_hash: "sha256:6b3c682575a7903360cc80d40e778a9839870f439a5b10f14c52e117d4086428"
+    severity: hard_stop
+    machine_rule:
+      condition: vat_code == 'NON_EU_SERVICE_REVERSE_CHARGE'
+      require:
+        - explicit_non_eu_service_treatment
+        - resolved_non_eu_supplier_country
+        - supplier_home_registration_number
+        - buyer_vat_identifier
+        - reverse_charge_wording_confirmed
+        - output_vat_line_on_reverse_charge_role
+        - input_vat_line_on_input_vat_role
+        - identical_vat_amounts_when_fully_deductible
+      forbid:
+        - fabricated_eu_vat_identifier
+        - eu_rubrik_a_base
+    explanation: Services bought from suppliers outside the EU can carry Danish reverse-charge VAT, but automatic input-VAT deduction requires invoice evidence for the supplier home registration number, the Danish buyer VAT identifier, and reverse-charge wording. Their purchase base is not an EU rubrik A amount and the classification must never be inferred from country alone.
   - rule_id: DK-VAT-REPRESENTATION-001
     name: Representation purchases with limited VAT deduction must only book 25 percent of the VAT as deductible input tax
     category: vat_posting

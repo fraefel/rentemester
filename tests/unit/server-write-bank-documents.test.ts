@@ -458,6 +458,27 @@ describe("Cockpit write — document ingest (gates + input errors)", () => {
     }
   });
 
+  test("reverse-charge wording evidence must be a boolean", async () => {
+    const { root: ws, slug } = makeWorkspace("doc-bad-reverse-charge-evidence");
+    try {
+      const res = await post(
+        config({ workspaceRoot: ws }),
+        `/api/companies/${slug}/documents/ingest`,
+        receiptBody({
+          metadata: {
+            source: "photo-upload",
+            documentType: "cash_register_receipt",
+            reverseChargeWordingConfirmed: "yes",
+          },
+        }),
+      );
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body)).toContain("reverseChargeWordingConfirmed");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   test("an unknown vendorId is mapped to a conflict, not a 500", async () => {
     const { root: ws, slug } = makeWorkspace("doc-badvendor");
     try {

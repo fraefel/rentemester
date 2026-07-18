@@ -11,6 +11,8 @@ import { ingestDocument } from "../../src/core/documents";
 import { buildBankReconciliationReport } from "../../src/core/reconciliation";
 import { bookExpenseFromBank } from "../../src/core/expense-booking";
 import { storeViesValidation } from "../../src/core/vies";
+import { buildVatReport, postRepresentationPurchase } from "../../src/core/vat";
+import { registerPayable } from "../../src/core/payables";
 
 describe("expense booking", () => {
   // ---------------------------------------------------------------------
@@ -110,7 +112,7 @@ describe("expense booking", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("non_deductible is refused at a VAT-registered company (points at standard)", () => {
+  test("non_deductible remains available at a VAT-registered company", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-reg-"));
     const inbox = mkdtempSync(join(tmpdir(), "rentemester-non-deductible-reg-inbox-"));
     const csv = join(root, "transactions.csv");
@@ -152,10 +154,53 @@ describe("expense booking", () => {
       vatTreatment: "non_deductible",
     });
 
-    expect(booked.ok).toBe(false);
-    expect(booked.errors.join(" ")).toMatch(/not VAT-registered/);
-    expect(booked.errors.join(" ")).toMatch(/standard/);
+    expect(booked.ok).toBe(true);
+    expect(db.query(
+      `SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code
+         FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.journal_entry_id = ? ORDER BY jl.id`,
+    ).all(booked.entryId!)).toEqual([
+      { account_no: "3000", debit_amount: 1250, credit_amount: 0, vat_code: null },
+      { account_no: "2000", debit_amount: 0, credit_amount: 1250, vat_code: null },
+    ]);
 
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("an identity-less cash receipt cannot claim Danish input VAT", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-cash-receipt-vat-evidence-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-cash-receipt-vat-evidence-inbox-"));
+    const csv = join(root, "transactions.csv");
+    const sourceFile = join(inbox, "receipt.txt");
+    writeFileSync(csv, [
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-16,2026-05-16,UNKNOWN RECEIPT,-1250,DKK,REF-CASH-VAT-1",
+    ].join("\n"));
+    writeFileSync(sourceFile, "Receipt\n1250 DKK\n");
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+    const doc = ingestDocument(db, root, sourceFile, {
+      source: "photo-upload",
+      documentType: "cash_register_receipt",
+      amountIncVat: 1250,
+      vatAmount: 250,
+      currency: "DKK",
+    });
+    expect(doc.ok).toBe(true);
+    const bank = db.query("SELECT id FROM bank_transactions WHERE reference = 'REF-CASH-VAT-1'").get() as { id: number };
+    const standard = bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bank.id, expenseAccountNo: "3000", vatTreatment: "standard" });
+    expect(standard.ok).toBe(false);
+    expect(standard.errors.join(" ")).toContain("resolved Danish supplier identity");
+    const payable = registerPayable(db, { documentId: doc.documentId!, billDate: "2026-05-16", dueDate: "2026-06-16", expenseAccountNo: "3000", vatTreatment: "standard" });
+    expect(payable.ok).toBe(false);
+    expect(payable.errors.join(" ")).toContain("resolved Danish supplier identity");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 0 });
+    const gross = bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bank.id, expenseAccountNo: "3000", vatTreatment: "non_deductible" });
+    expect(gross.ok).toBe(true);
     db.close();
     rmSync(root, { recursive: true, force: true });
     rmSync(inbox, { recursive: true, force: true });
@@ -444,10 +489,48 @@ describe("expense booking", () => {
     expect(booked.netAmount).toBe(746);
     expect(booked.vatAmount).toBe(0);
     expect(booked.vatTreatment).toBe("exempt");
+    expect(booked).toMatchObject({ grossAmountForeign: 100, grossAmountDkk: 746, netAmountDkk: 746, vatAmountDkk: 0, fxRateToDkk: 7.46 });
 
     const entry = db.query("SELECT currency, amount_foreign, amount_dkk, fx_rate_to_dkk FROM journal_entries WHERE id = ?").get(booked.entryId!) as any;
     expect(entry).toEqual({ currency: "EUR", amount_foreign: 100, amount_dkk: 746, fx_rate_to_dkk: 7.46 });
 
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("books a signed foreign-currency bank row using the absolute DKK valuation", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-expense-book-fx-signed-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-expense-book-fx-signed-inbox-"));
+    const csv = join(root, "transactions.csv");
+    const sourceFile = join(inbox, "vendor.txt");
+    writeFileSync(csv, [
+      "transaction_date,booking_date,text,amount,currency,amount_dkk,fx_rate_to_dkk,reference",
+      "2026-05-16,2026-05-16,CLOUD VENDOR,-100,EUR,-746,7.46,REF-FX-SIGNED-1",
+    ].join("\n"));
+    writeFileSync(sourceFile, "Invoice\n100 EUR\n");
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+    const doc = ingestDocument(db, root, sourceFile, {
+      source: "email",
+      issueDate: "2026-05-16",
+      invoiceNo: "V-FX-SIGNED-1",
+      deliveryDescription: "Cloud service",
+      amountIncVat: 100,
+      currency: "EUR",
+      sender: { name: "Cloud Vendor", address: "Berlin", vatOrCvr: "DE123456789" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      vatAmount: 0,
+    });
+    expect(doc.ok).toBe(true);
+    const bankRow = db.query("SELECT id, amount_dkk FROM bank_transactions WHERE reference = 'REF-FX-SIGNED-1'").get() as { id: number; amount_dkk: number };
+    expect(bankRow.amount_dkk).toBe(-746);
+    const booked = bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bankRow.id, expenseAccountNo: "3000", vatTreatment: "exempt" });
+    expect(booked.ok).toBe(true);
+    expect(booked).toMatchObject({ grossAmountForeign: 100, grossAmountDkk: 746, netAmountDkk: 746, vatAmountDkk: 0, fxRateToDkk: 7.46 });
+    expect(db.query("SELECT amount_foreign, amount_dkk, fx_rate_to_dkk FROM journal_entries WHERE id = ?").get(booked.entryId!)).toEqual({ amount_foreign: 100, amount_dkk: 746, fx_rate_to_dkk: 7.46 });
     db.close();
     rmSync(root, { recursive: true, force: true });
     rmSync(inbox, { recursive: true, force: true });
@@ -613,6 +696,164 @@ describe("expense booking", () => {
     const report = buildBankReconciliationReport(db, "2026-05-01", "2026-05-31");
     expect(report.matchedCount).toBe(1);
     expect(report.unmatchedCount).toBe(0);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("#529 ingests a US service without an EU ID but requires complete invoice evidence before VAT deduction", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-expense-book-us-rc-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-expense-book-us-rc-inbox-"));
+    const csv = join(root, "transactions.csv");
+    const sourceFile = join(inbox, "us-saas-no-registration.txt");
+    const mismatchedSourceFile = join(inbox, "us-saas-wrong-buyer.txt");
+    const evidencedSourceFile = join(inbox, "us-saas-evidenced.txt");
+    writeFileSync(csv, [
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-16,2026-05-16,US SAAS,-1000,DKK,REF-US-RC-1",
+      "2026-05-17,2026-05-17,US SAAS WRONG BUYER,-1000,DKK,REF-US-RC-MISMATCH",
+      "2026-05-17,2026-05-17,US SAAS EVIDENCED,-1000,DKK,REF-US-RC-2",
+    ].join("\n"));
+    writeFileSync(sourceFile, "US SaaS invoice\n1000 DKK\n");
+    writeFileSync(mismatchedSourceFile, "US SaaS invoice addressed to another buyer\n1000 DKK\nReverse charge\n");
+    writeFileSync(evidencedSourceFile, "US SaaS evidenced invoice\n1000 DKK\nReverse charge\n");
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    db.run("INSERT INTO companies (id, name, cvr, vat_period_type) VALUES (1, 'Rentemester ApS', 'DK12345678', 'quarter')");
+    seedAccounts(db);
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+    const doc = ingestDocument(db, root, sourceFile, {
+      source: "email",
+      issueDate: "2026-05-16",
+      invoiceNo: "US-RC-529",
+      deliveryDescription: "US SaaS subscription",
+      amountIncVat: 1000,
+      currency: "DKK",
+      sender: { name: "US SaaS Inc.", address: "New York", countryCode: "US", identifierKind: "non_eu" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      vatAmount: 0,
+    });
+    expect(doc.ok).toBe(true);
+    const bankRow = db.query("SELECT id FROM bank_transactions WHERE reference = 'REF-US-RC-1'").get() as { id: number };
+    const refused = bookExpenseFromBank(db, {
+      documentId: doc.documentId!,
+      bankTransactionId: bankRow.id,
+      expenseAccountNo: "3010",
+    });
+    expect(refused.ok).toBe(false);
+    expect(refused.errors.join(" ")).toContain("supplier's home-country registration number");
+    expect(refused.errors.join(" ")).toContain("confirmed reverse-charge wording");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 0 });
+
+    const mismatchedDoc = ingestDocument(db, root, mismatchedSourceFile, {
+      source: "email",
+      issueDate: "2026-05-17",
+      invoiceNo: "US-RC-529-WRONG-BUYER",
+      deliveryDescription: "US SaaS subscription",
+      amountIncVat: 1000,
+      currency: "DKK",
+      sender: { name: "US SaaS Inc.", address: "New York", vatOrCvr: "US-EIN-12-3456789", countryCode: "US", identifierKind: "non_eu" },
+      recipient: { name: "Another ApS", address: "Anden vej 1", vatOrCvr: "DK87654321" },
+      vatAmount: 0,
+      reverseChargeWordingConfirmed: true,
+    });
+    expect(mismatchedDoc.ok).toBe(true);
+    const mismatchedBank = db.query("SELECT id FROM bank_transactions WHERE reference = 'REF-US-RC-MISMATCH'").get() as { id: number };
+    const mismatchedBooking = bookExpenseFromBank(db, { documentId: mismatchedDoc.documentId!, bankTransactionId: mismatchedBank.id, expenseAccountNo: "3010" });
+    expect(mismatchedBooking.ok).toBe(false);
+    expect(mismatchedBooking.errors.join(" ")).toContain("does not match the ledger company's configured VAT identifier");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 0 });
+
+    const evidencedDoc = ingestDocument(db, root, evidencedSourceFile, {
+      source: "email",
+      issueDate: "2026-05-17",
+      invoiceNo: "US-RC-529-EVIDENCED",
+      deliveryDescription: "US SaaS subscription",
+      amountIncVat: 1000,
+      currency: "DKK",
+      sender: { name: "US SaaS Inc.", address: "New York", vatOrCvr: "US-EIN-12-3456789", countryCode: "US", identifierKind: "non_eu" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      vatAmount: 0,
+      reverseChargeWordingConfirmed: true,
+    });
+    expect(evidencedDoc.ok).toBe(true);
+    const evidencedBankRow = db.query("SELECT id FROM bank_transactions WHERE reference = 'REF-US-RC-2'").get() as { id: number };
+    const booked = bookExpenseFromBank(db, {
+      documentId: evidencedDoc.documentId!,
+      bankTransactionId: evidencedBankRow.id,
+      expenseAccountNo: "3010",
+    });
+    expect({ ok: booked.ok, errors: booked.errors, vatTreatment: booked.vatTreatment }).toEqual({ ok: true, errors: [], vatTreatment: "reverse_charge" });
+    const lines = db.query(
+      `SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code
+         FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.journal_entry_id = ? ORDER BY jl.id`,
+    ).all(booked.entryId!) as any[];
+    expect(lines[0]).toMatchObject({ account_no: "3010", debit_amount: 1000, vat_code: "NON_EU_SERVICE_REVERSE_CHARGE" });
+    expect(lines[1]).toMatchObject({ account_no: "4000", debit_amount: 250 });
+    expect(lines[3]).toMatchObject({ account_no: "1200", credit_amount: 250 });
+    const report = buildVatReport(db, "2026-05-01", "2026-05-31");
+    expect(report).toMatchObject({ ok: true, outputVat: 250, inputVat: 250, reverseChargePurchaseBase: 0, nonEuServiceReverseChargePurchaseBase: 1000, reverseChargePurchaseOutputVat: 250 });
+    expect(report.rubrikker.rubrikA).toBe(0);
+    expect(report.rubrikker.momsAfYdelseskobUdland).toBe(250);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
+
+  test("#529 foreign local tax cannot be claimed as Danish input VAT through bank, payable, or representation", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-foreign-tax-gate-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-foreign-tax-gate-inbox-"));
+    const csv = join(root, "transactions.csv");
+    const sourceFile = join(inbox, "foreign-tax.txt");
+    writeFileSync(csv, [
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-18,2026-05-18,US PURCHASE WITH LOCAL TAX,-1250,DKK,REF-US-TAX-1",
+    ].join("\n"));
+    writeFileSync(sourceFile, "US purchase with local tax\n1250 DKK\n");
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+    const doc = ingestDocument(db, root, sourceFile, {
+      source: "email",
+      issueDate: "2026-05-18",
+      invoiceNo: "US-LOCAL-TAX-529",
+      deliveryDescription: "Foreign purchase with local sales tax",
+      amountIncVat: 1250,
+      currency: "DKK",
+      sender: { name: "US Vendor Inc.", address: "New York", vatOrCvr: "US-EIN-12-3456789", countryCode: "US", identifierKind: "non_eu" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      vatAmount: 250,
+    });
+    expect(doc.ok).toBe(true);
+    const bank = db.query("SELECT id FROM bank_transactions WHERE reference = 'REF-US-TAX-1'").get() as { id: number };
+
+    const standard = bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bank.id, expenseAccountNo: "3000", vatTreatment: "standard" });
+    expect(standard.ok).toBe(false);
+    expect(standard.errors.join(" ")).toContain("non_eu/US");
+    const representation = bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bank.id, expenseAccountNo: "3070", vatTreatment: "representation" });
+    expect(representation.ok).toBe(false);
+    expect(representation.errors.join(" ")).toContain("non_eu/US");
+    const directRepresentation = postRepresentationPurchase(db, { transactionDate: "2026-05-18", text: "Foreign representation", documentId: doc.documentId!, netAmount: 1000 });
+    expect(directRepresentation.ok).toBe(false);
+    expect(directRepresentation.errors.join(" ")).toContain("non_eu/US");
+    const payable = registerPayable(db, { documentId: doc.documentId!, billDate: "2026-05-18", dueDate: "2026-06-18", expenseAccountNo: "3000", vatTreatment: "standard" });
+    expect(payable.ok).toBe(false);
+    expect(payable.errors.join(" ")).toContain("non_eu/US");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 0 });
+
+    const grossCost = bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bank.id, expenseAccountNo: "3000", vatTreatment: "non_deductible" });
+    expect(grossCost.ok).toBe(true);
+    expect(db.query(
+      `SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code
+         FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.journal_entry_id = ? ORDER BY jl.id`,
+    ).all(grossCost.entryId!)).toEqual([
+      { account_no: "3000", debit_amount: 1250, credit_amount: 0, vat_code: null },
+      { account_no: "2000", debit_amount: 0, credit_amount: 1250, vat_code: null },
+    ]);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

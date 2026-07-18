@@ -13,6 +13,13 @@ export type SupplierIdentityResolution =
   | { ok: true; status: "resolved"; country: string; identifier: string | null; identifierKind: SupplierIdentifierKind; euVatRegistered: boolean }
   | { ok: false; status: "human_resolution_required"; errors: string[] };
 
+export type PersistedSupplierIdentity = {
+  supplierCountryCode: string | null | undefined;
+  supplierIdentifierKind: string | null | undefined;
+  supplierIdentityStatus: string | null | undefined;
+  supplierVatOrCvr: string | null | undefined;
+};
+
 const EU_COUNTRIES = new Set(["AT", "BE", "BG", "HR", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "GR", "HU", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK"]);
 
 export function resolveSupplierIdentity(input: SupplierIdentityInput): SupplierIdentityResolution {
@@ -49,4 +56,51 @@ export function resolveLegacySupplierIdentity(identifier: string | null | undefi
     return resolveSupplierIdentity({ country, identifier: value, identifierKind: "eu_vat" });
   }
   return { ok: false, status: "human_resolution_required", errors: ["supplier identity is ambiguous: explicit country and typed identifier require human resolution"] };
+}
+
+/**
+ * Resolve the durable identity stored on a purchase document. New rows must
+ * carry an explicit resolved country/kind pair; legacy rows may only be
+ * upgraded when their VAT identifier is unambiguous. Keeping this decision in
+ * one place prevents booking and exports from interpreting the same row
+ * differently.
+ */
+export function resolvePersistedSupplierIdentity(input: PersistedSupplierIdentity): SupplierIdentityResolution {
+  if (input.supplierIdentityStatus === "resolved") {
+    const identifierKind = input.supplierIdentifierKind;
+    if (identifierKind === "dk_cvr" || identifierKind === "eu_vat" || identifierKind === "non_eu") {
+      return resolveSupplierIdentity({
+        country: input.supplierCountryCode ?? "",
+        identifier: input.supplierVatOrCvr ?? undefined,
+        identifierKind,
+      });
+    }
+    return { ok: false, status: "human_resolution_required", errors: ["persisted supplier identity has an unsupported identifier kind"] };
+  }
+  if (input.supplierIdentityStatus !== null && input.supplierIdentityStatus !== undefined) {
+    return { ok: false, status: "human_resolution_required", errors: ["persisted supplier identity is explicitly unresolved"] };
+  }
+  if (input.supplierCountryCode || input.supplierIdentifierKind) {
+    return { ok: false, status: "human_resolution_required", errors: ["persisted supplier identity is explicitly unresolved"] };
+  }
+  return resolveLegacySupplierIdentity(input.supplierVatOrCvr);
+}
+
+/**
+ * Danish input VAT (`DK_PURCHASE_25`) may only be deducted from a supplier
+ * invoice whose durable identity resolves to a Danish CVR. Foreign VAT must
+ * never be relabelled as Danish købsmoms; callers can instead use the relevant
+ * reverse-charge flow or book the gross cost as non-deductible.
+ */
+export function deductibleDanishPurchaseSupplierErrors(
+  input: PersistedSupplierIdentity,
+): string[] {
+  const identity = resolvePersistedSupplierIdentity(input);
+  if (!identity.ok) {
+    return ["deductible Danish purchase VAT requires a resolved Danish supplier identity; use human resolution or non_deductible instead"];
+  }
+  if (identity.identifierKind !== "dk_cvr" || identity.country !== "DK") {
+    return [`deductible Danish purchase VAT requires a Danish supplier CVR, but the document supplier is ${identity.identifierKind}/${identity.country}; use the applicable reverse-charge flow or non_deductible instead`];
+  }
+  return [];
 }

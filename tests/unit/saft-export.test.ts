@@ -300,6 +300,37 @@ describe("SAF-T export second slice (purchases, VAT summary, document references
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("#529 exports a resolved non-EU supplier without inventing a tax ID", () => {
+    const { root, companyRoot, exportRoot, db } = setupCompanyWithSalesAndPurchase();
+    insertPurchaseDocument(db, {
+      documentNo: "DOC-2026-US-529",
+      invoiceNo: "US-SAAS-529",
+      invoiceDate: "2026-05-12",
+      supplierName: "US SaaS Inc.",
+      supplierVatCvr: null,
+      amountIncVat: 1000,
+      vatAmount: 0,
+      sha256: "5".repeat(64),
+    });
+    db.run(
+      "UPDATE documents SET supplier_country_code = 'US', supplier_identifier_kind = 'non_eu', supplier_identity_status = 'resolved' WHERE document_no = 'DOC-2026-US-529'",
+    );
+    const result = exportSaftPackage(db, companyRoot, {
+      periodStart: "2026-05-01", periodEnd: "2026-05-31", outputDir: exportRoot, generatedAt: "2026-05-17T02:24:00.000Z",
+    });
+    expect(result.ok).toBe(true);
+    const xml = readFileSync(result.saftXmlPath!, "utf8");
+    const purchaseStart = xml.indexOf("<DocumentNo>DOC-2026-US-529</DocumentNo>");
+    const purchaseEnd = xml.indexOf("</Invoice>", purchaseStart);
+    const purchaseXml = xml.slice(purchaseStart, purchaseEnd);
+    expect(purchaseXml).toContain("<SupplierCountryCode>US</SupplierCountryCode>");
+    expect(purchaseXml).toContain("<SupplierIdentifierKind>non_eu</SupplierIdentifierKind>");
+    expect(purchaseXml).toContain("<SupplierIdentityStatus>resolved</SupplierIdentityStatus>");
+    expect(purchaseXml).not.toContain("<SupplierTaxID>");
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   // ===== Third slice (master files): customers + suppliers in MasterFiles =====
   test("emits Customers and Suppliers under MasterFiles and counts them in the manifest", () => {
     const { root, companyRoot, exportRoot, db } = setupCompanyWithSalesAndPurchase();

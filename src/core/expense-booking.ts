@@ -1,19 +1,19 @@
 import type { Database } from "bun:sqlite";
 import { getCompanySettings } from "./company";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
-import { postEuServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
-import { absDkk, compareDkk, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk } from "./money";
+import { postForeignServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
+import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
-import { purchaseVatLinesFromPayload } from "./documents";
+import { parsePurchaseVatLinesPayload, type PurchaseVatLine } from "./documents";
+import { deductibleDanishPurchaseSupplierErrors } from "./supplier-identity";
 
 /**
  * `non_deductible` (DK-VAT-NON-DEDUCTIBLE-001 / Momsloven § 37) is the
- * treatment for a VAT-charged purchase received by a NOT VAT-registered
- * company — the entire VAT is absorbed into the expense cost basis (gross
+ * treatment for a purchase whose VAT is not deductible (including foreign
+ * local tax and purchases by a non-VAT-registered company). The entire VAT is absorbed into the expense cost basis (gross
  * debit on the expense account, no 4000 input-VAT line, nothing for the
  * momsangivelse). The branch mirrors `exempt`'s line shape but accepts
- * `vat_amount > 0`. It is refused on a registered company; for those,
- * `standard` is the right treatment.
+ * `vat_amount > 0` and remains available to VAT-registered companies.
  */
 export type ExpenseVatTreatment =
   | "standard"
@@ -41,6 +41,11 @@ export type BookExpenseFromBankResult = JournalPostResult & {
   netAmount?: number;
   vatAmount?: number;
   vatTreatment?: ExpenseVatTreatment;
+  grossAmountForeign?: number;
+  grossAmountDkk?: number;
+  netAmountDkk?: number;
+  vatAmountDkk?: number;
+  fxRateToDkk?: number;
 };
 
 type FxBookingBasis = {
@@ -54,6 +59,34 @@ type FxBookingBasis = {
 // ExpenseVatTreatment type — the caller is forced to pass an explicit
 // vatTreatment when the account's default_vat_code is null or unmapped.
 type InferredVatTreatment = ExpenseVatTreatment | "unknown";
+
+/** Convert mixed purchase bases to DKK while allocating the one-øre FX
+ * residual deterministically. Prefer an exempt base so the taxable base keeps
+ * its exact 25% relationship to the separately rounded VAT amount. */
+function scalePurchaseVatNetAmounts(
+  lines: PurchaseVatLine[],
+  scale: number,
+  grossAmountDkk: number,
+  vatAmountDkk: number,
+):
+  | { ok: true; lines: Array<{ line: PurchaseVatLine; netAmountDkk: number }> }
+  | { ok: false; error: string } {
+  const scaled = lines.map((line) => ({ line, netAmountDkk: roundDkk(line.netAmount * scale) }));
+  const targetNetOre = toOre(subtractDkk(grossAmountDkk, vatAmountDkk));
+  const currentNetOre = scaled.reduce((sum, item) => sum + toOre(item.netAmountDkk), 0n);
+  const residual = targetNetOre - currentNetOre;
+  if (residual === 0n || scaled.length === 0) return { ok: true, lines: scaled };
+
+  const exemptIndexes = scaled.flatMap((item, index) => item.line.classification === "exempt" ? [index] : []);
+  const candidates = exemptIndexes.length > 0 ? exemptIndexes : scaled.map((_, index) => index);
+  const targetIndex = candidates.reduce((best, index) =>
+    toOre(scaled[index]!.netAmountDkk) > toOre(scaled[best]!.netAmountDkk) ? index : best,
+  candidates[0]!);
+  const adjustedOre = toOre(scaled[targetIndex]!.netAmountDkk) + residual;
+  if (adjustedOre < 0n) return { ok: false, error: "FX residual allocation would make a purchase VAT base negative" };
+  scaled[targetIndex] = { ...scaled[targetIndex]!, netAmountDkk: fromOre(adjustedOre) };
+  return { ok: true, lines: scaled };
+}
 
 function inferVatTreatment(
   defaultVatCode: string | null,
@@ -116,8 +149,8 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
 
   if (bankCurrency === "DKK") {
     const grossAmountDkk = roundDkk(Math.abs(Number(bank.amount)));
-    if (bank.amount_dkk != null && compareDkk(Number(bank.amount_dkk), grossAmountDkk) !== 0) {
-      return { ok: false, error: `bank transaction ${bank.id} amount_dkk ${roundDkk(Number(bank.amount_dkk))} does not match DKK settlement amount ${grossAmountDkk}` };
+    if (bank.amount_dkk != null && compareDkk(Math.abs(Number(bank.amount_dkk)), grossAmountDkk) !== 0) {
+      return { ok: false, error: `bank transaction ${bank.id} amount_dkk ${roundDkk(Math.abs(Number(bank.amount_dkk)))} does not match DKK settlement amount ${grossAmountDkk}` };
     }
     if (compareDkk(grossAmountDkk, expectedAmountDkk) !== 0) {
       return { ok: false, error: `bank transaction amount ${grossAmountDkk} DKK does not match document gross amount ${grossAmountForeign} ${currency} at fx_rate_to_dkk ${roundDkk(fxRateToDkk)} (${expectedAmountDkk} DKK)` };
@@ -142,7 +175,10 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
     return { ok: false, error: `bank transaction amount ${paymentAmountForeign} ${currency} does not match document gross amount ${grossAmountForeign} ${currency}` };
   }
 
-  const grossAmountDkk = roundDkk(Number(bank.amount_dkk ?? 0));
+  // Bank imports retain cash-flow signs: outgoing amount and amount_dkk are
+  // both negative. Journal metadata stores the positive gross valuation, just
+  // like the absolute foreign payment amount above.
+  const grossAmountDkk = roundDkk(Math.abs(Number(bank.amount_dkk ?? 0)));
   if (!(grossAmountDkk > 0)) {
     return { ok: false, error: `bank transaction ${bank.id} is missing amount_dkk for foreign-currency settlement` };
   }
@@ -182,7 +218,8 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   if (!account.active) return { ok: false, appliedRules: [], errors: [`account ${input.expenseAccountNo} is inactive`] };
 
   const document = db.query(
-    `SELECT id, document_type, invoice_no, invoice_date, amount_inc_vat, vat_amount, currency, sender_name, payload_json
+    `SELECT id, document_type, invoice_no, invoice_date, amount_inc_vat, vat_amount, currency, sender_name, payload_json,
+            sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
      FROM documents
      WHERE id = ?`
   ).get(input.documentId) as {
@@ -195,6 +232,10 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     currency: string;
     sender_name: string | null;
     payload_json: string | null;
+    sender_vat_cvr: string | null;
+    supplier_country_code: string | null;
+    supplier_identifier_kind: string | null;
+    supplier_identity_status: string | null;
   } | null;
   if (!document) return { ok: false, appliedRules: [], errors: [`document ${input.documentId} does not exist`] };
   if (document.document_type !== "purchase_sale" && document.document_type !== "cash_register_receipt") {
@@ -232,18 +273,14 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     };
   }
   const vatTreatment: ExpenseVatTreatment = inferredTreatment;
-  // `non_deductible` is meaningful only for a NOT VAT-registered
-  // company (Momsloven § 37 — no deduction without registration). Refuse it
-  // for a registered company; their VAT-charged bilag belong on `standard`,
-  // which still books the deductible input-VAT line on 4000.
-  if (vatTreatment === "non_deductible" && companyIsVatRegistered) {
-    return {
-      ok: false,
-      appliedRules: [],
-      errors: [
-        "non_deductible is only valid when the company is not VAT-registered (vatPeriodType === null) — use 'standard' for a registered company",
-      ],
-    };
+  if (vatTreatment === "standard" || vatTreatment === "representation") {
+    const supplierErrors = deductibleDanishPurchaseSupplierErrors({
+      supplierVatOrCvr: document.sender_vat_cvr,
+      supplierCountryCode: document.supplier_country_code,
+      supplierIdentifierKind: document.supplier_identifier_kind,
+      supplierIdentityStatus: document.supplier_identity_status,
+    });
+    if (supplierErrors.length > 0) return { ok: false, appliedRules: [], errors: supplierErrors };
   }
   const transactionDate = input.transactionDate ?? bank.transaction_date;
   // Posting text is read by a Danish owner — keep it fully Danish. The
@@ -277,21 +314,34 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
         amountDkk: fxBasis.basis.grossAmountDkk,
         fxRateToDkk: fxBasis.basis.fxRateToDkk,
       };
+  const fxSummary = {
+    grossAmountForeign: fxBasis.basis.grossAmountForeign,
+    grossAmountDkk: fxBasis.basis.grossAmountDkk,
+    fxRateToDkk: fxBasis.basis.fxRateToDkk,
+  };
 
-  const purchaseVatLines = purchaseVatLinesFromPayload(document.payload_json);
+  const parsedPurchaseVatLines = parsePurchaseVatLinesPayload(document.payload_json, {
+    amountIncVat: document.amount_inc_vat,
+    vatAmount: document.vat_amount,
+  });
+  if (parsedPurchaseVatLines.status === "invalid") {
+    return { ok: false, appliedRules: [], errors: parsedPurchaseVatLines.errors.map((error) => `document ${input.documentId} has invalid persisted purchaseVatLines: ${error}`) };
+  }
+  const purchaseVatLines = parsedPurchaseVatLines.lines;
+  if (purchaseVatLines && (vatTreatment === "reverse_charge" || vatTreatment === "representation")) {
+    return { ok: false, appliedRules: [], errors: [`${vatTreatment} expense booking does not support structured purchaseVatLines; use a dedicated unsplit document or human resolution`] };
+  }
   if (purchaseVatLines && vatTreatment === "standard") {
-    if (purchaseVatLines.some((line) => line.classification === "eu_service_reverse_charge" || line.classification === "domestic_reverse_charge")) {
-      return { ok: false, appliedRules: [], errors: ["mixed purchaseVatLines with reverse-charge classifications require a dedicated reverse-charge booking"] };
-    }
     const scale = fxBasis.basis.currency === "DKK" ? 1 : fxBasis.basis.fxRateToDkk;
-    const lines = purchaseVatLines.flatMap((line) => {
-      const net = roundDkk(line.netAmount * scale);
-      if (line.classification === "dk_purchase_25") return [{ accountNo: account.account_no, debitAmount: net, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, momspligtigt grundbeløb" }];
-      return [{ accountNo: account.account_no, debitAmount: net, vatCode: "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? "Udgift, momsfrit grundbeløb" }];
+    const scaledPurchaseVatLines = scalePurchaseVatNetAmounts(purchaseVatLines, scale, grossAmountDkk, vatAmountDkk);
+    if (!scaledPurchaseVatLines.ok) return { ok: false, appliedRules: [], errors: [scaledPurchaseVatLines.error] };
+    const lines = scaledPurchaseVatLines.lines.flatMap(({ line, netAmountDkk }) => {
+      if (line.classification === "dk_purchase_25") return [{ accountNo: account.account_no, debitAmount: netAmountDkk, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, momspligtigt grundbeløb" }];
+      return [{ accountNo: account.account_no, debitAmount: netAmountDkk, vatCode: "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? "Udgift, momsfrit grundbeløb" }];
     });
     lines.push({ accountNo: inputVat!.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" }, { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text });
     const result = postJournalEntry(db, { transactionDate, text, documentId: input.documentId, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata, lines });
-    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment };
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment, ...fxSummary, netAmountDkk, vatAmountDkk };
   }
 
   // For 25%-rated treatments the document vat_amount becomes deductible input
@@ -328,12 +378,12 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
         { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text },
       ],
     });
-    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment };
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment, ...fxSummary, netAmountDkk, vatAmountDkk };
   }
 
   if (vatTreatment === "reverse_charge") {
     if (vatAmount !== 0) return { ok: false, appliedRules: [], errors: ["reverse-charge expense booking requires document vat_amount = 0"] };
-    const result = postEuServiceReverseChargePurchase(db, {
+    const result = postForeignServiceReverseChargePurchase(db, {
       transactionDate,
       text,
       documentId: input.documentId,
@@ -345,7 +395,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       createdByProgram: input.createdByProgram,
       ...journalMetadata,
     });
-    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment };
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment, ...fxSummary, netAmountDkk: grossAmountDkk, vatAmountDkk: 0 };
   }
 
   if (vatTreatment === "representation") {
@@ -362,7 +412,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       createdByProgram: input.createdByProgram,
       ...journalMetadata,
     });
-    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment };
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment, ...fxSummary, netAmountDkk, vatAmountDkk };
   }
 
   if (vatTreatment === "exempt") {
@@ -380,7 +430,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
         { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text },
       ],
     });
-    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment };
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment, ...fxSummary, netAmountDkk: grossAmountDkk, vatAmountDkk: 0 };
   }
 
   if (vatTreatment === "non_deductible") {
@@ -405,7 +455,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
         { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text },
       ],
     });
-    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment };
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment, ...fxSummary, netAmountDkk: grossAmountDkk, vatAmountDkk: 0 };
   }
 
   // Exhaustiveness: every value of `ExpenseVatTreatment` is handled above.

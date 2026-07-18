@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { companyPaths } from "../core/paths";
 import { openDb, migrate } from "../core/db";
-import { ingestDocument } from "../core/documents";
+import { ingestDocument, purchaseVatLinesFromPayload } from "../core/documents";
 import { recordException } from "../core/exceptions";
 import { resolveDocumentMasterData } from "../core/master-data";
 import { openCommandDb } from "../cli-dispatch";
@@ -69,11 +69,15 @@ export function register(dispatch: CommandDispatch): void {
     migrate(db);
     const rows = db
       .query(
-        "SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat, currency, status, stored_path, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status FROM documents ORDER BY id DESC",
+        "SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat, currency, status, stored_path, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status, payload_json FROM documents ORDER BY id DESC",
       )
       .all() as Array<Record<string, unknown>>;
     if (ctx.outputFormat === "json") {
-      console.log(JSON.stringify(rows, null, 2));
+      console.log(JSON.stringify(rows.map((row) => ({
+        ...row,
+        purchase_vat_lines: purchaseVatLinesFromPayload(typeof row.payload_json === "string" ? row.payload_json : null),
+        payload_json: undefined,
+      })), null, 2));
       db.close();
       return;
     }
@@ -86,6 +90,9 @@ export function register(dispatch: CommandDispatch): void {
       console.log("");
       console.log(`#${row.document_no ?? row.id} — ${row.original_filename ?? "—"}`);
       console.log(`  Bilagsdato: ${row.invoice_date ?? "—"} | Kilde: ${row.source ?? "—"}`);
+      if (row.supplier_country_code || row.supplier_identifier_kind || row.supplier_identity_status) {
+        console.log(`  Leverandøridentitet: ${row.supplier_country_code ?? "—"} · ${row.supplier_identifier_kind ?? "—"} · ${row.supplier_identity_status ?? "—"}`);
+      }
       let amountLine = `  Beløb (inkl. moms): ${formatKroner(row.amount_inc_vat)}`;
       if (currency !== "DKK") amountLine += ` ${currency}`;
       console.log(amountLine);

@@ -53,6 +53,14 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     }
     return v;
   }
+  function bool(key: string): boolean | undefined {
+    const v = m[key];
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== "boolean") {
+      throw ApiError.badRequest(`metadata.${key} must be a boolean when present`);
+    }
+    return v;
+  }
   function party(key: string): DocumentMetadata["sender"] {
     const v = m[key];
     if (v === undefined || v === null) return undefined;
@@ -111,7 +119,7 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     purchaseVatLines = rawLines.map((line, index) => {
       if (!line || typeof line !== "object" || Array.isArray(line)) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}] must be an object`);
       const item = line as Record<string, unknown>;
-      if (!['dk_purchase_25', 'exempt', 'eu_service_reverse_charge', 'domestic_reverse_charge'].includes(String(item.classification))) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}].classification is invalid`);
+      if (!['dk_purchase_25', 'exempt'].includes(String(item.classification))) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}].classification is invalid`);
       if (typeof item.netAmount !== "number" || !Number.isFinite(item.netAmount)) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}].netAmount must be a number`);
       if (item.vatAmount !== undefined && (typeof item.vatAmount !== "number" || !Number.isFinite(item.vatAmount))) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}].vatAmount must be a number`);
       return { classification: item.classification as any, netAmount: item.netAmount, ...(item.vatAmount === undefined ? {} : { vatAmount: item.vatAmount as number }) };
@@ -130,6 +138,7 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     recipient: party("recipient"),
     vatAmount: num("vatAmount"),
     purchaseVatLines,
+    reverseChargeWordingConfirmed: bool("reverseChargeWordingConfirmed"),
     paymentDetails: str("paymentDetails"),
     exemptionCode: (exemptionCode ?? undefined) as DocumentMetadata["exemptionCode"],
   };
@@ -293,6 +302,11 @@ export async function handleDocumentBookExpense(
         netAmount: booked.netAmount,
         vatAmount: booked.vatAmount,
         vatTreatment: booked.vatTreatment,
+        grossAmountForeign: booked.grossAmountForeign,
+        grossAmountDkk: booked.grossAmountDkk,
+        netAmountDkk: booked.netAmountDkk,
+        vatAmountDkk: booked.vatAmountDkk,
+        fxRateToDkk: booked.fxRateToDkk,
       };
     },
     { requireConfirm: true },
@@ -307,6 +321,11 @@ export async function handleDocumentBookExpense(
       netAmount: result.netAmount ?? null,
       vatAmount: result.vatAmount ?? null,
       vatTreatment: result.vatTreatment ?? null,
+      grossAmountForeign: result.grossAmountForeign ?? null,
+      grossAmountDkk: result.grossAmountDkk ?? null,
+      netAmountDkk: result.netAmountDkk ?? null,
+      vatAmountDkk: result.vatAmountDkk ?? null,
+      fxRateToDkk: result.fxRateToDkk ?? null,
     },
   });
 }

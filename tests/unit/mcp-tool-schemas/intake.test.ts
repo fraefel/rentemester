@@ -38,6 +38,7 @@ describe("#274 — intake tools expose the full DocumentMetadata schema", () => 
     "sender",
     "recipient",
     "vatAmount",
+    "reverseChargeWordingConfirmed",
     "paymentDetails",
     "exemptionCode",
   ];

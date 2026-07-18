@@ -13,7 +13,7 @@ import { compareDkk, percentOfDkk, roundDkk, sumDkk } from "./money";
 
 export type DocumentType = "purchase_sale" | "cash_register_receipt";
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
-export type PurchaseVatClassification = "dk_purchase_25" | "exempt" | "eu_service_reverse_charge" | "domestic_reverse_charge";
+export type PurchaseVatClassification = "dk_purchase_25" | "exempt";
 export type PurchaseVatLine = { classification: PurchaseVatClassification; netAmount: number; vatAmount?: number };
 
 export type DocumentMetadata = {
@@ -29,6 +29,9 @@ export type DocumentMetadata = {
   vatAmount?: number;
   /** Purchase tax bases, retained verbatim with the voucher.  Omit for legacy uniform VAT documents. */
   purchaseVatLines?: PurchaseVatLine[];
+  /** Human-confirmed invoice evidence required before a non-EU service can be
+   * posted with automatic reverse-charge input-VAT deduction. */
+  reverseChargeWordingConfirmed?: boolean;
   paymentDetails?: string;
   exemptionCode?: DocumentExemptionCode;
 };
@@ -72,12 +75,14 @@ export function validatePurchaseVatLines(metadata: Pick<DocumentMetadata, "amoun
   if (lines === undefined) return [];
   if (!Array.isArray(lines) || lines.length === 0) return ["purchaseVatLines must be a non-empty array when present"];
   const errors: string[] = [];
-  const allowed = new Set<PurchaseVatClassification>(["dk_purchase_25", "exempt", "eu_service_reverse_charge", "domestic_reverse_charge"]);
+  if (!hasNonNegativeNumber(metadata.amountIncVat)) errors.push("purchaseVatLines requires amountIncVat");
+  if (!hasNonNegativeNumber(metadata.vatAmount)) errors.push("purchaseVatLines requires vatAmount");
+  const allowed = new Set<PurchaseVatClassification>(["dk_purchase_25", "exempt"]);
   let net = 0;
   let vat = 0;
   for (const [index, line] of lines.entries()) {
     if (!line || typeof line !== "object" || !allowed.has(line.classification)) {
-      errors.push(`purchaseVatLines[${index}].classification must be dk_purchase_25, exempt, eu_service_reverse_charge or domestic_reverse_charge`);
+      errors.push(`purchaseVatLines[${index}].classification must be dk_purchase_25 or exempt`);
       continue;
     }
     if (!hasNonNegativeNumber(line.netAmount)) errors.push(`purchaseVatLines[${index}].netAmount must be a non-negative number`);
@@ -96,13 +101,69 @@ export function validatePurchaseVatLines(metadata: Pick<DocumentMetadata, "amoun
   return errors;
 }
 
-/** Reads a persisted purchase split defensively; legacy/invalid payloads never become posting input. */
-export function purchaseVatLinesFromPayload(payloadJson: string | null | undefined): PurchaseVatLine[] | null {
-  if (!payloadJson) return null;
+export type PurchaseVatLinesPayloadResult =
+  | { status: "absent"; lines: null; errors: [] }
+  | { status: "valid"; lines: PurchaseVatLine[]; errors: [] }
+  | { status: "invalid"; lines: null; errors: string[] };
+
+/**
+ * Parse a persisted purchase split without collapsing corrupt structured tax
+ * data into the legacy "no split" state. Mutating consumers must reject the
+ * invalid branch; read views may use the compatibility wrapper below.
+ */
+export type CanonicalPurchaseVatTotals = {
+  amountIncVat: number | null | undefined;
+  vatAmount: number | null | undefined;
+};
+
+export function parsePurchaseVatLinesPayload(
+  payloadJson: string | null | undefined,
+  canonicalTotals?: CanonicalPurchaseVatTotals,
+): PurchaseVatLinesPayloadResult {
+  if (!payloadJson) return { status: "absent", lines: null, errors: [] };
   try {
-    const metadata = JSON.parse(payloadJson) as DocumentMetadata;
-    return metadata.purchaseVatLines && validatePurchaseVatLines(metadata).length === 0 ? metadata.purchaseVatLines : null;
-  } catch { return null; }
+    const parsed = JSON.parse(payloadJson) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { status: "invalid", lines: null, errors: ["document payload_json must contain a metadata object"] };
+    }
+    if (!Object.prototype.hasOwnProperty.call(parsed, "purchaseVatLines")) {
+      return { status: "absent", lines: null, errors: [] };
+    }
+    const metadata = parsed as DocumentMetadata;
+    const errors: string[] = [];
+    if (canonicalTotals) {
+      if (!hasNonNegativeNumber(canonicalTotals.amountIncVat)) {
+        errors.push("persisted purchaseVatLines requires canonical documents.amount_inc_vat");
+      }
+      if (!hasNonNegativeNumber(canonicalTotals.vatAmount)) {
+        errors.push("persisted purchaseVatLines requires canonical documents.vat_amount");
+      }
+      if (!hasNonNegativeNumber(metadata.amountIncVat)) {
+        errors.push("persisted purchaseVatLines payload requires amountIncVat");
+      } else if (hasNonNegativeNumber(canonicalTotals.amountIncVat) && compareDkk(metadata.amountIncVat, canonicalTotals.amountIncVat) !== 0) {
+        errors.push(`payload amountIncVat ${roundDkk(metadata.amountIncVat)} must equal canonical documents.amount_inc_vat ${roundDkk(canonicalTotals.amountIncVat)}`);
+      }
+      if (!hasNonNegativeNumber(metadata.vatAmount)) {
+        errors.push("persisted purchaseVatLines payload requires vatAmount");
+      } else if (hasNonNegativeNumber(canonicalTotals.vatAmount) && compareDkk(metadata.vatAmount, canonicalTotals.vatAmount) !== 0) {
+        errors.push(`payload vatAmount ${roundDkk(metadata.vatAmount)} must equal canonical documents.vat_amount ${roundDkk(canonicalTotals.vatAmount)}`);
+      }
+    }
+    errors.push(...validatePurchaseVatLines(canonicalTotals
+      ? { ...metadata, amountIncVat: canonicalTotals.amountIncVat ?? undefined, vatAmount: canonicalTotals.vatAmount ?? undefined }
+      : metadata));
+    if (errors.length > 0) return { status: "invalid", lines: null, errors };
+    return { status: "valid", lines: metadata.purchaseVatLines!, errors: [] };
+  } catch {
+    return { status: "invalid", lines: null, errors: ["document payload_json is not valid JSON"] };
+  }
+}
+
+/** Compatibility reader for list/UI surfaces. Invalid data remains hidden but
+ * can never become posting input because mutations use the strict parser. */
+export function purchaseVatLinesFromPayload(payloadJson: string | null | undefined): PurchaseVatLine[] | null {
+  const parsed = parsePurchaseVatLinesPayload(payloadJson);
+  return parsed.status === "valid" ? parsed.lines : null;
 }
 
 
@@ -204,9 +265,16 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   const appliedRules = [RULES.STORAGE, RULES.INTEGRITY];
 
   if (!hasText(metadata.source)) errors.push("source is required");
+  if (metadata.reverseChargeWordingConfirmed !== undefined && typeof metadata.reverseChargeWordingConfirmed !== "boolean") {
+    errors.push("reverseChargeWordingConfirmed must be a boolean when present");
+  }
   if (!/^[A-Z]{3}$/.test(currency)) errors.push("currency must be a 3-letter ISO code");
   if (documentType === "cash_register_receipt") appliedRules.splice(1, 0, RULES.CASH_RECEIPT);
   if (exemptionCode === "FOREIGN_PHYSICAL_ONLY") appliedRules.splice(appliedRules.length - 1, 0, RULES.FOREIGN_PHYSICAL);
+  // A statutory-field exemption never exempts supplied structured tax data
+  // from internal consistency checks. If a receipt carries a split, validate
+  // it before any document-type shortcut can accept malformed amounts.
+  errors.push(...validatePurchaseVatLines(metadata));
 
   const exemptFromMinimumFields = documentType === "cash_register_receipt" || exemptionCode === "FOREIGN_PHYSICAL_ONLY";
   if (!exemptFromMinimumFields) {
@@ -224,7 +292,6 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
     if (!hasText(metadata.recipient?.address)) errors.push("recipient.address is required");
     if (!hasText(metadata.recipient?.vatOrCvr)) errors.push("recipient.vatOrCvr is required");
     if (!hasNonNegativeNumber(metadata.vatAmount)) errors.push("vatAmount is required");
-    errors.push(...validatePurchaseVatLines(metadata));
   }
 
   return { ok: errors.length === 0, appliedRules, errors };
@@ -256,17 +323,37 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
     : null;
   const senderVatOrCvr = senderIdentity?.ok ? senderIdentity.identifier : metadata.sender?.vatOrCvr?.trim();
   const invoiceNo = metadata.invoiceNo?.trim();
-  if (!options.forceDuplicateLogicalIdentity && docType === "purchase_sale" && senderVatOrCvr && invoiceNo) {
-    const existingLogical = db.query(
-      `SELECT id, document_no
-       FROM documents
-       WHERE document_type = 'purchase_sale'
-         AND sender_vat_cvr = ?
-         AND invoice_no = ?
-       LIMIT 1`
-    ).get(senderVatOrCvr, invoiceNo) as { id: number; document_no: string } | null;
+  if (!options.forceDuplicateLogicalIdentity && docType === "purchase_sale" && invoiceNo) {
+    const senderName = metadata.sender?.name?.trim();
+    const existingByIdentifier = senderVatOrCvr
+      ? db.query(
+          `SELECT id, document_no
+           FROM documents
+           WHERE document_type = 'purchase_sale'
+             AND sender_vat_cvr = ?
+             AND invoice_no = ?
+           LIMIT 1`,
+        ).get(senderVatOrCvr, invoiceNo) as { id: number; document_no: string } | null
+      : null;
+    // A non-EU supplier may be ingested before its home-country registration
+    // number is known and enriched later (or the reverse). Always check the
+    // stable country + normalized name + invoice key as well as the identifier
+    // key, so adding/removing that evidence cannot create a second voucher.
+    const existingByNonEuCountryAndName = senderIdentity?.ok && senderIdentity.identifierKind === "non_eu" && senderName
+      ? db.query(
+          `SELECT id, document_no
+           FROM documents
+           WHERE document_type = 'purchase_sale'
+             AND supplier_country_code = ?
+             AND lower(trim(sender_name)) = lower(trim(?))
+             AND invoice_no = ?
+           LIMIT 1`,
+        ).get(senderIdentity.country, senderName, invoiceNo) as { id: number; document_no: string } | null
+      : null;
+    const existingLogical = existingByIdentifier ?? existingByNonEuCountryAndName;
     if (existingLogical) {
-      return { ok: false, errors: [`a document from ${senderVatOrCvr} with invoice ${invoiceNo} is already ingested as ${existingLogical.document_no}. Use --force to add another scan.`] };
+      const supplierKey = senderVatOrCvr ?? `${senderIdentity && senderIdentity.ok ? senderIdentity.country : "unknown"}:${senderName ?? "unknown"}`;
+      return { ok: false, errors: [`a document from ${supplierKey} with invoice ${invoiceNo} is already ingested as ${existingLogical.document_no}. Use --force to add another scan.`] };
     }
   }
 

@@ -44,14 +44,41 @@ describe("document ingest", () => {
     writeFileSync(sourceFile, "US SaaS invoice\n100 USD\n");
     const db = openDb(ensureCompanyDirs(companyRoot).db);
     migrate(db);
-    const result = ingestDocument(db, companyRoot, sourceFile, {
+    const metadata = {
       source: "email", issueDate: "2026-07-18", invoiceNo: "US-529", deliveryDescription: "US SaaS subscription", amountIncVat: 100, currency: "USD",
-      sender: { name: "US SaaS Inc.", address: "New York, US", countryCode: "US", identifierKind: "non_eu" },
+      sender: { name: "US SaaS Inc.", address: "New York, US", countryCode: "US", identifierKind: "non_eu" as const },
       recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" }, vatAmount: 0,
-    });
+    };
+    const result = ingestDocument(db, companyRoot, sourceFile, metadata);
     expect(result.ok).toBe(true);
     expect(db.query("SELECT supplier_country_code, supplier_identifier_kind, sender_vat_cvr, supplier_identity_status FROM documents WHERE id = ?").get(result.documentId!) as object)
       .toEqual({ supplier_country_code: "US", supplier_identifier_kind: "non_eu", sender_vat_cvr: null, supplier_identity_status: "resolved" });
+    const rescan = join(inboxRoot, "us-saas-rescan.txt");
+    writeFileSync(rescan, "US SaaS invoice rescanned\n100 USD\n");
+    expect(ingestDocument(db, companyRoot, rescan, metadata).errors?.[0]).toContain("US:US SaaS Inc.");
+    const enrichedScan = join(inboxRoot, "us-saas-enriched.txt");
+    writeFileSync(enrichedScan, "US SaaS invoice enriched with EIN\n100 USD\n");
+    expect(ingestDocument(db, companyRoot, enrichedScan, {
+      ...metadata,
+      sender: { ...metadata.sender, vatOrCvr: "US-EIN-12-3456789" },
+    }).errors?.[0]).toContain("US-EIN-12-3456789");
+
+    const enrichedFirstFile = join(inboxRoot, "us-saas-enriched-first.txt");
+    writeFileSync(enrichedFirstFile, "US SaaS enriched-first invoice\n200 USD\n");
+    const enrichedFirst = {
+      ...metadata,
+      invoiceNo: "US-529-ENRICHED-FIRST",
+      amountIncVat: 200,
+      sender: { ...metadata.sender, vatOrCvr: "US-EIN-98-7654321" },
+    };
+    expect(ingestDocument(db, companyRoot, enrichedFirstFile, enrichedFirst).ok).toBe(true);
+    const identityRemovedScan = join(inboxRoot, "us-saas-identity-removed.txt");
+    writeFileSync(identityRemovedScan, "US SaaS enriched-first invoice rescanned without EIN\n200 USD\n");
+    expect(ingestDocument(db, companyRoot, identityRemovedScan, {
+      ...enrichedFirst,
+      sender: metadata.sender,
+    }).errors?.[0]).toContain("US:US SaaS Inc.");
+    expect(ingestDocument(db, companyRoot, rescan, metadata, { forceDuplicateLogicalIdentity: true }).ok).toBe(true);
     db.close(); rmSync(companyRoot, { recursive: true, force: true }); rmSync(inboxRoot, { recursive: true, force: true });
   });
 

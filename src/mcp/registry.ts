@@ -1,7 +1,7 @@
 /**
  * Central tools-registrering for Rentemester-MCP-serveren.
  *
- * `registerAllTools` registrerer hele tool-surface'en — 104 tools fordelt
+ * `registerAllTools` registrerer hele tool-surface'en — 108 tools fordelt
  * på de domæne-funktioner der kaldes herunder. Den autoritative liste
  * (klassifikation, inputs, CLI-mapping) står i docs/mcp-tool-surface.md;
  * driv en kørende server med `tools/list` for den faktiske, aktuelle liste.
@@ -62,6 +62,9 @@ import { registerMailIntakeTools } from "./tools/mail-intake";
 // ===== IMAP INTAKE (#181) =====
 import { registerImapIntakeTools } from "./tools/imap-intake";
 // ===== END IMAP INTAKE (#181) =====
+// ===== DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
+import { registerEfakturaTools } from "./tools/efaktura";
+// ===== END DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
 // ===== MILEAGE LOG (#123) =====
 import { registerMileageTools } from "./tools/mileage";
 // Fixed assets (#124, #125)
@@ -179,6 +182,9 @@ export function registerAllTools(server: McpServer): void {
   // ===== IMAP INTAKE (#181) =====
   registerImapIntakeTools(server);
   // ===== END IMAP INTAKE (#181) =====
+  // ===== DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
+  registerEfakturaTools(server);
+  // ===== END DIGISENSE E-FAKTURA MODTAG (#efaktura) =====
   // ===== MILEAGE LOG (#123) =====
   registerMileageTools(server);
   // Fixed assets (#124, #125)

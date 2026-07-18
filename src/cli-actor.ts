@@ -82,6 +82,15 @@ export const MUTATING_COMMANDS = new Set([
   "asset write-off",
   // PEPPOL submission (#128)
   "invoice submit-public-peppol",
+  // Digisense e-faktura-transport (#efaktura): `invoice transmit-digisense`
+  // udfører en LIVE afsendelse (validate-document -> deliver-document -> poll)
+  // og bogfører en `acknowledged` peppol_submissions-række + audit_log — præcis
+  // samme bug-klasse som `invoice submit-public-peppol` ovenfor. Uden denne
+  // gate listes den under "Læsekommandoer (read-only)" i --help og kan kaldes
+  // uden actor-attribution, i modstrid med governance-modellen for alle andre
+  // skrivende invoice-kommandoer (en uigenkaldelig afsendelse til en rigtig
+  // modtager).
+  "invoice transmit-digisense",
   // ===== OPENING BALANCE (#179) =====
   "opening-balance post",
   // ===== END OPENING BALANCE (#179) =====
@@ -119,6 +128,15 @@ export const MUTATING_COMMANDS = new Set([
   "payable register",
   "payable pay",
   // ===== END PAYABLES / KREDITORSTYRING =====
+  // ===== DIGISENSE E-FAKTURA (#efaktura) =====
+  // `efaktura registrer` skriver virksomheds-/participant-state + audit_log til
+  // ledgeren og rammer netværket (register-company). `efaktura modtag` ingester
+  // modtagne bilag (append-only dokumenter + dedup-rækker + audit_log) og rammer
+  // netværket. Begge er skrivende handlinger og skal — som alle andre — kræve en
+  // actor og listes under "Skrivekommandoer", ikke under "read-only".
+  "efaktura registrer",
+  "efaktura modtag",
+  // ===== END DIGISENSE E-FAKTURA (#efaktura) =====
 ]);
 
 export function trimToNull(value: string | null | undefined): string | null {

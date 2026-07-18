@@ -1,0 +1,51 @@
+import type { CommandSpec } from "./_shared";
+
+// CommandSpec for Digisense e-faktura-CLI'en (#efaktura). Uden disse specs
+// fremgår `efaktura konfigurer/registrer/modtag` hverken af `rentemester --help`,
+// får ingen `--help`-tekst, og getCommandSpec returnerer undefined — så
+// validateCommandFlags kører INGEN unknown-flag-kontrol og en fejlstavet flag
+// accepteres stiltiende i stedet for at give exit 2. Specs gør kommandoerne
+// opdagelige, dokumenterer input/flags, og slår flag-validering til.
+export const efakturaSpecs: CommandSpec[] = [
+  {
+    key: "efaktura konfigurer",
+    usage: "efaktura konfigurer --company <path> --api-license-key <secret> [--environment test|production]",
+    description:
+      "Gemmer Digisense API license-key i secret-laget (config/digisense.json, 0600). PRECONDITION for efaktura registrer/modtag og invoice transmit-digisense — uden en gemt key fejler de med 'Digisense er ikke konfigureret'. license-key er et SECRET og rammer aldrig bogføringstilstanden.",
+    allowedFlags: ["--company", "--api-license-key", "--environment"],
+    inputNotes: [
+      "--api-license-key: én nøgle for hele Digisense-licensen (påkrævet). Gemmes kun i config/digisense.json.",
+      "--environment: 'test' (standard) eller 'production' — vælger Digisense' base-URL.",
+    ],
+  },
+  {
+    key: "efaktura registrer",
+    usage: "efaktura registrer --company <path> --cvr <DKxxxxxxxx> --company-name <text> --confirm yes [--network nemhandel|peppol]",
+    description:
+      "Registrerer en virksomhed i NemHandel via Digisense: register-company (DK:CVR) ⇒ gemmer companyKey ⇒ register-participant for BÅDE outbound OG inbound, så virksomheden kan både sende og modtage. webhookUrl er altid null (vi poller selv). Idempotent: et re-run med samme CVR duplikerer ikke state. Skrivende handling — kræver '--confirm yes' og en actor.",
+    allowedFlags: ["--company", "--cvr", "--company-name", "--confirm", "--network"],
+    inputNotes: [
+      "--cvr: CVR-identifikatoren der registreres (fx 'DK12345678').",
+      "--company-name: virksomhedsnavnet der sendes med register-company.",
+      "--confirm yes: påkrævet bekræftelse (valued flag, ikke en bar boolean).",
+      "--network: 'nemhandel' (standard) eller 'peppol'.",
+      "Forudsætter en gemt license-key — kør `efaktura konfigurer` først.",
+    ],
+  },
+  {
+    key: "efaktura modtag",
+    usage: "efaktura modtag --company <path> --confirm yes [--digisense-company-key <key>] [--limit <n>] [--max-timestamp <ISO8601>] [--metadata <file.json>] [--force]",
+    description:
+      "Poller modtagne e-fakturaer hos Digisense (list-received-documents), følger pagination, og ingester hvert NYT dokument via den eksisterende ingest-pipeline. Dedup på Digisense' stabile internalId gør gentaget poll idempotent. Et uingesterbart dokument (validering/dublet) sættes i karantæne, så det ikke down­loades + fejler igen. Partiel succes: én dårlig faktura fælder ikke de øvrige. Skrivende handling — kræver '--confirm yes' og en actor (symmetrisk med MCP).",
+    allowedFlags: ["--company", "--confirm", "--digisense-company-key", "--limit", "--max-timestamp", "--metadata", "--force"],
+    inputNotes: [
+      "--confirm yes: påkrævet bekræftelse (skrivende poll, symmetrisk med MCP-tool'et).",
+      "--digisense-company-key: companyKey at polle fra; standard den ENE registrerede virksomhed.",
+      "--limit: side-størrelse (<=100); standard 100.",
+      "--max-timestamp: ISO 8601-tidsstempel (fx '2026-06-01T00:00:00Z') der videresendes urørt til API'et for at begrænse pollen tidsmæssigt.",
+      "--metadata <file.json>: valgfri DocumentMetadata (uden 'source') der flettes FELT-FOR-FELT oven på de UBL-/listning-afledte felter på hvert bilag; 'source' kan ikke overstyres (pipelinen sætter den til 'digisense_modtag').",
+      "--force: tillad ingest af en logisk dublet (samme afsender + fakturanr.).",
+      "Forudsætter en gemt license-key — kør `efaktura konfigurer` først.",
+    ],
+  },
+];

@@ -13,6 +13,7 @@ import {
   transmitPublicEInvoicePeppol,
   type PeppolTransmitter,
 } from "../../src/core/public-einvoice";
+import { digisenseAccessPointIdentity } from "../../src/core/efaktura/digisense-wiring";
 
 const PUBLIC_INVOICE = {
   invoiceType: "full" as const,
@@ -771,6 +772,86 @@ describe("public e-invoice PEPPOL transmission", () => {
 
     const rows = db.query("SELECT id FROM peppol_submissions").all() as Array<{ id: number }>;
     expect(rows).toHaveLength(0);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("public e-invoice PEPPOL transmission — Digisense double-send safety", () => {
+  // For Digisense the access point IS Digisense (routing on companyKey +
+  // license-key); the transmitter ignores accessPoint entirely. The deterministic
+  // identity keyed on companyKey is what keeps the idempotency key stable.
+  const COMPANY_KEY = "ck-digisense-42";
+
+  test("the Digisense identity makes the idempotency key stable across calls (no double-deliver)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-idem-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const issued = issueInvoice(db, root, { ...PUBLIC_INVOICE });
+    expect(issued.ok).toBe(true);
+
+    let calls = 0;
+    const deliverOnce: PeppolTransmitter = () => {
+      calls += 1;
+      return { ok: true, transmissionId: "ds-doc-1", transmittedAt: "2026-05-22T10:00:00Z" };
+    };
+
+    // Two transmits of the SAME invoice using the SAME deterministic identity.
+    const ap = digisenseAccessPointIdentity(COMPANY_KEY);
+    const first = await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, deliverOnce);
+    const second = await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, deliverOnce);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    // The second call collapses onto the acknowledged row — deliver ran ONCE.
+    expect(calls).toBe(1);
+    const rows = db.query("SELECT id FROM peppol_submissions").all() as Array<{ id: number }>;
+    expect(rows).toHaveLength(1);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a queued-but-not-delivered timeout records a pending row and refuses to re-deliver", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-queued-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const issued = issueInvoice(db, root, { ...PUBLIC_INVOICE });
+    expect(issued.ok).toBe(true);
+
+    let deliverCalls = 0;
+    // First attempt: the access point ACCEPTED the doc into its queue but we
+    // never observed `delivered` — it returns the queued documentId.
+    const queuedTimeoutTransmitter: PeppolTransmitter = () => {
+      deliverCalls += 1;
+      return { ok: false, error: "timed out (still queued)", queuedDocumentId: "ds-queued-7" };
+    };
+
+    const ap = digisenseAccessPointIdentity(COMPANY_KEY);
+    const first = await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, queuedTimeoutTransmitter);
+
+    expect(first.ok).toBe(false);
+    expect(first.status).toBe("prepared");
+    expect(first.transmissionId).toBe("ds-queued-7");
+    // A pending submission row was recorded (status prepared + the queued id).
+    const pendingRow = db
+      .query("SELECT status, transmission_id FROM peppol_submissions WHERE invoice_document_id = ?")
+      .get(issued.documentId!) as { status: string; transmission_id: string | null };
+    expect(pendingRow.status).toBe("prepared");
+    expect(pendingRow.transmission_id).toBe("ds-queued-7");
+
+    // A naive retry MUST NOT call deliver again — that would deliver the invoice
+    // a second time. The double-send guard refuses and points at the queued id.
+    const retry = await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, queuedTimeoutTransmitter);
+    expect(retry.ok).toBe(false);
+    expect(retry.errors.join(" ")).toContain("ds-queued-7");
+    expect(retry.errors.join(" ").toLowerCase()).toContain("re-deliver");
+    // deliver ran exactly ONCE across both attempts.
+    expect(deliverCalls).toBe(1);
+    // Still exactly one submission row.
+    const rows = db.query("SELECT id FROM peppol_submissions").all() as Array<{ id: number }>;
+    expect(rows).toHaveLength(1);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -21,9 +21,14 @@ import {
   exportPublicEInvoiceOioUbl,
   exportPublicEInvoicePreview,
   submitPublicEInvoicePeppol,
+  transmitPublicEInvoicePeppol,
   type PeppolAccessPointConfig,
   type PeppolTransportAcknowledgement,
 } from "../../core/public-einvoice";
+import {
+  resolveDigisenseTransmitter,
+  digisenseAccessPointIdentity,
+} from "../../core/efaktura/digisense-wiring";
 import { issueCreditNote } from "../../core/credit-notes";
 import { postIssuedInvoiceToLedger } from "../../core/invoice-booking";
 import { resolveInvoiceMasterData } from "../../core/master-data";
@@ -303,6 +308,43 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
       outPath: ctx.arg("--out"),
     });
     ctx.emitResult(result as Record<string, unknown>);
+    db.close();
+    if (!result.ok) process.exit(1);
+  });
+
+  // Digisense e-faktura-transport (#efaktura): faktisk levering gennem
+  // Digisense' access point oven på OIOUBL-handoff-artifaktet. Flowet er
+  // validate-document (schematron) -> deliver-document -> poll til delivered,
+  // og en succes bogføres som en `acknowledged` peppol_submissions-række via
+  // transmitPublicEInvoicePeppol (samme som --submit-public-peppol). License-key
+  // hentes fra secret-laget (config/digisense.json), ALDRIG fra kald-args;
+  // companyKey resolves fra digisense_companies (eller --digisense-company-key).
+  dispatch.on("invoice", "transmit-digisense", async (ctx) => {
+    const root = ctx.companyRoot();
+    const db = openDb(companyPaths(root).db);
+    migrate(db);
+    const documentId = resolveInvoiceDocumentId(db, ctx);
+    const resolved = resolveDigisenseTransmitter(db, root, {
+      companyKey: ctx.trimToNull(ctx.arg("--digisense-company-key") ?? null) ?? undefined,
+    });
+    if (!resolved.ok) {
+      ctx.emitResult({ ok: false, appliedRules: [], errors: resolved.errors });
+      db.close();
+      process.exit(1);
+    }
+    // For Digisense ER access point'et Digisense selv (routing på companyKey +
+    // license-key); transmitteren ignorerer accessPoint helt. Vi syntetiserer en
+    // FAST, deterministisk access-point-identitet keyed på companyKey, så
+    // gentaget transmit af samme faktura giver samme idempotency-nøgle og
+    // kollapser på den eksisterende acknowledged-række i stedet for at levere
+    // dobbelt. INTET --access-point skal opfindes af brugeren.
+    const accessPoint: PeppolAccessPointConfig = digisenseAccessPointIdentity(resolved.companyKey);
+    const result = await transmitPublicEInvoicePeppol(
+      db,
+      { invoiceDocumentId: documentId, accessPoint },
+      resolved.transmitter,
+    );
+    ctx.emitResult(result as unknown as Record<string, unknown>);
     db.close();
     if (!result.ok) process.exit(1);
   });

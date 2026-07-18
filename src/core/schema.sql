@@ -1081,6 +1081,89 @@ BEFORE DELETE ON peppol_submissions
 BEGIN
   SELECT RAISE(ABORT, 'peppol submissions are append-only audit records; record a new submission attempt instead');
 END;
+-- ===== DIGISENSE E-FAKTURA STATE (#efaktura) =====
+-- companyKey↔virksomhed + participant-registrering hos Digisense. Dette er
+-- IKKE secret-data (API license-key bor i config/digisense.json, aldrig her).
+-- companyKey'en scoper næsten alle Digisense-kald og er almindelig
+-- registrerings-state. Modsat audit-tabellerne er state'en MUTABEL — en
+-- participant kan af-/genregistreres og webhook-status kan ændre sig — så der
+-- er bevidst INGEN append-only triggers (samme valg som companies/customers).
+CREATE TABLE IF NOT EXISTS digisense_companies (
+  id INTEGER PRIMARY KEY,
+  company_key TEXT NOT NULL,
+  company_type TEXT NOT NULL CHECK(company_type IN ('DK:CVR','NIP')),
+  -- CVR/NIP-identifikatoren; ét per virksomhed, derfor UNIQUE (en
+  -- genregistrering opdaterer companyKey'en i stedet for at duplikere).
+  participant_id TEXT NOT NULL UNIQUE,
+  company_name TEXT NOT NULL,
+  registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS digisense_participants (
+  id INTEGER PRIMARY KEY,
+  company_key TEXT NOT NULL,
+  network TEXT NOT NULL CHECK(network IN ('nemhandel','peppol')),
+  direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+  participant_type TEXT NOT NULL CHECK(participant_type IN ('DK:CVR','GLN')),
+  participant_id TEXT NOT NULL,
+  -- NULL => ingen webhook; man poller selv (bekræftet designvalg).
+  webhook_url TEXT,
+  registered_on_network INTEGER NOT NULL DEFAULT 0 CHECK(registered_on_network IN (0, 1)),
+  webhook_registered INTEGER NOT NULL DEFAULT 0 CHECK(webhook_registered IN (0, 1)),
+  registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- For BÅDE send og modtag registreres et CVR som outbound OG inbound, så
+  -- (companyKey, network, direction) er den unikke registrerings-nøgle.
+  UNIQUE(company_key, network, direction)
+);
+
+CREATE INDEX IF NOT EXISTS idx_digisense_participants_company
+  ON digisense_participants(company_key);
+
+-- MODTAG-dedup: én række pr. modtaget Digisense-dokument vi har ingestet.
+-- internalId er Digisense' STABILE dedup-nøgle (samme dokument => samme
+-- internalId på tværs af polls), så UNIQUE her gør gentaget polling idempotent:
+-- et allerede ingested dokument springes over i stedet for at duplikere bilaget.
+-- Modsat registrerings-state ovenfor er DETTE en append-only audit-tabel (samme
+-- valg som mail_intake_messages) — en ny modtagelse skaber en ny række, og
+-- rækker rettes/slettes aldrig.
+CREATE TABLE IF NOT EXISTS digisense_received_documents (
+  id INTEGER PRIMARY KEY,
+  -- Digisense' stabile dedup-nøgle for det modtagne dokument.
+  internal_id TEXT NOT NULL UNIQUE,
+  company_key TEXT NOT NULL,
+  -- NULL => dokumentet blev IKKE ingested. Sammen med skip_reason markerer det
+  -- en TERMINAL (uingesterbar) modtagelse: validering fejlede, eller det er en
+  -- logisk/indholds-dublet. Rækken skrives alligevel (append-only) så et
+  -- permanent-uingesterbart dokument ikke down­loades og fejler igen ved hver
+  -- poll — den signerede downloadUrl udløber, og en evig re-download/re-fail-
+  -- loop ville ellers opstå. Transiente fejl (download-transport) skriver INGEN
+  -- række og prøver igen næste poll.
+  document_id INTEGER,
+  -- NULL ved en ren ingest; ellers den terminale fejl-grund (quarantine).
+  skip_reason TEXT,
+  digisense_document_id TEXT,
+  source_network TEXT,
+  sender_participant_id TEXT,
+  sender_name TEXT,
+  received_at TEXT,
+  ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_digisense_received_documents_company
+  ON digisense_received_documents(company_key);
+
+CREATE TRIGGER IF NOT EXISTS digisense_received_documents_no_update
+BEFORE UPDATE ON digisense_received_documents
+BEGIN
+  SELECT RAISE(ABORT, 'digisense received-document dedup rows are append-only; a new receipt creates a new row instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS digisense_received_documents_no_delete
+BEFORE DELETE ON digisense_received_documents
+BEGIN
+  SELECT RAISE(ABORT, 'digisense received-document dedup rows are append-only and cannot be deleted');
+END;
+-- ===== END DIGISENSE E-FAKTURA STATE (#efaktura) =====
 -- ===== OPENING BALANCE (#179) =====
 -- Marks that a company's opening balance (primobalance) has been posted.
 -- The primobalance itself lives as a normal balanced journal entry in

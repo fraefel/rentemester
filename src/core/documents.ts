@@ -182,6 +182,9 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "text/plain",
   "application/json",
+  // Received e-invoices (Digisense MODTAG, #efaktura) arrive as UBL XML and are
+  // legitimate bilag, so application/xml is ingestable like the other text formats.
+  "application/xml",
 ]);
 
 const EXTENSION_MIME: Record<string, string> = {
@@ -191,6 +194,7 @@ const EXTENSION_MIME: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".txt": "text/plain",
   ".json": "application/json",
+  ".xml": "application/xml",
 };
 
 function startsWithBytes(buf: Buffer, signature: number[]): boolean {

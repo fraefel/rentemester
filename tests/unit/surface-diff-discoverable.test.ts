@@ -108,6 +108,24 @@ describe("#376 — surface diff is discoverable (docs/mcp-tool-surface.md)", () 
       expect(doc, `mapping doc does not mention src/mcp/tools/${f}.ts`).toContain(f);
     }
   });
+
+  // #efaktura — the file-level guard above is necessary but NOT sufficient: a
+  // new SUBCOMMAND added inside an EXISTING file (e.g. `invoice
+  // transmit-digisense` in src/cli/invoice/issuance.ts) slips past it. That is
+  // exactly how the live Digisense send-path stayed undiscoverable. We pin the
+  // transport subcommands by name so a future move/rename that drops them from
+  // the mapping doc fails the build.
+  test("the Digisense transport subcommands are discoverable by name in the mapping doc", () => {
+    const doc = readFileSync(SURFACE_DOC, "utf8");
+    for (const name of [
+      "invoice transmit-digisense", // live CLI send-path (subcommand, not a file)
+      "efaktura_send", // its MCP twin
+      "efaktura_konfigurer", // license-key precondition tool
+      "efaktura konfigurer", // its CLI twin
+    ]) {
+      expect(doc, `mapping doc does not mention '${name}'`).toContain(name);
+    }
+  });
 });
 
 describe("#376 — registry comment names the real deviation count", () => {

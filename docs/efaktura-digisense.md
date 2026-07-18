@@ -1,0 +1,223 @@
+# E-faktura via Digisense — opsætning og brug
+
+Sådan kobler du Rentemester på **Digisense**, så en virksomhed kan **sende og
+modtage** e-fakturaer (OIOUBL / Peppol BIS 3.0) over **NemHandel** og **PEPPOL**.
+Digisense er Rentemesters compliance-partner og leverer det **certificerede
+access point** — Rentemester genererer fakturaen, Digisense transporterer den.
+
+> Status: integrationen er bygget og testet mod fakes. Der er endnu **ikke** lavet
+> et rigtigt netkald. Kør først hele forløbet i **test-miljøet** (sandbox) før
+> produktion. Se [Test vs. produktion](#test-vs-produktion).
+
+Relateret: [peppol-nemhandel.md](peppol-nemhandel.md) (format/transport-baggrund),
+[mcp-tool-surface.md](mcp-tool-surface.md) (agent-/MCP-kontrakten),
+[compliance/requirements.md](compliance/requirements.md).
+
+---
+
+## Overblik — fire trin
+
+| Trin | Hvad | Kommando (CLI) | MCP-tool |
+|------|------|----------------|----------|
+| 0 | Få en API license-key hos Digisense | *(uden for systemet — se nedenfor)* | — |
+| 1 | Gem nøglen i Rentemester | `efaktura konfigurer` | `efaktura_konfigurer` |
+| 2 | Registrér virksomheden i NemHandel | `efaktura registrer` | `efaktura_registrer` |
+| 3 | Send en udstedt e-faktura | `invoice transmit-digisense` | `efaktura_send` |
+| 4 | Modtag indkomne e-fakturaer (poll) | `efaktura modtag` | `efaktura_modtag` |
+
+Datamodel hos Digisense: **license (din nøgle) → company (companyKey pr. CVR) →
+participant (inbound + outbound)**. Én license-key dækker **flere virksomheder**;
+hver virksomhed får sin egen `companyKey` ved registrering (trin 2), og
+Rentemester husker koblingen `companyKey ↔ virksomhed` for dig.
+
+---
+
+## Trin 0 — Få adgang hos Digisense
+
+Du skal bruge en **API license-key** fra Digisense. Den er et **secret** og
+dækker hele din licens (alle dine virksomheder/CVR-numre).
+
+**Sådan får du den:**
+
+> ⚠️ **TODO — bekræftes med Digisense.** Den officielle, delbare proces for at
+> anmode om en license-key (kontaktkanal, evt. pris, vilkår) er endnu ikke
+> dokumenteret her. Udfyld dette afsnit med Digisense' egen onboarding-tekst, så
+> en ny bruger (fx en kollega eller et søsterselskab) selv kan komme i gang.
+
+Det vi ved i dag:
+
+- API'et og dets dokumentation ligger på **<https://api.digisense.dk>**
+  (Scalar-UI; OpenAPI-spec på `…/ap/api/rest/openapi-spec.json`).
+- Leverandør: **Digisense A/S** (CVR 32082378, Risskov).
+- Nøglen udleveres typisk som et delt secret. **Opbevar den sikkert** og indtast
+  den aldrig i en faktura, et bilag eller andet, der havner i bogføringen.
+- Vil du have en nøgle, der er **låst til én virksomhed**, har API'et et
+  `issue-api-key-for-company`-endpoint — bed Digisense om det, eller udsted den
+  selv senere mod licens-nøglen.
+
+Når du har nøglen, fortsæt til trin 1.
+
+---
+
+## Trin 1 — Konfigurér nøglen i Rentemester
+
+Gemmer license-key'en i secret-laget. Den lander i
+`<virksomhedsmappe>/config/digisense.json` (rettigheder `0600`, **gitignored**),
+og rammer **aldrig** ledger'en.
+
+```bash
+rentemester efaktura konfigurer \
+  --company <sti-eller-slug> \
+  --api-license-key <din-license-key> \
+  --environment test
+```
+
+- `--environment test` (standard) peger på sandbox `test-api.digisense.dk`;
+  `production` peger på `api.digisense.dk`. **Start med `test`.**
+- Dette er en **forudsætning** for trin 2–4: uden en gemt nøgle fejler de med
+  *"Digisense er ikke konfigureret"*.
+- Nøglen valideres reelt først ved det første rigtige kald (trin 2). En forkert
+  nøgle giver en tydelig fejl-envelope dér.
+
+---
+
+## Trin 2 — Registrér virksomheden i NemHandel
+
+Registrerer CVR'et hos Digisense: opretter `company` (får `companyKey`) og
+registrerer virksomheden som **både** `outbound` (kan sende) **og** `inbound`
+(kan modtage). `webhookUrl` sættes altid til `null` — Rentemester **poller** selv
+(ingen always-on server nødvendig).
+
+```bash
+rentemester efaktura registrer \
+  --company <sti-eller-slug> \
+  --cvr DK12345678 \
+  --company-name "Min Virksomhed ApS" \
+  --confirm yes
+```
+
+- `--network nemhandel` er standard; brug `--network peppol` for PEPPOL.
+- **Idempotent:** kører du den igen med samme CVR, duplikeres intet.
+- Skrivende handling: kræver `--confirm yes` og en actor (logges i `audit_log`).
+- Resultatet indeholder bl.a. `companyKey` og hvilke retninger der blev
+  registreret. Rentemester husker koblingen, så du sjældent skal angive
+  `companyKey` manuelt senere.
+
+---
+
+## Trin 3 — Send en e-faktura
+
+Sender en allerede **udstedt** offentlig e-faktura gennem Digisense. Flowet er:
+`validate-document` (schematron) → `deliver-document` → poll til *delivered*. En
+succes bogføres som en **acknowledged PEPPOL-submission**.
+
+```bash
+# Udsted først fakturaen som normalt (skal være en offentlig modtager / EAN):
+rentemester invoice issue --company <…> --input faktura.json
+
+# Send den via Digisense:
+rentemester invoice transmit-digisense \
+  --company <sti-eller-slug> \
+  --invoice-number 2026-0001
+```
+
+- Brug enten `--invoice-number <no>` eller `--document-id <n>`.
+- **Intet `--access-point`:** for Digisense *er* access point'et Digisense selv;
+  identiteten udledes deterministisk af `companyKey`.
+- **Dobbelt-afsendelse er forhindret:** gentaget transmit af samme faktura er
+  idempotent. Hvis en levering bliver sat i kø men ikke når *delivered* indenfor
+  poll-budgettet, gemmes en **pending** submission med Digisense' `documentId` —
+  et nyt forsøg afvises og beder dig poll'e leverings-status i stedet for at
+  levere igen.
+
+---
+
+## Trin 4 — Modtag e-fakturaer
+
+Poller Digisense for nye indkomne fakturaer (`list-received-documents`), følger
+pagination, henter hvert nyt dokument og ingester det i bogføringen. **Ingen
+webhook / ingen always-on server** — kør kommandoen ved opstart eller på et
+interval.
+
+```bash
+rentemester efaktura modtag \
+  --company <sti-eller-slug> \
+  --confirm yes
+```
+
+- **Dedup på Digisense' stabile `internalId`:** kører du den igen, ingesteres
+  intet dobbelt.
+- Et dokument der ikke kan ingestes (validerings-/dublet-fejl) sættes i
+  **karantæne**, så det ikke hentes og fejler i en uendelig løkke. Partiel
+  succes: én dårlig faktura vælter ikke de øvrige.
+- Nyttige flag: `--limit <n>` (side-størrelse, ≤100), `--max-timestamp
+  <ISO8601>` (fx `2026-06-01T00:00:00Z`), `--metadata <file.json>` (booking-felter
+  der flettes oven på de UBL-afledte), `--force` (tillad logisk dublet),
+  `--digisense-company-key <key>` (hvis du har flere registrerede virksomheder).
+- Skrivende handling: kræver `--confirm yes` og en actor.
+
+---
+
+## Test vs. produktion
+
+| | Test (sandbox) | Produktion |
+|---|---|---|
+| `--environment` | `test` | `production` |
+| Base-URL | `test-api.digisense.dk` | `api.digisense.dk` |
+
+Kør **hele** forløbet (konfigurer → registrer → send → modtag) i `test` først.
+Skift til produktion ved at køre `efaktura konfigurer … --environment production`
+igen med din produktions-nøgle.
+
+> ⚠️ **TODO — produktions-go-live.** Bekræft med Digisense, om test- og
+> produktions-license-key er den samme eller to forskellige nøgler, og hvad der
+> kræves for at gå live (fx rigtig NemHandel-registrering af CVR'et i
+> produktion). Indtil dette er afklaret: hold dig til `test`.
+
+---
+
+## For agenter (MCP)
+
+Hele overfladen findes også som MCP-tools, så en agent kan drive forløbet:
+`efaktura_konfigurer`, `efaktura_registrer`, `efaktura_send`, `efaktura_modtag`.
+De følger samme forudsætninger og confirm/actor-gates som CLI'en. Se de
+autoritative input/output-shapes i [mcp-tool-surface.md](mcp-tool-surface.md).
+
+En typisk agent-sætning: *"Registrér virksomheden CVR DK12345678 i NemHandel"* →
+agenten kalder `efaktura_registrer`. *"Hent nye fakturaer"* → `efaktura_modtag`.
+
+---
+
+## Forudsætninger & sikkerhed (kort)
+
+- **Rækkefølge:** konfigurer (1) før registrer (2); registrer før send/modtag (3–4).
+- **License-key er et secret:** den bor kun i `config/digisense.json` og bliver
+  aldrig returneret af et tool eller skrevet til ledgeren/audit-loggen.
+- **Alt skrivende kræver `--confirm yes` + actor** og logges i `audit_log`.
+- **Fejl-envelope:** mangler nøglen, får du *"Digisense er ikke konfigureret"* med
+  en henvisning til at køre `efaktura konfigurer` først.
+
+---
+
+## Onboarding af andre brugere
+
+En anden virksomhed (fx et søsterselskab eller en kollega) der vil bruge
+Rentemester + Digisense skal:
+
+1. Anskaffe sin **egen** license-key hos Digisense (trin 0).
+2. Køre `efaktura konfigurer` i sin egen virksomhedsmappe (trin 1).
+3. Registrere sit eget CVR (trin 2) og derefter sende/modtage.
+
+> ⚠️ **TODO — partner-/PR-omtale.** Digisense ønsker at Rentemester nævner dem som
+> compliance-partner (og vil selv bruge Rentemester i deres PR). Når den fælles
+> ordlyd er aftalt, tilføj den her og evt. i `README`.
+
+---
+
+## Hvad der mangler (samlet TODO-liste)
+
+- [ ] **Trin 0:** Digisense' officielle, delbare proces for at få en license-key.
+- [ ] **Go-live:** test- vs. produktions-nøgle, og krav til produktions-registrering.
+- [ ] **Partner-/PR-tekst** til omtale af Digisense som compliance-partner.
+- [ ] **Rigtig sandbox-e2e:** kør forløbet mod `test-api.digisense.dk` med en
+      rigtig nøgle og bekræft send + modtag end-to-end (endnu kun testet mod fakes).

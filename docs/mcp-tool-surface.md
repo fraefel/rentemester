@@ -34,7 +34,7 @@ med det samme i komprimeret form.
    `documents_*`, `system_*`, `vat_*`, `customer_*`, `vendor_*`, `period_*`,
    `retention_*`, `exceptions_*`, `accounts_*`, `reconcile_*`, `expense_*`,
    `audit_*`, `asset_*`, `mileage_*`, `recurring_invoice_*`, `mail_intake_*`,
-   `imap_intake_*`, `peppol_*`, `company_*`, `portfolio_*`, `import_*`).
+   `imap_intake_*`, `efaktura_*`, `peppol_*`, `company_*`, `portfolio_*`, `import_*`).
    Dette matcher CLI'ens `domæne underkommando`-struktur tæt — men ikke
    100 %: nogle MCP-tools har ingen CLI-pendant og enkelte CLI-kommandoer
    eksponeres ikke som tools. Kendte afvigelser er listet under
@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 104 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 108 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-104 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+108 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -198,6 +198,10 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `customer_validate_vat` | `{ validation: { … VIES-record … } }` |
 | `audit_verify` | `{ entries }` — kun antallet af verificerede posteringer. Integritets-verdikten er **konvoluttens** `ok`/`errors[]`, ikke et felt i `data`: `ok=true` ⇒ kæden er intakt, `ok=false` ⇒ `errors[]` lister bruddene. |
 | `system_restore_backup` | `{ backupId, restoredAt, targetCompanyRoot, restoredDbPath, restoredFiles: { documentsOriginals, invoicesIssued, config } }` — `backupId`/`restoredAt` er ISO-tidsstempler; `restoredFiles`-felterne er antal genskabte filer pr. kategori. `appliedRules` (på konvoluttens topniveau) er `["DK-BOOKKEEPING-RESTORE-001"]`. |
+| `efaktura_konfigurer` | `{ configPath, environment }` — `configPath` er stien til den skrevne secret-fil (config/digisense.json); `environment` er `"production" \| "test"`. license-key returneres ALDRIG. |
+| `efaktura_registrer` | `{ companyKey, directionsRegistered, network, participantType, participantId }` — `companyKey` er Digisense' nøgle for virksomheden; `directionsRegistered` er de registrerede retninger (fx `["inbound","outbound"]`); `network` er `"nemhandel" \| "peppol"`; `participantType` er `"DK:CVR" \| "GLN"`. |
+| `efaktura_modtag` | `{ pagesFetched, documentsListed, documentsIngested, documentsSkipped, documentsQuarantined, documents[], errors[] }` — tællere over pollen; `documentsQuarantined` er TERMINALT uingesterbare bilag (validering/dublet) der er sat i karantæne så de ikke down­loades igen. `documents[]` er `ReceivedDocumentOutcome`: `{ internalId, status, documentNo?, errors? }`, hvor `status` er `"ingested" \| "skipped-duplicate" \| "quarantined" \| "error"`. **Partiel succes:** konvoluttens `ok` er kun `false` ved en BATCH-fejl (list-received-documents fejlede); en enkelt dårlig faktura giver `ok:true` med tællerne intakte og fejlen i `documents[]`/`errors[]`. |
+| `efaktura_send` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — samme `SubmitPublicEInvoicePeppolResult`-shape som `peppol_submit_public_invoice`. `status` er `"acknowledged"` ved levering. En queued-men-endnu-ikke-leveret timeout giver `ok:false` + `status:"prepared"` + `transmissionId` (det kø-satte documentId); et efterfølgende send AFVISES (double-send-guard) — poll leverings-status på documentId i stedet for at retry'e transmit. |
 
 > **Discovery-kontrakten:** Konvolut-formen er maskin-kendt via `outputSchema`
 > i `tools/list`. Den præcise `data`-feltliste står her og i kildens
@@ -212,10 +216,10 @@ Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
 - **Read-tools**: 48
-- **Write-reversible**: 12
-- **Write-irreversible**: 43
+- **Write-reversible**: 13
+- **Write-irreversible**: 46
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **104**
+- **Total**: **108**
 
 ## Read-tools
 
@@ -318,7 +322,7 @@ uden at kernen kaldes.
 
 ### write-reversible
 
-12 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
+13 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
 append-only finanskæde.
 
 | Tool | CLI-ækvivalent | Input | Brief |
@@ -329,6 +333,7 @@ append-only finanskæde.
 | `company_sync_cvr` | `company sync-cvr` | `{ company, confirm }` | Henter virksomhedens stamdata fra CVR og opdaterer companies-rækken. Regnskabsåret røres ikke. |
 | `customer_create` | `customer create` | `{ company, input: CreateCustomerInput, fromCvr?, confirm }` | Opretter append-only kundepost. Kan arkiveres. |
 | `documents_ingest` | `documents ingest` | `{ company, filePath, metadata: DocumentMetadata, vendorId?, force?, confirm }` | Indlæser og hash-lagrer et bilag. |
+| `efaktura_modtag` | `efaktura modtag` | `{ company, digisenseCompanyKey?, limit?, maxTimestamp?, metadata?, force?, confirm }` | Poller modtagne e-fakturaer hos Digisense (pagination), ingester hvert nyt dokument. Dedup på internalId — rerun-stabil. |
 | `exception_resolve` | `exceptions resolve` | `{ company, id, note?, confirm }` | Markerer exception som løst. |
 | `imap_intake_poll` | `imap-intake poll` | `{ company, imapHost, imapPort?, imapUsername, imapMailbox?, sinceUid?, metadata?, metadataPerMessage?, force?, confirm }` | Poller en IMAP-postkasse og videresender vedhæftninger til bilags-pipelinen. Dedup-stabil. |
 | `mail_intake_ingest` | `mail-intake ingest` | `{ company, source, metadata?, metadataPerMessage?, force?, confirm }` | Indlæser en `.eml`-fil/maildrop-mappe og videresender vedhæftninger. Idempotent. |
@@ -338,13 +343,16 @@ append-only finanskæde.
 
 ### write-irreversible
 
-43 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
+46 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
 revisionsklare/eksterne artefakter; kan kun "rulles tilbage" via en
 modpostering.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
 | `accrual_recognize` | `accrual recognize` | `{ company, accrualId, period, date?, settlementAccountNo?, confirm }` | Indtægts-/omkostningsfører én periode af en periodeafgrænsningspost. |
+| `efaktura_konfigurer` | `efaktura konfigurer` | `{ company, apiLicenseKey, environment?, confirm }` | Gemmer Digisense API license-key i secret-laget (config/digisense.json, 0600). PRECONDITION for efaktura_registrer/efaktura_modtag/efaktura_send. license-key rammer aldrig ledger'en. |
+| `efaktura_registrer` | `efaktura registrer` | `{ company, cvr, companyName, network?, confirm }` | Registrerer en virksomhed i NemHandel via Digisense: register-company ⇒ gemmer companyKey ⇒ register-participant for BÅDE outbound OG inbound. webhookUrl=null (vi poller selv). Idempotent: re-run med samme CVR duplikerer ikke state. |
+| `efaktura_send` | `invoice transmit-digisense` | `{ company, documentId? \| invoiceNumber?, digisenseCompanyKey?, accessPoint?, confirm }` | Sender en udstedt offentlig e-faktura gennem Digisense: validate-document ⇒ deliver-document ⇒ poll til delivered; bogfører succes som acknowledged PEPPOL-submission. Access-point-identiteten udledes deterministisk af companyKey (Digisense ER access point'et), så gentaget send er idempotent og leverer aldrig dobbelt. |
 | `accrual_register` | `accrual register` | `{ company, accrualType, description, totalAmount, recognitionPeriods, firstRecognitionDate, resultAccountNo, registrationDate?, periodStepMonths?, balanceAccountNo?, settlementAccountNo?, documentId?, note?, confirm }` | Registrerer en periodeafgrænsningspost og bogfører registreringsposteringen. |
 | `asset_depreciate` | `asset depreciate` | `{ company, assetId, period, date, confirm }` | Bogfører en periodes afskrivning. |
 | `asset_register` | `asset register` | `{ company, name, category, acquisitionDate, cost, usefulLifeMonths, documentId, assetAccount, depreciationAccount, accumulatedAccount, note?, confirm }` | Registrerer et aktiv med lineær afskrivningsplan. |
@@ -508,6 +516,13 @@ disse uden at læse mapping-doc'en:
   af bogført faktura). CLI'en har `invoice submit-public-peppol`
   (`src/cli/invoice.ts`), men den er filtmæssigt en del af `invoice`-domænet
   — ikke en selvstændig `peppol`-CLI.
+- `src/mcp/tools/efaktura.ts` — `efaktura_send` (LIVE Digisense-afsendelse af en
+  udstedt offentlig e-faktura). CLI-pendanten er `invoice transmit-digisense`
+  (underkommando i `src/cli/invoice/issuance.ts`), ikke en `efaktura send`-
+  kommando — navnene divergerer, men begge kører samme
+  `resolveDigisenseTransmitter` + `transmitPublicEInvoicePeppol`. Access-point-
+  identiteten udledes deterministisk af companyKey (intet `--access-point` skal
+  opfindes), så afsendelse er idempotent og leverer aldrig dobbelt.
 - `src/mcp/tools/portfolio.ts` — `portfolio_overview` (workspace-vid
   porteføljeoversigt). CLI'en har kun `dashboard` (`src/cli/dashboard.ts`),
   der er virksomheds-scopet og kun delvist overlapper.

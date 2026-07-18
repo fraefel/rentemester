@@ -1960,8 +1960,8 @@
     "semantic_hash": ""
   },
   "src/core/master-data.ts": {
-    "mtime": 1784346263.250584,
-    "ast_hash": "888782481ba7af98cb4336a07eede939",
+    "mtime": 1784346595.1324391,
+    "ast_hash": "4f59f28432dfbeeb99a38f76c30c3c79",
     "semantic_hash": ""
   },
   "src/core/messages.ts": {

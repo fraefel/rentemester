@@ -26,13 +26,12 @@ import { insertAuditLog } from "./actor";
 import { getCompanySettings } from "./company";
 import { isValidIsoDate as looksLikeIsoDate, diffDays, todayIsoDate } from "./dates";
 import { absDkk, compareDkk, percentOfDkk, roundDkk, subtractDkk, sumDkk } from "./money";
+import { resolveAccountRole } from "./account-roles";
+import { purchaseVatLinesFromPayload } from "./documents";
 
 const RULE_ID = "DK-PAYABLE-001";
 const PAYMENT_RULE_ID = "DK-PAYABLE-PAYMENT-001";
 /** 7000 Leverandørgæld (kreditorer) — the trade-creditor liability account. */
-const CREDITOR_ACCOUNT_NO = "7000";
-const DEFAULT_PAYMENT_ACCOUNT_NO = "2000";
-const DEFAULT_VAT_ACCOUNT_NO = "4000";
 
 export type RegisterPayableInput = {
   documentId: number;
@@ -222,7 +221,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
   if (!account.active) return { ok: false, appliedRules: [RULE_ID], errors: [`account ${expenseAccountNo} is inactive`] };
 
   const document = db.query(
-    `SELECT id, document_type, invoice_no, amount_inc_vat, vat_amount, currency, sender_name
+    `SELECT id, document_type, invoice_no, amount_inc_vat, vat_amount, currency, sender_name, payload_json
      FROM documents WHERE id = ?`,
   ).get(input.documentId) as {
     id: number;
@@ -232,6 +231,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
     vat_amount: number | null;
     currency: string;
     sender_name: string | null;
+    payload_json: string | null;
   } | null;
   if (!document) return { ok: false, appliedRules: [RULE_ID], errors: [`document ${input.documentId} does not exist`] };
   if (document.document_type !== "purchase_sale" && document.document_type !== "cash_register_receipt") {
@@ -243,6 +243,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
 
   const grossAmount = roundDkk(Number(document.amount_inc_vat ?? 0));
   const vatAmount = roundDkk(Number(document.vat_amount ?? 0));
+  const purchaseVatLines = purchaseVatLinesFromPayload(document.payload_json);
   if (!(grossAmount > 0)) return { ok: false, appliedRules: [RULE_ID], errors: [`document ${input.documentId} must have amount_inc_vat > 0`] };
   if (vatAmount < 0 || vatAmount > grossAmount) return { ok: false, appliedRules: [RULE_ID], errors: [`document ${input.documentId} has invalid vat_amount ${vatAmount}`] };
 
@@ -267,7 +268,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
   if (vatTreatment === "exempt" && vatAmount !== 0) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["exempt payable registration requires document vat_amount = 0"] };
   }
-  if (vatTreatment === "standard") {
+  if (vatTreatment === "standard" && !purchaseVatLines) {
     if (!(vatAmount > 0)) return { ok: false, appliedRules: [RULE_ID], errors: ["standard payable registration requires document vat_amount > 0"] };
     // The document vat_amount becomes deductible input VAT — it must be
     // consistent with the 25 % rate rather than trusted blindly (a garbled or
@@ -284,17 +285,28 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
   }
 
   const netAmount = subtractDkk(grossAmount, vatAmount);
-  const vatAccountNo = input.vatAccountNo?.trim() || DEFAULT_VAT_ACCOUNT_NO;
+  const creditor = resolveAccountRole(db, "creditors");
+  const inputVat = input.vatAccountNo?.trim() ? { ok: true as const, accountNo: input.vatAccountNo.trim() } : resolveAccountRole(db, "input_vat");
+  if (!creditor.ok || !inputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [!creditor.ok ? creditor.error : inputVat.error] };
   const supplierName = document.sender_name?.trim() || null;
   const text = supplierName
     ? `Kreditorpost: bilag fra ${supplierName} (bilag ${input.documentId})`
     : `Kreditorpost (bilag ${input.documentId})`;
 
-  const lines = vatTreatment === "standard"
+  if (purchaseVatLines && vatTreatment === "standard" && purchaseVatLines.some((line) => line.classification === "eu_service_reverse_charge" || line.classification === "domestic_reverse_charge")) {
+    return { ok: false, appliedRules: [RULE_ID], errors: ["mixed purchaseVatLines with reverse-charge classifications require a dedicated reverse-charge booking"] };
+  }
+  const lines = purchaseVatLines && vatTreatment === "standard"
+    ? [
+        ...purchaseVatLines.map((line) => ({ accountNo: expenseAccountNo, debitAmount: line.netAmount, vatCode: line.classification === "dk_purchase_25" ? "DK_PURCHASE_25" : "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? (line.classification === "dk_purchase_25" ? "Udgift, momspligtigt grundbeløb" : "Udgift, momsfrit grundbeløb") })),
+        { accountNo: inputVat.accountNo, debitAmount: vatAmount, text: "Købsmoms" },
+        { accountNo: creditor.accountNo, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
+      ]
+    : vatTreatment === "standard"
     ? [
         { accountNo: expenseAccountNo, debitAmount: netAmount, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, grundbeløb" },
-        { accountNo: vatAccountNo, debitAmount: vatAmount, text: "Købsmoms" },
-        { accountNo: CREDITOR_ACCOUNT_NO, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
+        { accountNo: inputVat.accountNo, debitAmount: vatAmount, text: "Købsmoms" },
+        { accountNo: creditor.accountNo, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
       ]
     : [
         {
@@ -304,7 +316,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
             document.invoice_no ??
             (vatTreatment === "non_deductible" ? "Udgift inkl. moms (ikke-fradragsberettiget)" : "Udgift"),
         },
-        { accountNo: CREDITOR_ACCOUNT_NO, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
+        { accountNo: creditor.accountNo, creditAmount: grossAmount, text: supplierName ? `Leverandørgæld ${supplierName}` : "Leverandørgæld" },
       ];
 
   try {
@@ -480,7 +492,9 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
   }
 
   const paymentDate = input.paymentDate ?? bank.transaction_date;
-  const paymentAccountNo = input.paymentAccountNo?.trim() || DEFAULT_PAYMENT_ACCOUNT_NO;
+  const payment = input.paymentAccountNo?.trim() ? { ok: true as const, accountNo: input.paymentAccountNo.trim() } : resolveAccountRole(db, "bank");
+  const creditor = resolveAccountRole(db, "creditors");
+  if (!payment.ok || !creditor.ok) return { ok: false, appliedRules: [PAYMENT_RULE_ID], errors: [!payment.ok ? payment.error : creditor.error] };
   const text = payable.supplier_name
     ? `Betaling af kreditorpost til ${payable.supplier_name} (banktransaktion ${bank.id})`
     : `Betaling af kreditorpost (banktransaktion ${bank.id})`;
@@ -494,8 +508,8 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         lines: [
-          { accountNo: CREDITOR_ACCOUNT_NO, debitAmount: amount, text: payable.supplier_name ? `Leverandørgæld ${payable.supplier_name}` : "Leverandørgæld" },
-          { accountNo: paymentAccountNo, creditAmount: amount, text: bank.text },
+          { accountNo: creditor.accountNo, debitAmount: amount, text: payable.supplier_name ? `Leverandørgæld ${payable.supplier_name}` : "Leverandørgæld" },
+          { accountNo: payment.accountNo, creditAmount: amount, text: bank.text },
         ],
       });
       if (!journal.ok || journal.entryId == null) {

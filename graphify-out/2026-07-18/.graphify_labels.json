@@ -3612,6 +3612,7 @@
   "3610": "db-customers-migration.test.ts",
   "3611": "mcp-audit-log-list.test.ts",
   "3612": "SuggestionsView.tsx",
+  "3613": "vat-critical-high-regression.test.ts",
   "3614": "rules.ts",
   "3619": "Critical/high acceptance evidence — 2026-07-18"
 }

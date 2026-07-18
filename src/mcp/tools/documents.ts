@@ -7,7 +7,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ingestDocument, type DocumentMetadata } from "../../core/documents";
+import { ingestDocument, purchaseVatLinesFromPayload, type DocumentMetadata } from "../../core/documents";
 import { resolveDocumentMasterData } from "../../core/master-data";
 import { recordException } from "../../core/exceptions";
 import { envelopeShape, errorEnvelope, successEnvelope, wrapCoreResult } from "../envelope";
@@ -56,6 +56,11 @@ export const documentMetadataFields = {
       .number()
       .optional()
       .describe("VAT amount, in kroner (decimal DKK, 2 decimals — NOT øre)."),
+    purchaseVatLines: z.array(z.object({
+      classification: z.enum(["dk_purchase_25", "exempt", "eu_service_reverse_charge", "domestic_reverse_charge"]),
+      netAmount: z.number().nonnegative().describe("Tax base in kroner."),
+      vatAmount: z.number().nonnegative().optional().describe("VAT amount in kroner; 25% for dk_purchase_25, otherwise zero."),
+    })).min(1).optional().describe("Optional durable purchase VAT split. Its net and VAT totals must reconcile exactly with the document totals."),
     paymentDetails: z
       .string()
       .optional()
@@ -103,7 +108,7 @@ export function registerDocumentTools(server: McpServer): void {
       const rows = db
         .query(
           `SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat,
-                  currency, status, stored_path, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
+                  currency, status, stored_path, payload_json, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
            FROM documents
            ORDER BY id DESC`,
         )
@@ -117,6 +122,7 @@ export function registerDocumentTools(server: McpServer): void {
           currency: string | null;
           status: string;
           stored_path: string | null;
+          payload_json: string | null;
           sender_vat_cvr: string | null; supplier_country_code: string | null; supplier_identifier_kind: string | null; supplier_identity_status: string | null;
         }>;
       const mapped = rows.map((row) => ({
@@ -129,6 +135,7 @@ export function registerDocumentTools(server: McpServer): void {
         currency: row.currency,
         status: row.status,
         storedPath: row.stored_path,
+        purchaseVatLines: purchaseVatLinesFromPayload(row.payload_json),
         senderVatOrCvr: row.sender_vat_cvr,
         supplierCountryCode: row.supplier_country_code,
         supplierIdentifierKind: row.supplier_identifier_kind,

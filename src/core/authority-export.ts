@@ -8,6 +8,7 @@ import { effectiveRetainUntil } from "./retention";
 import { writeFileAtomic } from "./atomic-file";
 import { buildTrialBalance } from "./financial-statements";
 import { formatAmount } from "./money";
+import { purchaseVatLinesFromPayload } from "./documents";
 
 const RULE_ID = "DK-BOOKKEEPING-AUTHORITY-EXPORT-001";
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
@@ -86,6 +87,7 @@ type DocumentRecord = {
   source: string;
   amountIncVat: number | null;
   vatAmount: number | null;
+  purchaseVatLines: unknown[] | null;
   status: string;
   retainUntil: string | null;
 };
@@ -463,13 +465,13 @@ function fetchDocuments(db: Database, journalEntries: JournalEntryRecord[], peri
   const linkedIds = uniqueIds(journalEntries.map((entry) => entry.documentId));
   const linkedDocuments = linkedIds.length === 0 ? [] : db.query(
     `SELECT id, document_no, document_type, invoice_no, invoice_date, original_filename, stored_path, mime_type, source,
-            amount_inc_vat, vat_amount, status, retain_until
+            amount_inc_vat, vat_amount, payload_json, status, retain_until
      FROM documents WHERE id IN (${linkedIds.map(() => "?").join(",")})`
   ).all(...linkedIds) as any[];
 
   const issuedInPeriod = db.query(
     `SELECT id, document_no, document_type, invoice_no, invoice_date, original_filename, stored_path, mime_type, source,
-            amount_inc_vat, vat_amount, status, retain_until
+            amount_inc_vat, vat_amount, payload_json, status, retain_until
      FROM documents
      WHERE invoice_date BETWEEN ? AND ?
      ORDER BY id ASC`
@@ -489,6 +491,7 @@ function fetchDocuments(db: Database, journalEntries: JournalEntryRecord[], peri
       source: row.source,
       amountIncVat: row.amount_inc_vat == null ? null : Number(row.amount_inc_vat),
       vatAmount: row.vat_amount == null ? null : Number(row.vat_amount),
+      purchaseVatLines: purchaseVatLinesFromPayload(row.payload_json),
       status: row.status,
       retainUntil: effectiveRetainUntil(db, row.retain_until, row.invoice_date ?? null),
     });

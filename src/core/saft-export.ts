@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { Database } from "bun:sqlite";
+import { purchaseVatLinesFromPayload } from "./documents";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { formatAmount, roundDkk, sumDkk } from "./money";
@@ -132,6 +133,7 @@ type PurchaseInvoiceRow = {
   netAmount: number | null;
   vatAmount: number | null;
   grossAmount: number | null;
+  purchaseVatLines: unknown[] | null;
 };
 
 type VatSummaryRow = {
@@ -329,7 +331,7 @@ function fetchSalesInvoices(db: Database, periodStart: string, periodEnd: string
 function fetchPurchaseInvoices(db: Database, periodStart: string, periodEnd: string): PurchaseInvoiceRow[] {
   return (db.query(
     `SELECT document_no, invoice_no, invoice_date, supplier_name, sender_vat_cvr,
-            currency, amount_inc_vat, vat_amount
+            currency, amount_inc_vat, vat_amount, payload_json
      FROM documents
      WHERE document_type = 'purchase_sale'
        AND invoice_date BETWEEN ? AND ?
@@ -347,6 +349,7 @@ function fetchPurchaseInvoices(db: Database, periodStart: string, periodEnd: str
       netAmount: gross == null || vat == null ? null : roundDkk(gross - vat),
       vatAmount: vat,
       grossAmount: gross,
+      purchaseVatLines: purchaseVatLinesFromPayload(row.payload_json),
     };
   });
 }
@@ -530,7 +533,15 @@ function renderSaftXml(input: {
   }).join("\n");
 
   // ===== Purchase-invoice blocks for the second slice (#127) =====
-  const purchaseBlocks = input.purchaseInvoices.map((invoice) => [
+  const purchaseBlocks = input.purchaseInvoices.map((invoice) => {
+    const taxLines = invoice.purchaseVatLines?.map((line: any) => [
+      "        <TaxLine>",
+      xmlTag("TaxClassification", line.classification, "          "),
+      xmlTag("TaxBase", money(line.netAmount), "          "),
+      xmlTag("TaxAmount", money(line.vatAmount ?? 0), "          "),
+      "        </TaxLine>",
+    ].join("\n")).join("\n") ?? "";
+    return [
     "      <Invoice>",
     xmlTag("InvoiceNo", invoice.invoiceNo, "        "),
     xmlTag("DocumentNo", invoice.documentNo, "        "),
@@ -541,8 +552,10 @@ function renderSaftXml(input: {
     xmlTag("NetTotal", money(invoice.netAmount), "        "),
     xmlTag("TaxPayable", money(invoice.vatAmount), "        "),
     xmlTag("GrossTotal", money(invoice.grossAmount), "        "),
+    taxLines,
     "      </Invoice>",
-  ].filter(Boolean).join("\n")).join("\n");
+  ].filter(Boolean).join("\n");
+  }).join("\n");
 
   // ===== VAT-summary blocks for the second slice (#127) =====
   const vatSummaryBlocks = input.vatSummary.map((row) => [

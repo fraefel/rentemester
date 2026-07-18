@@ -4,6 +4,7 @@ import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { postEuServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
 import { absDkk, compareDkk, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk } from "./money";
 import { resolveAccountRole } from "./account-roles";
+import { purchaseVatLinesFromPayload } from "./documents";
 
 /**
  * `non_deductible` (DK-VAT-NON-DEDUCTIBLE-001 / Momsloven § 37) is the
@@ -181,7 +182,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   if (!account.active) return { ok: false, appliedRules: [], errors: [`account ${input.expenseAccountNo} is inactive`] };
 
   const document = db.query(
-    `SELECT id, document_type, invoice_no, invoice_date, amount_inc_vat, vat_amount, currency, sender_name
+    `SELECT id, document_type, invoice_no, invoice_date, amount_inc_vat, vat_amount, currency, sender_name, payload_json
      FROM documents
      WHERE id = ?`
   ).get(input.documentId) as {
@@ -193,6 +194,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     vat_amount: number | null;
     currency: string;
     sender_name: string | null;
+    payload_json: string | null;
   } | null;
   if (!document) return { ok: false, appliedRules: [], errors: [`document ${input.documentId} does not exist`] };
   if (document.document_type !== "purchase_sale" && document.document_type !== "cash_register_receipt") {
@@ -274,6 +276,22 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
         amountDkk: fxBasis.basis.grossAmountDkk,
         fxRateToDkk: fxBasis.basis.fxRateToDkk,
       };
+
+  const purchaseVatLines = purchaseVatLinesFromPayload(document.payload_json);
+  if (purchaseVatLines && vatTreatment === "standard") {
+    if (purchaseVatLines.some((line) => line.classification === "eu_service_reverse_charge" || line.classification === "domestic_reverse_charge")) {
+      return { ok: false, appliedRules: [], errors: ["mixed purchaseVatLines with reverse-charge classifications require a dedicated reverse-charge booking"] };
+    }
+    const scale = fxBasis.basis.currency === "DKK" ? 1 : fxBasis.basis.fxRateToDkk;
+    const lines = purchaseVatLines.flatMap((line) => {
+      const net = roundDkk(line.netAmount * scale);
+      if (line.classification === "dk_purchase_25") return [{ accountNo: account.account_no, debitAmount: net, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, momspligtigt grundbeløb" }];
+      return [{ accountNo: account.account_no, debitAmount: net, vatCode: "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? "Udgift, momsfrit grundbeløb" }];
+    });
+    lines.push({ accountNo: inputVat.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" }, { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text });
+    const result = postJournalEntry(db, { transactionDate, text, documentId: input.documentId, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata, lines });
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment };
+  }
 
   // For 25%-rated treatments the document vat_amount becomes deductible input
   // VAT, so it must be consistent with a 25% rate rather than trusted blindly.

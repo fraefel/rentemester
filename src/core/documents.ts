@@ -9,9 +9,12 @@ import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { retainUntilForDate } from "./retention";
 import { asDocumentId, type DocumentId } from "./ids";
 import { resolveLegacySupplierIdentity, resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
+import { compareDkk, percentOfDkk, roundDkk, sumDkk } from "./money";
 
 export type DocumentType = "purchase_sale" | "cash_register_receipt";
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
+export type PurchaseVatClassification = "dk_purchase_25" | "exempt" | "eu_service_reverse_charge" | "domestic_reverse_charge";
+export type PurchaseVatLine = { classification: PurchaseVatClassification; netAmount: number; vatAmount?: number };
 
 export type DocumentMetadata = {
   source: string;
@@ -24,6 +27,8 @@ export type DocumentMetadata = {
   sender?: { name?: string; address?: string; vatOrCvr?: string; countryCode?: string; identifierKind?: SupplierIdentifierKind };
   recipient?: { name?: string; address?: string; vatOrCvr?: string };
   vatAmount?: number;
+  /** Purchase tax bases, retained verbatim with the voucher.  Omit for legacy uniform VAT documents. */
+  purchaseVatLines?: PurchaseVatLine[];
   paymentDetails?: string;
   exemptionCode?: DocumentExemptionCode;
 };
@@ -60,6 +65,44 @@ function hasText(value: unknown): value is string {
 
 function hasNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+export function validatePurchaseVatLines(metadata: Pick<DocumentMetadata, "amountIncVat" | "vatAmount" | "purchaseVatLines">): string[] {
+  const lines = metadata.purchaseVatLines;
+  if (lines === undefined) return [];
+  if (!Array.isArray(lines) || lines.length === 0) return ["purchaseVatLines must be a non-empty array when present"];
+  const errors: string[] = [];
+  const allowed = new Set<PurchaseVatClassification>(["dk_purchase_25", "exempt", "eu_service_reverse_charge", "domestic_reverse_charge"]);
+  let net = 0;
+  let vat = 0;
+  for (const [index, line] of lines.entries()) {
+    if (!line || typeof line !== "object" || !allowed.has(line.classification)) {
+      errors.push(`purchaseVatLines[${index}].classification must be dk_purchase_25, exempt, eu_service_reverse_charge or domestic_reverse_charge`);
+      continue;
+    }
+    if (!hasNonNegativeNumber(line.netAmount)) errors.push(`purchaseVatLines[${index}].netAmount must be a non-negative number`);
+    const lineVat = line.vatAmount ?? 0;
+    if (!hasNonNegativeNumber(lineVat)) errors.push(`purchaseVatLines[${index}].vatAmount must be a non-negative number when present`);
+    if (line.classification === "dk_purchase_25" && hasNonNegativeNumber(line.netAmount) && compareDkk(roundDkk(lineVat), percentOfDkk(line.netAmount, 25)) !== 0) {
+      errors.push(`purchaseVatLines[${index}] dk_purchase_25 vatAmount must equal 25% of netAmount (${percentOfDkk(line.netAmount, 25)})`);
+    }
+    if (line.classification !== "dk_purchase_25" && compareDkk(roundDkk(lineVat), 0) !== 0) errors.push(`purchaseVatLines[${index}] ${line.classification} vatAmount must be 0`);
+    net = sumDkk([net, Number(line.netAmount ?? 0)]);
+    vat = sumDkk([vat, Number(lineVat)]);
+  }
+  if (hasNonNegativeNumber(metadata.vatAmount) && compareDkk(vat, metadata.vatAmount) !== 0) errors.push(`purchaseVatLines VAT ${vat} must equal vatAmount ${roundDkk(metadata.vatAmount)}`);
+  const gross = sumDkk([net, vat]);
+  if (hasNonNegativeNumber(metadata.amountIncVat) && compareDkk(gross, metadata.amountIncVat) !== 0) errors.push(`purchaseVatLines net + VAT ${gross} must equal amountIncVat ${roundDkk(metadata.amountIncVat)}`);
+  return errors;
+}
+
+/** Reads a persisted purchase split defensively; legacy/invalid payloads never become posting input. */
+export function purchaseVatLinesFromPayload(payloadJson: string | null | undefined): PurchaseVatLine[] | null {
+  if (!payloadJson) return null;
+  try {
+    const metadata = JSON.parse(payloadJson) as DocumentMetadata;
+    return metadata.purchaseVatLines && validatePurchaseVatLines(metadata).length === 0 ? metadata.purchaseVatLines : null;
+  } catch { return null; }
 }
 
 
@@ -181,6 +224,7 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
     if (!hasText(metadata.recipient?.address)) errors.push("recipient.address is required");
     if (!hasText(metadata.recipient?.vatOrCvr)) errors.push("recipient.vatOrCvr is required");
     if (!hasNonNegativeNumber(metadata.vatAmount)) errors.push("vatAmount is required");
+    errors.push(...validatePurchaseVatLines(metadata));
   }
 
   return { ok: errors.length === 0, appliedRules, errors };
@@ -246,8 +290,8 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
           document_no, source, original_filename, stored_path, mime_type, sha256_hash,
           supplier_name, invoice_no, invoice_date, amount_inc_vat, currency, status,
           document_type, delivery_description, sender_name, sender_address, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status,
-          recipient_name, recipient_address, recipient_vat_cvr, vat_amount, payment_details, exemption_code, retain_until
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ingested', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          recipient_name, recipient_address, recipient_vat_cvr, vat_amount, payment_details, exemption_code, payload_json, retain_until
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ingested', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id`
       ).get(
         documentNo,
@@ -275,6 +319,7 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
         metadata.vatAmount ?? null,
         metadata.paymentDetails ?? null,
         metadata.exemptionCode ?? null,
+        JSON.stringify(metadata),
         retainUntilForDate(db, retentionBasisDate),
       ) as { id: number };
 

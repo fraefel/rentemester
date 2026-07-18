@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { companyPaths } from "../../../core/paths";
 import { openDb, migrate } from "../../../core/db";
 import { getCompanySettings } from "../../../core/company";
-import { resolveDocumentFile } from "../../../core/documents";
+import { purchaseVatLinesFromPayload, resolveDocumentFile } from "../../../core/documents";
 import {
   companyRootForSlug,
   findWorkspaceCompany,
@@ -41,6 +41,7 @@ export type DocumentRow = {
   journalEntryTotal: number | null;
   /** True when the document has a stored file the cockpit can open. */
   hasFile: boolean;
+  purchaseVatLines: unknown[] | null;
 };
 
 export type CompanyDocuments = ReturnType<typeof buildCompanyDocuments>;
@@ -85,6 +86,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
                 d.amount_inc_vat  AS amountIncVat,
                 d.currency        AS currency,
                 d.status          AS status,
+                d.payload_json    AS payloadJson,
                 d.stored_path     AS storedPath,
                 idl.voucher_ref   AS voucherRef,
                 COALESCE(je_link.id, je_direct.id)             AS journalEntryId,
@@ -125,6 +127,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       amountIncVat: number | null;
       currency: string;
       status: string;
+      payloadJson: string | null;
       storedPath: string | null;
       voucherRef: string | null;
       journalEntryId: number | null;
@@ -157,6 +160,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
           ? null
           : roundKroner(r.journalEntryTotal),
       hasFile: r.storedPath != null,
+      purchaseVatLines: purchaseVatLinesFromPayload(r.payloadJson),
     }));
     const linkedCount = documents.filter(
       (d) => d.journalEntryNo !== null,

@@ -209,6 +209,7 @@ export type DocumentIngestMetadata = {
   sender?: { name?: string; address?: string; vatOrCvr?: string; countryCode?: string; identifierKind?: "dk_cvr" | "eu_vat" | "non_eu" };
   recipient?: { name?: string; address?: string; vatOrCvr?: string };
   vatAmount?: number;
+  purchaseVatLines?: Array<{ classification: "dk_purchase_25" | "exempt" | "eu_service_reverse_charge" | "domestic_reverse_charge"; netAmount: number; vatAmount?: number }>;
   paymentDetails?: string;
 };
 

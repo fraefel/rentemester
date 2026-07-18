@@ -104,6 +104,19 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
       "metadata.exemptionCode must be 'FOREIGN_PHYSICAL_ONLY' or null when present",
     );
   }
+  const rawLines = m.purchaseVatLines;
+  let purchaseVatLines: DocumentMetadata["purchaseVatLines"];
+  if (rawLines !== undefined) {
+    if (!Array.isArray(rawLines) || rawLines.length === 0) throw ApiError.badRequest("metadata.purchaseVatLines must be a non-empty array when present");
+    purchaseVatLines = rawLines.map((line, index) => {
+      if (!line || typeof line !== "object" || Array.isArray(line)) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}] must be an object`);
+      const item = line as Record<string, unknown>;
+      if (!['dk_purchase_25', 'exempt', 'eu_service_reverse_charge', 'domestic_reverse_charge'].includes(String(item.classification))) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}].classification is invalid`);
+      if (typeof item.netAmount !== "number" || !Number.isFinite(item.netAmount)) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}].netAmount must be a number`);
+      if (item.vatAmount !== undefined && (typeof item.vatAmount !== "number" || !Number.isFinite(item.vatAmount))) throw ApiError.badRequest(`metadata.purchaseVatLines[${index}].vatAmount must be a number`);
+      return { classification: item.classification as any, netAmount: item.netAmount, ...(item.vatAmount === undefined ? {} : { vatAmount: item.vatAmount as number }) };
+    });
+  }
 
   return {
     source,
@@ -116,6 +129,7 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     sender: party("sender"),
     recipient: party("recipient"),
     vatAmount: num("vatAmount"),
+    purchaseVatLines,
     paymentDetails: str("paymentDetails"),
     exemptionCode: (exemptionCode ?? undefined) as DocumentMetadata["exemptionCode"],
   };

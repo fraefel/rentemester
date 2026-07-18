@@ -23,6 +23,7 @@ export type DocumentRow = {
   journalEntryTotal: number | null;
   /** True when the document has a stored file the cockpit can open. */
   hasFile: boolean;
+  purchaseVatLines?: Array<{ classification: string; netAmount: number; vatAmount?: number }> | null;
 };
 
 export type CompanyDocuments = {

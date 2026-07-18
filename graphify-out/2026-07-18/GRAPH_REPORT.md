@@ -5,7 +5,7 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 8383 nodes · 15942 edges · 3615 communities (619 shown, 2996 thin omitted)
+- 8383 nodes · 15942 edges · 3616 communities (620 shown, 2996 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 46 edges (avg confidence: 0.66)
 - Token cost: 0 input · 0 output
 
@@ -3195,6 +3195,7 @@
 - [[_COMMUNITY_db-customers-migration.test.ts|db-customers-migration.test.ts]]
 - [[_COMMUNITY_mcp-audit-log-list.test.ts|mcp-audit-log-list.test.ts]]
 - [[_COMMUNITY_SuggestionsView.tsx|SuggestionsView.tsx]]
+- [[_COMMUNITY_vat-critical-high-regression.test.ts|vat-critical-high-regression.test.ts]]
 - [[_COMMUNITY_rules.ts|rules.ts]]
 - [[_COMMUNITY_Criticalhigh acceptance evidence — 2026-07-18|Critical/high acceptance evidence — 2026-07-18]]
 
@@ -3226,48 +3227,48 @@
 - 1-file cycle: `src/cli.ts -> src/cli.ts`
 - 3-file cycle: `src/mcp/registry.ts -> src/mcp/tools/meta.ts -> src/mcp/server.ts -> src/mcp/registry.ts`
 - 3-file cycle: `src/core/company.ts -> src/core/db.ts -> src/core/retention.ts -> src/core/company.ts`
-- 3-file cycle: `src/core/accruals.ts -> src/core/ledger.ts -> src/core/exceptions.ts -> src/core/accruals.ts`
-- 3-file cycle: `src/core/exceptions.ts -> src/core/payables.ts -> src/core/ledger.ts -> src/core/exceptions.ts`
 - 3-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/retention.ts -> src/core/company.ts`
 - 3-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/sequences.ts -> src/core/company.ts`
+- 3-file cycle: `src/core/exceptions.ts -> src/core/payables.ts -> src/core/ledger.ts -> src/core/exceptions.ts`
 - 3-file cycle: `src/core/assets.ts -> src/core/exceptions.ts -> src/core/tax-return.ts -> src/core/assets.ts`
+- 3-file cycle: `src/core/accruals.ts -> src/core/ledger.ts -> src/core/exceptions.ts -> src/core/accruals.ts`
 - 4-file cycle: `src/core/company.ts -> src/core/db.ts -> src/core/retention.ts -> src/core/fiscal-year.ts -> src/core/company.ts`
+- 4-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/retention.ts -> src/core/fiscal-year.ts -> src/core/company.ts`
+- 4-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/sequences.ts -> src/core/fiscal-year.ts -> src/core/company.ts`
 - 4-file cycle: `src/core/company.ts -> src/core/db.ts -> src/core/retention.ts -> src/core/sequences.ts -> src/core/company.ts`
 - 4-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/exceptions.ts -> src/core/payables.ts -> src/core/company.ts`
+- 4-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/retention.ts -> src/core/sequences.ts -> src/core/company.ts`
 - 4-file cycle: `src/core/assets.ts -> src/core/ledger.ts -> src/core/exceptions.ts -> src/core/tax-return.ts -> src/core/assets.ts`
 - 4-file cycle: `src/core/exceptions.ts -> src/core/tax-return.ts -> src/core/vat.ts -> src/core/ledger.ts -> src/core/exceptions.ts`
-- 4-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/retention.ts -> src/core/fiscal-year.ts -> src/core/company.ts`
-- 4-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/retention.ts -> src/core/sequences.ts -> src/core/company.ts`
-- 4-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/sequences.ts -> src/core/fiscal-year.ts -> src/core/company.ts`
 - 5-file cycle: `src/core/company.ts -> src/core/db.ts -> src/core/retention.ts -> src/core/sequences.ts -> src/core/fiscal-year.ts -> src/core/company.ts`
-- 5-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/exceptions.ts -> src/core/tax-return.ts -> src/core/vat.ts -> src/core/company.ts`
 - 5-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/retention.ts -> src/core/sequences.ts -> src/core/fiscal-year.ts -> src/core/company.ts`
+- 5-file cycle: `src/core/company.ts -> src/core/ledger.ts -> src/core/exceptions.ts -> src/core/tax-return.ts -> src/core/vat.ts -> src/core/company.ts`
 
-## Communities (3615 total, 2996 thin omitted)
+## Communities (3616 total, 2996 thin omitted)
 
 ### Community 1 - "Rentemester"
 Cohesion: 0.07
 Nodes (27): 16. Hash chain, 1. Elevator pitch, 20. E-faktura, 23. Dashboard, 25. Machine-readable rules, 26. Golden tests, 28. Legal sources schema, 29. Repo-struktur (+19 more)
 
 ### Community 2 - "cli.ts"
-Cohesion: 0.06
-Nodes (25): importBankCsv(), ALLOWED_MIME_TYPES, BINARY_MIME_TYPES, detectMimeType(), DocumentExemptionCode, DocumentType, DocumentValidationResult, EXTENSION_MIME (+17 more)
+Cohesion: 0.12
+Nodes (13): importBankCsv(), db(), bootstrapNonRegistered(), markCompanyNotVatRegistered(), payEur(), importOneBankTransaction(), setup(), seedAgentException() (+5 more)
 
 ### Community 3 - "migrate"
 Cohesion: 0.05
-Nodes (83): runAgentLoop(), register(), register(), migrate(), openDb(), companyPaths, listRecurringInvoiceTemplates(), companyRootForSlug() (+75 more)
+Nodes (78): runAgentLoop(), register(), register(), migrate(), openDb(), companyPaths, listRecurringInvoiceTemplates(), companyRootForSlug() (+70 more)
 
 ### Community 4 - "formatKroner"
-Cohesion: 0.05
-Nodes (87): ArchivedBanner(), accountPostingsTo(), CompanyNav(), NavTab, TAB_GROUPS, useCompanyYear(), ConfirmDialog(), ConfirmDialogProps (+79 more)
+Cohesion: 0.04
+Nodes (112): AccountantExportCard(), ArchivedBanner(), CompanyCard(), accountPostingsTo(), CompanyNav(), NavTab, TAB_GROUPS, useCompanyYear() (+104 more)
 
 ### Community 9 - "cli-actor.ts"
-Cohesion: 0.05
-Nodes (17): seedNativeAccountRoles(), ensureNullableVatPeriodColumn(), hasColumn(), migrateLegacyVatPeriodKind(), restoreSchemaTriggers(), listExceptions(), COMPANY, TMP_ROOT (+9 more)
+Cohesion: 0.07
+Nodes (14): seedNativeAccountRoles(), hasColumn(), migrateLegacyVatPeriodKind(), restoreSchemaTriggers(), listExceptions(), COMPANY, TMP_ROOT, CLEAN_ROWS (+6 more)
 
 ### Community 10 - "renderAt"
 Cohesion: 0.03
-Nodes (95): settleRoute(), TX, renderNav(), companyRoute(), contactsRoute(), issueRoute(), mockFetchPreviewError(), mockFetchWithPreview() (+87 more)
+Nodes (94): settleRoute(), TX, renderNav(), InvoiceIssueModal(), companyRoute(), contactsRoute(), issueRoute(), mockFetchPreviewError() (+86 more)
 
 ### Community 11 - "createCompany"
 Cohesion: 0.03
@@ -3311,7 +3312,7 @@ Nodes (31): 1. Vælg et mål, 2. Klassificér, 3. Skriv den fejlende test først
 
 ### Community 37 - "api.ts"
 Cohesion: 0.04
-Nodes (67): DocumentBookExpenseModal(), DocumentBookExpenseModalProps, MaybeApiError, VAT_TREATMENT_LABELS, accountantApi, AccountantExportResult, accountsApi, accrualsApi (+59 more)
+Nodes (66): DocumentBookExpenseModal(), DocumentBookExpenseModalProps, MaybeApiError, VAT_TREATMENT_LABELS, accountantApi, AccountantExportResult, accountsApi, accrualsApi (+58 more)
 
 ### Community 43 - "Rentemester MCP-server — installation"
 Cohesion: 0.22
@@ -3390,8 +3391,8 @@ Cohesion: 0.25
 Nodes (8): 27.1 Bogføring, 27.2 Standardkontoplan og SAF-T, 27.3 Moms, 27.4 Årsrapport og iXBRL, 27.5 Skat, 27.6 E-faktura, 27.7 GDPR og sikkerhed, 27. Lov- og kildeliste
 
 ### Community 113 - "company.ts"
-Cohesion: 0.08
-Nodes (27): AccountingPeriodStatus, closeAccountingPeriod(), CloseAccountingPeriodInput, CloseAccountingPeriodResult, effectivePeriodState, maxFutureDays(), PERIOD_KINDS, PERIOD_STATUSES (+19 more)
+Cohesion: 0.07
+Nodes (28): ensureNullableVatPeriodColumn(), AccountingPeriodStatus, closeAccountingPeriod(), CloseAccountingPeriodInput, CloseAccountingPeriodResult, effectivePeriodState, maxFutureDays(), PERIOD_KINDS (+20 more)
 
 ### Community 125 - "18. Moms"
 Cohesion: 0.50
@@ -3402,8 +3403,8 @@ Cohesion: 0.33
 Nodes (6): 5.1 Agenten må handle, 5.2 Ledgeren må aldrig kunne overtales, 5.3 Usikkerhed betyder exception, 5.4 Regler skal være åbne, versionsstyrede og testbare, 5.5 Local-first og export-first, 5. Designfilosofi
 
 ### Community 136 - "ledger.ts"
-Cohesion: 0.06
-Nodes (55): register(), resolveJournalEntryId(), verifyAuditLogIntegrity(), ingestDocument(), resolveOpenExceptionsForBankTransaction(), asJournalEntryId(), JournalEntryId, createTrustedHistoricalImportProvenance() (+47 more)
+Cohesion: 0.05
+Nodes (58): register(), resolveJournalEntryId(), ALLOWED_MIME_TYPES, BINARY_MIME_TYPES, detectMimeType(), DocumentExemptionCode, DocumentType, DocumentValidationResult (+50 more)
 
 ### Community 146 - "DocumentsView.tsx"
 Cohesion: 0.09
@@ -3459,15 +3460,15 @@ Nodes (4): checks, failed, html, stat
 
 ### Community 191 - "issued-invoices.ts"
 Cohesion: 0.06
-Nodes (37): companyAddressLine(), asDocumentId(), asInvoiceNumber(), BankTransactionId, DocumentId, InvoiceNumber, issuedInvoiceJournalLines(), PostIssuedInvoiceInput (+29 more)
+Nodes (34): companyAddressLine(), asDocumentId(), asInvoiceNumber(), issuedInvoiceJournalLines(), PostIssuedInvoiceInput, postIssuedInvoiceToLedger(), readIssuedInvoicePdfText(), canonicalInvoiceNumber() (+26 more)
 
 ### Community 192 - "Eksempel-handshakes"
 Cohesion: 0.33
 Nodes (6): Destructive-tool: `system_restore_backup`, Eksempel-handshakes, Fejl-respons (universel), Read-tool: `audit_verify`, Read-tool: `invoice_status`, Write-tool: `journal_post`
 
 ### Community 198 - "vat.ts"
-Cohesion: 0.08
-Nodes (53): register(), FiscalYearLabelStrategy, getCompanySettings(), hasVatPeriodColumn(), creditNoteLinesFromOriginalJournal(), creditNoteSequenceState(), fallbackCreditNoteLines(), issueCreditNote() (+45 more)
+Cohesion: 0.07
+Nodes (59): register(), fsyncDir(), promoteTempFile(), randomTempPath(), removeIfExists(), writeFileAtomic(), writeTempFileFor(), FiscalYearLabelStrategy (+51 more)
 
 ### Community 199 - "money.ts"
 Cohesion: 0.11
@@ -3490,8 +3491,8 @@ Cohesion: 0.09
 Nodes (45): activityMoment(), addBackupDestination(), AddBackupDestinationInput, AddBackupDestinationResult, appendPlacement(), BACKUP_DESTINATION_KINDS, BackupDestination, BackupDestinationKind (+37 more)
 
 ### Community 217 - "master-data.ts"
-Cohesion: 0.14
-Nodes (30): register(), register(), lookupCvrCompany(), isValidEanNumber(), normalizeEanNumber(), trimToNull(), companyDefaultPaymentTermsDays(), createCustomer() (+22 more)
+Cohesion: 0.15
+Nodes (26): register(), isValidEanNumber(), normalizeEanNumber(), trimToNull(), InvoicePayload, companyDefaultPaymentTermsDays(), createCustomer(), createVendor() (+18 more)
 
 ### Community 225 - "errorEnvelope"
 Cohesion: 0.12
@@ -3591,7 +3592,7 @@ Nodes (17): Agent-surface scaffolding (deferred from Batch B/F), Async / job-id 
 
 ### Community 277 - "ContactsView.tsx"
 Cohesion: 0.06
-Nodes (36): ContactFormModal(), ContactFormModalProps, ContactKind, customerToForm(), emptyForm(), FormState, looksLikeDanishCvr(), MaybeApiError (+28 more)
+Nodes (35): ContactFormModal(), ContactFormModalProps, ContactKind, customerToForm(), emptyForm(), FormState, looksLikeDanishCvr(), MaybeApiError (+27 more)
 
 ### Community 280 - "dashboard.ts"
 Cohesion: 0.20
@@ -3614,8 +3615,8 @@ Cohesion: 0.11
 Nodes (32): register(), register(), AccountSection, classifyAccountSection(), AnnualReportCompany, AnnualReportComparison, AnnualReportLedelsespategning, AnnualReportNote (+24 more)
 
 ### Community 295 - "periods.ts"
-Cohesion: 0.10
-Nodes (27): AccountantExportCard(), CompanyCard(), Banner(), MaybeApiError, MileageRegisterModal(), MileageRegisterModalProps, AttentionFlag, attentionFlags() (+19 more)
+Cohesion: 0.08
+Nodes (22): AuditLogRow, CompanyDashboard, CompanyOverview, InvoiceRow, OverviewExceptionGroup, OverviewExceptionRow, OverviewMonth, OverviewRecentEntry (+14 more)
 
 ### Community 296 - "assets.ts"
 Cohesion: 0.09
@@ -3631,7 +3632,7 @@ Nodes (22): ComputedInvoiceLine, ComputedInvoiceTotals, ComputeInvoiceAmountsRes
 
 ### Community 301 - "email.ts"
 Cohesion: 0.05
-Nodes (34): dineroParser, syntheticCsvParser, getOpeningBalance(), OpeningBalanceInput, OpeningBalanceLineInput, OpeningBalanceRecord, OpeningBalanceResult, postOpeningBalance() (+26 more)
+Nodes (48): verifyAuditLogIntegrity(), dineroParser, syntheticCsvParser, seedAccounts(), getOpeningBalance(), OpeningBalanceInput, OpeningBalanceLineInput, OpeningBalanceRecord (+40 more)
 
 ### Community 302 - "../../../layouts/BaseLayout.astro"
 Cohesion: 0.07
@@ -3650,12 +3651,12 @@ Cohesion: 0.12
 Nodes (20): args, bullet(), ensureCompanyInitialized(), Envelope, fmtAmount(), header(), InboxItem, JsonRpcResponse (+12 more)
 
 ### Community 318 - "recurring-invoices.ts"
-Cohesion: 0.12
-Nodes (23): InvoicePayload, addMonths(), createRecurringInvoiceTemplate(), DELIVERY_MODES, DeliveryPeriodMode, deliveryWindow(), endOfMonth(), generateRecurringInvoice() (+15 more)
+Cohesion: 0.13
+Nodes (22): addMonths(), createRecurringInvoiceTemplate(), DELIVERY_MODES, DeliveryPeriodMode, deliveryWindow(), endOfMonth(), generateRecurringInvoice(), GenerateRecurringInvoiceInput (+14 more)
 
 ### Community 319 - "cvr.ts"
-Cohesion: 0.14
-Nodes (25): attrValue(), buildLookupQuery(), CvrCompanyInfo, CvrLookupOptions, CvrLookupResult, CvrLookupRow, CvrManagementMember, extractManagement() (+17 more)
+Cohesion: 0.13
+Nodes (30): register(), attrValue(), buildLookupQuery(), CvrCompanyInfo, CvrLookupOptions, CvrLookupResult, CvrLookupRow, CvrManagementMember (+22 more)
 
 ### Community 320 - "accruals.ts"
 Cohesion: 0.13
@@ -3846,8 +3847,8 @@ Cohesion: 0.21
 Nodes (22): allPurchaseDocuments(), amountOnlyNearMiss(), BankMatchSuggestion, BankMatchSuggestionRow, combinedBankText(), creditNoteDocuments(), creditNoteRefundSuggestion(), invoiceSuggestion() (+14 more)
 
 ### Community 377 - "SuggestionsView.tsx"
-Cohesion: 0.08
-Nodes (43): previousVatPeriod(), buildEuSalesOssStatus(), buildExceptionsForDashboard(), buildTaxStatus(), firstOfNextMonth(), fiscalYearIsClosed(), openInBrowser(), register() (+35 more)
+Cohesion: 0.09
+Nodes (37): previousVatPeriod(), buildEuSalesOssStatus(), buildExceptionsForDashboard(), buildTaxStatus(), firstOfNextMonth(), fiscalYearIsClosed(), openInBrowser(), register() (+29 more)
 
 ### Community 378 - "Compliance"
 Cohesion: 0.25
@@ -3902,8 +3903,8 @@ Cohesion: 0.40
 Nodes (4): REQUIRED_CORE_APIS, REQUIRED_SECTIONS, REQUIRED_TOKEN_REFERENCES, SPEC_PATH
 
 ### Community 395 - "accounts.ts"
-Cohesion: 0.04
-Nodes (48): CashflowChart(), CHART_AXIS_NUMBER, CHART_CURRENCY, MultiYearBalanceChart(), MultiYearChart(), PnlChart(), AccrualRegisterReport, AccrualRegisterRow (+40 more)
+Cohesion: 0.07
+Nodes (31): CashflowChart(), CHART_AXIS_NUMBER, CHART_CURRENCY, MultiYearBalanceChart(), MultiYearChart(), PnlChart(), formatPercent(), AccrualRegisterReport (+23 more)
 
 ### Community 396 - "7. De tre agent-roller"
 Cohesion: 0.50
@@ -3989,6 +3990,10 @@ Nodes (3): makeWorkspace(), post(), tmpRoot()
 Cohesion: 0.43
 Nodes (5): call(), makeWorkspace(), patch(), post(), tmpRoot()
 
+### Community 3613 - "vat-critical-high-regression.test.ts"
+Cohesion: 0.36
+Nodes (5): createTrustedHistoricalImportProvenance(), HistoricalImportProvenance, isTrustedHistoricalImportProvenance(), trusted, freshDb()
+
 ## Knowledge Gaps
 - **4428 isolated node(s):** `name`, `version`, `private`, `type`, `description` (+4423 more)
   These have ≤1 connection - possible missing edges or undocumented components.
@@ -3999,15 +4004,15 @@ _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `register()` connect `SuggestionsView.tsx` to `issued-invoices.ts`, `loop.ts`, `migrate`, `vat.ts`, `money.ts`, `openCommandDb`, `cli-actor.ts`, `renderAt`, `system-backups.ts`, `CHART_AXIS_NUMBER`, `compliance.ts`, `mileage.ts`, `verifyAuditChain`, `invoice.ts`, `_shared.ts`?**
   _High betweenness centrality (0.032) - this node is a cross-community bridge._
-- **Why does `migrate()` connect `migrate` to `cli.ts`, `mcp-tool-surface.test.ts`, `openCommandDb`, `ledger.ts`, `cli-actor.ts`, `invoice-pdf.ts`, `createCompany`, `ServerConfig`, `companyPaths`, `insertAuditLog`, `system.ts`, `db-customers-migration.test.ts`, `mcp-audit-log-list.test.ts`, `SuggestionsView.tsx`, `annual-report.ts`, `mail-intake.ts`, `assets.ts`, `email.ts`, `gdpr.ts`, `cli-meta.ts`, `issued-invoices.ts`, `loop.ts`, `vat.ts`, `money.ts`, `system-backups.ts`, `tool-runtime.ts`, `dinero-contacts.ts`, `_shared.ts`, `compliance.ts`, `portfolio.ts`, `master-data.ts`, `invoice.ts`, `backup-governance.ts`, `envelope.ts`, `registry.ts`, `InvoiceIssueModal.test.tsx`, `account-roles.ts`, `payables.ts`, `_shared.ts`, `seedAccounts`, `bilagsmail.ts`, `company.ts`, `asymmetric-backup-signature.test.ts`, `SuggestionsView.tsx`, `workspace.ts`?**
+- **Why does `migrate()` connect `migrate` to `cli.ts`, `mcp-tool-surface.test.ts`, `openCommandDb`, `ledger.ts`, `cli-actor.ts`, `invoice-pdf.ts`, `createCompany`, `ServerConfig`, `companyPaths`, `insertAuditLog`, `system.ts`, `db-customers-migration.test.ts`, `mcp-audit-log-list.test.ts`, `SuggestionsView.tsx`, `vat-critical-high-regression.test.ts`, `annual-report.ts`, `mail-intake.ts`, `assets.ts`, `email.ts`, `gdpr.ts`, `cli-meta.ts`, `cvr.ts`, `issued-invoices.ts`, `loop.ts`, `vat.ts`, `money.ts`, `system-backups.ts`, `tool-runtime.ts`, `dinero-contacts.ts`, `_shared.ts`, `compliance.ts`, `portfolio.ts`, `master-data.ts`, `invoice.ts`, `backup-governance.ts`, `envelope.ts`, `registry.ts`, `InvoiceIssueModal.test.tsx`, `account-roles.ts`, `payables.ts`, `_shared.ts`, `seedAccounts`, `bilagsmail.ts`, `company.ts`, `asymmetric-backup-signature.test.ts`, `SuggestionsView.tsx`, `workspace.ts`?**
   _High betweenness centrality (0.026) - this node is a cross-community bridge._
-- **Why does `openDb()` connect `migrate` to `cli.ts`, `mcp-tool-surface.test.ts`, `openCommandDb`, `cli-actor.ts`, `ledger.ts`, `invoice-pdf.ts`, `createCompany`, `ServerConfig`, `companyPaths`, `insertAuditLog`, `envelopeShape`, `system.ts`, `db-customers-migration.test.ts`, `mcp-audit-log-list.test.ts`, `SuggestionsView.tsx`, `mail-intake.ts`, `email.ts`, `issued-invoices.ts`, `loop.ts`, `money.ts`, `system-backups.ts`, `tool-runtime.ts`, `dinero-contacts.ts`, `system-restore.ts`, `serve.ts`, `_shared.ts`, `compliance.ts`, `portfolio.ts`, `backup-governance.ts`, `master-data.ts`, `envelope.ts`, `registry.ts`, `InvoiceIssueModal.test.tsx`, `payables.ts`, `_shared.ts`, `seedAccounts`, `bilagsmail.ts`, `company.ts`, `asymmetric-backup-signature.test.ts`, `SuggestionsView.tsx`, `workspace.ts`?**
+- **Why does `openDb()` connect `migrate` to `cli.ts`, `mcp-tool-surface.test.ts`, `openCommandDb`, `cli-actor.ts`, `ledger.ts`, `invoice-pdf.ts`, `createCompany`, `ServerConfig`, `companyPaths`, `insertAuditLog`, `envelopeShape`, `system.ts`, `db-customers-migration.test.ts`, `mcp-audit-log-list.test.ts`, `SuggestionsView.tsx`, `vat-critical-high-regression.test.ts`, `mail-intake.ts`, `email.ts`, `issued-invoices.ts`, `loop.ts`, `money.ts`, `system-backups.ts`, `tool-runtime.ts`, `dinero-contacts.ts`, `system-restore.ts`, `serve.ts`, `_shared.ts`, `compliance.ts`, `portfolio.ts`, `backup-governance.ts`, `master-data.ts`, `envelope.ts`, `registry.ts`, `InvoiceIssueModal.test.tsx`, `payables.ts`, `_shared.ts`, `seedAccounts`, `bilagsmail.ts`, `company.ts`, `asymmetric-backup-signature.test.ts`, `SuggestionsView.tsx`, `workspace.ts`?**
   _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **What connects `name`, `version`, `private` to the rest of the system?**
   _4429 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Rentemester` be split into smaller, more focused modules?**
   _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._
 - **Should `cli.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.06387921022067364 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.11857707509881422 - nodes in this community are weakly interconnected._
 - **Should `migrate` be split into smaller, more focused modules?**
-  _Cohesion score 0.05028665028665029 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.04881244881244881 - nodes in this community are weakly interconnected._

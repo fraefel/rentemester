@@ -520,6 +520,16 @@ export type RollForwardStep = {
   toIsCutOver: boolean;
   ok: boolean;
   breaks: RollForwardBreak[];
+  /** VAT-account totals give the operator a second, grouped reconciliation view. */
+  vatGroups: RollForwardVatGroup[];
+};
+
+export type RollForwardVatGroup = {
+  group: "vat";
+  closingAmount: number;
+  openingAmount: number;
+  difference: number;
+  accountNos: string[];
 };
 
 /** The outcome of the closing-balance roll-forward consistency check. */
@@ -529,6 +539,13 @@ export type RollForwardResult = {
   /** Flat list of every break across all steps, for a concise summary. */
   breaks: RollForwardBreak[];
   errors: string[];
+};
+
+export type RollForwardOptions = {
+  /** Use parsed source balances before the archive is persisted. */
+  closingBalances?: Map<number, Map<string, number>>;
+  /** Source-chart types let preflight preserve the P&L/equity exclusion. */
+  accountTypes?: Map<string, string>;
 };
 
 /**
@@ -571,6 +588,20 @@ function compareRollForward(
   return breaks;
 }
 
+function vatGroupEvidence(
+  closing: Map<string, number>,
+  opening: Map<string, number>,
+  accountTypeOf: (accountNo: string) => string | null,
+): RollForwardVatGroup[] {
+  const accountNos = [...new Set([...closing.keys(), ...opening.keys()])]
+    .filter((accountNo) => accountTypeOf(accountNo) === "vat" || /^(64000|64040|64060)$/.test(accountNo))
+    .sort();
+  if (accountNos.length === 0) return [];
+  const closingAmount = accountNos.reduce((sum, accountNo) => sum + (closing.get(accountNo) ?? 0), 0);
+  const openingAmount = accountNos.reduce((sum, accountNo) => sum + (opening.get(accountNo) ?? 0), 0);
+  return [{ group: "vat", closingAmount, openingAmount, difference: closingAmount - openingAmount, accountNos }];
+}
+
 /**
  * THE CONSISTENCY CHECK (#197).
  *
@@ -585,10 +616,14 @@ function compareRollForward(
  * read from `import_archive_balances`, so the check runs against what was
  * actually archived.
  *
- * A break never throws: the check reports `ok: false` with the breaks listed,
- * so the import flow can surface them clearly without aborting.
+ * A break reports `ok: false` with the account and VAT-group evidence listed.
+ * The import flow evaluates this check before posting and therefore aborts.
  */
-export function checkRollForward(db: Database, input: MultiArtifactSource): RollForwardResult {
+export function checkRollForward(
+  db: Database,
+  input: MultiArtifactSource,
+  options: RollForwardOptions = {},
+): RollForwardResult {
   const errors: string[] = [];
   const allYears = discoverYears(input);
   if (allYears.length < 2) {
@@ -598,22 +633,24 @@ export function checkRollForward(db: Database, input: MultiArtifactSource): Roll
   const cutOverYear = allYears[allYears.length - 1]!;
 
   // Archived closing balances, keyed by fiscal year.
-  const closingByYear = new Map<number, Map<string, number>>();
-  const archivedRows = db
-    .query(
-      `SELECT y.fiscal_year AS fiscal_year, b.account_no AS account_no, b.amount AS amount
-         FROM import_archive_balances b
-         JOIN import_archive_years y ON y.id = b.archive_year_id
-        WHERE y.source_system = ?`,
-    )
-    .all(SYSTEM) as Array<{ fiscal_year: number; account_no: string; amount: number }>;
-  for (const row of archivedRows) {
-    let map = closingByYear.get(row.fiscal_year);
-    if (!map) {
-      map = new Map<string, number>();
-      closingByYear.set(row.fiscal_year, map);
+  const closingByYear = options.closingBalances ?? new Map<number, Map<string, number>>();
+  if (!options.closingBalances) {
+    const archivedRows = db
+      .query(
+        `SELECT y.fiscal_year AS fiscal_year, b.account_no AS account_no, b.amount AS amount
+           FROM import_archive_balances b
+           JOIN import_archive_years y ON y.id = b.archive_year_id
+          WHERE y.source_system = ?`,
+      )
+      .all(SYSTEM) as Array<{ fiscal_year: number; account_no: string; amount: number }>;
+    for (const row of archivedRows) {
+      let map = closingByYear.get(row.fiscal_year);
+      if (!map) {
+        map = new Map<string, number>();
+        closingByYear.set(row.fiscal_year, map);
+      }
+      map.set(row.account_no, row.amount);
     }
-    map.set(row.account_no, row.amount);
   }
 
   // Opening Primobeholdning, keyed by fiscal year, straight from the export.
@@ -636,7 +673,7 @@ export function checkRollForward(db: Database, input: MultiArtifactSource): Roll
     accountTypes.set(row.accountNo, row.type);
   }
   const accountTypeOf = (accountNo: string): string | null =>
-    accountTypes.get(accountNo) ?? null;
+    options.accountTypes?.get(accountNo) ?? accountTypes.get(accountNo) ?? null;
 
   const steps: RollForwardStep[] = [];
   const allBreaks: RollForwardBreak[] = [];
@@ -663,6 +700,7 @@ export function checkRollForward(db: Database, input: MultiArtifactSource): Roll
       toIsCutOver: toYear === cutOverYear,
       ok: breaks.length === 0,
       breaks,
+      vatGroups: vatGroupEvidence(closing, opening, accountTypeOf),
     });
     allBreaks.push(...breaks);
   }
@@ -695,6 +733,11 @@ export function describeRollForward(result: RollForwardResult): string[] {
           `  account ${b.accountNo}: closing ${b.closingAmount} != opening ${b.openingAmount}`,
         );
       }
+    }
+    for (const group of step.vatGroups) {
+      lines.push(
+        `  VAT group ${group.group}: closing ${group.closingAmount}, opening ${group.openingAmount}, difference ${group.difference} (${group.accountNos.join(", ")})`,
+      );
     }
   }
   for (const error of result.errors) lines.push(`Roll-forward check error: ${error}`);

@@ -162,6 +162,21 @@ export type ImportArtifact = {
 export type MultiArtifactSource = {
   rootDir: string;
   files: Record<string, ImportArtifact>;
+  /**
+   * Present for a ZIP source after its complete archive listing and extraction
+   * have been verified. The three counts must agree before parsing can begin.
+   */
+  archiveIntegrity?: ArchiveIntegrityEvidence;
+};
+
+/** Deterministic evidence that a ZIP export was completely extracted. */
+export type ArchiveIntegrityEvidence = {
+  archiveSha256: string;
+  archiveEntryCount: number;
+  extractedEntryCount: number;
+  importedEntryCount: number;
+  archiveListingSha256: string;
+  extractedManifestSha256: string;
 };
 
 /**
@@ -296,6 +311,8 @@ export type ImportResult = {
     duplicateCount: number;
     unbookedCount: number;
   };
+  /** ZIP archive evidence, when the source was a verified ZIP export. */
+  archiveIntegrity?: ArchiveIntegrityEvidence;
   /** Ordered, deterministic human-readable description of what happened. */
   auditTrail: string[];
   appliedRules: string[];

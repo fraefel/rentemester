@@ -26,7 +26,12 @@ import { toOre } from "../money";
 import { reconcileChartOfAccounts, reconcileCompanyMasterData } from "./reconcile";
 import { postDineroPostings, IMPORT_POSTINGS_RULE } from "./dinero-postings";
 import { resolveSource } from "./source";
-import { archiveDineroYears, checkRollForward, describeRollForward } from "./dinero-archive";
+import {
+  archiveDineroYears,
+  checkRollForward,
+  describeRollForward,
+  parseArchiveYears,
+} from "./dinero-archive";
 import { ingestDineroBilag } from "./dinero-bilag";
 import type {
   ImportOptions,
@@ -362,7 +367,7 @@ export function runImportFromSource(
   path: string,
   options: ImportOptions = {},
 ): ImportResult {
-  const failParse = (errors: string[]): ImportResult => ({
+  const failParse = (errors: string[], resolved?: MultiArtifactSource): ImportResult => ({
     ok: false,
     sourceSystem: parser.system,
     openingBalanceLineCount: 0,
@@ -370,9 +375,17 @@ export function runImportFromSource(
     auditTrail: [`Import started from source system '${parser.system}'`],
     appliedRules: [IMPORT_RULE],
     errors,
+    ...(resolved?.archiveIntegrity ? { archiveIntegrity: resolved.archiveIntegrity } : {}),
   });
 
-  const resolved = resolveSource(path);
+  let resolved: MultiArtifactSource;
+  try {
+    resolved = resolveSource(path);
+  } catch (error) {
+    return failParse([
+      error instanceof Error ? error.message : `failed to resolve import source '${path}'`,
+    ]);
+  }
 
   let parsed: ParseResult;
   if (typeof parser.parseSource === "function") {
@@ -383,7 +396,7 @@ export function runImportFromSource(
         missing.push(`required export file '${required}' is missing`);
       }
     }
-    if (missing.length > 0) return failParse(missing);
+    if (missing.length > 0) return failParse(missing, resolved);
     parsed = parser.parseSource(resolved);
   } else if (typeof parser.parse === "function") {
     // Single-string parser: it expects one file's text. A directory with more
@@ -392,17 +405,22 @@ export function runImportFromSource(
     if (names.length !== 1) {
       return failParse([
         `parser '${parser.system}' expects a single export file but ${names.length} were found at ${path}`,
-      ]);
+      ], resolved);
     }
     parsed = parser.parse(resolved.files[names[0]!]!.text);
   } else {
-    return failParse([`parser '${parser.system}' implements neither parse nor parseSource`]);
+    return failParse([`parser '${parser.system}' implements neither parse nor parseSource`], resolved);
   }
 
   if (!parsed.ok || !parsed.source) {
-    return failParse(parsed.errors);
+    return failParse(parsed.errors, resolved);
+  }
+  if (parser.system === "dinero" && typeof parser.parseSource === "function") {
+    const archivePreflightErrors = preflightDineroArchive(db, resolved, parsed.source);
+    if (archivePreflightErrors.length > 0) return failParse(archivePreflightErrors, resolved);
   }
   const result = runImport(db, parsed.source as ImportSource, options);
+  if (resolved.archiveIntegrity) result.archiveIntegrity = resolved.archiveIntegrity;
 
   // --- pre-cut-over fiscal-year archive (#197) -----------------------------
   // A Dinero export spans several fiscal years; only the cut-over year was
@@ -421,6 +439,36 @@ export function runImportFromSource(
     ingestBilag(db, resolved, result, companyRootFor(db, options));
   }
   return result;
+}
+
+/** Validates archive parsing and roll-forward before the live ledger can change. */
+function preflightDineroArchive(
+  db: Database,
+  resolved: MultiArtifactSource,
+  source: ImportSource,
+): string[] {
+  const parsed = parseArchiveYears(resolved);
+  if (!parsed.ok) return parsed.errors.map((error) => `archive integrity failure: ${error}`);
+  const closingBalances = new Map<number, Map<string, number>>(
+    parsed.years.map((year) => [
+      year.fiscalYear,
+      new Map(year.balances.map((balance) => [balance.accountNo, balance.amount])),
+    ]),
+  );
+  const accountTypes = new Map(
+    source.chartOfAccounts
+      .filter((account) => account.normalizedType)
+      .map((account) => [account.accountNo, account.normalizedType!] as const),
+  );
+  const rollForward = checkRollForward(db, resolved, { closingBalances, accountTypes });
+  if (rollForward.ok) return [];
+  return [
+    ...rollForward.errors.map((error) => `roll-forward integrity failure: ${error}`),
+    ...rollForward.breaks.map(
+      (item) =>
+        `roll-forward integrity failure: account ${item.accountNo} ${item.fromYear}->${item.toYear} closing ${item.closingAmount} != opening ${item.openingAmount}`,
+    ),
+  ];
 }
 
 /**

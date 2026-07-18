@@ -38,6 +38,12 @@ describe("resolveSource — .zip export extraction (#192)", () => {
     expect(resolved.files["export.zip"]).toBeUndefined();
     expect(resolved.files["Firmaoplysninger.csv"]!.text).toContain("Test ApS");
     expect(resolved.files["2025/Kontoplan.csv"]!.text).toContain("1000;Salg");
+    expect(resolved.archiveIntegrity).toMatchObject({
+      archiveEntryCount: 2,
+      extractedEntryCount: 2,
+      importedEntryCount: 2,
+    });
+    expect(resolved.archiveIntegrity!.archiveSha256).toMatch(/^[a-f0-9]{64}$/);
 
     rmSync(src, { recursive: true, force: true });
     rmSync(zipPath, { recursive: true, force: true });

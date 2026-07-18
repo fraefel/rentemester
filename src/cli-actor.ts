@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { companyPaths } from "./core/paths";
 
 export const MUTATING_COMMANDS = new Set([
+  "accounts add",
   "accounts role-confirm",
   "customer create",
   "customer validate-vat",

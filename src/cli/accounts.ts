@@ -1,4 +1,5 @@
 import { migrate } from "../core/db";
+import { createAccount } from "../core/chart-of-accounts";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandDispatch } from "../cli-dispatch";
 import { accountRoleStatus, resolveAccountRole, ACCOUNT_ROLES, confirmAccountRole } from "../core/account-roles";
@@ -47,6 +48,46 @@ export function register(dispatch: CommandDispatch): void {
     ctx.emitResult(result.ok
       ? { ok: true, resolution: result.resolution, ...status, roles: ACCOUNT_ROLES.map((item) => resolveAccountRole(db, item)) }
       : { ok: false, errors: [result.error], ...status, roles: ACCOUNT_ROLES.map((item) => resolveAccountRole(db, item)) });
+    db.close();
+    if (!result.ok) process.exit(1);
+  });
+  dispatch.on("accounts", "add", (ctx) => {
+    const db = openCommandDb(ctx);
+    migrate(db);
+
+    const rawDirectPosting = ctx.arg("--allow-direct-posting");
+    let allowDirectPosting: boolean | undefined;
+    if (rawDirectPosting != null) {
+      const lower = rawDirectPosting.toLowerCase();
+      if (lower === "true") allowDirectPosting = true;
+      else if (lower === "false") allowDirectPosting = false;
+      else {
+        ctx.emitResult({
+          ok: false,
+          errors: [
+            `--allow-direct-posting must be 'true' or 'false' (got '${rawDirectPosting}')`,
+          ],
+        });
+        db.close();
+        process.exit(1);
+      }
+    }
+
+    const actor = ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor();
+    if (!actor) ctx.fatal("actor required for mutations");
+    const result = createAccount(
+      db,
+      {
+        accountNo: ctx.arg("--account-no") ?? "",
+        name: ctx.arg("--name") ?? "",
+        type: ctx.arg("--type") ?? "",
+        normalBalance: ctx.arg("--normal-balance"),
+        defaultVatCode: ctx.arg("--default-vat-code"),
+        allowDirectPosting,
+      },
+      { createdBy: actor, createdByProgram: "rentemester-cli" },
+    );
+    ctx.emitResult(result as Record<string, unknown>);
     db.close();
     if (!result.ok) process.exit(1);
   });

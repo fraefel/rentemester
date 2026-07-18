@@ -298,6 +298,7 @@ describe("MCP tools full surface (#78)", () => {
     "exception_resolve",
     "vendor_create",
     // write-irreversible
+    "accounts_add",
     "expense_book",
     "invoice_apply_payment",
     "invoice_claim_compensation",
@@ -666,5 +667,66 @@ describe("MCP tools full surface (#78)", () => {
     const listed = list.result?.structuredContent;
     expect(listed?.ok).toBe(true);
     expect(listed?.data?.count).toBeGreaterThanOrEqual(1);
+  });
+
+  test("accounts_add without confirm:true returns envelope error", async () => {
+    const response = await client.send("tools/call", {
+      name: "accounts_add",
+      arguments: {
+        company: companyRoot,
+        input: { accountNo: "8001", name: "Should not persist", type: "asset" },
+        confirm: false,
+      },
+    });
+    const structured = response.result?.structuredContent;
+    expect(structured?.ok).toBe(false);
+    expect(structured?.errors?.[0]).toContain("confirm: true required");
+  });
+
+  test("accounts_add with confirm:true adds the account and appears in accounts_list", async () => {
+    const response = await client.send("tools/call", {
+      name: "accounts_add",
+      arguments: {
+        company: companyRoot,
+        input: {
+          accountNo: "8002",
+          name: "Udbytte fra portefølje",
+          type: "income",
+        },
+        confirm: true,
+      },
+    });
+    const structured = response.result?.structuredContent;
+    expect(structured?.ok).toBe(true);
+    expect(structured?.data?.accountNo).toBe("8002");
+
+    const list = await client.send("tools/call", {
+      name: "accounts_list",
+      arguments: { company: companyRoot },
+    });
+    const listed = list.result?.structuredContent;
+    expect(listed?.ok).toBe(true);
+    const added = listed?.data?.accounts?.find((a: any) => a.accountNo === "8002");
+    expect(added).toEqual({
+      accountNo: "8002",
+      name: "Udbytte fra portefølje",
+      type: "income",
+      defaultVatCode: null,
+    });
+  });
+
+  test("accounts_add rejects a duplicate account_no", async () => {
+    // 2000 "Bank" is in the seeded chart.
+    const response = await client.send("tools/call", {
+      name: "accounts_add",
+      arguments: {
+        company: companyRoot,
+        input: { accountNo: "2000", name: "Duplicate", type: "asset" },
+        confirm: true,
+      },
+    });
+    const structured = response.result?.structuredContent;
+    expect(structured?.ok).toBe(false);
+    expect(structured?.errors?.[0]).toContain("already exists");
   });
 });

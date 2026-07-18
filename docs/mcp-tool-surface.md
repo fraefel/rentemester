@@ -92,7 +92,7 @@ med det samme i komprimeret form.
 |---|---|---|
 | `read` | Ingen | `audit_verify`, `bank_list`, `invoice_status`, `vat_report`, `portfolio_overview` |
 | `write-reversible` | `confirm: true` | `customer_create`, `vendor_create`, `bank_import`, `documents_ingest`, `exception_resolve`, `mileage_log` |
-| `write-irreversible` | `confirm: true` | `journal_post`, `invoice_issue`, `invoice_post`, `expense_book`, `vat_post_*`, `asset_register`, `system_backup` |
+| `write-irreversible` | `confirm: true` | `accounts_add`, `journal_post`, `invoice_issue`, `invoice_post`, `expense_book`, `vat_post_*`, `asset_register`, `system_backup` |
 | `destructive` | `confirm: true` + `confirmText` | `system_restore_backup` |
 
 `journal_reverse` er klassificeret som `write-irreversible`: den skriver en ny
@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 108 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 109 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-108 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+109 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -188,6 +188,7 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `journal_post` | `{ entryId, entryNo, entryHash }` |
 | `invoice_issue` | `{ documentId, invoiceNumber, storedPath, sha256, pdfDocumentId?, pdfStoredPath?, pdfSha256? }` — feltet hedder `documentId` (ikke `invoiceDocumentId`); `invoiceNumber` (ikke `invoiceNo`). |
 | `customer_create` / `vendor_create` | `{ customerId }` / `{ vendorId }` |
+| `accounts_add` | `{ accountNo }` |
 | `journal_reverse` | `{ entryId, entryNo, entryHash }` for modposten |
 | `recurring_invoice_create` | `{ templateId }` |
 | `recurring_invoice_generate` | `{ created, templateId, periodIndex, documentId, invoiceNumber, issueDate, dueDate, deliveryPeriodStart?, deliveryPeriodEnd? }` — `created:false` ⇒ en eksisterende faktura blev returneret (idempotent). |
@@ -217,9 +218,9 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
 - **Read-tools**: 48
 - **Write-reversible**: 13
-- **Write-irreversible**: 46
+- **Write-irreversible**: 47
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **108**
+- **Total**: **109**
 
 ## Read-tools
 
@@ -343,12 +344,13 @@ append-only finanskæde.
 
 ### write-irreversible
 
-46 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
+47 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
 revisionsklare/eksterne artefakter; kan kun "rulles tilbage" via en
 modpostering.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
+| `accounts_add` | `accounts add` | `{ company, input: CreateAccountInput, confirm }` | Tilføjer én konto append-only; der findes ingen archive/undo. `defaultVatCode` skal være kanonisk. Oprettelsen bekræfter aldrig en kontorolle — brug separat `accounts_role_confirm`. |
 | `accrual_recognize` | `accrual recognize` | `{ company, accrualId, period, date?, settlementAccountNo?, confirm }` | Indtægts-/omkostningsfører én periode af en periodeafgrænsningspost. |
 | `efaktura_konfigurer` | `efaktura konfigurer` | `{ company, apiLicenseKey, environment?, confirm }` | Gemmer Digisense API license-key i secret-laget (config/digisense.json, 0600). PRECONDITION for efaktura_registrer/efaktura_modtag/efaktura_send. license-key rammer aldrig ledger'en. |
 | `efaktura_registrer` | `efaktura registrer` | `{ company, cvr, companyName, network?, confirm }` | Registrerer en virksomhed i NemHandel via Digisense: register-company ⇒ gemmer companyKey ⇒ register-participant for BÅDE outbound OG inbound. webhookUrl=null (vi poller selv). Idempotent: re-run med samme CVR duplikerer ikke state. |

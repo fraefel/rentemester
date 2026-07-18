@@ -12,6 +12,7 @@ import { resolveOpenExceptionsForBankTransaction } from "./exceptions";
 import { compareDkk, fromOre, roundDkk, roundRate6, toOre } from "./money";
 import { asJournalEntryId, type JournalEntryId } from "./ids";
 import { seedNativeAccountRoles } from "./account-roles";
+import { isTrustedHistoricalImportProvenance, type HistoricalImportProvenance } from "./import-provenance";
 
 export type JournalLineInput = {
   accountNo: string;
@@ -39,6 +40,12 @@ export type JournalEntryInput = {
   // The entry is still balanced, hash-chained and append-only — and stamped
   // with an import `createdByProgram` so it is visibly an imported voucher.
   importedHistorical?: boolean;
+  /**
+   * Internal-only capability carried by a verified historical-import adapter.
+   * It is deliberately not serialisable, so CLI/MCP payloads cannot activate
+   * account-default VAT inference.
+   */
+  historicalImportProvenance?: HistoricalImportProvenance;
   lines: JournalLineInput[];
 };
 
@@ -281,7 +288,7 @@ function canonicalEntryData(entry: any, lines: any[]) {
 }
 
 function accountMap(db: Database) {
-  const rows = db.query("SELECT id, account_no, type, active FROM accounts").all() as Array<{ id: number; account_no: string; type: string; active: number }>;
+  const rows = db.query("SELECT id, account_no, type, active, default_vat_code FROM accounts").all() as Array<{ id: number; account_no: string; type: string; active: number; default_vat_code: string | null }>;
   return new Map(rows.map((row) => [row.account_no, row]));
 }
 
@@ -400,11 +407,15 @@ function applyJournalEntry(
   const entryNo = nextEntryNo(db, payload.transactionDate);
   const prevHash = previousHash(db);
   const actor = resolveActor({ createdBy: payload.createdBy, createdByProgram: payload.createdByProgram });
+  // Explicit line classification is authoritative. A chart default is only a
+  // historical-import convenience, protected by a module-private capability;
+  // it is never a shortcut for manual/API journals.
+  const trustedHistoricalImport = isTrustedHistoricalImportProvenance(payload.historicalImportProvenance);
   const canonicalLines = payload.lines.map((line) => ({
     account_no: line.accountNo,
     debit_amount: normalizeAmount(line.debitAmount),
     credit_amount: normalizeAmount(line.creditAmount),
-    vat_code: line.vatCode ?? null,
+    vat_code: line.vatCode ?? (trustedHistoricalImport ? accounts.get(line.accountNo)?.default_vat_code ?? null : null),
     text: line.text ?? null,
   }));
   const entryDraft = {

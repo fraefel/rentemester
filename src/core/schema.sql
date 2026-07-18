@@ -310,7 +310,7 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
   id INTEGER PRIMARY KEY,
   period_start TEXT NOT NULL,
   period_end TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('vat_quarter','fiscal_year','custom')),
+  kind TEXT NOT NULL CHECK(kind IN ('vat_period','vat_quarter','fiscal_year','custom')),
   status TEXT NOT NULL CHECK(status IN ('open','closed','reported')) DEFAULT 'open',
   closed_at TEXT,
   closed_by TEXT,

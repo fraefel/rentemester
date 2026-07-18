@@ -253,6 +253,7 @@ export async function handleClosePeriod(
       const kindRaw = body.kind;
       if (
         kindRaw !== undefined &&
+        kindRaw !== "vat_period" &&
         kindRaw !== "vat_quarter" &&
         kindRaw !== "fiscal_year" &&
         kindRaw !== "custom"
@@ -335,6 +336,7 @@ export async function handleReopenPeriod(
       const kindRaw = body.kind;
       if (
         kindRaw !== undefined &&
+        kindRaw !== "vat_period" &&
         kindRaw !== "vat_quarter" &&
         kindRaw !== "fiscal_year" &&
         kindRaw !== "custom"

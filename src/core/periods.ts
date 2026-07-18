@@ -3,7 +3,8 @@ import { insertAuditLog, resolveActor, type ResolveActorInput } from "./actor";
 import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { isValidIsoDate as looksLikeIsoDate, addDays, todayIsoDate, MONTH_NAMES_DA } from "./dates";
 
-export type AccountingPeriodKind = "vat_quarter" | "fiscal_year" | "custom";
+/** `vat_period` is cadence-neutral; `vat_quarter` is read-only legacy compatibility. */
+export type AccountingPeriodKind = "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
 export type AccountingPeriodStatus = "open" | "closed" | "reported";
 
 /**
@@ -220,7 +221,7 @@ export function setCompanyVatPeriodType(
         .query(
           `SELECT id, period_start, period_end, status
              FROM accounting_periods
-            WHERE kind = 'vat_quarter'`,
+            WHERE kind IN ('vat_period', 'vat_quarter')`,
         )
         .all() as Array<{
         id: number;
@@ -312,7 +313,7 @@ export type CloseAccountingPeriodResult = {
 };
 
 const PERIOD_RULE_ID = "DK-BOOKKEEPING-PERIOD-LOCK-001";
-const PERIOD_KINDS = new Set<AccountingPeriodKind>(["vat_quarter", "fiscal_year", "custom"]);
+const PERIOD_KINDS = new Set<AccountingPeriodKind>(["vat_period", "vat_quarter", "fiscal_year", "custom"]);
 const PERIOD_STATUSES = new Set<Exclude<AccountingPeriodStatus, "open">>(["closed", "reported"]);
 
 /**
@@ -493,7 +494,7 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
   if (looksLikeIsoDate(periodStart) && looksLikeIsoDate(periodEnd) && periodStart > periodEnd) {
     errors.push("periodStart must be before or equal to periodEnd");
   }
-  if (!PERIOD_KINDS.has(kind)) errors.push("kind must be one of vat_quarter, fiscal_year, custom");
+  if (!PERIOD_KINDS.has(kind)) errors.push("kind must be one of vat_period, vat_quarter (legacy), fiscal_year, custom");
   if (!PERIOD_STATUSES.has(status)) errors.push("status must be closed or reported");
 
   if (errors.length > 0) return { ok: false, appliedRules, errors };
@@ -733,7 +734,7 @@ export function reopenAccountingPeriod(
   if (looksLikeIsoDate(periodStart) && looksLikeIsoDate(periodEnd) && periodStart > periodEnd) {
     errors.push("periodStart must be before or equal to periodEnd");
   }
-  if (!PERIOD_KINDS.has(kind)) errors.push("kind must be one of vat_quarter, fiscal_year, custom");
+  if (!PERIOD_KINDS.has(kind)) errors.push("kind must be one of vat_period, vat_quarter (legacy), fiscal_year, custom");
   if (!reason) errors.push("reason is required: a reopen must record why the period is being reopened");
 
   if (errors.length > 0) return { ok: false, appliedRules, errors };

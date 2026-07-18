@@ -75,7 +75,7 @@ export function registerPeriodTools(server: McpServer): void {
           .min(1)
           .describe("End of the period to close (inclusive), in YYYY-MM-DD format. Must not be before `from`."),
         kind: z
-          .enum(["vat_quarter", "fiscal_year", "custom"])
+          .enum(["vat_period", "vat_quarter", "fiscal_year", "custom"])
           .optional()
           .describe(
             "Type of accounting period (default 'vat_quarter'): 'vat_quarter' = a VAT-reporting quarter; " +

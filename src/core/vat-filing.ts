@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { buildVatReport, vatFilingDeadline, type VatPeriodReport } from "./vat";
+import { emptyVatRubric, type VatRubric } from "./vat-rubric";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { addDkk, subtractDkk } from "./money";
 
 /**
  * Filing-ready momsangivelse (Danish VAT return).
@@ -16,24 +16,7 @@ import { addDkk, subtractDkk } from "./money";
  * incomplete period fails clearly. All amounts are integer-øre-deterministic
  * via the money helpers; 25% is the only Danish standard rate.
  */
-export type VatFilingRubrikker = {
-  /** Salgsmoms — output VAT on domestic sales (net of bad-debt relief). */
-  salgsmoms: number;
-  /** Moms af varekøb i udlandet — VAT on goods purchased abroad. */
-  momsAfVarekobUdland: number;
-  /** Moms af ydelseskøb i udlandet — VAT on services purchased abroad (reverse charge). */
-  momsAfYdelseskobUdland: number;
-  /** Købsmoms — total deductible input VAT. */
-  kobsmoms: number;
-  /** Momstilsvar — salgsmoms + udenlandsk moms − købsmoms. Positive = owed to SKAT. */
-  momstilsvar: number;
-  /** Rubrik A — value of goods/services purchased abroad without Danish VAT. */
-  rubrikA: number;
-  /** Rubrik B — value of goods/services sold abroad without Danish VAT. */
-  rubrikB: number;
-  /** Rubrik C — value of other sales exempt from VAT. */
-  rubrikC: number;
-};
+export type VatFilingRubrikker = VatRubric;
 
 export type VatFilingReport = {
   ok: boolean;
@@ -87,18 +70,7 @@ function isStandardCalendarQuarter(periodStart: string, periodEnd: string): bool
   return STANDARD_QUARTER_SPANS.some((q) => q.start === startMd && q.end === endMd);
 }
 
-function emptyRubrikker(): VatFilingRubrikker {
-  return {
-    salgsmoms: 0,
-    momsAfVarekobUdland: 0,
-    momsAfYdelseskobUdland: 0,
-    kobsmoms: 0,
-    momstilsvar: 0,
-    rubrikA: 0,
-    rubrikB: 0,
-    rubrikC: 0,
-  };
-}
+function emptyRubrikker(): VatFilingRubrikker { return emptyVatRubric(); }
 
 function failure(periodStart: string, periodEnd: string, periodStatus: VatFilingReport["periodStatus"], errors: string[], vatReport: VatPeriodReport): VatFilingReport {
   return {
@@ -142,9 +114,9 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
   const period = db.query(
     `SELECT status, reference
        FROM accounting_periods
-      WHERE period_start = ? AND period_end = ? AND kind = 'vat_quarter'
+      WHERE period_start = ? AND period_end = ? AND kind IN ('vat_period', 'vat_quarter')
         AND status IN ('closed', 'reported')
-      ORDER BY id DESC
+      ORDER BY CASE kind WHEN 'vat_period' THEN 0 ELSE 1 END, id DESC
       LIMIT 1`
   ).get(periodStart, periodEnd) as { status: "closed" | "reported"; reference: string | null } | null;
 
@@ -154,19 +126,21 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
       periodEnd,
       "open",
       [
-        `VAT period ${periodStart}..${periodEnd} is not closed: a momsangivelse requires a closed or reported vat_quarter accounting period covering exactly this period — run 'period close' first`,
+        `VAT period ${periodStart}..${periodEnd} is not closed: a momsangivelse requires a closed or reported vat_period accounting period covering exactly this period — run 'period close --kind vat_period' first`,
       ],
       vatReport,
     );
   }
 
+  // The shared projection keeps CLI/MCP/report/cockpit/export figures alike.
+  const rubrikker = vatReport.rubrikker;
   // Moms af ydelseskøb i udlandet: reverse charge on EU service purchases.
   // Use the VAT *actually booked* on account 1200 per purchase, not
   // percentOfDkk(summed base, 25). Each purchase's VAT is øre-rounded when
   // booked, so the booked total can differ from 25%-of-aggregate by up to 1
   // øre per purchase. Using the booked figure keeps this rubrik equal to what
   // hit the ledger AND lets salgsmoms below come out as the exact own-sale VAT.
-  const momsAfYdelseskobUdland = vatReport.reverseChargePurchaseOutputVat;
+  const momsAfYdelseskobUdland = rubrikker.momsAfYdelseskobUdland;
 
   // Salgsmoms: output VAT on own sales only. buildVatReport.outputVat is
   // account-based (1200) and therefore includes the reverse-charge output VAT
@@ -175,7 +149,7 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
   // §37). Subtract the exact same ydelseskøb figure so the two rubrikker never
   // double-count and momstilsvar stays equal to the raw report's netVatPayable.
   // buildVatReport.outputVat already nets bad-debt relief out of output VAT.
-  const salgsmoms = subtractDkk(vatReport.outputVat, momsAfYdelseskobUdland);
+  const salgsmoms = rubrikker.salgsmoms;
 
   // Moms af varekøb i udlandet: there is no separate EU goods-acquisition VAT
   // code in the ledger today (momsloven §11 erhvervelsesmoms is NOT modelled),
@@ -191,7 +165,7 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
   // reverse-charge purchases, warn loudly that the user must confirm none of
   // them are GOODS. This is a warning only; it never changes any amount and
   // never breaks the momstilsvar == netVatPayable invariant.
-  const momsAfVarekobUdland = 0;
+  const momsAfVarekobUdland = rubrikker.momsAfVarekobUdland;
   const filingWarnings: string[] = [];
 
   // Cadence guard (JUR-12): the deadline formula assumes a quarterly
@@ -223,20 +197,20 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
 
   // Købsmoms: total deductible input VAT (domestic + reverse-charge +
   // representation), already aggregated by buildVatReport.
-  const kobsmoms = vatReport.inputVat;
+  const kobsmoms = rubrikker.kobsmoms;
 
   // Momstilsvar = salgsmoms + udenlandsk moms − købsmoms.
   // Positive = payable to SKAT; negative = refund (negativt momstilsvar).
-  const momstilsvar = subtractDkk(addDkk(salgsmoms, momsAfVarekobUdland, momsAfYdelseskobUdland), kobsmoms);
+  const momstilsvar = rubrikker.momstilsvar;
 
   // Rubrik A: value of goods/services purchased abroad without Danish VAT.
-  const rubrikA = vatReport.reverseChargePurchaseBase;
+  const rubrikA = rubrikker.rubrikA;
   // Rubrik B (JUR-2/KODE-2): value of goods/services SOLD ABROAD without Danish
   // VAT — cross-border EU B2B reverse-charge sales ONLY. This is the figure
   // cross-checked against the EU sales list (VIES), so only the FOREIGN reverse-
   // charge base belongs here. Domestic §46 omvendt betalingspligt is explicitly
   // excluded (it would otherwise inflate rubrik B and break the VIES reconciliation).
-  const rubrikB = vatReport.foreignReverseChargeSalesBase;
+  const rubrikB = rubrikker.rubrikB;
   // Rubrik C: value of other VAT-exempt sales. Two sources, both derived from
   // real ledger data:
   //   1. §13-exempt domestic sales (DK_SALE_EXEMPT), and
@@ -247,7 +221,7 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
   // OSS consumer sales (OSS_EU_CONSUMER) are deliberately NOT part of rubrik C:
   // they belong on the separate OSS return, so buildVatReport keeps them in their
   // own base and they never reach this momsangivelse.
-  const rubrikC = addDkk(vatReport.exemptSalesBase, vatReport.domesticReverseChargeSalesBase);
+  const rubrikC = rubrikker.rubrikC;
 
   return {
     ok: true,

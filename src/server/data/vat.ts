@@ -8,7 +8,8 @@
 
 import type { Database } from "bun:sqlite";
 import { buildVatReport } from "../../core/vat";
-import { addDkk, percentOfDkk, subtractDkk } from "../../core/money";
+import { percentOfDkk } from "../../core/money";
+import { emptyVatRubric, type VatRubric } from "../../core/vat-rubric";
 import {
   vatPeriodWindowFor,
   vatPeriodsForYear,
@@ -50,24 +51,7 @@ export type VatPosition = {
  * shape `core/vat-filing.ts#VatFilingRubrikker` produces, surfaced so the
  * cockpit shows the same numbers an owner files. All amounts are kroner.
  */
-export type VatRubrikker = {
-  /** Salgsmoms — output VAT on domestic sales (net of bad-debt relief). */
-  salgsmoms: number;
-  /** Moms af varekøb i udlandet — VAT on goods purchased abroad. */
-  momsAfVarekobUdland: number;
-  /** Moms af ydelseskøb i udlandet — reverse-charge VAT on foreign services. */
-  momsAfYdelseskobUdland: number;
-  /** Købsmoms — total deductible input VAT. */
-  kobsmoms: number;
-  /** Momstilsvar — salgsmoms + udenlandsk moms − købsmoms; positive = owed. */
-  momstilsvar: number;
-  /** Rubrik A — value of goods/services bought abroad without Danish VAT. */
-  rubrikA: number;
-  /** Rubrik B — value of goods/services sold abroad without Danish VAT. */
-  rubrikB: number;
-  /** Rubrik C — value of other VAT-exempt sales. */
-  rubrikC: number;
-};
+export type VatRubrikker = VatRubric;
 
 /** Whether a VAT position carries any booked activity at all. */
 function vatQuarterHasActivity(pos: VatPosition): boolean {
@@ -252,9 +236,9 @@ export function vatPeriodEffectiveStatus(
     .query(
       `SELECT id, status
          FROM accounting_periods
-        WHERE kind = 'vat_quarter'
+        WHERE kind IN ('vat_period', 'vat_quarter')
           AND period_start = ? AND period_end = ?
-        ORDER BY id DESC
+        ORDER BY CASE kind WHEN 'vat_period' THEN 0 ELSE 1 END, id DESC
         LIMIT 1`,
     )
     .get(start, end) as
@@ -279,52 +263,10 @@ export function vatRubrikkerForPeriod(
   periodStart: string,
   periodEnd: string,
 ): VatRubrikker {
-  const report = buildVatReport(db, periodStart, periodEnd);
-  // Salgsmoms — output VAT on domestic sales + reverse-charge output. The
-  // report's outputVat already nets bad-debt relief out.
-  const salgsmoms = report.outputVat;
-  // Moms af ydelseskøb i udlandet — 25% of the reverse-charge purchase base.
-  const momsAfYdelseskobUdland = percentOfDkk(report.reverseChargePurchaseBase, 25);
-  // Moms af varekøb i udlandet — there is no goods-import VAT code today.
-  const momsAfVarekobUdland = 0;
-  // Købsmoms — total deductible input VAT.
-  const kobsmoms = report.inputVat;
-  // Momstilsvar — salgsmoms + udenlandsk moms − købsmoms.
-  const momstilsvar = subtractDkk(
-    addDkk(salgsmoms, momsAfVarekobUdland, momsAfYdelseskobUdland),
-    kobsmoms,
-  );
-  return {
-    salgsmoms,
-    momsAfVarekobUdland,
-    momsAfYdelseskobUdland,
-    kobsmoms,
-    momstilsvar,
-    rubrikA: report.reverseChargePurchaseBase,
-    // Rubrik B (JUR-2/KODE-2) — FOREIGN reverse-charge sales only (EU B2B,
-    // cross-checked against the VIES EU sales list). Domestic §46 omvendt
-    // betalingspligt goes to rubrik C below, never here.
-    rubrikB: report.foreignReverseChargeSalesBase,
-    // Rubrik C — value of other VAT-exempt sales: §13-exempt domestic sales
-    // (DK_SALE_EXEMPT) PLUS domestic §46 reverse-charge sales
-    // (DOMESTIC_REVERSE_CHARGE_EXEMPT), per SKAT A.B.3.3.1.5. Derived from the
-    // same bases the CLI's `vat momsangivelse` uses (core/vat-filing.ts), so the
-    // cockpit and the terminal report the identical rubrik C and an owner can
-    // file straight from either surface.
-    rubrikC: addDkk(report.exemptSalesBase, report.domesticReverseChargeSalesBase),
-  };
+  return buildVatReport(db, periodStart, periodEnd).rubrikker;
 }
 
 /** A VatRubrikker with every rubric zeroed — used for an archived year. */
 export function emptyVatRubrikker(): VatRubrikker {
-  return {
-    salgsmoms: 0,
-    momsAfVarekobUdland: 0,
-    momsAfYdelseskobUdland: 0,
-    kobsmoms: 0,
-    momstilsvar: 0,
-    rubrikA: 0,
-    rubrikB: 0,
-    rubrikC: 0,
-  };
+  return emptyVatRubric();
 }

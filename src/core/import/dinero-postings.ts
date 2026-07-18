@@ -33,6 +33,7 @@
 
 import type { Database } from "bun:sqlite";
 import { postJournalEntry } from "../ledger";
+import { createTrustedHistoricalImportProvenance } from "../import-provenance";
 import { isValidIsoDate } from "../dates";
 import { toOre } from "../money";
 import type { ImportHistoricalEntry } from "./types";
@@ -316,6 +317,9 @@ export function postDineroPostings(
   }
 
   const createdByProgram = options.createdByProgram ?? IMPORT_POSTINGS_PROGRAM;
+  // One opaque capability for this verified import batch. It is intentionally
+  // created inside the importer, never from source payload data.
+  const historicalImportProvenance = createTrustedHistoricalImportProvenance();
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]!;
     const ref = refOf(entry, index);
@@ -333,10 +337,12 @@ export function postDineroPostings(
       createdBy: options.createdBy,
       createdByProgram,
       importedHistorical: true,
+      historicalImportProvenance,
       lines: entry.lines.map((line) => ({
         accountNo: line.accountNo,
         debitAmount: line.debitAmount,
         creditAmount: line.creditAmount,
+        ...(line.vatCode ? { vatCode: line.vatCode } : {}),
         text:
           typeof line.text === "string" && line.text.trim().length > 0
             ? line.text.trim()

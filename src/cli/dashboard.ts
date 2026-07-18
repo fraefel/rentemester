@@ -96,7 +96,7 @@ function vatPeriodIsReported(db: Database, start: string, end: string): boolean 
     .query(
       `SELECT id, status
          FROM accounting_periods
-        WHERE kind = 'vat_quarter'
+        WHERE kind IN ('vat_period', 'vat_quarter')
           AND period_start = ? AND period_end = ?
         ORDER BY id DESC
         LIMIT 1`,

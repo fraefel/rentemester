@@ -11,6 +11,52 @@ function hasColumn(db: Database, table: string, column: string) {
   return cols.some((col) => col.name === column);
 }
 
+/**
+ * Legacy ledgers encoded VAT cadence in a misleading `vat_quarter` kind. The
+ * table rebuild is deliberately lossless (including ids and lifecycle audit
+ * references) and only runs for the old CHECK constraint. A conflicting pair
+ * of already-filed legacy periods is a legal/human resolution problem, never
+ * something a migration may guess how to split.
+ */
+function migrateLegacyVatPeriodKind(db: Database) {
+  const sql = (db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'accounting_periods'").get() as { sql?: string } | null)?.sql ?? "";
+  if (/['"]vat_period['"]/.test(sql)) return;
+  const conflicts = db.query(
+    `SELECT a.id AS left_id, b.id AS right_id
+       FROM accounting_periods a
+       JOIN accounting_periods b ON a.id < b.id
+      WHERE a.kind = 'vat_quarter' AND b.kind = 'vat_quarter'
+        AND a.status = 'reported' AND b.status = 'reported'
+        AND NOT (a.period_end < b.period_start OR a.period_start > b.period_end)
+      LIMIT 1`,
+  ).get() as { left_id: number; right_id: number } | null;
+  if (conflicts) {
+    throw new Error(`VAT period migration blocked: reported legacy periods #${conflicts.left_id} and #${conflicts.right_id} overlap; resolve with a human before migration`);
+  }
+  db.transaction(() => {
+    db.exec("DROP TRIGGER IF EXISTS accounting_periods_guard_update; DROP TRIGGER IF EXISTS accounting_periods_no_delete;");
+    db.exec(`
+      CREATE TABLE accounting_periods_vat_period_rebuild (
+        id INTEGER PRIMARY KEY,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('vat_period','vat_quarter','fiscal_year','custom')),
+        status TEXT NOT NULL CHECK(status IN ('open','closed','reported')) DEFAULT 'open',
+        closed_at TEXT, closed_by TEXT, reported_at TEXT, reference TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(period_start, period_end, kind)
+      );
+      INSERT INTO accounting_periods_vat_period_rebuild
+      SELECT id, period_start, period_end,
+             CASE WHEN kind = 'vat_quarter' THEN 'vat_period' ELSE kind END,
+             status, closed_at, closed_by, reported_at, reference, created_at
+        FROM accounting_periods;
+      DROP TABLE accounting_periods;
+      ALTER TABLE accounting_periods_vat_period_rebuild RENAME TO accounting_periods;
+    `);
+  })();
+}
+
 export function openDb(path: string) {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
@@ -42,6 +88,7 @@ function restoreSchemaTriggers(db: Database, schema: string) {
 export function migrate(db: Database) {
   const schema = readFileSync(join(import.meta.dir, "../../src/core/schema.sql"), "utf8");
   db.exec(schema);
+  migrateLegacyVatPeriodKind(db);
   restoreSchemaTriggers(db, schema);
   if (!hasColumn(db, "companies", "cvr")) db.exec("ALTER TABLE companies ADD COLUMN cvr TEXT;");
   if (!hasColumn(db, "companies", "fiscal_year_start_month")) db.exec("ALTER TABLE companies ADD COLUMN fiscal_year_start_month INTEGER NOT NULL DEFAULT 1 CHECK(fiscal_year_start_month BETWEEN 1 AND 12);");

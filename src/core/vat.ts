@@ -5,6 +5,7 @@ import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { requireCachedViesValidation, normalizeEuVatNumber } from "./vies";
 import { addDkk, compareDkk, fromOre, percentOfDkk, roundDkk, subtractDkk, sumDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
+import { emptyVatRubric, projectVatRubric, type VatRubric } from "./vat-rubric";
 
 /** Absolute difference between two DKK amounts, expressed in whole øre. */
 function oreDifference(left: number, right: number): number {
@@ -80,6 +81,8 @@ export type VatPeriodReport = {
   reversedLinesConsidered: number;
   reversalLinesConsidered: number;
   totalLinesConsidered: number;
+  /** Canonical SKAT rubric projection shared by report, filing and exports. */
+  rubrikker: VatRubric;
   warnings: string[];
   errors: string[];
 };
@@ -336,13 +339,14 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       reversedLinesConsidered: 0,
       reversalLinesConsidered: 0,
       totalLinesConsidered: 0,
+      rubrikker: emptyVatRubric(),
       warnings: [],
       errors,
     };
   }
 
   const rows = db.query(
-    `SELECT je.id as entry_id, je.status, je.reversal_of_entry_id, a.account_no, a.type as account_type, jl.debit_amount, jl.credit_amount, jl.vat_code
+    `SELECT je.id as entry_id, je.status, je.reversal_of_entry_id, a.account_no, a.type as account_type, a.normal_balance, a.default_vat_code, jl.debit_amount, jl.credit_amount, jl.vat_code
      FROM journal_entries je
      JOIN journal_lines jl ON jl.journal_entry_id = je.id
      JOIN accounts a ON a.id = jl.account_id
@@ -354,10 +358,15 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     reversal_of_entry_id: number | null;
     account_no: string;
     account_type: string;
+    normal_balance: "debit" | "credit";
+    default_vat_code: string | null;
     debit_amount: number;
     credit_amount: number;
     vat_code: string | null;
   }>;
+  const outputVatRole = resolveAccountRole(db, "output_vat");
+  const reverseChargeVatRole = resolveAccountRole(db, "reverse_charge_vat");
+  const inputVatRole = resolveAccountRole(db, "input_vat");
 
   let outputVat = 0;
   let inputVat = 0;
@@ -413,11 +422,29 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     const debit = roundDkk(Number(row.debit_amount ?? 0));
     const credit = roundDkk(Number(row.credit_amount ?? 0));
 
-    if (row.account_no === "1200") {
+    // Native account roles are resolved centrally; Dinero's trusted
+    // historical chart has the standard 64000/64040 output and 64060 input
+    // accounts. No income-number heuristic is used (1200 can be ordinary
+    // income in an imported chart).
+    const isDineroOutputVat = row.account_no === "64000" || row.account_no === "64040";
+    const isDineroInputVat = row.account_no === "64060";
+    const isNativeOutputVat =
+      (outputVatRole.ok && row.account_no === outputVatRole.accountNo) ||
+      (reverseChargeVatRole.ok && row.account_no === reverseChargeVatRole.accountNo);
+    const isNativeInputVat = inputVatRole.ok && row.account_no === inputVatRole.accountNo;
+    if (isNativeOutputVat || isDineroOutputVat) {
       outputVat += credit - debit;
       account1200NetByEntry.set(row.entry_id, (account1200NetByEntry.get(row.entry_id) ?? 0) + (credit - debit));
     }
-    if (row.account_no === "4000") inputVat += debit - credit;
+    if (isNativeInputVat || isDineroInputVat) inputVat += debit - credit;
+
+    // Ledger hashes make old lines immutable. Rather than retroactively
+    // guessing from their account defaults, make an unclassified VAT-relevant
+    // line a blocking, auditable report error. New verified imports receive
+    // the default at posting time; manual calls never do.
+    if (row.vat_code === null && row.default_vat_code !== null && (row.account_type === "income" || row.account_type === "expense")) {
+      errors.push(`journal entry ${row.entry_id} line on VAT-relevant account ${row.account_no} has no explicit vat_code; no VAT base was inferred — document and resolve the classification before filing`);
+    }
 
     if (row.vat_code === "DK_PURCHASE_25") { purchaseBase25 += debit - credit; inputVatBaseLines += 1; }
     if (row.vat_code === "DK_SALE_25") { salesBase25 += credit - debit; outputVatBaseLines += 1; }
@@ -500,8 +527,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     );
   }
 
-  return {
-    ok: true,
+  const report: Omit<VatPeriodReport, "rubrikker"> = {
+    ok: errors.length === 0,
     appliedRules: [RULE_ID],
     periodStart,
     periodEnd,
@@ -529,6 +556,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     reversalLinesConsidered,
     totalLinesConsidered: rows.length,
     warnings,
-    errors: [],
+    errors,
   };
+  return { ...report, rubrikker: projectVatRubric(report as VatPeriodReport) };
 }

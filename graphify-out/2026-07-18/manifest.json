@@ -1755,8 +1755,8 @@
     "semantic_hash": ""
   },
   "src/core/db.ts": {
-    "mtime": 1784341538.262905,
-    "ast_hash": "79d21296656d5b7ea0c71f780750556a",
+    "mtime": 1784342418.6120002,
+    "ast_hash": "fc8da7692f63138cd514518ec125a57e",
     "semantic_hash": ""
   },
   "src/core/documents.ts": {
@@ -1875,8 +1875,8 @@
     "semantic_hash": ""
   },
   "src/core/invoice-booking.ts": {
-    "mtime": 1784341498.9862342,
-    "ast_hash": "f967dd0b38e49abb9f454ef66de97a01",
+    "mtime": 1784342485.5079308,
+    "ast_hash": "ae9b3c5aebdb0687d65ca904f9a9ef4e",
     "semantic_hash": ""
   },
   "src/core/invoice-claim-settlement.ts": {
@@ -1905,8 +1905,8 @@
     "semantic_hash": ""
   },
   "src/core/invoice-pdf.ts": {
-    "mtime": 1784335870.8712957,
-    "ast_hash": "8ebe3274c10977e2e64515ffa294eb52",
+    "mtime": 1784342485.5083325,
+    "ast_hash": "21e29d397c0949901430f16332c9e256",
     "semantic_hash": ""
   },
   "src/core/invoice-refunds.ts": {
@@ -1925,8 +1925,8 @@
     "semantic_hash": ""
   },
   "src/core/invoice.ts": {
-    "mtime": 1784335870.872393,
-    "ast_hash": "0ee2ea78b37c24f6d16f961cfbb0df14",
+    "mtime": 1784342371.220219,
+    "ast_hash": "edc016ef3a93d1c855085eef8a6aabd2",
     "semantic_hash": ""
   },
   "src/core/issued-invoices.ts": {
@@ -1960,8 +1960,8 @@
     "semantic_hash": ""
   },
   "src/core/master-data.ts": {
-    "mtime": 1784335870.874573,
-    "ast_hash": "cee1cca49c956dc005846986eaace714",
+    "mtime": 1784342453.4210305,
+    "ast_hash": "b81d365196189878198fe077a8825183",
     "semantic_hash": ""
   },
   "src/core/messages.ts": {
@@ -2000,8 +2000,8 @@
     "semantic_hash": ""
   },
   "src/core/public-einvoice.ts": {
-    "mtime": 1784335870.8766286,
-    "ast_hash": "1cb391cdfd9d11a471acda36821730cc",
+    "mtime": 1784342523.740973,
+    "ast_hash": "26662fe1d351fe8c440257349ab0639d",
     "semantic_hash": ""
   },
   "src/core/reconciliation.ts": {
@@ -2030,13 +2030,13 @@
     "semantic_hash": ""
   },
   "src/core/saft-export.ts": {
-    "mtime": 1784335870.8782387,
-    "ast_hash": "f74a327077aecff650e6bbd927bd9416",
+    "mtime": 1784342396.3026757,
+    "ast_hash": "ef0e4523c28193fc112d4ded2df68e09",
     "semantic_hash": ""
   },
   "src/core/schema.sql": {
-    "mtime": 1784341471.2118225,
-    "ast_hash": "b334e4ea64b039efc617e36a8759e9ec",
+    "mtime": 1784342418.6116762,
+    "ast_hash": "a09b6e4e1c31cdf0b33517678affa5ba",
     "semantic_hash": ""
   },
   "src/core/sequences.ts": {
@@ -4952,6 +4952,21 @@
   "tests/unit/import-archive-integrity.test.ts": {
     "mtime": 1784342185.150778,
     "ast_hash": "460701af8c3e9f14e5307c9236301e12",
+    "semantic_hash": ""
+  },
+  "src/core/supplier-identity.ts": {
+    "mtime": 1784342371.219434,
+    "ast_hash": "a456a8717242b4ab82130471b3cdcc43",
+    "semantic_hash": ""
+  },
+  "src/core/vat-lines.ts": {
+    "mtime": 1784342371.219578,
+    "ast_hash": "b02525011ccbfe459fdd402aca3b44a2",
+    "semantic_hash": ""
+  },
+  "tests/unit/invoice-vat-supplier-identity.test.ts": {
+    "mtime": 1784342453.4213214,
+    "ast_hash": "41e76d90e3ffcd62886bcd1499db8e61",
     "semantic_hash": ""
   }
 }

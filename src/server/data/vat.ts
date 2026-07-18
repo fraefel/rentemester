@@ -171,6 +171,7 @@ export function selectVatPeriod(
   db: Database,
   year: number,
   vatType: VatPeriodType,
+  asOfDate = todayIsoDate(),
 ): {
   start: string;
   end: string;
@@ -181,8 +182,7 @@ export function selectVatPeriod(
   const windows = vatPeriodsForYear(year, vatType);
   const positions = windows.map((w) => vatPositionForPeriod(db, w.start, w.end));
 
-  const today = todayIsoDate();
-  const currentYear = parseInt(today.slice(0, 4), 10);
+  const asOfYear = parseInt(asOfDate.slice(0, 4), 10);
 
   // The latest period index at or before `cap` that carries activity, or null.
   const latestActiveUpTo = (cap: number): number | null => {
@@ -192,7 +192,9 @@ export function selectVatPeriod(
     return null;
   };
 
-  // The index of the period that contains today (clamped into the year).
+  // The index of the period that contains the caller's explicit reference
+  // date (clamped into the year). Read APIs must never silently substitute
+  // the wall clock for an `asOf` snapshot.
   const indexOfDate = (iso: string): number => {
     const target = vatPeriodWindowFor(iso, vatType).start;
     const idx = windows.findIndex((w) => w.start === target);
@@ -200,12 +202,21 @@ export function selectVatPeriod(
   };
 
   let selected: number;
-  if (year === currentYear) {
-    const currentIndex = indexOfDate(today);
-    selected =
-      latestActiveUpTo(currentIndex) ??
-      latestActiveUpTo(windows.length - 1) ??
-      currentIndex;
+  if (year === asOfYear) {
+    const currentIndex = indexOfDate(asOfDate);
+    // A filed period is settled. Of the remaining periods, the earliest one
+    // with activity is the filing obligation that must be surfaced first.
+    // This prevents a Q3 posting from hiding Q2 while Q2's 1 September
+    // deadline is still the relevant statutory deadline.
+    selected = windows.findIndex(
+      (window, index) =>
+        index <= currentIndex &&
+        vatQuarterHasActivity(positions[index]!) &&
+        vatPeriodEffectiveStatus(db, window.start, window.end) !== "reported",
+    );
+    if (selected < 0) {
+      selected = latestActiveUpTo(currentIndex) ?? currentIndex;
+    }
   } else {
     selected = latestActiveUpTo(windows.length - 1) ?? 0;
   }

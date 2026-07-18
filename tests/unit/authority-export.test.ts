@@ -183,7 +183,7 @@ describe("authority export", () => {
     const journalCsv = readFileSync(journalCsvPath, "utf8");
     // Header + one row per line.
     expect(journalCsv.split("\r\n")[0]).toBe(
-      "entry_no,transaction_date,registration_datetime,entry_text,account_no,account_name,debit,credit,vat_code,line_text,currency,amount_dkk,status",
+      "entry_no,transaction_date,registration_datetime,entry_text,account_no,account_name,debit,credit,vat_code,line_text,currency,amount_foreign,amount_dkk,fx_rate_to_dkk,status",
     );
     // The comma/quote-bearing entry text is properly CSV-quoted.
     expect(journalCsv).toContain('"Indskud, note med komma, og ""citat"""');

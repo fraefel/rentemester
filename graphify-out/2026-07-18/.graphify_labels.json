@@ -3614,6 +3614,5 @@
   "3612": "SuggestionsView.tsx",
   "3613": "integrity.ts",
   "3614": "rules.ts",
-  "3615": "liquidity-forecast.test.ts",
-  "3618": "company-cli.test.ts"
+  "3615": "liquidity-forecast.test.ts"
 }

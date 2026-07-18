@@ -47,6 +47,7 @@ export function buildCompanyVat(
   workspaceRoot: string,
   slug: string,
   year: number | null,
+  asOfDate = todayIsoDate(),
 ) {
   const ctx = resolveStatementContext(workspaceRoot, slug, year);
   try {
@@ -87,7 +88,7 @@ export function buildCompanyVat(
         inputVat: 0,
         payable: 0,
         deadline: archWindow.filingDeadline,
-        daysRemaining: daysBetween(todayIsoDate(), archWindow.filingDeadline),
+        daysRemaining: daysBetween(asOfDate, archWindow.filingDeadline),
         // An archived year carries no live period to close — treat as open so
         // no provisional figures are ever claimed filing-ready.
         periodStatus: "open" as EffectivePeriodState,
@@ -105,6 +106,7 @@ export function buildCompanyVat(
       ctx.db,
       yearNum,
       ctx.company.vatPeriodType,
+      asOfDate,
     );
     const vat = vatSelection.position;
 
@@ -145,7 +147,7 @@ export function buildCompanyVat(
       inputVat: vat.inputVat,
       payable: vat.payable,
       deadline,
-      daysRemaining: daysBetween(todayIsoDate(), deadline),
+      daysRemaining: daysBetween(asOfDate, deadline),
       periodStatus,
       momsangivelseReady,
       rubrikker,

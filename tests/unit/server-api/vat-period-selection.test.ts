@@ -100,6 +100,34 @@ describe("cockpit API — VAT period selection (#272)", () => {
     }
   });
 
+  test("explicit asOf selects Q2's filing deadline even when the wall clock is in Q3", async () => {
+    const ws = makeWorkspace("vat-period-explicit-asof", ["Acme ApS"]);
+    const previousToday = process.env.RENTEMESTER_TODAY;
+    try {
+      postPnlEntry(ws, "acme-aps", "2026-05-15", 1000, 400);
+      withWideFutureWindow(() =>
+        postBadDebtWriteoff(ws, "acme-aps", "2026-07-15", 800),
+      );
+      // Reproduce the former wall-clock regression: Q3 is "today", while
+      // the request is an explicit Q2 snapshot and Q2's filing deadline is
+      // the obligation the owner needs to see.
+      process.env.RENTEMESTER_TODAY = "2026-07-18";
+      const vatRes = await get(
+        config({ workspaceRoot: ws }),
+        "/api/companies/acme-aps/vat?asOf=2026-05-22",
+      );
+      expect(vatRes.status).toBe(200);
+      expect(vatRes.body.vat.periodLabel).toBe("Q2 2026");
+      expect(vatRes.body.vat.periodStart).toBe("2026-04-01");
+      expect(vatRes.body.vat.periodEnd).toBe("2026-06-30");
+      expect(vatRes.body.vat.deadline).toBe("2026-09-01");
+    } finally {
+      if (previousToday === undefined) delete process.env.RENTEMESTER_TODAY;
+      else process.env.RENTEMESTER_TODAY = previousToday;
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   // #281: the dashboard VAT block must point at the earliest unreported
   // quarter (the one `selectVatQuarter` picks — what the Overblik card and
   // `vat momsangivelse` use), NOT the calendar quarter of the as-of date.

@@ -292,6 +292,10 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
       {
         accountNo: input.expenseAccountNo ?? "3070",
         debitAmount: nonDeductibleVatAmount,
+        // This amount is a real cost, not a VAT base. It nevertheless needs
+        // an explicit classification so the report can distinguish it from a
+        // forgotten manual VAT code without inventing a deductible base.
+        vatCode: "REPRESENTATION_NON_DEDUCTIBLE_VAT",
         text: "Non-deductible representation VAT (75%)"
       },
       { accountNo: "4000", debitAmount: deductibleVatAmount, text: "Deductible representation VAT (25%)" },

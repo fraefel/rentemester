@@ -324,7 +324,9 @@ function buildJournalEntriesCsv(entries: JournalEntryRecord[]): string {
     "vat_code",
     "line_text",
     "currency",
+    "amount_foreign",
     "amount_dkk",
+    "fx_rate_to_dkk",
     "status",
   ]);
   const rows: string[] = [];
@@ -343,7 +345,9 @@ function buildJournalEntriesCsv(entries: JournalEntryRecord[]): string {
           "",
           "",
           entry.currency,
+          formatAmount(entry.amountForeign),
           formatAmount(entry.amountDkk),
+          formatAmount(entry.fxRateToDkk),
           entry.status,
         ]),
       );
@@ -363,7 +367,9 @@ function buildJournalEntriesCsv(entries: JournalEntryRecord[]): string {
           line.vatCode,
           line.text,
           entry.currency,
+          formatAmount(entry.amountForeign),
           formatAmount(entry.amountDkk),
+          formatAmount(entry.fxRateToDkk),
           entry.status,
         ]),
       );

@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 101 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 103 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-101 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+103 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -213,7 +213,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Write-reversible**: 11
 - **Write-irreversible**: 42
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **101**
+- **Total**: **103**
 
 ## Read-tools
 

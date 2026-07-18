@@ -46,6 +46,7 @@ type RegisteredTool = {
 let companyRoot: string;
 let server: McpServer;
 let registered: Record<string, RegisteredTool>;
+let accountRoleAuditCount: number;
 
 beforeAll(() => {
   companyRoot = mkdtempSync(join(tmpdir(), "rentemester-audit-list-"));
@@ -54,6 +55,12 @@ beforeAll(() => {
   try {
     migrate(db);
     seedAccounts(db);
+    // Native account-role seeding is legitimate, append-only audit evidence.
+    // Keep it in this fixture and make pagination expectations relative to it;
+    // deleting it would test a ledger state that production cannot have.
+    accountRoleAuditCount = Number(
+      (db.query("SELECT COUNT(*) AS n FROM audit_log WHERE event_type = 'account_role_confirmed'").get() as { n: number }).n,
+    );
     // Seed a deterministic set of audit-log entries we can filter against.
     insertAuditLog(db, {
       eventType: "INVOICE_ISSUED",
@@ -111,17 +118,18 @@ describe("#mcp audit_log_list — exists and is read-only", () => {
     expect(registered["audit_log_list"]).toBeDefined();
   });
 
-  test("returns the 4 seeded entries, newest first, with pagination metadata", async () => {
+  test("preserves role-seed evidence and returns manual entries newest first", async () => {
     const env = await call({ company: companyRoot });
     expect(env.ok).toBe(true);
-    expect(env.data?.total).toBe(4);
-    expect(env.data?.count).toBe(4);
+    expect(env.data?.total).toBe(accountRoleAuditCount + 4);
+    expect(env.data?.count).toBe(accountRoleAuditCount + 4);
     expect(env.data?.hasMore).toBe(false);
-    expect(env.data?.rows).toHaveLength(4);
+    expect(env.data?.rows).toHaveLength(accountRoleAuditCount + 4);
     // Order: created_at DESC, id DESC → entry inserted last (EXCEPTION_RESOLVED)
     // comes first.
     expect(env.data?.rows?.[0]?.eventType).toBe("EXCEPTION_RESOLVED");
     expect(env.data?.rows?.[3]?.eventType).toBe("INVOICE_ISSUED");
+    expect(env.data?.rows?.some((row) => row.eventType === "account_role_confirmed")).toBe(true);
   });
 });
 
@@ -129,7 +137,7 @@ describe("#mcp audit_log_list — pagination", () => {
   test("limit=2 caps the page; hasMore=true; nextOffset=2", async () => {
     const env = await call({ company: companyRoot, limit: 2 });
     expect(env.ok).toBe(true);
-    expect(env.data?.total).toBe(4);
+    expect(env.data?.total).toBe(accountRoleAuditCount + 4);
     expect(env.data?.count).toBe(2);
     expect(env.data?.limit).toBe(2);
     expect(env.data?.offset).toBe(0);
@@ -137,13 +145,16 @@ describe("#mcp audit_log_list — pagination", () => {
     expect(env.data?.nextOffset).toBe(2);
   });
 
-  test("offset=2 returns the second page; hasMore=false", async () => {
+  test("offset=2 returns the second page in exact newest-first order", async () => {
     const env = await call({ company: companyRoot, limit: 2, offset: 2 });
     expect(env.ok).toBe(true);
     expect(env.data?.count).toBe(2);
     expect(env.data?.offset).toBe(2);
-    expect(env.data?.hasMore).toBe(false);
-    // The two rows on this page are the OLDEST two of the four.
+    expect(env.data?.hasMore).toBe(true);
+    expect(env.data?.nextOffset).toBe(4);
+    // The manual rows remain contiguous ahead of the legitimate role-seed
+    // audit entries, so offset semantics cannot drift as seeds are added.
+    expect(env.data?.rows?.[0]?.eventType).toBe("INVOICE_POSTED");
     expect(env.data?.rows?.[1]?.eventType).toBe("INVOICE_ISSUED");
   });
 });

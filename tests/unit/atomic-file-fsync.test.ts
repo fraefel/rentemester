@@ -12,11 +12,31 @@ import { tmpdir } from "node:os";
 import {
   promoteTempFileExclusive,
   removeIfExists,
+  writeAllSync,
   writeFileAtomic,
   writeTempFileFor,
 } from "../../src/core/atomic-file";
 
 describe("writeFileAtomic durability (KODE-7)", () => {
+  test("retries short writes until every byte has been written", () => {
+    const captured: number[] = [];
+    const content = Buffer.from("complete-ledger-image");
+
+    writeAllSync(123, content, (_fd, buffer, offset, length) => {
+      const written = Math.min(3, length);
+      captured.push(...buffer.subarray(offset, offset + written));
+      return written;
+    });
+
+    expect(Buffer.from(captured)).toEqual(content);
+  });
+
+  test("rejects a writer that makes no forward progress", () => {
+    expect(() => writeAllSync(123, "ledger", () => 0)).toThrow(
+      "atomic file write made invalid progress",
+    );
+  });
+
   test("writes exact content and leaves no temp files for both string and bytes", () => {
     const dir = mkdtempSync(join(tmpdir(), "rentemester-atomic-fsync-"));
 

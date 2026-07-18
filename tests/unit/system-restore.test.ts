@@ -219,7 +219,7 @@ describe("system restore", () => {
     expect(backup.ok).toBe(true);
     db.close();
 
-    const snapshotDb = openDb(join(backup.backupDir!, "ledger.sqlite"));
+    const snapshotDb = openDb(join(backup.backupDir!, "ledger.sqlite"), { journalMode: "DELETE" });
     snapshotDb.exec("PRAGMA foreign_keys = OFF");
     snapshotDb.exec("DROP TRIGGER IF EXISTS journal_entries_no_update");
     snapshotDb.run("UPDATE journal_entries SET previous_hash = 'BROKEN' WHERE id = 1");
@@ -258,7 +258,7 @@ describe("system restore", () => {
 
     // Corrupt the audit chain inside the snapshot; hashes still match the
     // manifest, so file checks pass but validateRestoredDb must reject it.
-    const snapshotDb = openDb(join(backup.backupDir!, "ledger.sqlite"));
+    const snapshotDb = openDb(join(backup.backupDir!, "ledger.sqlite"), { journalMode: "DELETE" });
     snapshotDb.exec("PRAGMA foreign_keys = OFF");
     snapshotDb.exec("DROP TRIGGER IF EXISTS journal_entries_no_update");
     snapshotDb.run("UPDATE journal_entries SET previous_hash = 'BROKEN' WHERE id = 1");

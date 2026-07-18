@@ -7,23 +7,17 @@
 // refuse to recursively delete a non-empty, ledger-less target unless the
 // caller explicitly opts in; an empty placeholder dir is still fine.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ensureCompanyDirs } from "../../src/core/paths";
-import { openDb, migrate } from "../../src/core/db";
-import { createSystemBackup } from "../../src/core/system-backups";
 import { restoreSystemBackup } from "../../src/core/system-restore";
+import { removePathWithRetry } from "../../src/core/fs-cleanup";
+import { createBackupInIsolatedProcess } from "./_isolated-backup-fixture";
 
 function makeBackup(prefix: string) {
   const sourceRoot = mkdtempSync(join(tmpdir(), `${prefix}-src-`));
-  const paths = ensureCompanyDirs(sourceRoot);
-  const db = openDb(paths.db, { journalMode: "DELETE" });
-  migrate(db);
-  const backup = createSystemBackup(db, sourceRoot, { createdAt: "2026-05-17T02:09:00.000Z" });
-  db.close();
-  expect(backup.ok).toBe(true);
-  return { sourceRoot, backupDir: backup.backupDir! };
+  const backupDir = createBackupInIsolatedProcess(sourceRoot, "2026-05-17T02:09:00.000Z");
+  return { sourceRoot, backupDir };
 }
 
 describe("restore target guard (KODE-8)", () => {
@@ -46,8 +40,8 @@ describe("restore target guard (KODE-8)", () => {
     expect(existsSync(precious)).toBe(true);
     expect(readFileSync(precious, "utf8")).toBe("do not delete me\n");
 
-    rmSync(sourceRoot, { recursive: true, force: true });
-    rmSync(target, { recursive: true, force: true });
+    removePathWithRetry(sourceRoot);
+    removePathWithRetry(target);
   });
 
   test("an empty target directory still restores cleanly", () => {
@@ -58,8 +52,8 @@ describe("restore target guard (KODE-8)", () => {
     expect(result.ok).toBe(true);
     expect(existsSync(join(target, "data", "ledger.sqlite"))).toBe(true);
 
-    rmSync(sourceRoot, { recursive: true, force: true });
-    rmSync(target, { recursive: true, force: true });
+    removePathWithRetry(sourceRoot);
+    removePathWithRetry(target);
   });
 
   test("a non-existent target path restores cleanly (created fresh)", () => {
@@ -71,7 +65,7 @@ describe("restore target guard (KODE-8)", () => {
     expect(result.ok).toBe(true);
     expect(existsSync(join(target, "data", "ledger.sqlite"))).toBe(true);
 
-    rmSync(sourceRoot, { recursive: true, force: true });
-    rmSync(parent, { recursive: true, force: true });
+    removePathWithRetry(sourceRoot);
+    removePathWithRetry(parent);
   });
 });

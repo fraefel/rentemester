@@ -8,6 +8,28 @@ import { dirname, basename, join } from "node:path";
 // link or clobbering the victim file.
 const EXCL_CREATE_FLAGS = "wx";
 
+type SyncWriter = (fd: number, buffer: Buffer, offset: number, length: number) => number;
+
+// write(2) is allowed to report progress without consuming the whole buffer.
+// Keep advancing until every byte is on the file descriptor; otherwise an
+// fsync + rename could durably publish a truncated artifact.
+export function writeAllSync(
+  fd: number,
+  content: string | Uint8Array,
+  writer: SyncWriter = (targetFd, buffer, offset, length) => writeSync(targetFd, buffer, offset, length),
+) {
+  const buffer = Buffer.from(content);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const remaining = buffer.length - offset;
+    const written = writer(fd, buffer, offset, remaining);
+    if (!Number.isInteger(written) || written <= 0 || written > remaining) {
+      throw new Error(`atomic file write made invalid progress: ${written} of ${remaining} bytes`);
+    }
+    offset += written;
+  }
+}
+
 function randomTempPath(finalPath: string) {
   // Unpredictable suffix: pid/timestamp alone are guessable, which is the
   // symlink pre-plant window. randomBytes makes the name unguessable; the
@@ -29,7 +51,7 @@ export function writeTempFileFor(finalPath: string, content: string | Uint8Array
       throw error;
     }
     try {
-      writeSync(fd, typeof content === "string" ? Buffer.from(content) : Buffer.from(content));
+      writeAllSync(fd, content);
       // KODE-7: flush the file's data+metadata to stable storage BEFORE close,
       // so a power loss after the subsequent rename cannot resurrect a
       // zero-length or partially-written file. Without this, write()+rename()

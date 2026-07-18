@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSyn
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, win32 } from "node:path";
 import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
-import { openDb } from "./db";
+import { Database } from "bun:sqlite";
 import { verifyAuditChain } from "./ledger";
 import { companyPaths, ensureCompanyDirs } from "./paths";
 import { backupAsymmetricSignaturePath, backupManifestKeyPath, backupManifestSignaturePath } from "./system-backups";
@@ -10,6 +10,7 @@ import type { BackupManifest, ManifestFile } from "./system-backups";
 import { extractTar } from "./tar";
 import { insertAuditLog } from "./actor";
 import { removePathWithRetry, renamePathWithRetry } from "./fs-cleanup";
+import { writeFileAtomic } from "./atomic-file";
 
 const RULE_ID = "DK-BOOKKEEPING-RESTORE-001";
 
@@ -250,46 +251,60 @@ function restoreFiles(backupDir: string, files: ManifestFile[], targetDir: strin
 }
 
 function validateRestoredDb(
-  dbPath: string,
+  db: Database,
   manifest: BackupManifest,
   restoredCompanyRoot: string,
 ) {
-  // Bun can retain Windows handles for WAL-mode databases after close(). The
-  // staging tree must be immediately movable/removable, so validate it in the
-  // rollback journal mode; a normal open after the swap restores WAL mode.
-  const db = openDb(dbPath, { journalMode: "DELETE" });
-  let result: { ok: true } | { ok: false; error: string } | undefined;
+  const integrity = db.query("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
+  if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
+    return { ok: false as const, error: `restored database failed integrity check: ${JSON.stringify(integrity)}` };
+  }
+
+  const fkErrors = db.query("PRAGMA foreign_key_check").all() as any[];
+  if (fkErrors.length > 0) {
+    return { ok: false as const, error: `restored database has FK violations: ${JSON.stringify(fkErrors)}` };
+  }
+
+  const audit = verifyAuditChain(db, { companyRoot: restoredCompanyRoot });
+  if (!audit.ok) {
+    return { ok: false as const, error: `restored database has broken audit chain: ${audit.errors.join(", ")}` };
+  }
+
+  const stats = {
+    journalEntries: (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n,
+    documents: (db.query("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n,
+    bankTransactions: (db.query("SELECT COUNT(*) AS n FROM bank_transactions").get() as { n: number }).n,
+  };
+  if (JSON.stringify(stats) !== JSON.stringify(manifest.ledgerStats)) {
+    return { ok: false as const, error: `restored stats ${JSON.stringify(stats)} differ from manifest ${JSON.stringify(manifest.ledgerStats)}` };
+  }
+
+  return { ok: true as const };
+}
+
+function validateAndStampRestoredDb(
+  dbPath: string,
+  manifest: BackupManifest,
+  restoredCompanyRoot: string,
+  restoredAt: string,
+) {
+  // Bun can keep file-backed SQLite handles alive on Windows after close(),
+  // especially when cached statements were used. Deserialize into an in-memory
+  // database so validation and the restore audit write never open the staging
+  // file itself; serialize the verified image back before the atomic swap.
+  const db = Database.deserialize(readFileSync(dbPath));
   try {
-    const integrity = db.query("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
-    if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
-      result = { ok: false, error: `restored database failed integrity check: ${JSON.stringify(integrity)}` };
-      return result;
-    }
+    db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 30000;");
+    const validation = validateRestoredDb(db, manifest, restoredCompanyRoot);
+    if (!validation.ok) return validation;
 
-    const fkErrors = db.query("PRAGMA foreign_key_check").all() as any[];
-    if (fkErrors.length > 0) {
-      result = { ok: false, error: `restored database has FK violations: ${JSON.stringify(fkErrors)}` };
-      return result;
-    }
-
-    const audit = verifyAuditChain(db, { companyRoot: restoredCompanyRoot });
-    if (!audit.ok) {
-      result = { ok: false, error: `restored database has broken audit chain: ${audit.errors.join(", ")}` };
-      return result;
-    }
-
-    const stats = {
-      journalEntries: (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n,
-      documents: (db.query("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n,
-      bankTransactions: (db.query("SELECT COUNT(*) AS n FROM bank_transactions").get() as { n: number }).n,
-    };
-    if (JSON.stringify(stats) !== JSON.stringify(manifest.ledgerStats)) {
-      result = { ok: false, error: `restored stats ${JSON.stringify(stats)} differ from manifest ${JSON.stringify(manifest.ledgerStats)}` };
-      return result;
-    }
-
-    result = { ok: true };
-    return result;
+    insertAuditLog(db, {
+      eventType: "system_restore",
+      entityType: "company",
+      entityId: 1,
+      message: `Restored from backup ${manifest.backupId} (created ${manifest.createdAt}) at ${restoredAt}`,
+    });
+    return { ok: true as const, image: db.serialize() };
   } finally {
     db.close();
   }
@@ -512,29 +527,18 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       config: restoreFiles(input.backupDir, manifest.copiedFiles.config, stagingPaths.config),
     };
 
-    const validation = validateRestoredDb(stagingPaths.db, manifest, stagingRoot);
-    if (!validation.ok) {
+    const preparedDb = validateAndStampRestoredDb(stagingPaths.db, manifest, stagingRoot, restoredAt);
+    if (!preparedDb.ok) {
       return {
         ok: false,
         appliedRules: [RULE_ID],
-        errors: [validation.error, ...cleanupRestoreStaging(stagingRoot)],
+        errors: [preparedDb.error, ...cleanupRestoreStaging(stagingRoot)],
       };
     }
-
-    // Keep the final audit write in DELETE mode too. Reopening in WAL here
-    // would recreate the Windows handle that prevents the atomic directory
-    // rename immediately below.
-    const db = openDb(stagingPaths.db, { journalMode: "DELETE" });
-    try {
-      insertAuditLog(db, {
-        eventType: "system_restore",
-        entityType: "company",
-        entityId: 1,
-        message: `Restored from backup ${manifest.backupId} (created ${manifest.createdAt}) at ${restoredAt}`,
-      });
-    } finally {
-      db.close();
-    }
+    // Persist the verified/stamped image before promoting the entire staging
+    // directory. writeFileAtomic fsyncs the bytes and directory entry, so a
+    // crash after the directory swap cannot expose a partial live ledger.
+    writeFileAtomic(stagingPaths.db, preparedDb.image);
 
     // Atomic swap into place. The target must not yet hold a live company
     // (checked above); if an empty placeholder dir exists, drop it so the

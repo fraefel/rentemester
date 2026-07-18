@@ -4,10 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { closeThenCleanup, removePathWithRetry, renamePathWithRetry, retryTransientCleanup } from "../../src/core/fs-cleanup";
 import { resolveManifestPath } from "../../src/core/system-restore";
-import { ensureCompanyDirs } from "../../src/core/paths";
-import { migrate, openDb } from "../../src/core/db";
-import { createSystemBackup } from "../../src/core/system-backups";
+import { openDb } from "../../src/core/db";
 import { restoreSystemBackup } from "../../src/core/system-restore";
+import { createBackupInIsolatedProcess } from "./_isolated-backup-fixture";
 
 function errno(code: string): NodeJS.ErrnoException {
   return Object.assign(new Error(code), { code });
@@ -34,17 +33,13 @@ describe("Windows filesystem safety", () => {
     const targetRoot = mkdtempSync(join(tmpdir(), "rentemester-restore-symlink-target-"));
     const outsideRoot = mkdtempSync(join(tmpdir(), "rentemester-restore-symlink-outside-"));
     try {
-      const paths = ensureCompanyDirs(sourceRoot);
-      const db = openDb(paths.db, { journalMode: "DELETE" });
-      migrate(db);
-      const backup = createSystemBackup(db, sourceRoot, { createdAt: "2026-07-18T00:00:00.000Z" });
-      db.close();
+      const backupDir = createBackupInIsolatedProcess(sourceRoot, "2026-07-18T00:00:00.000Z");
       const outsideLedger = join(outsideRoot, "ledger.sqlite");
-      copyFileSync(join(backup.backupDir!, "ledger.sqlite"), outsideLedger);
-      rmSync(join(backup.backupDir!, "ledger.sqlite"));
-      symlinkSync(outsideLedger, join(backup.backupDir!, "ledger.sqlite"));
+      copyFileSync(join(backupDir, "ledger.sqlite"), outsideLedger);
+      rmSync(join(backupDir, "ledger.sqlite"));
+      symlinkSync(outsideLedger, join(backupDir, "ledger.sqlite"));
 
-      const restored = restoreSystemBackup({ backupDir: backup.backupDir!, targetCompanyRoot: targetRoot });
+      const restored = restoreSystemBackup({ backupDir, targetCompanyRoot: targetRoot });
       expect(restored.ok).toBe(false);
       expect(restored.errors.join(" ")).toContain("through symlink");
     } finally {
@@ -103,7 +98,7 @@ describe("Windows filesystem safety", () => {
       const db = openDb(join(source, "ledger.sqlite"), { journalMode: "DELETE" });
       const mode = db.query("PRAGMA journal_mode").get() as { journal_mode: string };
       expect(mode.journal_mode.toLowerCase()).toBe("delete");
-      db.close();
+      db.close(true);
 
       renamePathWithRetry(source, destination);
       expect(existsSync(join(destination, "ledger.sqlite"))).toBe(true);

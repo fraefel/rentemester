@@ -130,12 +130,12 @@
     "semantic_hash": ""
   },
   "app/src/components/InvoiceIssueModal.test.tsx": {
-    "mtime": 1784366231.1597989,
+    "mtime": 1784396790.862498,
     "ast_hash": "5249b6526cd7d99ceda161442b09586a",
     "semantic_hash": ""
   },
   "app/src/components/InvoiceIssueModal.tsx": {
-    "mtime": 1784365932.636409,
+    "mtime": 1784396790.8631356,
     "ast_hash": "03c40835bfa32ad64dead1975f5bc017",
     "semantic_hash": ""
   },
@@ -260,7 +260,7 @@
     "semantic_hash": ""
   },
   "app/src/lib/api/gdpr.ts": {
-    "mtime": 1784368520.94299,
+    "mtime": 1784396790.8635135,
     "ast_hash": "78b2694a1dda5e2f2e3c37101d11c500",
     "semantic_hash": ""
   },
@@ -390,7 +390,7 @@
     "semantic_hash": ""
   },
   "app/src/lib/types/gdpr.ts": {
-    "mtime": 1784370282.0440667,
+    "mtime": 1784396790.863829,
     "ast_hash": "0a0f1a8f5a3b5f3806e6b3343e3df861",
     "semantic_hash": ""
   },
@@ -705,12 +705,12 @@
     "semantic_hash": ""
   },
   "app/src/views/GdprView.test.tsx": {
-    "mtime": 1784370473.6671832,
+    "mtime": 1784396790.8641765,
     "ast_hash": "69b01721d21b0cd8d2ded226b0c0f188",
     "semantic_hash": ""
   },
   "app/src/views/GdprView.tsx": {
-    "mtime": 1784370282.1981075,
+    "mtime": 1784396790.8645585,
     "ast_hash": "ffaa1976d0baa984528f362d1cbae9de",
     "semantic_hash": ""
   },
@@ -960,7 +960,7 @@
     "semantic_hash": ""
   },
   "examples/agent-demo/run.ts": {
-    "mtime": 1784366808.519482,
+    "mtime": 1784396790.8667815,
     "ast_hash": "d82a713e583aba5f8fb2c42a7185a7f5",
     "semantic_hash": ""
   },
@@ -1060,7 +1060,7 @@
     "semantic_hash": ""
   },
   "examples/journal-entry.securities-trade.json": {
-    "mtime": 1784366091.3824317,
+    "mtime": 1784396790.8670094,
     "ast_hash": "4a45cc51c0408419b96594b30fa2773d",
     "semantic_hash": ""
   },
@@ -1085,7 +1085,7 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1784389479.148148,
+    "mtime": 1784396790.8837464,
     "ast_hash": "f712383ee7ed299ddc75edef27b1b946",
     "semantic_hash": ""
   },
@@ -1150,7 +1150,7 @@
     "semantic_hash": ""
   },
   "src/cli-actor.ts": {
-    "mtime": 1784386826.2223074,
+    "mtime": 1784396790.8868124,
     "ast_hash": "e177444b9a7fd37f1798adbea422415e",
     "semantic_hash": ""
   },
@@ -1200,12 +1200,12 @@
     "semantic_hash": ""
   },
   "src/cli-meta.ts": {
-    "mtime": 1784365744.6437964,
+    "mtime": 1784396790.887025,
     "ast_hash": "d8fe30de9cb8681e820d14430eca4449",
     "semantic_hash": ""
   },
   "src/cli-meta/_shared.ts": {
-    "mtime": 1784365744.6439295,
+    "mtime": 1784396790.8872604,
     "ast_hash": "add6a275e2d3f8681ef7d62e59b4ffd2",
     "semantic_hash": ""
   },
@@ -1255,7 +1255,7 @@
     "semantic_hash": ""
   },
   "src/cli-meta/efaktura-specs.ts": {
-    "mtime": 1784365744.6440117,
+    "mtime": 1784396790.8873713,
     "ast_hash": "31329c18ba0f2a3b7b53d0f027c542ad",
     "semantic_hash": ""
   },
@@ -1265,7 +1265,7 @@
     "semantic_hash": ""
   },
   "src/cli-meta/gdpr-specs.ts": {
-    "mtime": 1784370460.6188803,
+    "mtime": 1784396790.888992,
     "ast_hash": "01c21b1e7c4c46971568cd590ffbbab5",
     "semantic_hash": ""
   },
@@ -1280,12 +1280,12 @@
     "semantic_hash": ""
   },
   "src/cli-meta/invoice-specs.ts": {
-    "mtime": 1784386826.376315,
+    "mtime": 1784396790.8892136,
     "ast_hash": "b9e4dc1554561118235f21eb64a3dfe6",
     "semantic_hash": ""
   },
   "src/cli-meta/journal-specs.ts": {
-    "mtime": 1784366091.3826358,
+    "mtime": 1784396790.8896754,
     "ast_hash": "d29dfca360616e83ec31149369188ddd",
     "semantic_hash": ""
   },
@@ -1330,7 +1330,7 @@
     "semantic_hash": ""
   },
   "src/cli-meta/system-specs.ts": {
-    "mtime": 1784366370.5000138,
+    "mtime": 1784396790.890154,
     "ast_hash": "efd9029116eb08cdbd44403db2f1b7c1",
     "semantic_hash": ""
   },
@@ -1340,12 +1340,12 @@
     "semantic_hash": ""
   },
   "src/cli.ts": {
-    "mtime": 1784365744.6442761,
+    "mtime": 1784396790.8902988,
     "ast_hash": "2021baaf69520667e245e06f5a3c101d",
     "semantic_hash": ""
   },
   "src/cli/accounts.ts": {
-    "mtime": 1784366512.7446349,
+    "mtime": 1784396790.890631,
     "ast_hash": "6ea58fddc8daff96afe93e05c8becabe",
     "semantic_hash": ""
   },
@@ -1415,7 +1415,7 @@
     "semantic_hash": ""
   },
   "src/cli/efaktura.ts": {
-    "mtime": 1784365744.644355,
+    "mtime": 1784396790.890719,
     "ast_hash": "3a8446c0990ea0fb581469cca14b78f2",
     "semantic_hash": ""
   },
@@ -1435,7 +1435,7 @@
     "semantic_hash": ""
   },
   "src/cli/gdpr.ts": {
-    "mtime": 1784368395.5100148,
+    "mtime": 1784396790.8910172,
     "ast_hash": "3e6563391f32810d893d69b668fb999c",
     "semantic_hash": ""
   },
@@ -1475,7 +1475,7 @@
     "semantic_hash": ""
   },
   "src/cli/invoice/issuance.ts": {
-    "mtime": 1784387643.3101425,
+    "mtime": 1784396790.8911936,
     "ast_hash": "f6956996ab30519eca41069f987f096f",
     "semantic_hash": ""
   },
@@ -1520,7 +1520,7 @@
     "semantic_hash": ""
   },
   "src/cli/period.ts": {
-    "mtime": 1784365942.1943898,
+    "mtime": 1784396790.8914948,
     "ast_hash": "ae284b29adde013f8249b2f117c962b8",
     "semantic_hash": ""
   },
@@ -1585,7 +1585,7 @@
     "semantic_hash": ""
   },
   "src/core/actor.ts": {
-    "mtime": 1784365942.1946416,
+    "mtime": 1784396790.8917751,
     "ast_hash": "9c5e28afe41d30e22dc3b83639cf01c0",
     "semantic_hash": ""
   },
@@ -1600,7 +1600,7 @@
     "semantic_hash": ""
   },
   "src/core/atomic-file.ts": {
-    "mtime": 1784385757.7557096,
+    "mtime": 1784396790.8919795,
     "ast_hash": "7532e67a2c6a4e0ff6b77abfe077ecae",
     "semantic_hash": ""
   },
@@ -1635,12 +1635,12 @@
     "semantic_hash": ""
   },
   "src/core/bank-suggest-matches.ts": {
-    "mtime": 1784387642.999502,
+    "mtime": 1784396790.8922555,
     "ast_hash": "13e2790d05652a0588841ac55ff5275b",
     "semantic_hash": ""
   },
   "src/core/bank.ts": {
-    "mtime": 1784373430.1080253,
+    "mtime": 1784396790.8926759,
     "ast_hash": "c469afd8c57ea3796fb3bf6d6ae0d9fa",
     "semantic_hash": ""
   },
@@ -1655,7 +1655,7 @@
     "semantic_hash": ""
   },
   "src/core/chart-of-accounts.ts": {
-    "mtime": 1784366512.5825694,
+    "mtime": 1784396790.892971,
     "ast_hash": "9f89858116954671fd2b868554325b6f",
     "semantic_hash": ""
   },
@@ -1675,7 +1675,7 @@
     "semantic_hash": ""
   },
   "src/core/credit-notes.ts": {
-    "mtime": 1784386072.6437638,
+    "mtime": 1784396790.8931694,
     "ast_hash": "dab13f4aa9ad69bf972650db2ead2a45",
     "semantic_hash": ""
   },
@@ -1780,17 +1780,17 @@
     "semantic_hash": ""
   },
   "src/core/dates.ts": {
-    "mtime": 1784370158.9890893,
+    "mtime": 1784396790.8934948,
     "ast_hash": "83f31dd9487e0bc1c76c2b9f93832e19",
     "semantic_hash": ""
   },
   "src/core/db.ts": {
-    "mtime": 1784392287.0218499,
-    "ast_hash": "4c6b9ca63713217f73066fec6acee164",
+    "mtime": 1784397931.081992,
+    "ast_hash": "80d040fbcb4d8edd401e678495d830a6",
     "semantic_hash": ""
   },
   "src/core/documents.ts": {
-    "mtime": 1784372773.8031454,
+    "mtime": 1784396790.8940344,
     "ast_hash": "3b4eb2cdbee7dedd447d82499d1bde76",
     "semantic_hash": ""
   },
@@ -1800,37 +1800,37 @@
     "semantic_hash": ""
   },
   "src/core/efaktura/digisense-client.ts": {
-    "mtime": 1784365744.644858,
+    "mtime": 1784396790.894198,
     "ast_hash": "4d5808f9c1e9abdc22df95a39c2d223f",
     "semantic_hash": ""
   },
   "src/core/efaktura/digisense-config.ts": {
-    "mtime": 1784365744.644929,
+    "mtime": 1784396790.8942697,
     "ast_hash": "d6f6cc7a1ca413731acfb0195c1112f9",
     "semantic_hash": ""
   },
   "src/core/efaktura/digisense-receive.ts": {
-    "mtime": 1784365744.6450167,
+    "mtime": 1784396790.8943636,
     "ast_hash": "0ae83f4ea07030735bea15336f675e77",
     "semantic_hash": ""
   },
   "src/core/efaktura/digisense-register.ts": {
-    "mtime": 1784365744.6450992,
+    "mtime": 1784396790.8944702,
     "ast_hash": "bfe2063be776298ece962818ec205b44",
     "semantic_hash": ""
   },
   "src/core/efaktura/digisense-state.ts": {
-    "mtime": 1784365744.6451793,
+    "mtime": 1784396790.8945508,
     "ast_hash": "879453bf7d383271e59abbfa34cd2bc4",
     "semantic_hash": ""
   },
   "src/core/efaktura/digisense-transmitter.ts": {
-    "mtime": 1784365744.645255,
+    "mtime": 1784396790.8946457,
     "ast_hash": "d1a15628d728b9607b1c5697e0877063",
     "semantic_hash": ""
   },
   "src/core/efaktura/digisense-wiring.ts": {
-    "mtime": 1784365744.6453266,
+    "mtime": 1784396790.8947299,
     "ast_hash": "1afd48d196e4c2e37612a956674daf43",
     "semantic_hash": ""
   },
@@ -1860,12 +1860,12 @@
     "semantic_hash": ""
   },
   "src/core/fs-cleanup.ts": {
-    "mtime": 1784365723.3594053,
-    "ast_hash": "7a2dec745cfe2eda9b68f8d3aad1ca88",
+    "mtime": 1784397931.082211,
+    "ast_hash": "fdf5e75f91307f141e2693c375a0a990",
     "semantic_hash": ""
   },
   "src/core/gdpr.ts": {
-    "mtime": 1784373107.3360152,
+    "mtime": 1784396790.8952148,
     "ast_hash": "623a93c8de3e745e2109eec6eeb65e45",
     "semantic_hash": ""
   },
@@ -1940,32 +1940,32 @@
     "semantic_hash": ""
   },
   "src/core/invoice-bad-debt.ts": {
-    "mtime": 1784396081.8571534,
+    "mtime": 1784396790.895496,
     "ast_hash": "f11a21f17dd3385287dc4afed701c4dc",
     "semantic_hash": ""
   },
   "src/core/invoice-booking.ts": {
-    "mtime": 1784386557.5889828,
+    "mtime": 1784396790.8957145,
     "ast_hash": "4350356c46d2fdaa26cf7696e38469fa",
     "semantic_hash": ""
   },
   "src/core/invoice-claim-settlement.ts": {
-    "mtime": 1784391659.7626843,
+    "mtime": 1784396790.8961148,
     "ast_hash": "b047981ebc455c95a700d0f494982793",
     "semantic_hash": ""
   },
   "src/core/invoice-compensation.ts": {
-    "mtime": 1784391639.1466324,
+    "mtime": 1784396790.896309,
     "ast_hash": "6331ed13dac230056f90edbfc3c24755",
     "semantic_hash": ""
   },
   "src/core/invoice-interest.ts": {
-    "mtime": 1784391639.2816067,
+    "mtime": 1784396790.8967721,
     "ast_hash": "2c2a1c2ad3f24112b82d8b88da67095d",
     "semantic_hash": ""
   },
   "src/core/invoice-journal-evidence.ts": {
-    "mtime": 1784393779.0152748,
+    "mtime": 1784396790.8969593,
     "ast_hash": "8ed18e6a8009d509705c86d8b83d8f4c",
     "semantic_hash": ""
   },
@@ -1975,27 +1975,27 @@
     "semantic_hash": ""
   },
   "src/core/invoice-payments.ts": {
-    "mtime": 1784386735.2955072,
+    "mtime": 1784396790.8973508,
     "ast_hash": "72ac81712ef9a130586f04c9abfa21b2",
     "semantic_hash": ""
   },
   "src/core/invoice-pdf.ts": {
-    "mtime": 1784372774.2130113,
+    "mtime": 1784396790.8977168,
     "ast_hash": "7d3881384a6b105849ba13ca9f6649ea",
     "semantic_hash": ""
   },
   "src/core/invoice-refunds.ts": {
-    "mtime": 1784379795.7434866,
+    "mtime": 1784396790.8979723,
     "ast_hash": "1e520cd0c80021c29ffca3f078a9024d",
     "semantic_hash": ""
   },
   "src/core/invoice-reminders.ts": {
-    "mtime": 1784391639.0187345,
+    "mtime": 1784396790.898196,
     "ast_hash": "b6c41412b1e0adcd1b6d28f8305c3b60",
     "semantic_hash": ""
   },
   "src/core/invoice-settlement.ts": {
-    "mtime": 1784391659.8950257,
+    "mtime": 1784396790.8983612,
     "ast_hash": "3a27a5a0c008bf92333d0f1278828613",
     "semantic_hash": ""
   },
@@ -2005,7 +2005,7 @@
     "semantic_hash": ""
   },
   "src/core/issued-invoices.ts": {
-    "mtime": 1784386072.492934,
+    "mtime": 1784396790.8985755,
     "ast_hash": "8e944b05b9f4926628b5ce032c6090bd",
     "semantic_hash": ""
   },
@@ -2015,7 +2015,7 @@
     "semantic_hash": ""
   },
   "src/core/ledger.ts": {
-    "mtime": 1784395725.6732275,
+    "mtime": 1784396790.8988688,
     "ast_hash": "1c00531e5c00377597e56d445072ed07",
     "semantic_hash": ""
   },
@@ -2035,7 +2035,7 @@
     "semantic_hash": ""
   },
   "src/core/master-data.ts": {
-    "mtime": 1784372707.9748943,
+    "mtime": 1784396790.8992505,
     "ast_hash": "c14a3e7cc67b999a9278948b87479cae",
     "semantic_hash": ""
   },
@@ -2075,7 +2075,7 @@
     "semantic_hash": ""
   },
   "src/core/public-einvoice.ts": {
-    "mtime": 1784365744.645542,
+    "mtime": 1784396790.899611,
     "ast_hash": "a0360ff2f2c3376e84dfe893cea1c96a",
     "semantic_hash": ""
   },
@@ -2110,7 +2110,7 @@
     "semantic_hash": ""
   },
   "src/core/schema.sql": {
-    "mtime": 1784396244.5676444,
+    "mtime": 1784396790.8999655,
     "ast_hash": "f0b30c0d3a297c2a2ac7f22c875b3330",
     "semantic_hash": ""
   },
@@ -2125,13 +2125,13 @@
     "semantic_hash": ""
   },
   "src/core/system-backups.ts": {
-    "mtime": 1784365723.3649187,
+    "mtime": 1784398433.6740654,
     "ast_hash": "1ea7fbd6c2efa0ebff3bc1d824337481",
     "semantic_hash": ""
   },
   "src/core/system-restore.ts": {
-    "mtime": 1784388305.8862472,
-    "ast_hash": "4394109f2063bb3679b3b7fa52147174",
+    "mtime": 1784398689.892187,
+    "ast_hash": "6f7810dd865c12dac72f306126998d20",
     "semantic_hash": ""
   },
   "src/core/tar.ts": {
@@ -2210,7 +2210,7 @@
     "semantic_hash": ""
   },
   "src/mcp/registry.ts": {
-    "mtime": 1784368762.573485,
+    "mtime": 1784396790.9006379,
     "ast_hash": "2fd592206ce88f0310353ed441c29536",
     "semantic_hash": ""
   },
@@ -2225,7 +2225,7 @@
     "semantic_hash": ""
   },
   "src/mcp/tools/accounts.ts": {
-    "mtime": 1784376183.0868683,
+    "mtime": 1784396790.9008076,
     "ast_hash": "a67a070d8c7aaf20da7ab9b01455df6d",
     "semantic_hash": ""
   },
@@ -2275,7 +2275,7 @@
     "semantic_hash": ""
   },
   "src/mcp/tools/efaktura.ts": {
-    "mtime": 1784365744.646172,
+    "mtime": 1784396790.9008958,
     "ast_hash": "a55fe0c9c3e334932147bd184936a79f",
     "semantic_hash": ""
   },
@@ -2295,7 +2295,7 @@
     "semantic_hash": ""
   },
   "src/mcp/tools/gdpr.ts": {
-    "mtime": 1784367042.1785808,
+    "mtime": 1784396790.9012287,
     "ast_hash": "d907d69bb74a5476b2eeba5c875dd9c3",
     "semantic_hash": ""
   },
@@ -2315,7 +2315,7 @@
     "semantic_hash": ""
   },
   "src/mcp/tools/invoice/_shared.ts": {
-    "mtime": 1784387833.3183806,
+    "mtime": 1784396790.9014156,
     "ast_hash": "6b0a6becfbaa0d6a496db66963a302aa",
     "semantic_hash": ""
   },
@@ -2495,7 +2495,7 @@
     "semantic_hash": ""
   },
   "src/server/router.ts": {
-    "mtime": 1784368481.58161,
+    "mtime": 1784396790.9018197,
     "ast_hash": "f0ad7aee23984c76840346af74ad0032",
     "semantic_hash": ""
   },
@@ -2515,7 +2515,7 @@
     "semantic_hash": ""
   },
   "src/server/router/company.ts": {
-    "mtime": 1784368481.4272277,
+    "mtime": 1784396790.9021435,
     "ast_hash": "70a23f888559afcf4ec51fee3933db48",
     "semantic_hash": ""
   },
@@ -2615,7 +2615,7 @@
     "semantic_hash": ""
   },
   "src/server/write-handlers/gdpr.ts": {
-    "mtime": 1784369060.4695725,
+    "mtime": 1784396790.9024425,
     "ast_hash": "f3b409abf5309344bbd762290b540e19",
     "semantic_hash": ""
   },
@@ -2670,7 +2670,7 @@
     "semantic_hash": ""
   },
   "tests/unit/agent-demo.test.ts": {
-    "mtime": 1784366808.684231,
+    "mtime": 1784396790.9027088,
     "ast_hash": "98900e247838121b991d393d5d1ab485",
     "semantic_hash": ""
   },
@@ -2720,7 +2720,7 @@
     "semantic_hash": ""
   },
   "tests/unit/atomic-file-fsync.test.ts": {
-    "mtime": 1784386072.7927632,
+    "mtime": 1784396790.9028647,
     "ast_hash": "cef8b6cb094917e7300f902a2b898bb0",
     "semantic_hash": ""
   },
@@ -2730,7 +2730,7 @@
     "semantic_hash": ""
   },
   "tests/unit/audit-verify.test.ts": {
-    "mtime": 1784396048.1001282,
+    "mtime": 1784396790.9030924,
     "ast_hash": "9059eefa92bc828eeba9966abedeb96d",
     "semantic_hash": ""
   },
@@ -2795,7 +2795,7 @@
     "semantic_hash": ""
   },
   "tests/unit/bank-extra-columns.test.ts": {
-    "mtime": 1784387768.6083987,
+    "mtime": 1784396790.9033496,
     "ast_hash": "f184549bc686dcfe48e3f79bcd53cf97",
     "semantic_hash": ""
   },
@@ -2805,7 +2805,7 @@
     "semantic_hash": ""
   },
   "tests/unit/bank-import.test.ts": {
-    "mtime": 1784373495.7598286,
+    "mtime": 1784396790.9036932,
     "ast_hash": "b3a62e1a61783d7b20b6995fa6621c14",
     "semantic_hash": ""
   },
@@ -2815,17 +2815,17 @@
     "semantic_hash": ""
   },
   "tests/unit/bank-profiles.test.ts": {
-    "mtime": 1784373495.9037533,
+    "mtime": 1784396790.904053,
     "ast_hash": "02c946024d74be2cec34cd61f4cc9c3c",
     "semantic_hash": ""
   },
   "tests/unit/bank-refund-matching.test.ts": {
-    "mtime": 1784387768.7390819,
+    "mtime": 1784396790.904273,
     "ast_hash": "03125f65c4eac438bd71c930bb036c16",
     "semantic_hash": ""
   },
   "tests/unit/bank-suggest-matches-cli.test.ts": {
-    "mtime": 1784389094.355576,
+    "mtime": 1784396790.9044695,
     "ast_hash": "fbe5d7711b52af581c81d07c827ee469",
     "semantic_hash": ""
   },
@@ -2840,12 +2840,12 @@
     "semantic_hash": ""
   },
   "tests/unit/chart-of-accounts-add.test.ts": {
-    "mtime": 1784366649.9185028,
+    "mtime": 1784396790.9047177,
     "ast_hash": "1b7cef1bb7442e704a5bc62b9211b072",
     "semantic_hash": ""
   },
   "tests/unit/cli-actor.test.ts": {
-    "mtime": 1784365942.1948779,
+    "mtime": 1784396790.9049566,
     "ast_hash": "2123038f6085d236a0f0a5728df30796",
     "semantic_hash": ""
   },
@@ -2865,7 +2865,7 @@
     "semantic_hash": ""
   },
   "tests/unit/cli-mutating-governance.test.ts": {
-    "mtime": 1784367547.361971,
+    "mtime": 1784396790.9052823,
     "ast_hash": "4b9d5de3547e98b0c44ba10c98aaf62c",
     "semantic_hash": ""
   },
@@ -2910,12 +2910,12 @@
     "semantic_hash": ""
   },
   "tests/unit/credit-note-cli.test.ts": {
-    "mtime": 1784387337.6769567,
+    "mtime": 1784396790.905442,
     "ast_hash": "61bba302a8a83ad923c07f0f5504c76f",
     "semantic_hash": ""
   },
   "tests/unit/credit-note.test.ts": {
-    "mtime": 1784393395.7660713,
+    "mtime": 1784396790.9056365,
     "ast_hash": "ad823c76c717950e3d8af7abbce620ad",
     "semantic_hash": ""
   },
@@ -2945,7 +2945,7 @@
     "semantic_hash": ""
   },
   "tests/unit/dates.test.ts": {
-    "mtime": 1784370511.5263603,
+    "mtime": 1784396790.9059396,
     "ast_hash": "c900a13db67c5d0576a4062c35cfe991",
     "semantic_hash": ""
   },
@@ -2960,32 +2960,32 @@
     "semantic_hash": ""
   },
   "tests/unit/digisense-client.test.ts": {
-    "mtime": 1784365744.646281,
+    "mtime": 1784396790.9063337,
     "ast_hash": "026f3a23f14e5b9dec6d76d98c4983e7",
     "semantic_hash": ""
   },
   "tests/unit/digisense-config.test.ts": {
-    "mtime": 1784365744.6463614,
+    "mtime": 1784396790.9064145,
     "ast_hash": "f14e9a66c59d33dec437f35b2541b99d",
     "semantic_hash": ""
   },
   "tests/unit/digisense-receive.test.ts": {
-    "mtime": 1784365744.6464443,
+    "mtime": 1784396790.9064975,
     "ast_hash": "a06c8c30fcedffe0e6587cbf54115b78",
     "semantic_hash": ""
   },
   "tests/unit/digisense-register.test.ts": {
-    "mtime": 1784365744.6465528,
+    "mtime": 1784396790.9066303,
     "ast_hash": "9e6fafdf53923e6896268d32a1f8583b",
     "semantic_hash": ""
   },
   "tests/unit/digisense-state.test.ts": {
-    "mtime": 1784365744.6466193,
+    "mtime": 1784396790.9067006,
     "ast_hash": "d56b381aa9c3e7d5835b5a48c721bbdb",
     "semantic_hash": ""
   },
   "tests/unit/digisense-transmitter.test.ts": {
-    "mtime": 1784365744.6467001,
+    "mtime": 1784396790.906783,
     "ast_hash": "8cca6b7408843b17e139880bc3290ef8",
     "semantic_hash": ""
   },
@@ -3080,37 +3080,37 @@
     "semantic_hash": ""
   },
   "tests/unit/gdpr-audit-export.test.ts": {
-    "mtime": 1784369023.260922,
+    "mtime": 1784396790.907133,
     "ast_hash": "97f6060c421ede723428289a7779d766",
     "semantic_hash": ""
   },
   "tests/unit/gdpr-cli.test.ts": {
-    "mtime": 1784369372.044746,
+    "mtime": 1784396790.9074492,
     "ast_hash": "a020ae9a0f3dd4e3555376cbe1f54b81",
     "semantic_hash": ""
   },
   "tests/unit/gdpr-erasure-schema-migration.test.ts": {
-    "mtime": 1784372045.6730692,
+    "mtime": 1784396790.9076662,
     "ast_hash": "4c272d693c93eec3eacfb4fcc3eb7d84",
     "semantic_hash": ""
   },
   "tests/unit/gdpr-erasure.test.ts": {
-    "mtime": 1784373107.4787352,
+    "mtime": 1784396790.9079657,
     "ast_hash": "085e2106a105514be586213681ef4513",
     "semantic_hash": ""
   },
   "tests/unit/gdpr-export.test.ts": {
-    "mtime": 1784370281.7413757,
+    "mtime": 1784396790.9083257,
     "ast_hash": "e692ac12adcfcf1121a3f22539f45417",
     "semantic_hash": ""
   },
   "tests/unit/gdpr-ledger-integrity.test.ts": {
-    "mtime": 1784370281.8941371,
+    "mtime": 1784396790.9086676,
     "ast_hash": "41148386456f0fd19bcae3610627db22",
     "semantic_hash": ""
   },
   "tests/unit/human-output-cli.test.ts": {
-    "mtime": 1784381309.7361221,
+    "mtime": 1784396790.9088871,
     "ast_hash": "d197a5295c32bb26f3d4a459e1dc3073",
     "semantic_hash": ""
   },
@@ -3195,17 +3195,17 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-bad-debt.test.ts": {
-    "mtime": 1784396290.8787854,
+    "mtime": 1784396790.909104,
     "ast_hash": "b0f77189ab567af122d4cbd960520080",
     "semantic_hash": ""
   },
   "tests/unit/invoice-booking-cli.test.ts": {
-    "mtime": 1784387995.22167,
+    "mtime": 1784396790.9092903,
     "ast_hash": "79b4babd5ddf089f436d40a6a5ad3046",
     "semantic_hash": ""
   },
   "tests/unit/invoice-booking.test.ts": {
-    "mtime": 1784387959.7204418,
+    "mtime": 1784396790.909464,
     "ast_hash": "dd76fbad449fd77d0a52624f16e3208e",
     "semantic_hash": ""
   },
@@ -3215,7 +3215,7 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-claim-settlement.test.ts": {
-    "mtime": 1784392158.3482263,
+    "mtime": 1784396790.9096744,
     "ast_hash": "9a0e108a03a7b1b234b9081c2bbf5a39",
     "semantic_hash": ""
   },
@@ -3225,12 +3225,12 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-compensation-cli.test.ts": {
-    "mtime": 1784381309.4463158,
+    "mtime": 1784396790.9098635,
     "ast_hash": "6c131a13347b495a65a5009fb4b15cd4",
     "semantic_hash": ""
   },
   "tests/unit/invoice-compensation.test.ts": {
-    "mtime": 1784391914.738924,
+    "mtime": 1784396790.910043,
     "ast_hash": "24d3017f25b74b79ca724c1a8f78b7e4",
     "semantic_hash": ""
   },
@@ -3240,17 +3240,17 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-fx-gain-loss.test.ts": {
-    "mtime": 1784379332.461301,
+    "mtime": 1784396790.9102578,
     "ast_hash": "35548ceda15be66c3639f19093b77af3",
     "semantic_hash": ""
   },
   "tests/unit/invoice-interest-cli.test.ts": {
-    "mtime": 1784381309.5918427,
+    "mtime": 1784396790.9104788,
     "ast_hash": "7777f4c3ecc2ffba4c539da202e7b57e",
     "semantic_hash": ""
   },
   "tests/unit/invoice-interest.test.ts": {
-    "mtime": 1784391914.873812,
+    "mtime": 1784396790.91071,
     "ast_hash": "434a81f4180c6a14bba4ac8bb17cb70d",
     "semantic_hash": ""
   },
@@ -3265,37 +3265,37 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-issue.test.ts": {
-    "mtime": 1784385868.8428063,
+    "mtime": 1784396790.910924,
     "ast_hash": "a3658695fa9ec116c43412c82046d12b",
     "semantic_hash": ""
   },
   "tests/unit/invoice-journal-evidence-migration.test.ts": {
-    "mtime": 1784375342.8009682,
+    "mtime": 1784396790.911127,
     "ast_hash": "4fb8a1531cf285b1e3dc35de2503cc7c",
     "semantic_hash": ""
   },
   "tests/unit/invoice-journal-evidence-rollback.test.ts": {
-    "mtime": 1784375431.8937242,
+    "mtime": 1784396790.911306,
     "ast_hash": "e7c77b2262cf58d43c77008e5c081679",
     "semantic_hash": ""
   },
   "tests/unit/invoice-journal-evidence.test.ts": {
-    "mtime": 1784392217.7716684,
+    "mtime": 1784396790.9114594,
     "ast_hash": "38eb9ecdd9feedb29014e325b94626b3",
     "semantic_hash": ""
   },
   "tests/unit/invoice-list-cli.test.ts": {
-    "mtime": 1784381309.3004942,
+    "mtime": 1784396790.911708,
     "ast_hash": "f3a3f9f9264e62df9ccd2fa91807aef1",
     "semantic_hash": ""
   },
   "tests/unit/invoice-payments-cli.test.ts": {
-    "mtime": 1784381308.8768759,
+    "mtime": 1784396790.9118946,
     "ast_hash": "900e04a6bba815549fda1d149877da93",
     "semantic_hash": ""
   },
   "tests/unit/invoice-payments.test.ts": {
-    "mtime": 1784382910.5832403,
+    "mtime": 1784396790.9120982,
     "ast_hash": "b039b0ad98b4cf788b2153774e108e56",
     "semantic_hash": ""
   },
@@ -3305,7 +3305,7 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-refunds.test.ts": {
-    "mtime": 1784375128.9886825,
+    "mtime": 1784396790.912311,
     "ast_hash": "13ab076fd7ba35be8708b188be6d415d",
     "semantic_hash": ""
   },
@@ -3315,7 +3315,7 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-reminders.test.ts": {
-    "mtime": 1784391914.5882285,
+    "mtime": 1784396790.9125915,
     "ast_hash": "c251f7266a5f1996df39e245cde00de0",
     "semantic_hash": ""
   },
@@ -3330,7 +3330,7 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-settlement.test.ts": {
-    "mtime": 1784380314.335106,
+    "mtime": 1784396790.9129536,
     "ast_hash": "5bf96dd8d7fdbc7cca000dfc10414d84",
     "semantic_hash": ""
   },
@@ -3370,7 +3370,7 @@
     "semantic_hash": ""
   },
   "tests/unit/journal-cli.test.ts": {
-    "mtime": 1784365942.1950636,
+    "mtime": 1784396790.913327,
     "ast_hash": "f5885d2ff2047956ba39ec46681802c0",
     "semantic_hash": ""
   },
@@ -3385,7 +3385,7 @@
     "semantic_hash": ""
   },
   "tests/unit/journal-post-bank-link.test.ts": {
-    "mtime": 1784366091.3828163,
+    "mtime": 1784396790.9136066,
     "ast_hash": "ec89d256d87686b7738c0a280037d7e7",
     "semantic_hash": ""
   },
@@ -3430,7 +3430,7 @@
     "semantic_hash": ""
   },
   "tests/unit/liquidity-forecast.test.ts": {
-    "mtime": 1784381309.0144608,
+    "mtime": 1784396790.913876,
     "ast_hash": "e7fb3a60dddc35b54a2226ffec373a5c",
     "semantic_hash": ""
   },
@@ -3460,7 +3460,7 @@
     "semantic_hash": ""
   },
   "tests/unit/master-data-delete.test.ts": {
-    "mtime": 1784381427.1602092,
+    "mtime": 1784396790.9141555,
     "ast_hash": "73b04e3b3cf0d69793f3111a4152bd42",
     "semantic_hash": ""
   },
@@ -3495,7 +3495,7 @@
     "semantic_hash": ""
   },
   "tests/unit/mcp-invoice-lifecycle.test.ts": {
-    "mtime": 1784387995.0762157,
+    "mtime": 1784396790.9143982,
     "ast_hash": "85d9fa4d4d45684055f3c7a47bc2a467",
     "semantic_hash": ""
   },
@@ -3515,7 +3515,7 @@
     "semantic_hash": ""
   },
   "tests/unit/mcp-server.test.ts": {
-    "mtime": 1784368967.5285056,
+    "mtime": 1784396790.9147396,
     "ast_hash": "1232c73dd0121d8278df4375a25f480b",
     "semantic_hash": ""
   },
@@ -3625,7 +3625,7 @@
     "semantic_hash": ""
   },
   "tests/unit/payables.test.ts": {
-    "mtime": 1784366080.8240929,
+    "mtime": 1784396790.9149969,
     "ast_hash": "9bdf68de5d1f84d14df737bf1775d46f",
     "semantic_hash": ""
   },
@@ -3660,7 +3660,7 @@
     "semantic_hash": ""
   },
   "tests/unit/public-einvoice.test.ts": {
-    "mtime": 1784365744.6468399,
+    "mtime": 1784396790.9151795,
     "ast_hash": "8055dcb3063a5374c94519fefe3fbfc4",
     "semantic_hash": ""
   },
@@ -3715,7 +3715,7 @@
     "semantic_hash": ""
   },
   "tests/unit/rules-metadata.test.ts": {
-    "mtime": 1784366260.9606867,
+    "mtime": 1784396790.9157462,
     "ast_hash": "e168d5b23fa24f49875696d275884ee0",
     "semantic_hash": ""
   },
@@ -3940,7 +3940,7 @@
     "semantic_hash": ""
   },
   "tests/unit/server-gdpr-view.test.ts": {
-    "mtime": 1784368689.3345504,
+    "mtime": 1784396790.916464,
     "ast_hash": "7ba9880cebfa5dea437cb2a6b9f7bbd0",
     "semantic_hash": ""
   },
@@ -4050,7 +4050,7 @@
     "semantic_hash": ""
   },
   "tests/unit/surface-diff-discoverable.test.ts": {
-    "mtime": 1784365744.6469536,
+    "mtime": 1784396790.9171875,
     "ast_hash": "329409b381bc94694abc28b05c81374f",
     "semantic_hash": ""
   },
@@ -4070,13 +4070,13 @@
     "semantic_hash": ""
   },
   "tests/unit/system-restore-target-guard.test.ts": {
-    "mtime": 1784365723.400879,
-    "ast_hash": "5e2043610ea4011f2c798b2693571be9",
+    "mtime": 1784398526.9488125,
+    "ast_hash": "6c007b5da29b99ca22f3dd049474ba0a",
     "semantic_hash": ""
   },
   "tests/unit/system-restore.test.ts": {
-    "mtime": 1784393502.599821,
-    "ast_hash": "3a9d145d8847fd65a67f1b5dcbc7f3f9",
+    "mtime": 1784398434.1267803,
+    "ast_hash": "61af9c130005bb6be3192c68a1922924",
     "semantic_hash": ""
   },
   "tests/unit/tar.test.ts": {
@@ -4180,8 +4180,8 @@
     "semantic_hash": ""
   },
   "tests/unit/windows-filesystem-safety.test.ts": {
-    "mtime": 1784365723.4031484,
-    "ast_hash": "66539a00a048d1ad69afad06dac72d27",
+    "mtime": 1784398527.0870326,
+    "ast_hash": "7603263fe1228695159fce0910e47944",
     "semantic_hash": ""
   },
   "tests/unit/workspace.test.ts": {
@@ -4310,7 +4310,7 @@
     "semantic_hash": ""
   },
   "www/src/pages/docs/installation.astro": {
-    "mtime": 1784366154.5504189,
+    "mtime": 1784396790.9179916,
     "ast_hash": "d6fad57c6d040549d73fcabac4b0ac2e",
     "semantic_hash": ""
   },
@@ -4755,12 +4755,12 @@
     "semantic_hash": ""
   },
   "docs/cli-contract.md": {
-    "mtime": 1784365942.1938763,
+    "mtime": 1784396790.8649774,
     "ast_hash": "8ac758f19a58597c90bab0477fe49f43",
     "semantic_hash": ""
   },
   "docs/cockpit-api.md": {
-    "mtime": 1784367286.8781729,
+    "mtime": 1784396790.8652909,
     "ast_hash": "a077de2055719ab22b23e0d38911740f",
     "semantic_hash": ""
   },
@@ -4810,7 +4810,7 @@
     "semantic_hash": ""
   },
   "docs/confirm-contract.md": {
-    "mtime": 1784387270.4325366,
+    "mtime": 1784396790.8654797,
     "ast_hash": "8dc0219c47edbd3b5943fb74c2f30f1a",
     "semantic_hash": ""
   },
@@ -4825,7 +4825,7 @@
     "semantic_hash": ""
   },
   "docs/efaktura-digisense.md": {
-    "mtime": 1784365744.6350987,
+    "mtime": 1784396790.8655984,
     "ast_hash": "c481f6764224f5c265a69928492af5d5",
     "semantic_hash": ""
   },
@@ -4840,17 +4840,17 @@
     "semantic_hash": ""
   },
   "docs/mcp-agent-contract.md": {
-    "mtime": 1784367287.020101,
+    "mtime": 1784396790.8659596,
     "ast_hash": "0aa8ef56609a0208b1b5f88dc221275c",
     "semantic_hash": ""
   },
   "docs/mcp-install.md": {
-    "mtime": 1784367287.159898,
+    "mtime": 1784396790.8662717,
     "ast_hash": "a632529cf238047bd1a6a4bdde7a9d1a",
     "semantic_hash": ""
   },
   "docs/mcp-tool-surface.md": {
-    "mtime": 1784387270.2797837,
+    "mtime": 1784396790.8665438,
     "ast_hash": "53cf8f0f1e6a3914a0cbc7de2c634559",
     "semantic_hash": ""
   },
@@ -4960,7 +4960,7 @@
     "semantic_hash": ""
   },
   "rules/dk/bookkeeping.yaml": {
-    "mtime": 1784366260.9563706,
+    "mtime": 1784396790.8862014,
     "ast_hash": "390682dfb8c3d7df47b56211a2ef443f",
     "semantic_hash": ""
   },
@@ -5165,28 +5165,33 @@
     "semantic_hash": ""
   },
   "src/core/invoice-claim-receivable.ts": {
-    "mtime": 1784391827.0820847,
+    "mtime": 1784396790.8958871,
     "ast_hash": "e7fcfd4f8db247cd69eee6eda570d38c",
     "semantic_hash": ""
   },
   "src/core/invoice-fx-receivable.ts": {
-    "mtime": 1784385446.7015774,
+    "mtime": 1784396790.8964977,
     "ast_hash": "78658a61d39a475d151af530d05e711f",
     "semantic_hash": ""
   },
   "src/core/invoice-legacy-repair-evidence.ts": {
-    "mtime": 1784387702.3858776,
+    "mtime": 1784396790.897136,
     "ast_hash": "fda677429c3f396459973e192d9ec9b2",
     "semantic_hash": ""
   },
   "tests/unit/db-trigger-restore.test.ts": {
-    "mtime": 1784393863.3643782,
+    "mtime": 1784396790.9060762,
     "ast_hash": "2e937e088af52155a131948594e3b73d",
     "semantic_hash": ""
   },
   "tests/unit/invoice-settlement-concurrency.test.ts": {
-    "mtime": 1784387231.4661973,
+    "mtime": 1784396790.912771,
     "ast_hash": "5d84734d33291fda4a6548e85c1261b8",
+    "semantic_hash": ""
+  },
+  "tests/unit/_isolated-backup-fixture.ts": {
+    "mtime": 1784398526.8172588,
+    "ast_hash": "9660854df23a81b25811755d0c6f6de1",
     "semantic_hash": ""
   }
 }

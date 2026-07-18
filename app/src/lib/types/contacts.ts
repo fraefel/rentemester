@@ -35,6 +35,9 @@ export type ContactVendorRow = {
   id: number;
   name: string;
   vatOrCvr: string | null;
+  countryCode: string | null;
+  identifierKind: "dk_cvr" | "eu_vat" | "non_eu" | null;
+  identityStatus: "resolved" | "human_resolution_required";
   defaultExpenseAccount: string | null;
   defaultVatTreatment: string | null;
   // #390 — full stamdata so the edit-modal can prefill without another fetch.
@@ -64,6 +67,8 @@ export type VendorInput = {
   name: string;
   address?: string | null;
   vatOrCvr?: string | null;
+  countryCode?: string | null;
+  identifierKind?: "dk_cvr" | "eu_vat" | "non_eu" | null;
   email?: string | null;
   phone?: string | null;
   website?: string | null;

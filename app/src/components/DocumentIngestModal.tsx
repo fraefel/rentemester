@@ -59,6 +59,8 @@ export function DocumentIngestModal({
   const [senderName, setSenderName] = useState("");
   const [senderAddress, setSenderAddress] = useState("");
   const [senderVat, setSenderVat] = useState("");
+  const [senderCountryCode, setSenderCountryCode] = useState("");
+  const [senderIdentifierKind, setSenderIdentifierKind] = useState<"" | "dk_cvr" | "eu_vat" | "non_eu">("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientAddress, setRecipientAddress] = useState("");
   const [recipientVat, setRecipientVat] = useState("");
@@ -132,11 +134,13 @@ export function DocumentIngestModal({
       metadata.deliveryDescription = deliveryDescription.trim();
     if (amountNum !== undefined) metadata.amountIncVat = amountNum;
     if (vatNum !== undefined) metadata.vatAmount = vatNum;
-    if (senderName.trim() || senderAddress.trim() || senderVat.trim()) {
+    if (senderName.trim() || senderAddress.trim() || senderVat.trim() || senderCountryCode.trim() || senderIdentifierKind) {
       metadata.sender = {
         name: senderName.trim() || undefined,
         address: senderAddress.trim() || undefined,
         vatOrCvr: senderVat.trim() || undefined,
+        countryCode: senderCountryCode.trim() || undefined,
+        identifierKind: senderIdentifierKind || undefined,
       };
     }
     if (
@@ -350,6 +354,16 @@ export function DocumentIngestModal({
                       onChange={(e) => setSenderVat(e.target.value)}
                       disabled={busy}
                     />
+                  </label>
+                  <label className="modal-field">
+                    Leverandørland (ISO)
+                    <input type="text" value={senderCountryCode} onChange={(e) => setSenderCountryCode(e.target.value.toUpperCase())} placeholder="US" maxLength={2} disabled={busy} />
+                  </label>
+                  <label className="modal-field">
+                    Identitetstype
+                    <select value={senderIdentifierKind} onChange={(e) => setSenderIdentifierKind(e.target.value as typeof senderIdentifierKind)} disabled={busy}>
+                      <option value="">Vælg</option><option value="dk_cvr">Dansk CVR</option><option value="eu_vat">EU-momsnr.</option><option value="non_eu">Ikke-EU</option>
+                    </select>
                   </label>
                 </div>
                 <label className="modal-field">

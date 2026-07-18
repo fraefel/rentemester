@@ -117,6 +117,26 @@ describe("EU service reverse-charge VAT", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
+  test("#529 consumes persisted identity: non-EU and unresolved suppliers cannot become EU reverse charge", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-rc-identity-"));
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-rc-identity-inbox-"));
+    const sourceFile = join(inbox, "us-saas.txt");
+    writeFileSync(sourceFile, "US SaaS invoice\n1000 USD\n");
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db); seedAccounts(db);
+    const doc = ingestDocument(db, root, sourceFile, {
+      source: "email", issueDate: "2026-05-16", invoiceNo: "US-RC-1", deliveryDescription: "US SaaS", amountIncVat: 1000, currency: "USD",
+      sender: { name: "US SaaS Inc.", address: "New York", countryCode: "US", identifierKind: "non_eu" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" }, vatAmount: 0,
+    });
+    expect(doc.ok).toBe(true);
+    const input = { transactionDate: "2026-05-16", text: "US SaaS", documentId: doc.documentId!, netAmount: 1000, expenseAccountNo: "3010" };
+    expect(postEuServiceReverseChargePurchase(db, input).errors[0]).toContain("non-EU");
+    db.run("UPDATE documents SET supplier_identity_status = 'human_resolution_required' WHERE id = ?", doc.documentId!);
+    expect(postEuServiceReverseChargePurchase(db, input).errors[0]).toContain("human resolution");
+    db.close(); rmSync(root, { recursive: true, force: true }); rmSync(inbox, { recursive: true, force: true });
+  });
+
   test("posts a compliant reverse-charge purchase and reports equal output/input VAT", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-rc-"));
     const inbox = mkdtempSync(join(tmpdir(), "rentemester-rc-inbox-"));

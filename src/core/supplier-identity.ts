@@ -10,7 +10,7 @@ export type SupplierIdentityInput = {
   identifierKind?: SupplierIdentifierKind;
 };
 export type SupplierIdentityResolution =
-  | { ok: true; status: "resolved"; country: string; identifier: string; identifierKind: SupplierIdentifierKind; euVatRegistered: boolean }
+  | { ok: true; status: "resolved"; country: string; identifier: string | null; identifierKind: SupplierIdentifierKind; euVatRegistered: boolean }
   | { ok: false; status: "human_resolution_required"; errors: string[] };
 
 const EU_COUNTRIES = new Set(["AT", "BE", "BG", "HR", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "GR", "HU", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK"]);
@@ -19,7 +19,7 @@ export function resolveSupplierIdentity(input: SupplierIdentityInput): SupplierI
   const country = typeof input.country === "string" ? input.country.trim().toUpperCase() : "";
   const identifier = typeof input.identifier === "string" ? input.identifier.trim().toUpperCase().replace(/\s/g, "") : "";
   if (!/^[A-Z]{2}$/.test(country)) return { ok: false, status: "human_resolution_required", errors: ["supplier country must be an ISO 3166-1 alpha-2 code"] };
-  if (!identifier || !input.identifierKind) return { ok: false, status: "human_resolution_required", errors: ["supplier identity is ambiguous: country and typed identifier require human resolution"] };
+  if (!input.identifierKind) return { ok: false, status: "human_resolution_required", errors: ["supplier identity is ambiguous: country and typed identifier require human resolution"] };
   if (input.identifierKind === "dk_cvr") {
     const digits = identifier.replace(/^DK/, "");
     if (country !== "DK" || !/^\d{8}$/.test(digits)) return { ok: false, status: "human_resolution_required", errors: ["Danish CVR identity requires country DK and exactly 8 digits"] };
@@ -30,8 +30,23 @@ export function resolveSupplierIdentity(input: SupplierIdentityInput): SupplierI
     return { ok: true, status: "resolved", country, identifier, identifierKind: "eu_vat", euVatRegistered: true };
   }
   if (input.identifierKind === "non_eu") {
-    if (EU_COUNTRIES.has(country) || identifier.length < 2) return { ok: false, status: "human_resolution_required", errors: ["non-EU identifier requires a non-EU country and non-empty identifier"] };
-    return { ok: true, status: "resolved", country, identifier, identifierKind: "non_eu", euVatRegistered: false };
+    if (EU_COUNTRIES.has(country)) return { ok: false, status: "human_resolution_required", errors: ["non-EU identity requires a non-EU country"] };
+    return { ok: true, status: "resolved", country, identifier: identifier || null, identifierKind: "non_eu", euVatRegistered: false };
   }
   return { ok: false, status: "human_resolution_required", errors: ["supplier identifier kind is unsupported"] };
+}
+
+/**
+ * Compatibility bridge for documents predating typed supplier identity. Only
+ * explicit DK/EU VAT syntax is evidence enough to migrate automatically;
+ * arbitrary foreign-looking text deliberately remains unresolved.
+ */
+export function resolveLegacySupplierIdentity(identifier: string | null | undefined): SupplierIdentityResolution {
+  const value = typeof identifier === "string" ? identifier.trim().toUpperCase().replace(/\s/g, "") : "";
+  if (/^DK\d{8}$/.test(value)) return resolveSupplierIdentity({ country: "DK", identifier: value, identifierKind: "dk_cvr" });
+  const country = value.slice(0, 2);
+  if (EU_COUNTRIES.has(country) && country !== "DK" && /^[A-Z]{2}[A-Z0-9]{2,14}$/.test(value)) {
+    return resolveSupplierIdentity({ country, identifier: value, identifierKind: "eu_vat" });
+  }
+  return { ok: false, status: "human_resolution_required", errors: ["supplier identity is ambiguous: explicit country and typed identifier require human resolution"] };
 }

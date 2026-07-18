@@ -53,6 +53,9 @@ export type ContactVendorRow = {
   id: number;
   name: string;
   vatOrCvr: string | null;
+  countryCode: string | null;
+  identifierKind: "dk_cvr" | "eu_vat" | "non_eu" | null;
+  identityStatus: "resolved" | "human_resolution_required";
   defaultExpenseAccount: string | null;
   defaultVatTreatment: string | null;
   // #390 — surface the remaining stamdata fields so the Cockpit edit-modal can
@@ -160,6 +163,9 @@ export function buildCompanyContacts(workspaceRoot: string, slug: string) {
       id: v.id,
       name: v.name,
       vatOrCvr: v.vatOrCvr,
+      countryCode: v.countryCode,
+      identifierKind: v.identifierKind,
+      identityStatus: v.identityStatus,
       defaultExpenseAccount: v.defaultExpenseAccount,
       defaultVatTreatment: v.defaultVatTreatment,
       address: v.address,

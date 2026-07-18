@@ -37,6 +37,30 @@ describe("document ingest", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("#529 ingests and reads a US SaaS supplier without an EU VAT or CVR identifier", () => {
+    const companyRoot = mkdtempSync(join(tmpdir(), "rentemester-us-saas-"));
+    const inboxRoot = mkdtempSync(join(tmpdir(), "rentemester-us-saas-inbox-"));
+    const sourceFile = join(inboxRoot, "us-saas.txt");
+    writeFileSync(sourceFile, "US SaaS invoice\n100 USD\n");
+    const db = openDb(ensureCompanyDirs(companyRoot).db);
+    migrate(db);
+    const result = ingestDocument(db, companyRoot, sourceFile, {
+      source: "email", issueDate: "2026-07-18", invoiceNo: "US-529", deliveryDescription: "US SaaS subscription", amountIncVat: 100, currency: "USD",
+      sender: { name: "US SaaS Inc.", address: "New York, US", countryCode: "US", identifierKind: "non_eu" },
+      recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" }, vatAmount: 0,
+    });
+    expect(result.ok).toBe(true);
+    expect(db.query("SELECT supplier_country_code, supplier_identifier_kind, sender_vat_cvr, supplier_identity_status FROM documents WHERE id = ?").get(result.documentId!) as object)
+      .toEqual({ supplier_country_code: "US", supplier_identifier_kind: "non_eu", sender_vat_cvr: null, supplier_identity_status: "resolved" });
+    db.close(); rmSync(companyRoot, { recursive: true, force: true }); rmSync(inboxRoot, { recursive: true, force: true });
+  });
+
+  test("#529 fails closed for contradictory or missing supplier country evidence", () => {
+    const base = { source: "email", issueDate: "2026-07-18", deliveryDescription: "SaaS", amountIncVat: 100, sender: { name: "Supplier", address: "Address", vatOrCvr: "DE123456789", countryCode: "US", identifierKind: "eu_vat" as const }, recipient: { name: "Buyer", address: "Address", vatOrCvr: "DK12345678" }, vatAmount: 0 };
+    expect(validateDocumentMetadata(base).errors.join(" ")).toContain("human_resolution");
+    expect(validateDocumentMetadata({ ...base, sender: { name: "Supplier", address: "Address", vatOrCvr: "unverified foreign text" } }).errors.join(" ")).toContain("human resolution");
+  });
+
   test("accepts foreign-currency purchase/sale metadata when statutory fields are present", () => {
     const result = validateDocumentMetadata({
       source: "email",

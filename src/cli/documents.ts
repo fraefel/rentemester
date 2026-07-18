@@ -69,7 +69,7 @@ export function register(dispatch: CommandDispatch): void {
     migrate(db);
     const rows = db
       .query(
-        "SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat, currency, status, stored_path FROM documents ORDER BY id DESC",
+        "SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat, currency, status, stored_path, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status FROM documents ORDER BY id DESC",
       )
       .all() as Array<Record<string, unknown>>;
     if (ctx.outputFormat === "json") {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { ingestDocument, type DocumentMetadata } from "../../core/documents";
 import { resolveDocumentMasterData } from "../../core/master-data";
+import type { SupplierIdentifierKind } from "../../core/supplier-identity";
 import {
   bookExpenseFromBank,
   type ExpenseVatTreatment,
@@ -59,14 +60,24 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
       throw ApiError.badRequest(`metadata.${key} must be an object when present`);
     }
     const p = v as Record<string, unknown>;
-    for (const f of ["name", "address", "vatOrCvr"]) {
+    for (const f of ["name", "address", "vatOrCvr", "countryCode", "identifierKind"]) {
       if (p[f] !== undefined && p[f] !== null && typeof p[f] !== "string") {
         throw ApiError.badRequest(`metadata.${key}.${f} must be a string when present`);
       }
     }
     const trim = (x: unknown) =>
       typeof x === "string" && x.trim().length > 0 ? x.trim() : undefined;
-    return { name: trim(p.name), address: trim(p.address), vatOrCvr: trim(p.vatOrCvr) };
+    const identifierKind = trim(p.identifierKind);
+    if (identifierKind !== undefined && !["dk_cvr", "eu_vat", "non_eu"].includes(identifierKind)) {
+      throw ApiError.badRequest(`metadata.${key}.identifierKind must be dk_cvr, eu_vat or non_eu when present`);
+    }
+    return {
+      name: trim(p.name),
+      address: trim(p.address),
+      vatOrCvr: trim(p.vatOrCvr),
+      countryCode: trim(p.countryCode),
+      identifierKind: identifierKind as SupplierIdentifierKind | undefined,
+    };
   }
 
   const source = str("source");

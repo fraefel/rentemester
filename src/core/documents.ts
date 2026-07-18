@@ -8,6 +8,7 @@ import { companySequenceScope, currentUtcIsoDate, fiscalYearLabelFromDate, nextS
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { retainUntilForDate } from "./retention";
 import { asDocumentId, type DocumentId } from "./ids";
+import { resolveLegacySupplierIdentity, resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
 
 export type DocumentType = "purchase_sale" | "cash_register_receipt";
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
@@ -20,7 +21,7 @@ export type DocumentMetadata = {
   deliveryDescription?: string;
   amountIncVat?: number;
   currency?: string;
-  sender?: { name?: string; address?: string; vatOrCvr?: string };
+  sender?: { name?: string; address?: string; vatOrCvr?: string; countryCode?: string; identifierKind?: SupplierIdentifierKind };
   recipient?: { name?: string; address?: string; vatOrCvr?: string };
   vatAmount?: number;
   paymentDetails?: string;
@@ -171,7 +172,11 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
     if (!hasNonNegativeNumber(metadata.amountIncVat)) errors.push("amountIncVat is required");
     if (!hasText(metadata.sender?.name)) errors.push("sender.name is required");
     if (!hasText(metadata.sender?.address)) errors.push("sender.address is required");
-    if (!hasText(metadata.sender?.vatOrCvr)) errors.push("sender.vatOrCvr is required");
+    const suppliedIdentity = metadata.sender?.countryCode !== undefined || metadata.sender?.identifierKind !== undefined;
+    const identity = suppliedIdentity
+      ? resolveSupplierIdentity({ country: metadata.sender?.countryCode ?? "", identifier: metadata.sender?.vatOrCvr, identifierKind: metadata.sender?.identifierKind })
+      : resolveLegacySupplierIdentity(metadata.sender?.vatOrCvr);
+    if (!identity.ok) errors.push(...identity.errors.map((error) => `sender: human_resolution_required: ${error}`));
     if (!hasText(metadata.recipient?.name)) errors.push("recipient.name is required");
     if (!hasText(metadata.recipient?.address)) errors.push("recipient.address is required");
     if (!hasText(metadata.recipient?.vatOrCvr)) errors.push("recipient.vatOrCvr is required");
@@ -200,7 +205,12 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
   }
 
   const docType = metadata.documentType ?? "purchase_sale";
-  const senderVatOrCvr = metadata.sender?.vatOrCvr?.trim();
+  const senderIdentity = docType === "purchase_sale"
+    ? (metadata.sender?.countryCode !== undefined || metadata.sender?.identifierKind !== undefined
+      ? resolveSupplierIdentity({ country: metadata.sender?.countryCode ?? "", identifier: metadata.sender?.vatOrCvr, identifierKind: metadata.sender?.identifierKind })
+      : resolveLegacySupplierIdentity(metadata.sender?.vatOrCvr))
+    : null;
+  const senderVatOrCvr = senderIdentity?.ok ? senderIdentity.identifier : metadata.sender?.vatOrCvr?.trim();
   const invoiceNo = metadata.invoiceNo?.trim();
   if (!options.forceDuplicateLogicalIdentity && docType === "purchase_sale" && senderVatOrCvr && invoiceNo) {
     const existingLogical = db.query(
@@ -235,9 +245,9 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
         `INSERT INTO documents (
           document_no, source, original_filename, stored_path, mime_type, sha256_hash,
           supplier_name, invoice_no, invoice_date, amount_inc_vat, currency, status,
-          document_type, delivery_description, sender_name, sender_address, sender_vat_cvr,
+          document_type, delivery_description, sender_name, sender_address, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status,
           recipient_name, recipient_address, recipient_vat_cvr, vat_amount, payment_details, exemption_code, retain_until
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ingested', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ingested', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id`
       ).get(
         documentNo,
@@ -255,7 +265,10 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
         metadata.deliveryDescription ?? null,
         metadata.sender?.name ?? null,
         metadata.sender?.address ?? null,
-        metadata.sender?.vatOrCvr ?? null,
+        senderVatOrCvr ?? null,
+        senderIdentity?.ok ? senderIdentity.country : null,
+        senderIdentity?.ok ? senderIdentity.identifierKind : null,
+        senderIdentity?.ok ? senderIdentity.status : null,
         metadata.recipient?.name ?? null,
         metadata.recipient?.address ?? null,
         metadata.recipient?.vatOrCvr ?? null,

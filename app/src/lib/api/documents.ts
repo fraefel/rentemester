@@ -206,7 +206,7 @@ export type DocumentIngestMetadata = {
   deliveryDescription?: string;
   amountIncVat?: number;
   currency?: string;
-  sender?: { name?: string; address?: string; vatOrCvr?: string };
+  sender?: { name?: string; address?: string; vatOrCvr?: string; countryCode?: string; identifierKind?: "dk_cvr" | "eu_vat" | "non_eu" };
   recipient?: { name?: string; address?: string; vatOrCvr?: string };
   vatAmount?: number;
   paymentDetails?: string;

@@ -52,6 +52,8 @@ type FormState = {
   // vendor-only
   defaultExpenseAccount: string;
   defaultVatTreatment: string;
+  countryCode: string;
+  identifierKind: "" | "dk_cvr" | "eu_vat" | "non_eu";
 };
 
 const VAT_TREATMENT_OPTIONS: Array<{ value: string; label: string }> = [
@@ -76,6 +78,8 @@ function emptyForm(): FormState {
     defaultCurrency: "DKK",
     defaultExpenseAccount: "",
     defaultVatTreatment: "",
+    countryCode: "",
+    identifierKind: "",
   };
 }
 
@@ -93,6 +97,8 @@ function customerToForm(c: ContactCustomerRow): FormState {
     defaultCurrency: c.defaultCurrency,
     defaultExpenseAccount: "",
     defaultVatTreatment: "",
+    countryCode: "",
+    identifierKind: "",
   };
 }
 
@@ -110,6 +116,8 @@ function vendorToForm(v: ContactVendorRow): FormState {
     defaultCurrency: "DKK",
     defaultExpenseAccount: v.defaultExpenseAccount ?? "",
     defaultVatTreatment: v.defaultVatTreatment ?? "",
+    countryCode: v.countryCode ?? "",
+    identifierKind: v.identifierKind ?? "",
   };
 }
 
@@ -252,6 +260,9 @@ export function ContactFormModal({
         const input: VendorInput = { name: form.name.trim() };
         const vatOrCvr = maybe(form.vatOrCvr);
         if (vatOrCvr !== undefined) input.vatOrCvr = vatOrCvr;
+        const countryCode = maybe(form.countryCode);
+        if (countryCode !== undefined) input.countryCode = countryCode;
+        if (form.identifierKind) input.identifierKind = form.identifierKind;
         const email = maybe(form.email);
         if (email !== undefined) input.email = email;
         const phone = maybe(form.phone);
@@ -389,7 +400,17 @@ export function ContactFormModal({
         </label>
 
         {kind === "customer" ? (
-          <>
+        <>
+            <label className="modal-field">
+              Leverandørland (ISO)
+              <input type="text" value={form.countryCode} onChange={(e) => update("countryCode", e.target.value.toUpperCase())} maxLength={2} placeholder="DK, DE, US" disabled={busy} />
+            </label>
+            <label className="modal-field">
+              Leverandøridentitet
+              <select value={form.identifierKind} onChange={(e) => update("identifierKind", e.target.value as FormState["identifierKind"])} disabled={busy}>
+                <option value="">Ikke klassificeret</option><option value="dk_cvr">Dansk CVR</option><option value="eu_vat">EU-momsnr.</option><option value="non_eu">Ikke-EU</option>
+              </select>
+            </label>
             <label className="modal-field">
               EAN-nummer (offentlige kunder)
               <input

@@ -246,10 +246,10 @@ export function getCustomerById(db: Database, id: number) {
 
 export function getVendorById(db: Database, id: number) {
   return db.query(
-    `SELECT id, name, address, vat_or_cvr, email, phone, website, default_expense_account, default_vat_treatment, notes, archived, created_at
+    `SELECT id, name, address, vat_or_cvr, country_code, identifier_kind, identity_status, email, phone, website, default_expense_account, default_vat_treatment, notes, archived, created_at
      FROM vendors WHERE id = ? LIMIT 1`
   ).get(id) as {
-    id: number; name: string; address: string | null; vat_or_cvr: string | null; email: string | null; phone: string | null; website: string | null; default_expense_account: string | null; default_vat_treatment: string | null; notes: string | null; archived: number; created_at: string;
+    id: number; name: string; address: string | null; vat_or_cvr: string | null; country_code: string | null; identifier_kind: SupplierIdentifierKind | null; identity_status: "resolved" | "human_resolution_required"; email: string | null; phone: string | null; website: string | null; default_expense_account: string | null; default_vat_treatment: string | null; notes: string | null; archived: number; created_at: string;
   } | null;
 }
 
@@ -553,6 +553,12 @@ export function updateVendor(
 
   const nextAddress = input.address !== undefined ? trimToNull(input.address) : existing.address;
   const nextVatOrCvr = input.vatOrCvr !== undefined ? trimToNull(input.vatOrCvr) : existing.vat_or_cvr;
+  const nextCountryCode = input.countryCode !== undefined ? input.countryCode : existing.country_code ?? undefined;
+  const nextIdentifierKind = input.identifierKind !== undefined ? input.identifierKind : existing.identifier_kind ?? undefined;
+  const identity = nextCountryCode !== undefined || nextIdentifierKind !== undefined
+    ? resolveSupplierIdentity({ country: nextCountryCode ?? "", identifier: nextVatOrCvr ?? undefined, identifierKind: nextIdentifierKind })
+    : null;
+  if (identity && !identity.ok) return { ok: false, status: identity.status, errors: identity.errors };
   const nextEmail = input.email !== undefined ? trimToNull(input.email) : existing.email;
   const nextPhone = input.phone !== undefined ? trimToNull(input.phone) : existing.phone;
   const nextWebsite = input.website !== undefined ? trimToNull(input.website) : existing.website;
@@ -563,14 +569,17 @@ export function updateVendor(
   db.transaction(() => {
     db.run(
       `UPDATE vendors
-         SET name = ?, address = ?, vat_or_cvr = ?, email = ?, phone = ?,
+         SET name = ?, address = ?, vat_or_cvr = ?, country_code = ?, identifier_kind = ?, identity_status = ?, email = ?, phone = ?,
              website = ?, default_expense_account = ?, default_vat_treatment = ?,
              notes = ?
        WHERE id = ?`,
       [
         nextName,
         nextAddress,
-        nextVatOrCvr,
+        identity?.ok ? identity.identifier : nextVatOrCvr,
+        identity?.ok ? identity.country : existing.country_code,
+        identity?.ok ? identity.identifierKind : existing.identifier_kind,
+        identity?.ok ? identity.status : existing.identity_status,
         nextEmail,
         nextPhone,
         nextWebsite,
@@ -758,6 +767,8 @@ export function resolveDocumentMasterData(db: Database, metadata: DocumentMetada
         name: trimToNull(metadata.sender?.name) ?? vendor.name,
         address: trimToNull(metadata.sender?.address) ?? vendor.address ?? undefined,
         vatOrCvr: trimToNull(metadata.sender?.vatOrCvr) ?? vendor.vat_or_cvr ?? undefined,
+        countryCode: metadata.sender?.countryCode ?? vendor.country_code ?? undefined,
+        identifierKind: metadata.sender?.identifierKind ?? vendor.identifier_kind ?? undefined,
       },
     },
   };

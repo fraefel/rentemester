@@ -98,6 +98,15 @@ kræver `confirm: true`); afvigelsen er bevidst og forklaret i
 
 ## 4. Output-felter ved succes
 
+### Leverandøridentitet i bilagsmetadata
+
+Ved `documents ingest --metadata <fil.json>` angives en udenlandsk leverandør
+som `sender.countryCode` (ISO alpha-2) og `sender.identifierKind`
+(`dk_cvr`, `eu_vat` eller `non_eu`). `non_eu` må bevidst mangle
+`sender.vatOrCvr`; EU reverse charge kræver fortsat et EU-momsnummer med
+eksisterende VIES-evidens. Uafklaret eller modstridende land/identitet afvises
+med `human_resolution_required`.
+
 Hverken exit-koder eller `--json`-outputtets felter står i den enkelte
 kommandos `--help` — per-kommando-hjælpen dækker brug, inputnoter og
 tilladte flags. Exit-koderne dækkes af den **globale** hjælp

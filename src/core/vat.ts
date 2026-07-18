@@ -6,6 +6,7 @@ import { requireCachedViesValidation, normalizeEuVatNumber } from "./vies";
 import { addDkk, compareDkk, fromOre, percentOfDkk, roundDkk, subtractDkk, sumDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
 import { emptyVatRubric, projectVatRubric, type VatRubric } from "./vat-rubric";
+import { resolveLegacySupplierIdentity } from "./supplier-identity";
 
 /** Absolute difference between two DKK amounts, expressed in whole øre. */
 function oreDifference(left: number, right: number): number {
@@ -205,20 +206,24 @@ export function postEuServiceReverseChargePurchase(db: Database, input: ReverseC
     return { ok: false, appliedRules: [REGISTRATION_RULE_ID, REVERSE_CHARGE_RULE_ID], errors: [NON_REGISTERED_EU_SERVICE_MSG] };
   }
 
-  const documentRow = db.query(`SELECT sender_vat_cvr FROM documents WHERE id = ?`).get(input.documentId) as { sender_vat_cvr: string | null } | null;
+  const documentRow = db.query(`SELECT sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status FROM documents WHERE id = ?`).get(input.documentId) as { sender_vat_cvr: string | null; supplier_country_code: string | null; supplier_identifier_kind: string | null; supplier_identity_status: string | null } | null;
   if (!documentRow) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [`documentId ${input.documentId} does not exist`] };
   // EU service reverse charge (momsloven §46) applies only to suppliers in
   // *other* EU member states. A Danish supplier is a domestic purchase and
   // must not be booked as reverse charge.
-  const senderVat = normalizeEuVatNumber(documentRow.sender_vat_cvr);
-  if (senderVat && senderVat.countryCode === "DK") {
+  const identity = documentRow.supplier_identity_status === "resolved" && documentRow.supplier_country_code && documentRow.supplier_identifier_kind
+    ? { ok: true as const, country: documentRow.supplier_country_code, identifierKind: documentRow.supplier_identifier_kind, identifier: documentRow.sender_vat_cvr }
+    : resolveLegacySupplierIdentity(documentRow.sender_vat_cvr);
+  if (!identity.ok) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity requires human resolution before reverse-charge booking"] };
+  if (identity.identifierKind === "dk_cvr") {
     return {
       ok: false,
       appliedRules: [REVERSE_CHARGE_RULE_ID],
-      errors: [`document sender_vat_cvr ${senderVat.normalized} is a Danish supplier — EU service reverse charge applies only to other EU member states; book this as a domestic DK_PURCHASE_25 expense`],
+      errors: ["document supplier identity is Danish — EU service reverse charge applies only to other EU member states; book this as a domestic DK_PURCHASE_25 expense"],
     };
   }
-  const viesCheck = requireCachedViesValidation(db, documentRow.sender_vat_cvr, "document sender_vat_cvr");
+  if (identity.identifierKind === "non_eu") return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: ["document supplier identity is non-EU — use the applicable non-EU purchase treatment; do not fabricate an EU VAT ID"] };
+  const viesCheck = requireCachedViesValidation(db, identity.identifier, "document sender_vat_cvr");
   if (!viesCheck.ok) return { ok: false, appliedRules: [...new Set([REVERSE_CHARGE_RULE_ID, ...viesCheck.appliedRules])], errors: viesCheck.errors };
 
   const vatAmount = percentOfDkk(input.netAmount, 25);

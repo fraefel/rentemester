@@ -367,6 +367,24 @@ describe("Cockpit write — document ingest (happy path)", () => {
       rmSync(ws, { recursive: true, force: true });
     }
   });
+
+  test("#529 retains non-EU supplier identity without a VAT/CVR value", async () => {
+    const { root: ws, slug } = makeWorkspace("doc-us-saas");
+    try {
+      const body = receiptBody({ metadata: {
+        source: "email", issueDate: "2026-07-18", invoiceNo: "US-529", deliveryDescription: "US SaaS", amountIncVat: 100, currency: "USD",
+        sender: { name: "US SaaS Inc.", address: "New York", countryCode: "US", identifierKind: "non_eu" },
+        recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" }, vatAmount: 0,
+      } });
+      const res = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/documents/ingest`, body);
+      expect(res.status).toBe(200);
+      withLedger(ws, slug, (db) => {
+        expect(db.query("SELECT supplier_country_code, supplier_identifier_kind, sender_vat_cvr, supplier_identity_status FROM documents").get()).toEqual({ supplier_country_code: "US", supplier_identifier_kind: "non_eu", sender_vat_cvr: null, supplier_identity_status: "resolved" });
+      });
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Cockpit write — document ingest (gates + input errors)", () => {

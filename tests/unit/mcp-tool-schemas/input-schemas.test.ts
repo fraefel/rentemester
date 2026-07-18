@@ -76,6 +76,15 @@ describe("#200/#206/#208/#210 — write tools expose fully-typed input schemas",
     const tool = tools.find((t) => t.name === "documents_ingest");
     expect((tool.description ?? "").toLowerCase()).toContain("filepath");
   });
+
+  test("#529 — MCP supplier identity schemas retain country and typed identifier fields", () => {
+    const sender = schemaOf("documents_ingest").properties?.metadata?.properties?.sender;
+    expect(sender?.properties?.countryCode).toBeDefined();
+    expect(sender?.properties?.identifierKind).toBeDefined();
+    const vendor = schemaOf("vendor_create").properties?.input;
+    expect(vendor?.properties?.countryCode).toBeDefined();
+    expect(vendor?.properties?.identifierKind).toBeDefined();
+  });
 });
 
 describe("#232 — the remaining write tools carry field-level schemas", () => {

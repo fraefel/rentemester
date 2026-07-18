@@ -17,6 +17,8 @@ export function register(dispatch: CommandDispatch): void {
       name: ctx.arg("--name") ?? "",
       address: ctx.arg("--address") ?? undefined,
       vatOrCvr: ctx.arg("--cvr") ?? undefined,
+      countryCode: ctx.arg("--country") ?? undefined,
+      identifierKind: ctx.arg("--identifier-kind") as CreateVendorInput["identifierKind"],
       defaultExpenseAccount: ctx.arg("--expense-account") ?? undefined,
       defaultVatTreatment: ctx.arg("--default-vat") ?? undefined,
       notes: ctx.arg("--notes") ?? undefined,

@@ -67,6 +67,8 @@ export function registerVendorTools(server: McpServer): void {
               .string()
               .optional()
               .describe("VAT or CVR number, e.g. 'DK12345678' (Danish) or 'DE123456789' (EU)."),
+            countryCode: z.string().length(2).optional().describe("Supplier country evidence (ISO alpha-2). Required with identifierKind."),
+            identifierKind: z.enum(["dk_cvr", "eu_vat", "non_eu"]).optional().describe("Typed supplier identity; non_eu permits a missing identifier."),
             email: z.string().optional().describe("Contact email address."),
             phone: z.string().optional().describe("Contact phone number."),
             website: z.string().optional().describe("Website URL."),

@@ -18,6 +18,8 @@ const documentPartySchema = z.object({
   name: z.string().optional().describe("Party name."),
   address: z.string().optional().describe("Party postal address."),
   vatOrCvr: z.string().optional().describe("Party VAT or CVR number, e.g. 'DK12345678'."),
+  countryCode: z.string().length(2).optional().describe("Supplier ISO 3166-1 alpha-2 country evidence, e.g. 'US'. Required with identifierKind."),
+  identifierKind: z.enum(["dk_cvr", "eu_vat", "non_eu"]).optional().describe("Typed supplier identifier. non_eu permits no identifier when country evidence is non-EU."),
 });
 
 /**
@@ -101,7 +103,7 @@ export function registerDocumentTools(server: McpServer): void {
       const rows = db
         .query(
           `SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat,
-                  currency, status, stored_path
+                  currency, status, stored_path, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
            FROM documents
            ORDER BY id DESC`,
         )
@@ -115,6 +117,7 @@ export function registerDocumentTools(server: McpServer): void {
           currency: string | null;
           status: string;
           stored_path: string | null;
+          sender_vat_cvr: string | null; supplier_country_code: string | null; supplier_identifier_kind: string | null; supplier_identity_status: string | null;
         }>;
       const mapped = rows.map((row) => ({
         id: row.id,
@@ -126,6 +129,10 @@ export function registerDocumentTools(server: McpServer): void {
         currency: row.currency,
         status: row.status,
         storedPath: row.stored_path,
+        senderVatOrCvr: row.sender_vat_cvr,
+        supplierCountryCode: row.supplier_country_code,
+        supplierIdentifierKind: row.supplier_identifier_kind,
+        supplierIdentityStatus: row.supplier_identity_status,
       }));
       const { pageRows, meta } = applyPagination(mapped, { limit: args.limit, offset: args.offset });
       return successEnvelope({ documents: pageRows, ...meta });

@@ -124,24 +124,36 @@ describe("#199 hardening — fallback path is exercised on every platform", () =
 
 describe("#199 hardening — temp dir cleanup on failure", () => {
   test("a malformed .zip is cleaned up: no rentemester-import-* dir is left behind", () => {
-    const previousUmask = process.umask(0o022);
-    // A non-empty, non-zip blob with a .zip extension. Both attempts fail.
-    const badZip = join(mkdtempSync(join(tmpdir(), "rm-harden-bad-")), "broken.zip");
+    // Isolate TMPDIR in a child process. The full Bun suite executes test files
+    // concurrently, so counting the shared system temp directory can observe a
+    // legitimate rentemester-import-* directory owned by another test and make
+    // this assertion flaky even though resolveSource removed its own directory.
+    const isolatedTmp = mkdtempSync(join(tmpdir(), "rm-harden-cleanup-"));
+    const badZip = join(isolatedTmp, "broken.zip");
     writeFileSync(badZip, "not a zip at all\n");
-    const tmpRootSnapshot = readdirSync(tmpdir()).filter((n) =>
-      n.startsWith("rentemester-import-"),
-    );
+    const sourceModule = join(import.meta.dir, "../../src/core/import/source.ts");
+    const probe = [
+      `const { resolveSource } = await import(${JSON.stringify(sourceModule)});`,
+      "process.umask(0o022);",
+      "try {",
+      "  resolveSource(process.argv[1]);",
+      "  process.exit(10);",
+      "} catch (error) {",
+      "  if (!/zip/i.test(error instanceof Error ? error.message : String(error))) process.exit(11);",
+      "}",
+    ].join("\n");
     try {
-      expect(() => resolveSource(badZip)).toThrow(/unzip/i);
-      const after = readdirSync(tmpdir()).filter((n) =>
+      const result = spawnSync(process.execPath, ["--eval", probe, badZip], {
+        encoding: "utf8",
+        env: { ...process.env, TMPDIR: isolatedTmp, TMP: isolatedTmp, TEMP: isolatedTmp },
+      });
+      expect(result.status).toBe(0);
+      const after = readdirSync(isolatedTmp).filter((n) =>
         n.startsWith("rentemester-import-"),
       );
-      // The function must not leak its mkdtempSync directory on failure.
-      // (The set MUST NOT have grown.)
-      expect(after.length).toBeLessThanOrEqual(tmpRootSnapshot.length);
+      expect(after).toEqual([]);
     } finally {
-      process.umask(previousUmask);
-      rmSync(badZip, { recursive: true, force: true });
+      rmSync(isolatedTmp, { recursive: true, force: true });
     }
   });
 });

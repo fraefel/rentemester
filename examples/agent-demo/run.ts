@@ -27,6 +27,7 @@
 
 import { readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -37,7 +38,7 @@ type Mode = "rule-based" | "claude";
 function parseArgs(argv: string[]) {
   let company: string | null = null;
   let mode: Mode = "rule-based";
-  let demoDir: string = new URL(".", import.meta.url).pathname;
+  let demoDir = fileURLToPath(new URL(".", import.meta.url));
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--company") company = argv[++i] ?? null;
@@ -76,9 +77,15 @@ type JsonRpcResponse = {
   error?: { code: number; message: string; data?: unknown };
 };
 
-const SERVER_PATH = new URL("../../src/mcp/server.ts", import.meta.url).pathname;
-const CLI_PATH = new URL("../../src/cli.ts", import.meta.url).pathname;
-const SEED_VIES_PATH = new URL("../../scripts/seed-vies-validation.ts", import.meta.url).pathname;
+const SERVER_PATH = resolve(
+  fileURLToPath(new URL("../../src/mcp/server.ts", import.meta.url)),
+);
+const CLI_PATH = resolve(
+  fileURLToPath(new URL("../../src/cli.ts", import.meta.url)),
+);
+const SEED_VIES_PATH = resolve(
+  fileURLToPath(new URL("../../scripts/seed-vies-validation.ts", import.meta.url)),
+);
 
 class McpClient {
   private proc: ReturnType<typeof Bun.spawn>;

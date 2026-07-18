@@ -73,17 +73,13 @@ function renderView() {
 }
 
 describe("RecurringInvoicesView — Faktura-skabeloner", () => {
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
-  let promptSpy: ReturnType<typeof vi.spyOn>;
-
   beforeEach(() => {
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Kontrakt opsagt");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(window, "prompt").mockReturnValue("Kontrakt opsagt");
   });
 
   afterEach(() => {
-    confirmSpy.mockRestore();
-    promptSpy.mockRestore();
+    vi.restoreAllMocks();
   });
 
   test("renders an active and a retired template under their respective sections", async () => {
@@ -132,8 +128,8 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
       screen.getByRole("button", { name: /Deaktivér skabelonen/ }),
     );
 
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(promptSpy).toHaveBeenCalled();
+    expect(vi.mocked(window.confirm)).toHaveBeenCalled();
+    expect(vi.mocked(window.prompt)).toHaveBeenCalled();
 
     await waitFor(() => {
       const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
@@ -158,7 +154,7 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
   });
 
   test("Cancelling the confirm dialog skips the API call", async () => {
-    confirmSpy.mockReturnValue(false);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
     mockFetch(routes());
     renderView();
     await screen.findByText("ABC ApS · månedligt abonnement");
@@ -198,7 +194,7 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
   });
 
   test("An empty reason in the prompt is omitted from the request body", async () => {
-    promptSpy.mockReturnValue("");
+    vi.mocked(window.prompt).mockReturnValue("");
     mockFetch({
       ...routes(),
       "POST /api/companies/acme-aps/recurring-invoices/7/retire": {

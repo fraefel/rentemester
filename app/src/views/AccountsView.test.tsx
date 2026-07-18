@@ -55,6 +55,15 @@ const sample = {
       expense: 1,
       liability: 1,
     },
+    accountRoles: {
+      status: "incomplete",
+      missing: ["vat_settlement"],
+      ambiguous: [],
+      resolutions: [
+        { ok: true, role: "bank", accountNo: "2000", version: 1 },
+        { ok: false, role: "vat_settlement", error: "account role 'vat_settlement' has no active confirmed mapping" },
+      ],
+    },
   },
 };
 
@@ -118,5 +127,13 @@ describe("AccountsView (#344)", () => {
       await screen.findByText("Bank")
     ).closest("tr")!;
     expect(within(bankRow as HTMLElement).getByText("Nej")).toBeInTheDocument();
+  });
+
+  test("viser rolle-status og den read-only dry-run opløsning", async () => {
+    renderView();
+    expect(await screen.findByText("Status: Ufuldstændig")).toBeInTheDocument();
+    const bankRole = screen.getByText("Bankkonto").closest("tr")!;
+    expect(within(bankRole as HTMLElement).getByText("2000")).toBeInTheDocument();
+    expect(screen.getByText(/Kræver menneskelig afklaring/)).toBeInTheDocument();
   });
 });

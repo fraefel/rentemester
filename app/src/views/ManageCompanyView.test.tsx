@@ -81,7 +81,7 @@ describe("ManageCompanyView", () => {
     });
 
     function archivePatchCount() {
-      const fetchMock = global.fetch as unknown as {
+      const fetchMock = globalThis.fetch as unknown as {
         mock: { calls: Array<[RequestInfo, RequestInit?]> };
       };
       return fetchMock.mock.calls.filter(([url, init]) => {

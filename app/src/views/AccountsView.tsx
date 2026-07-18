@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
-import type { AccountRow, CompanyAccounts } from "../lib/types";
+import type { AccountRole, AccountRoleResolution, AccountRow, CompanyAccounts } from "../lib/types";
 import { ErrorState, Loading } from "../components/Feedback";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -22,6 +22,23 @@ const TYPE_LABELS: Record<string, string> = {
   expense: "Omkostning",
   vat: "Moms",
 };
+
+const ACCOUNT_ROLE_LABELS: Record<AccountRole, string> = {
+  bank: "Bankkonto",
+  debtors: "Debitorer",
+  creditors: "Kreditorer",
+  output_vat: "Salgsmoms",
+  input_vat: "Købsmoms",
+  reverse_charge_vat: "Omvendt betalingspligt-moms",
+  vat_settlement: "Momsafregning",
+  operational_default: "Standard driftskonto",
+};
+
+const ACCOUNT_ROLE_STATUS_LABELS = {
+  complete: "Komplet",
+  incomplete: "Ufuldstændig",
+  ambiguous: "Kræver menneskelig afklaring",
+} as const;
 
 export function AccountsView() {
   const { slug = "" } = useParams();
@@ -100,6 +117,8 @@ export function AccountsView() {
         </div>
       </section>
 
+      <AccountRolesCard accountRoles={data.accountRoles} />
+
       <section className="card">
         <h3>
           Kontoplan ({filtered.length} af {data.accounts.length})
@@ -142,6 +161,51 @@ export function AccountsView() {
         </table>
       </section>
     </section>
+  );
+}
+
+function AccountRolesCard({ accountRoles }: Pick<CompanyAccounts, "accountRoles">) {
+  const needsHumanResolution = accountRoles.status !== "complete";
+  return (
+    <section className="card" aria-labelledby="account-role-heading">
+      <h3 id="account-role-heading">Kontoroller</h3>
+      <p className={needsHumanResolution ? "warning" : "ok"}>
+        Status: {ACCOUNT_ROLE_STATUS_LABELS[accountRoles.status]}
+      </p>
+      {needsHumanResolution && (
+        <p className="muted">
+          {accountRoles.status === "ambiguous"
+            ? "Flere mulige konti skal bekræftes af et menneske, før bogføring fortsætter."
+            : "Manglende roller skal bekræftes af et menneske, før bogføring fortsætter."}
+        </p>
+      )}
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Rolle</th>
+            <th>Dry-run opløsning</th>
+          </tr>
+        </thead>
+        <tbody>
+          {accountRoles.resolutions.map((resolution) => (
+            <AccountRoleResolutionRow key={resolution.role} resolution={resolution} />
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function AccountRoleResolutionRow({ resolution }: { resolution: AccountRoleResolution }) {
+  return (
+    <tr>
+      <td>{ACCOUNT_ROLE_LABELS[resolution.role]}</td>
+      <td className={resolution.ok ? "ok" : "warning"}>
+        {resolution.ok
+          ? <>Konto <code>{resolution.accountNo}</code> (version {resolution.version})</>
+          : <>Kræver menneskelig afklaring: {resolution.error}</>}
+      </td>
+    </tr>
   );
 }
 

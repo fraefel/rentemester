@@ -237,12 +237,12 @@ describe("MultiYearView — Flerårsoversigt", () => {
     const ratioSection = screen
       .getByRole("heading", { name: /Nøgletal pr. regnskabsår/ })
       .closest(".section")!;
-    const headers = within(ratioSection).getAllByRole("columnheader");
+    const headers = within(ratioSection as HTMLElement).getAllByRole("columnheader");
     const labels = headers.map((h) => h.textContent ?? "");
     expect(labels.filter((l) => /Δ \(pp\)/.test(l)).length).toBeGreaterThanOrEqual(2);
     // 2025-rækkens overskudsgrad: 29500/42000 ≈ 70,2 %, 2024: 27000/38000 ≈ 71,1 %
     // Δ ≈ −0,8 pp.
-    const rows = within(ratioSection).getAllByRole("row");
+    const rows = within(ratioSection as HTMLElement).getAllByRole("row");
     const row2025 = rows.find((r) => r.textContent?.includes("2025"))!;
     expect(within(row2025).getByText(/-0,8 pp/)).toBeInTheDocument();
   });
@@ -254,7 +254,7 @@ describe("MultiYearView — Flerårsoversigt", () => {
     const section = screen
       .getByRole("heading", { name: /Balance — balancesum/ })
       .closest(".section")!;
-    const headers = within(section).getAllByRole("columnheader");
+    const headers = within(section as HTMLElement).getAllByRole("columnheader");
     const labels = headers.map((h) => h.textContent ?? "");
     expect(labels.filter((l) => /Δ \(kr\)/.test(l)).length).toBeGreaterThanOrEqual(2);
     expect(labels.filter((l) => /Δ \(%\)/.test(l)).length).toBeGreaterThanOrEqual(2);

@@ -1805,8 +1805,8 @@
     "semantic_hash": ""
   },
   "src/core/imap-intake.ts": {
-    "mtime": 1784335870.8639903,
-    "ast_hash": "8b7a8bed9408b36c32dae077e921eb8c",
+    "mtime": 1784343230.1727257,
+    "ast_hash": "e93295d7654baae9e16ec66f0e566945",
     "semantic_hash": ""
   },
   "src/core/import-provenance.ts": {
@@ -1820,8 +1820,8 @@
     "semantic_hash": ""
   },
   "src/core/import/dinero-bilag.ts": {
-    "mtime": 1784335870.866168,
-    "ast_hash": "2ec7c41f544b4319f63d8ea13ad76b35",
+    "mtime": 1784343230.172466,
+    "ast_hash": "22ccbd17102e6124e96639cb4266a774",
     "semantic_hash": ""
   },
   "src/core/import/dinero-contacts.ts": {
@@ -1855,8 +1855,8 @@
     "semantic_hash": ""
   },
   "src/core/import/source.ts": {
-    "mtime": 1784342233.6512637,
-    "ast_hash": "bff6b7065be843e63d9bcbbed4b3b6be",
+    "mtime": 1784343328.8330169,
+    "ast_hash": "87602318afba03df30b4eb08bb9a9604",
     "semantic_hash": ""
   },
   "src/core/import/synthetic-csv.ts": {
@@ -1955,8 +1955,8 @@
     "semantic_hash": ""
   },
   "src/core/mail-intake.ts": {
-    "mtime": 1784335870.8742423,
-    "ast_hash": "5d1b5cf78a19f0deec0ec58e26bb6953",
+    "mtime": 1784343230.1730516,
+    "ast_hash": "8223f29e78651eb7628f08a63431185a",
     "semantic_hash": ""
   },
   "src/core/master-data.ts": {
@@ -2050,8 +2050,8 @@
     "semantic_hash": ""
   },
   "src/core/system-restore.ts": {
-    "mtime": 1784335870.8791528,
-    "ast_hash": "a28885d6c8eb3051e03b5a1fe37693b6",
+    "mtime": 1784343309.9718418,
+    "ast_hash": "f75fb2172fc81eacc921fa72e8aa18b1",
     "semantic_hash": ""
   },
   "src/core/tar.ts": {
@@ -2150,8 +2150,8 @@
     "semantic_hash": ""
   },
   "src/mcp/tools/bank.ts": {
-    "mtime": 1784335870.8846474,
-    "ast_hash": "62c35e5ad3f2311942b36706511c8834",
+    "mtime": 1784343242.6224983,
+    "ast_hash": "f980a036567eee906151c684d3bbdbc1",
     "semantic_hash": ""
   },
   "src/mcp/tools/budget.ts": {
@@ -2480,8 +2480,8 @@
     "semantic_hash": ""
   },
   "src/server/write-handlers/bank.ts": {
-    "mtime": 1784335870.9126484,
-    "ast_hash": "eb1e2ddaf3aca2af7df3284026542942",
+    "mtime": 1784343242.6221995,
+    "ast_hash": "03cef2addfb812357b034276bbd4579c",
     "semantic_hash": ""
   },
   "src/server/write-handlers/bilagsmail.ts": {
@@ -2500,8 +2500,8 @@
     "semantic_hash": ""
   },
   "src/server/write-handlers/documents.ts": {
-    "mtime": 1784335870.913724,
-    "ast_hash": "a33cb0128dd293ff64b7e9273013ed2c",
+    "mtime": 1784343242.6218905,
+    "ast_hash": "f4a1d97bbecb0cf0ba075af1f24b9e71",
     "semantic_hash": ""
   },
   "src/server/write-handlers/exceptions.ts": {
@@ -2515,8 +2515,8 @@
     "semantic_hash": ""
   },
   "src/server/write-handlers/import-export.ts": {
-    "mtime": 1784335870.9146101,
-    "ast_hash": "bf08f4a88eda3e7fe9b24ee36a9bcf8e",
+    "mtime": 1784343328.8332646,
+    "ast_hash": "ff6079e791b3706c04efc91cd61f9b13",
     "semantic_hash": ""
   },
   "src/server/write-handlers/invoice.ts": {
@@ -4977,6 +4977,16 @@
   "tests/unit/vat-critical-high-regression.test.ts": {
     "mtime": 1784342988.213371,
     "ast_hash": "75157e2bdd54e6c89c1e25aea6a6412f",
+    "semantic_hash": ""
+  },
+  "src/core/fs-cleanup.ts": {
+    "mtime": 1784343273.8740475,
+    "ast_hash": "7a2dec745cfe2eda9b68f8d3aad1ca88",
+    "semantic_hash": ""
+  },
+  "tests/unit/windows-filesystem-safety.test.ts": {
+    "mtime": 1784343348.722585,
+    "ast_hash": "66539a00a048d1ad69afad06dac72d27",
     "semantic_hash": ""
   }
 }

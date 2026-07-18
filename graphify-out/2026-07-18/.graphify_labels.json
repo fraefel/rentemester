@@ -3611,5 +3611,15 @@
   "3609": "lookup-provision.ts",
   "3610": "db-customers-migration.test.ts",
   "3611": "mcp-audit-log-list.test.ts",
-  "3612": "company-cli.test.ts"
+  "3612": "company-cli.test.ts",
+  "3613": "formatAmount",
+  "3614": "settlement.ts",
+  "3615": "server-write-bank-documents.test.ts",
+  "3616": "server-recurring-invoices.test.ts",
+  "3617": "budget.test.ts",
+  "3618": "server-agent-suggestions.test.ts",
+  "3619": "server-mutations.test.ts",
+  "3620": "detectMimeType",
+  "3621": "human-output-cli.test.ts",
+  "3622": "registerVatTools"
 }

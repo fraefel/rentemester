@@ -1,6 +1,7 @@
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { normalizeCurrency, roundDkk, roundRate6 } from "./money";
 import { normalizeEanNumber } from "./ean";
+import { projectVatLines, type VatLineClassification } from "./vat-lines";
 export type InvoiceType = "full" | "simplified";
 export type VatTreatment = "standard" | "domestic_reverse_charge" | "foreign_reverse_charge";
 export type ReverseChargeBasis =
@@ -39,7 +40,7 @@ export type InvoicePayload = {
    * ("piece") in the e-invoice export; set per payload to override.
    */
   unitCode?: string;
-  lines?: Array<{ description?: string; quantity?: number; unitPriceExVat?: number; lineTotalExVat?: number; unitCode?: string }>;
+  lines?: Array<{ description?: string; quantity?: number; unitPriceExVat?: number; lineTotalExVat?: number; unitCode?: string; taxClassification?: VatLineClassification; vatRate?: number; reverseChargeBasis?: string }>;
   totals?: {
     netAmount?: number;
     vatRate?: number;
@@ -111,6 +112,7 @@ export function validateInvoice(payload: InvoicePayload): InvoiceValidationResul
   const invoiceType = payload.invoiceType;
   const vatTreatment = payload.vatTreatment ?? "standard";
   const currency = normalizedCurrency(payload);
+  const taxProjection = projectVatLines(payload.lines, vatTreatment, payload.totals?.vatRate);
   const appliedRules = [invoiceType === "simplified" ? RULES.SIMPLIFIED : RULES.FULL, RULES.ARITHMETIC];
 
   if (!looksLikeIsoDate(payload.issueDate)) errors.push("issueDate must be present in YYYY-MM-DD format");
@@ -175,7 +177,8 @@ export function validateInvoice(payload: InvoicePayload): InvoiceValidationResul
     }
   }
 
-  if (vatTreatment === "standard") {
+  const hasExplicitTaxLines = Boolean(payload.lines?.some((line) => line.taxClassification));
+  if (vatTreatment === "standard" && !hasExplicitTaxLines) {
     appliedRules.push(RULES.VAT_SEPARATE_AMOUNT);
     if (!hasPositiveNumber(payload.totals?.vatRate) || (payload.totals?.vatRate ?? 0) <= 0) {
       errors.push("standard VAT invoices must include totals.vatRate");
@@ -222,6 +225,7 @@ export function validateInvoice(payload: InvoicePayload): InvoiceValidationResul
       }
     }
   }
+  errors.push(...taxProjection.errors);
 
   const lineSum = Array.isArray(payload.lines)
     ? roundDkk(payload.lines.reduce((sum, line) => sum + Number(line.lineTotalExVat ?? 0), 0))
@@ -237,8 +241,13 @@ export function validateInvoice(payload: InvoicePayload): InvoiceValidationResul
   if (invoiceType === "full" && Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number")) {
     if (netAmount !== lineSum) errors.push(`totals.netAmount must equal sum of lineTotalExVat (${lineSum})`);
   }
+  if (hasExplicitTaxLines) {
+    if (netAmount !== taxProjection.netAmount) errors.push(`totals.netAmount must equal explicit VAT line bases (${taxProjection.netAmount})`);
+    if (vatAmount !== taxProjection.vatAmount) errors.push(`totals.vatAmount must equal explicit VAT line amounts (${taxProjection.vatAmount})`);
+    if (grossAmount !== taxProjection.grossAmount) errors.push(`totals.grossAmount must equal explicit VAT line totals (${taxProjection.grossAmount})`);
+  }
 
-  if (vatTreatment === "standard" && (invoiceType === "full" || payload.totals?.netAmount !== undefined)) {
+  if (vatTreatment === "standard" && !hasExplicitTaxLines && (invoiceType === "full" || payload.totals?.netAmount !== undefined)) {
     const expectedGross = roundDkk(netAmount + vatAmount);
     if (grossAmount !== expectedGross) {
       errors.push(`totals.grossAmount must equal totals.netAmount + totals.vatAmount (${expectedGross})`);

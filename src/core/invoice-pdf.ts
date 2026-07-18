@@ -307,7 +307,7 @@ type LineItem = { description: string; quantity: string; unitPrice: string; line
 
 function buildLineItems(payload: IssuedInvoicePdfPayload, currency: string): LineItem[] {
   return (payload.lines ?? []).map((line) => ({
-    description: compact(line.description) ?? "",
+    description: `${compact(line.description) ?? ""}${line.taxClassification ? ` [${line.taxClassification}]` : ""}`,
     quantity: line.quantity == null ? "" : String(line.quantity),
     unitPrice: line.unitPriceExVat == null ? "" : (formatDanishAmount(line.unitPriceExVat) ?? ""),
     lineTotal: line.lineTotalExVat == null ? "" : (formatDanishAmount(line.lineTotalExVat) ?? ""),

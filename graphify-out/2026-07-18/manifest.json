@@ -1815,8 +1815,8 @@
     "semantic_hash": ""
   },
   "src/core/import/dinero-archive.ts": {
-    "mtime": 1784335870.865784,
-    "ast_hash": "2b1b83c7d932dbb4e8605fee2326a4c3",
+    "mtime": 1784342233.6515574,
+    "ast_hash": "ba553d9c22d681bbaf2681a0af195884",
     "semantic_hash": ""
   },
   "src/core/import/dinero-bilag.ts": {
@@ -1840,8 +1840,8 @@
     "semantic_hash": ""
   },
   "src/core/import/framework.ts": {
-    "mtime": 1784335870.8676138,
-    "ast_hash": "440c58f1c0f5a8310fe5d70d4e07b6fc",
+    "mtime": 1784342137.2630253,
+    "ast_hash": "676ccba820c00988135c752b9bf55083",
     "semantic_hash": ""
   },
   "src/core/import/reconcile.ts": {
@@ -1855,8 +1855,8 @@
     "semantic_hash": ""
   },
   "src/core/import/source.ts": {
-    "mtime": 1784335870.86861,
-    "ast_hash": "547555e2b241a581d3891b8db96d8ce0",
+    "mtime": 1784342233.6512637,
+    "ast_hash": "bff6b7065be843e63d9bcbbed4b3b6be",
     "semantic_hash": ""
   },
   "src/core/import/synthetic-csv.ts": {
@@ -1865,8 +1865,8 @@
     "semantic_hash": ""
   },
   "src/core/import/types.ts": {
-    "mtime": 1784335870.8691716,
-    "ast_hash": "93c58b88c48f16127d79797a490affe0",
+    "mtime": 1784342069.8173537,
+    "ast_hash": "b2ac55034bd346ca212314ce5f876607",
     "semantic_hash": ""
   },
   "src/core/invoice-bad-debt.ts": {
@@ -3000,8 +3000,8 @@
     "semantic_hash": ""
   },
   "tests/unit/import-source-zip.test.ts": {
-    "mtime": 1784335870.9414394,
-    "ast_hash": "a28701144dc3e04c55553278d65ea216",
+    "mtime": 1784342185.1514256,
+    "ast_hash": "3374a59eab69cf8cf5cf00f9fd433c16",
     "semantic_hash": ""
   },
   "tests/unit/import-synthetic.test.ts": {
@@ -4947,6 +4947,11 @@
   "tests/unit/backup-remote-provider.test.ts": {
     "mtime": 1784341845.4542959,
     "ast_hash": "230cce869c36f59af766f3cf65de0f96",
+    "semantic_hash": ""
+  },
+  "tests/unit/import-archive-integrity.test.ts": {
+    "mtime": 1784342185.150778,
+    "ast_hash": "460701af8c3e9f14e5307c9236301e12",
     "semantic_hash": ""
   }
 }

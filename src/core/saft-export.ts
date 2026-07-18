@@ -74,6 +74,8 @@ type InvoiceLinePayload = {
   quantity?: number;
   unitPriceExVat?: number;
   lineTotalExVat?: number;
+  taxClassification?: "taxable" | "exempt" | "reverse_charge";
+  vatRate?: number;
 };
 
 export type ExportSaftPackageInput = {
@@ -503,6 +505,8 @@ function renderSaftXml(input: {
       xmlTag("Quantity", typeof line.quantity === "number" ? line.quantity : null, "          "),
       xmlTag("UnitPrice", formatAmount(line.unitPriceExVat), "          "),
       xmlTag("CreditAmount", formatAmount(line.lineTotalExVat), "          "),
+      xmlTag("TaxClassification", line.taxClassification ?? null, "          "),
+      xmlTag("VatRate", typeof line.vatRate === "number" ? line.vatRate : null, "          "),
       "        </Line>",
     ].filter(Boolean).join("\n")).join("\n");
 

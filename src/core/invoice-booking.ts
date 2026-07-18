@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { addDkk, equalsDkk, roundDkk } from "./money";
 import { resolveAccountRole } from "./account-roles";
+import { projectVatLines } from "./vat-lines";
 
 const RULE_ID = "DK-INVOICE-BOOKKEEPING-001";
 const REVERSE_RULE_ID = "DK-INVOICE-BOOKKEEPING-REVERSE-002";
@@ -33,17 +34,35 @@ function issuedInvoiceJournalLines(doc: { invoice_no: string }, payload: any, gr
   const reverseChargeVatCode = isDomesticReverseCharge ? "DOMESTIC_REVERSE_CHARGE_EXEMPT" : "REVERSE_CHARGE_EXEMPT";
   const lines: Array<{ accountNo: string; debitAmount?: number; creditAmount?: number; vatCode?: string; text: string }> = [
     { accountNo: input.receivableAccountNo ?? "1100", debitAmount: grossAmount, text: `Receivable ${doc.invoice_no}` },
-    {
-      accountNo: input.revenueAccountNo ?? "1000",
-      creditAmount: netAmount,
-      vatCode: isReverseCharge ? reverseChargeVatCode : "DK_SALE_25",
-      text: `Revenue ${doc.invoice_no}`
-    },
   ];
-  if (!isReverseCharge && vatAmount > 0) {
+  const projection = projectVatLines(payload?.lines, vatTreatment, payload?.totals?.vatRate);
+  // Validation at issuance makes this fail-closed check defensive for legacy
+  // or directly inserted document rows.
+  if (!projection.ok) throw new Error(`invoice ${doc.invoice_no} has inconsistent explicit VAT lines`);
+  // Posted amounts are DKK for foreign invoices. Preserve the explicit line
+  // split by scaling its bases to the already validated DKK net total.
+  const baseScale = projection.netAmount > 0 ? netAmount / projection.netAmount : 1;
+  for (const taxLine of projection.lines) {
+    const vatCode = taxLine.taxClassification === "taxable"
+      ? "DK_SALE_25"
+      : taxLine.taxClassification === "reverse_charge"
+        ? reverseChargeVatCode
+        : "VAT_EXEMPT";
+    lines.push({ accountNo: input.revenueAccountNo ?? "1000", creditAmount: roundDkk(taxLine.vatBase * baseScale), vatCode, text: `Revenue ${doc.invoice_no} (${taxLine.taxClassification})` });
+  }
+  // Per-line FX rounding can leave one øre between the explicit bases and the
+  // authoritative DKK net total. Keep the receivable/VAT totals immutable and
+  // put that deterministic residual on the final revenue line.
+  const revenueLines = lines.filter((line) => line.creditAmount !== undefined && line.vatCode !== undefined);
+  const roundedBases = roundDkk(revenueLines.reduce((sum, line) => sum + Number(line.creditAmount), 0));
+  if (revenueLines.length > 0 && roundedBases !== netAmount) {
+    const last = revenueLines[revenueLines.length - 1];
+    last.creditAmount = roundDkk(Number(last.creditAmount) + netAmount - roundedBases);
+  }
+  if (vatAmount > 0) {
     lines.push({ accountNo: input.outputVatAccountNo ?? "1200", creditAmount: vatAmount, text: `Output VAT ${doc.invoice_no}` });
   }
-  return { lines, isReverseCharge };
+  return { lines, isReverseCharge: isReverseCharge || projection.lines.some((line) => line.taxClassification === "reverse_charge") };
 }
 
 export function postIssuedInvoiceToLedger(db: Database, input: PostIssuedInvoiceInput): JournalPostResult {
@@ -120,7 +139,12 @@ export function postIssuedInvoiceToLedger(db: Database, input: PostIssuedInvoice
     return { ok: false, appliedRules: [RULE_ID], errors: [`invoice ${doc.invoice_no} DKK totals are inconsistent: netDkk + vatDkk (${addDkk(netAmountDkk, vatAmountDkk)}) does not equal grossDkk (${grossAmountDkk})`] };
   }
 
-  const posting = issuedInvoiceJournalLines(doc, payload, grossAmountDkk, netAmountDkk, vatAmountDkk, { ...input, receivableAccountNo: debtors.accountNo, outputVatAccountNo: outputVat.accountNo });
+  let posting: ReturnType<typeof issuedInvoiceJournalLines>;
+  try {
+    posting = issuedInvoiceJournalLines(doc, payload, grossAmountDkk, netAmountDkk, vatAmountDkk, { ...input, receivableAccountNo: debtors.accountNo, outputVatAccountNo: outputVat.accountNo });
+  } catch (error) {
+    return { ok: false, appliedRules: [RULE_ID], errors: [String(error)] };
+  }
   const journal = postJournalEntry(db, {
     transactionDate: input.transactionDate ?? doc.invoice_date ?? payload?.issueDate,
     text: `Faktura ${doc.invoice_no} udstedt`,

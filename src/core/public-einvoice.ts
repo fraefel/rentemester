@@ -5,6 +5,7 @@ import { insertAuditLog } from "./actor";
 import { normalizeEanNumber } from "./ean";
 import type { InvoicePayload } from "./invoice";
 import { formatAmount } from "./money";
+import { projectVatLines } from "./vat-lines";
 
 const RULE_ID = "DK-INVOICE-PUBLIC-EXPORT-001";
 const OIOUBL_RULE_ID = "DK-INVOICE-PUBLIC-OIOUBL-001";
@@ -205,6 +206,8 @@ function buildPublicEInvoiceXml(invoiceNumber: string, payload: InvoicePayload) 
       xmlTag("Quantity", typeof line.quantity === "number" ? line.quantity : null, "        "),
       xmlTag("UnitPriceExVat", formatAmount(line.unitPriceExVat), "        "),
       xmlTag("LineTotalExVat", formatAmount(line.lineTotalExVat), "        "),
+      xmlTag("TaxClassification", line.taxClassification, "        "),
+      xmlTag("VatRate", typeof line.vatRate === "number" ? line.vatRate : null, "        "),
       "      </Line>",
     ].filter(Boolean).join("\n"))
     .join("\n");
@@ -306,6 +309,13 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
   // The tax category is derived from the VAT treatment, not hardcoded "S", so
   // exempt / reverse-charge lines carry the correct EN16931 category code.
   const taxCategory = deriveUblTaxCategory(payload, vatPercent);
+  const projectedTaxLines = projectVatLines(payload.lines, payload.vatTreatment ?? "standard", payload.totals?.vatRate).lines;
+  // Uniform historical payloads have no per-line classification. Retain their
+  // established document-level E/AE meaning while explicit payloads use their
+  // individual classifications.
+  const taxLines = payload.lines?.some((line) => line.taxClassification)
+    ? projectedTaxLines
+    : projectedTaxLines.map((line) => ({ ...line, taxClassification: taxCategory.id === "S" ? "taxable" as const : taxCategory.id === "AE" ? "reverse_charge" as const : "exempt" as const }));
   // The seller participant id under schemeID="0184" must be the bare 8-digit
   // CVR (no "DK" prefix). validateOioUblPayload guarantees it is present.
   const sellerEndpoint = normalizeDanishCvrEndpoint(payload.seller?.vatOrCvr);
@@ -314,6 +324,25 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
   const vatAmountForXml =
     formatAmount(payload.totals?.vatAmount) ?? "0.00";
   const lines = payload.lines ?? [];
+  const taxSubtotalXml = ["taxable", "exempt", "reverse_charge"].map((classification) => {
+    const selected = taxLines.filter((line) => line.taxClassification === classification);
+    if (selected.length === 0) return "";
+    const base = selected.reduce((sum, line) => sum + line.vatBase, 0);
+    const vat = selected.reduce((sum, line) => sum + line.vatAmount, 0);
+    const rate = selected[0].vatRate;
+    const category = classification === "taxable" ? "S" : classification === "reverse_charge" ? "AE" : "E";
+    return [
+      "    <cac:TaxSubtotal>",
+      xmlTagWithAttrs("cbc:TaxableAmount", { currencyID: currency }, formatAmount(base), "      "),
+      xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, formatAmount(vat), "      "),
+      "      <cac:TaxCategory>",
+      xmlTag("cbc:ID", category, "        "),
+      xmlTag("cbc:Percent", String(rate * 100), "        "),
+      ...(category === "AE" ? [xmlTag("cbc:TaxExemptionReasonCode", VATEX_REVERSE_CHARGE_CODE, "        "), xmlTag("cbc:TaxExemptionReason", hasText(payload.reverseChargeBasis) ? `${REVERSE_CHARGE_REASON_TEXT} (${payload.reverseChargeBasis})` : REVERSE_CHARGE_REASON_TEXT, "        ")] : category === "E" ? [xmlTag("cbc:TaxExemptionReason", EXEMPT_REASON_TEXT, "        ")] : []),
+      "        <cac:TaxScheme>", xmlTag("cbc:ID", "VAT", "          "), "        </cac:TaxScheme>",
+      "      </cac:TaxCategory>", "    </cac:TaxSubtotal>",
+    ].filter(Boolean).join("\n");
+  }).filter(Boolean).join("\n");
   const lineXml = lines
     .map((line, index) => [
       "  <cac:InvoiceLine>",
@@ -323,8 +352,8 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
       "    <cac:Item>",
       xmlTag("cbc:Name", line.description, "      "),
       "      <cac:ClassifiedTaxCategory>",
-      xmlTag("cbc:ID", taxCategory.id, "        "),
-      xmlTag("cbc:Percent", taxCategory.percent, "        "),
+      xmlTag("cbc:ID", taxLines[index]?.taxClassification === "taxable" ? "S" : taxLines[index]?.taxClassification === "reverse_charge" ? "AE" : "E", "        "),
+      xmlTag("cbc:Percent", String((taxLines[index]?.vatRate ?? 0) * 100), "        "),
       "        <cac:TaxScheme>",
       xmlTag("cbc:ID", "VAT", "          "),
       "        </cac:TaxScheme>",
@@ -396,22 +425,7 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     "  </cac:AccountingCustomerParty>",
     "  <cac:TaxTotal>",
     xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, vatAmountForXml, "    "),
-    "    <cac:TaxSubtotal>",
-    xmlTagWithAttrs("cbc:TaxableAmount", { currencyID: currency }, formatAmount(payload.totals?.netAmount), "      "),
-    xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, vatAmountForXml, "      "),
-    "      <cac:TaxCategory>",
-    xmlTag("cbc:ID", taxCategory.id, "        "),
-    xmlTag("cbc:Percent", taxCategory.percent, "        "),
-    // BR-AE-10 / BR-E-10: the VAT breakdown (BG-23) for AE/E must carry an
-    // exemption reason. UBL element order is ID, Percent, ReasonCode, Reason,
-    // TaxScheme — both reason tags are empty (and thus omitted) for category S.
-    xmlTag("cbc:TaxExemptionReasonCode", taxCategory.exemptionReasonCode, "        "),
-    xmlTag("cbc:TaxExemptionReason", taxCategory.exemptionReason, "        "),
-    "        <cac:TaxScheme>",
-    xmlTag("cbc:ID", "VAT", "          "),
-    "        </cac:TaxScheme>",
-    "      </cac:TaxCategory>",
-    "    </cac:TaxSubtotal>",
+    taxSubtotalXml,
     "  </cac:TaxTotal>",
     "  <cac:LegalMonetaryTotal>",
     xmlTagWithAttrs("cbc:LineExtensionAmount", { currencyID: currency }, formatAmount(payload.totals?.netAmount), "    "),

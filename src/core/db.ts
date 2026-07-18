@@ -76,6 +76,12 @@ export function migrate(db: Database) {
   if (!hasColumn(db, "vendors", "email")) db.exec("ALTER TABLE vendors ADD COLUMN email TEXT;");
   if (!hasColumn(db, "vendors", "phone")) db.exec("ALTER TABLE vendors ADD COLUMN phone TEXT;");
   if (!hasColumn(db, "vendors", "website")) db.exec("ALTER TABLE vendors ADD COLUMN website TEXT;");
+  if (!hasColumn(db, "vendors", "country_code")) db.exec("ALTER TABLE vendors ADD COLUMN country_code TEXT;");
+  if (!hasColumn(db, "vendors", "identifier_kind")) db.exec("ALTER TABLE vendors ADD COLUMN identifier_kind TEXT;");
+  if (!hasColumn(db, "vendors", "identity_status")) db.exec("ALTER TABLE vendors ADD COLUMN identity_status TEXT NOT NULL DEFAULT 'human_resolution_required';");
+  if (!hasColumn(db, "documents", "supplier_country_code")) db.exec("ALTER TABLE documents ADD COLUMN supplier_country_code TEXT;");
+  if (!hasColumn(db, "documents", "supplier_identifier_kind")) db.exec("ALTER TABLE documents ADD COLUMN supplier_identifier_kind TEXT;");
+  if (!hasColumn(db, "documents", "supplier_identity_status")) db.exec("ALTER TABLE documents ADD COLUMN supplier_identity_status TEXT;");
   // EJER-3: customers.payment_terms_days became nullable — NULL means "ingen
   // eksplicit kundefrist; arv virksomhedens profilfrist på fakturatidspunktet".
   // Older ledgers carry the legacy NOT NULL DEFAULT 30 definition, which SQLite

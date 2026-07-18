@@ -5,6 +5,7 @@ import { insertAuditLog } from "./actor";
 import { addDays } from "./dates";
 import { normalizeEanNumber, trimToNull } from "./ean";
 import { lookupCvrCompany, type CvrCompanyInfo, type CvrLookupOptions } from "./cvr";
+import { resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
 
 export type CustomerRecord = {
   id: number;
@@ -28,6 +29,9 @@ export type VendorRecord = {
   name: string;
   address: string | null;
   vatOrCvr: string | null;
+  countryCode: string | null;
+  identifierKind: SupplierIdentifierKind | null;
+  identityStatus: "resolved" | "human_resolution_required";
   email: string | null;
   phone: string | null;
   website: string | null;
@@ -56,6 +60,8 @@ export type CreateVendorInput = {
   name: string;
   address?: string;
   vatOrCvr?: string;
+  countryCode?: string;
+  identifierKind?: SupplierIdentifierKind;
   email?: string;
   phone?: string;
   website?: string;
@@ -157,16 +163,23 @@ export function listCustomers(db: Database, options: { archived?: boolean } = {}
 export function createVendor(db: Database, input: CreateVendorInput) {
   const name = trimToNull(input.name);
   if (!name) return { ok: false, errors: ["name is required"] };
+  const identity = input.countryCode !== undefined || input.identifierKind !== undefined
+    ? resolveSupplierIdentity({ country: input.countryCode ?? "", identifier: input.vatOrCvr, identifierKind: input.identifierKind })
+    : null;
+  if (identity && !identity.ok) return { ok: false, status: identity.status, errors: identity.errors };
 
   const inserted = db.transaction(() => {
     const row = db.query(
-      `INSERT INTO vendors (name, address, vat_or_cvr, email, phone, website, default_expense_account, default_vat_treatment, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO vendors (name, address, vat_or_cvr, country_code, identifier_kind, identity_status, email, phone, website, default_expense_account, default_vat_treatment, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id, created_at`
     ).get(
       name,
       trimToNull(input.address),
-      trimToNull(input.vatOrCvr),
+      identity?.ok ? identity.identifier : trimToNull(input.vatOrCvr),
+      identity?.ok ? identity.country : null,
+      identity?.ok ? identity.identifierKind : null,
+      identity?.ok ? identity.status : "human_resolution_required",
       trimToNull(input.email),
       trimToNull(input.phone),
       trimToNull(input.website),
@@ -190,12 +203,12 @@ export function createVendor(db: Database, input: CreateVendorInput) {
 
 export function listVendors(db: Database, options: { archived?: boolean } = {}) {
   const rows = db.query(
-    `SELECT id, name, address, vat_or_cvr, email, phone, website, default_expense_account, default_vat_treatment, notes, archived, created_at
+    `SELECT id, name, address, vat_or_cvr, country_code, identifier_kind, identity_status, email, phone, website, default_expense_account, default_vat_treatment, notes, archived, created_at
      FROM vendors
      WHERE archived = CASE WHEN ? THEN archived ELSE 0 END
      ORDER BY lower(name) ASC, id ASC`
   ).all(options.archived ? 1 : 0) as Array<{
-    id: number; name: string; address: string | null; vat_or_cvr: string | null; email: string | null; phone: string | null; website: string | null; default_expense_account: string | null; default_vat_treatment: string | null; notes: string | null; archived: number; created_at: string;
+    id: number; name: string; address: string | null; vat_or_cvr: string | null; country_code: string | null; identifier_kind: SupplierIdentifierKind | null; identity_status: "resolved" | "human_resolution_required"; email: string | null; phone: string | null; website: string | null; default_expense_account: string | null; default_vat_treatment: string | null; notes: string | null; archived: number; created_at: string;
   }>;
 
   return {
@@ -206,6 +219,9 @@ export function listVendors(db: Database, options: { archived?: boolean } = {}) 
       name: row.name,
       address: row.address,
       vatOrCvr: row.vat_or_cvr,
+      countryCode: row.country_code,
+      identifierKind: row.identifier_kind,
+      identityStatus: row.identity_status,
       email: row.email,
       phone: row.phone,
       website: row.website,

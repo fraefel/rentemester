@@ -17,7 +17,10 @@ import {
   loadBackupLockConfig,
   placeBackupArchive,
   removeBackupDestination,
+  verifyRemoteBackupPlacement,
 } from "../../src/core/backup-governance";
+import type { RemoteBackupProviderAdapter } from "../../src/core/backup-remote-provider";
+import { createHash } from "node:crypto";
 
 function withCompany(fn: (db: Database, companyRoot: string) => void): void {
   const companyRoot = mkdtempSync(join(tmpdir(), "rentemester-gov-"));
@@ -26,6 +29,19 @@ function withCompany(fn: (db: Database, companyRoot: string) => void): void {
   try {
     migrate(db);
     fn(db, companyRoot);
+  } finally {
+    db.close();
+    rmSync(companyRoot, { recursive: true, force: true });
+  }
+}
+
+async function withCompanyAsync(fn: (db: Database, companyRoot: string) => Promise<void>): Promise<void> {
+  const companyRoot = mkdtempSync(join(tmpdir(), "rentemester-gov-"));
+  const paths = ensureCompanyDirs(companyRoot);
+  const db = openDb(paths.db);
+  try {
+    migrate(db);
+    await fn(db, companyRoot);
   } finally {
     db.close();
     rmSync(companyRoot, { recursive: true, force: true });
@@ -199,6 +215,52 @@ describe("backup placement", () => {
       } finally {
         rmSync(folder, { recursive: true, force: true });
       }
+    });
+  });
+
+  test("persists checked remote evidence without upgrading declared placements", async () => {
+    await withCompanyAsync(async (db, companyRoot) => {
+      const content = new TextEncoder().encode("remote-archive-547");
+      const checksum = createHash("sha256").update(content).digest("hex");
+      const adapter: RemoteBackupProviderAdapter = {
+        provider: "google-drive",
+        async getObject() {
+          return {
+            ok: true,
+            metadata: {
+              objectId: "file-547",
+              name: "backup.tar",
+              parentId: "folder-547",
+              sizeBytes: content.byteLength,
+              checksumSha256: checksum,
+              observedAt: "2026-05-17T02:59:30.000Z",
+            },
+          };
+        },
+        async readObjectContent() {
+          return content;
+        },
+      };
+      const destination = addBackupDestination(db, companyRoot, COMPLIANT_DEST).destination!;
+      const result = await verifyRemoteBackupPlacement(db, companyRoot, {
+        destinationId: destination.id,
+        backupId: "backup-547",
+        archiveSha256: checksum,
+        archiveSizeBytes: content.byteLength,
+        expectedRemoteObject: {
+          provider: "google-drive",
+          objectId: "file-547",
+          name: "backup.tar",
+          parentId: "folder-547",
+          sizeBytes: content.byteLength,
+          checksumSha256: checksum,
+        },
+        at: "2026-05-17T03:00:00.000Z",
+      }, adapter);
+      expect(result.ok).toBe(true);
+      expect(result.placement!.verifyMethod).toBe("remote-provider");
+      expect(result.placement!.remoteEvidence?.objectId).toBe("file-547");
+      expect(JSON.stringify(result.placement!.remoteEvidence)).not.toContain("remote-archive-547");
     });
   });
 });

@@ -73,6 +73,12 @@ export const systemSpecs: CommandSpec[] = [
     allowedFlags: ["--company", "--destination", "--backup-id", "--archive-sha256", "--archive-size", "--actor-kind", "--at", "--note"],
   },
   {
+    key: "system backup-verify-remote-placement",
+    usage: "system backup-verify-remote-placement --company <path> --destination <dest-id> --backup-id <id> --archive-sha256 <hex> --archive-size <bytes> --remote-provider <name> --remote-object-id <id> --remote-object-name <name> --remote-parent-id <id> [--max-metadata-age-ms <ms>] [--actor-kind human|agent] [--at <ISO-8601>] [--note <text>]",
+    description: "Verificerer en ekstern backup med en injiceret provider-adapter: objekt-id, navn, parent, størrelse, checksum og downloadet indhold skal matche. Uden en konfigureret adapter afvises kaldet; declared evidence opgraderes aldrig.",
+    allowedFlags: ["--company", "--destination", "--backup-id", "--archive-sha256", "--archive-size", "--remote-provider", "--remote-object-id", "--remote-object-name", "--remote-parent-id", "--max-metadata-age-ms", "--actor-kind", "--at", "--note"],
+  },
+  {
     key: "system backup-lock",
     usage: "system backup-lock --company <path> [--enforce true|false] [--grace-days <n>] [--at <ISO-8601>]",
     description: "Konfigurerer den frivillige bogførings-lås. Når den er slået til, blokeres ny bogføring hvis den ugentlige backup (BEK 205/2024 § 4) er forsømt ud over en eventuel grace-periode. system-, backup- og restore-kommandoer blokeres aldrig.",

@@ -63,3 +63,22 @@ describe("#275 — system_backup_destination_add documents kind + attestations",
     expect(attestedBy).toContain("human");
   });
 });
+
+describe("#547 — remote backup evidence schema", () => {
+  test("requires provider object identity rather than accepting declared evidence", async () => {
+    const response = await client.send("tools/list");
+    const remote = (response.result?.tools ?? []).find((tool: any) => tool.name === "system_backup_verify_remote_placement");
+    expect(remote).toBeDefined();
+    const required = remote!.inputSchema.required as string[];
+    for (const field of [
+      "remoteProvider",
+      "remoteObjectId",
+      "remoteObjectName",
+      "remoteParentId",
+      "archiveSha256",
+      "archiveSizeBytes",
+    ]) {
+      expect(required).toContain(field);
+    }
+  });
+});

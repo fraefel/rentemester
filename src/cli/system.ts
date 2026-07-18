@@ -16,7 +16,9 @@ import {
   listBackupDestinations,
   placeBackupArchive,
   removeBackupDestination,
+  verifyRemoteBackupPlacement,
 } from "../core/backup-governance";
+import type { RemoteBackupProviderAdapter } from "../core/backup-remote-provider";
 import { renderBackupGuide } from "../core/backup-guide";
 import { getCompanySettings } from "../core/company";
 import { exportAuthorityPackage } from "../core/authority-export";
@@ -94,7 +96,7 @@ function runExportPackage(
   db.close();
 }
 
-export function register(dispatch: CommandDispatch): void {
+export function register(dispatch: CommandDispatch, remoteProviderAdapter?: RemoteBackupProviderAdapter): void {
   dispatch.on("system", "backup", (ctx) => {
     const db = openCommandDb(ctx);
     migrate(db);
@@ -225,6 +227,50 @@ export function register(dispatch: CommandDispatch): void {
       at: ctx.arg("--at"),
       note: ctx.arg("--note"),
     });
+    ctx.emitResult(result as Record<string, unknown>);
+    db.close();
+  });
+
+  dispatch.on("system", "backup-verify-remote-placement", async (ctx) => {
+    const destination = ctx.arg("--destination");
+    const backupId = ctx.arg("--backup-id");
+    const sha256 = ctx.arg("--archive-sha256");
+    const provider = ctx.arg("--remote-provider");
+    const objectId = ctx.arg("--remote-object-id");
+    const objectName = ctx.arg("--remote-object-name");
+    const parentId = ctx.arg("--remote-parent-id");
+    if (!destination || !backupId || !sha256 || !provider || !objectId || !objectName || !parentId) {
+      console.error("Missing required destination, backup, archive, or remote object identity flags");
+      process.exit(2);
+    }
+    const size = ctx.parseOptionalNumber("--archive-size");
+    const metadataAge = ctx.parseOptionalNumber("--max-metadata-age-ms");
+    if (!size.ok || !metadataAge.ok || size.value === undefined) {
+      console.error(!size.ok ? size.error : !metadataAge.ok ? metadataAge.error : "Missing required --archive-size <bytes>");
+      process.exit(2);
+    }
+    const { actor, actorKind } = placementActor(ctx);
+    const db = openCommandDb(ctx);
+    migrate(db);
+    const result = await verifyRemoteBackupPlacement(db, ctx.companyRoot(), {
+      destinationId: destination,
+      backupId,
+      archiveSha256: sha256,
+      archiveSizeBytes: size.value,
+      expectedRemoteObject: {
+        provider,
+        objectId,
+        name: objectName,
+        parentId,
+        sizeBytes: size.value,
+        checksumSha256: sha256,
+      },
+      actor,
+      actorKind,
+      at: ctx.arg("--at"),
+      note: ctx.arg("--note"),
+      maxMetadataAgeMs: metadataAge.value,
+    }, remoteProviderAdapter);
     ctx.emitResult(result as Record<string, unknown>);
     db.close();
   });

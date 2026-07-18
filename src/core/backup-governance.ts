@@ -28,6 +28,12 @@ import { writeFileAtomic } from "./atomic-file";
 import { getBackupComplianceStatus } from "./system-backups";
 import type { BackupComplianceStatus } from "./system-backups";
 import { readTar } from "./tar";
+import {
+  verifyRemoteBackupEvidence,
+  type ExpectedRemoteBackupObject,
+  type RemoteBackupEvidence,
+  type RemoteBackupProviderAdapter,
+} from "./backup-remote-provider";
 
 const BACKUP_RULE_ID = "DK-BOOKKEEPING-BACKUP-001";
 // § 4, stk. 2 of BEK 205/2024 — backup must live with a non-related party on
@@ -78,7 +84,11 @@ export type BackupPlacement = {
   // matched. "declared" placements (agent pushed via a channel we cannot
   // read back) are recorded but not proven.
   verified: boolean;
-  verifyMethod: "sha256-reread" | "declared";
+  verifyMethod: "sha256-reread" | "remote-provider" | "declared";
+  // Provider metadata is retained only after the adapter has independently
+  // checked it and the downloaded object content. It never contains a token,
+  // authorization header, provider error body, or archive bytes.
+  remoteEvidence?: RemoteBackupEvidence;
   note: string | null;
 };
 
@@ -509,6 +519,85 @@ export type ConfirmBackupPlacementResult = {
   appliedRules: string[];
   errors: string[];
 };
+
+export type VerifyRemoteBackupPlacementInput = {
+  destinationId: string;
+  backupId: string;
+  archiveSha256: string;
+  archiveSizeBytes: number;
+  expectedRemoteObject: ExpectedRemoteBackupObject;
+  actorKind?: BackupPlacementActorKind;
+  actor?: string;
+  at?: string;
+  note?: string;
+  maxMetadataAgeMs?: number;
+};
+
+// This is deliberately separate from confirmBackupPlacement. A caller that
+// merely declares a remote upload must remain `declared`; only an injected
+// adapter that reads provider metadata and archive bytes can create verified
+// remote evidence.
+export async function verifyRemoteBackupPlacement(
+  db: Database,
+  companyRoot: string,
+  input: VerifyRemoteBackupPlacementInput,
+  adapter: RemoteBackupProviderAdapter | undefined,
+): Promise<ConfirmBackupPlacementResult> {
+  const backupId = trimOrNull(input.backupId);
+  const archiveSha256 = trimOrNull(input.archiveSha256);
+  const placedAt = resolveAt(input.at);
+  const errors: string[] = [];
+  if (!backupId) errors.push("backupId is required");
+  if (!archiveSha256 || !/^[0-9a-f]{64}$/i.test(archiveSha256)) {
+    errors.push("archiveSha256 must be a 64-character hex sha256 digest");
+  }
+  if (!Number.isSafeInteger(input.archiveSizeBytes) || input.archiveSizeBytes < 0) {
+    errors.push("archiveSizeBytes must be a non-negative integer");
+  }
+  if (!placedAt) errors.push("at must be a valid ISO-8601 datetime when provided");
+  if (archiveSha256 && input.expectedRemoteObject.checksumSha256.toLowerCase() !== archiveSha256.toLowerCase()) {
+    errors.push("remote object checksum must equal archiveSha256");
+  }
+  if (input.expectedRemoteObject.sizeBytes !== input.archiveSizeBytes) {
+    errors.push("remote object size must equal archiveSizeBytes");
+  }
+  if (errors.length > 0) return { ok: false, appliedRules: [BACKUP_RULE_ID], errors };
+
+  const destination = getBackupDestination(companyRoot, input.destinationId);
+  if (!destination) {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: [`no backup destination with id: ${input.destinationId}`] };
+  }
+  if (!adapter) {
+    return {
+      ok: false,
+      appliedRules: [BACKUP_RULE_ID],
+      errors: ["remote backup provider is not configured; declared evidence cannot be upgraded"],
+    };
+  }
+
+  const verified = await verifyRemoteBackupEvidence(adapter, {
+    expected: input.expectedRemoteObject,
+    verifiedAt: placedAt!,
+    maxMetadataAgeMs: input.maxMetadataAgeMs,
+  });
+  if (!verified.ok) return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: verified.errors };
+
+  const placement: BackupPlacement = {
+    backupId: backupId!,
+    archiveSha256: archiveSha256!.toLowerCase(),
+    archiveSizeBytes: input.archiveSizeBytes,
+    placedAt: placedAt!,
+    actor: trimOrNull(input.actor) ?? "system",
+    actorKind: input.actorKind === "human" ? "human" : "agent",
+    verified: true,
+    verifyMethod: "remote-provider",
+    remoteEvidence: verified.evidence,
+    note: trimOrNull(input.note),
+  };
+  const appended = appendPlacement(db, companyRoot, destination.id, placement);
+  if (!appended.ok) return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: appended.errors };
+  return { ok: true, placement, appliedRules: [BACKUP_RULE_ID], errors: [] };
+}
 
 // Records a placement performed OUTSIDE Rentemester — typically the agent
 // pushed the archive to Dropbox/Drive/SSH with its own credentials. If the

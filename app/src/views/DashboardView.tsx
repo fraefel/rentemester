@@ -386,8 +386,8 @@ function VatCard({
   if (vat === null) return null;
   // The momsangivelse is easy to forget — surface it right on the card. Two
   // dates that an owner must not conflate: the VAT period's own span, and the
-  // SKAT filing/payment deadline (the 1st of the third month AFTER the period
-  // ends). The countdown targets the deadline, so the card spells both out.
+  // canonical SKAT filing/payment deadline for the registered cadence. The
+  // countdown targets the deadline, so the card spells both dates out.
   const days = vat.daysRemaining;
   const countdown =
     days < 0

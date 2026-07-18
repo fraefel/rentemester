@@ -1,4 +1,3 @@
-import { vatFilingDeadline } from "../core/vat";
 import {
   asArray,
   asCount,
@@ -6,6 +5,12 @@ import {
   appendWarnings,
   formatKroner,
 } from "./common";
+
+function vatCadenceText(value: unknown): string {
+  if (value === "month") return "månedsvis moms";
+  if (value === "half-year") return "halvårlig moms";
+  return "kvartalsvis moms";
+}
 
 // ===========================================================================
 // HUMAN-READABLE REPORT RENDERING (#211)
@@ -61,12 +66,12 @@ export function renderVatReport(result: Record<string, unknown>): string {
       ` (${postLines} posteringslinje${postLines === 1 ? "" : "r"}).`,
   );
   // SKAT filing/payment deadline — the date that costs money if missed. (#236)
-  const deadline = vatFilingDeadline(to);
+  const deadline = asText(result.filingDeadline, "");
   if (deadline) {
     lines.push("");
     lines.push(`SKAT-frist for indberetning og betaling: ${deadline}`);
     lines.push(
-      "  (kvartalsmoms skal angives og betales senest den 1. i tredje måned efter periodens udløb)",
+      `  (fristen følger virksomhedens registrerede ${vatCadenceText(result.vatPeriodType)})`,
     );
   }
   appendWarnings(lines, result);
@@ -122,12 +127,12 @@ export function renderVatFiling(result: Record<string, unknown>): string {
   if (result.periodReference) {
     lines.push(`  Periodereference:                ${asText(result.periodReference)}`);
   }
-  const deadline = asText(result.filingDeadline, "") || vatFilingDeadline(to) || "";
+  const deadline = asText(result.filingDeadline, "");
   if (deadline) {
     lines.push("");
     lines.push(`SKAT-frist for indberetning og betaling: ${deadline}`);
     lines.push(
-      "  (kvartalsmoms skal angives og betales senest den 1. i tredje måned efter periodens udløb)",
+      `  (fristen følger virksomhedens registrerede ${vatCadenceText(result.vatPeriodType)})`,
     );
   }
   lines.push("");

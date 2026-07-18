@@ -11,6 +11,7 @@ import {
   todayIsoDate,
 } from "../shared";
 import { vatPositionForPeriod } from "../vat";
+import { loadVatAccountSemantics } from "../../../core/vat-account-semantics";
 
 // --------------------------------------------------------------------------
 // Per-company obligations (Forpligtelser — what the company owes, year-aware)
@@ -58,7 +59,7 @@ const KNOWN_LIABILITY_ACCOUNTS: Record<
 
 /**
  * The credit-signed balance (credit − debit, kroner) of every `liability`-type
- * account at `asOfDate`, excluding the entire standard Danish VAT block.
+ * account at `asOfDate`, excluding canonical VAT amount/settlement accounts.
  *
  * No VAT account may appear as a liability row here — VAT is surfaced as its
  * own single obligation from the booked VAT position (`vatPositionForPeriod`),
@@ -66,10 +67,8 @@ const KNOWN_LIABILITY_ACCOUNTS: Record<
  * VAT accounts (output VAT `64000`, foreign-services reverse-charge `64040`,
  * input VAT `64060`, …) are merely *components* of that computation, so
  * counting them here as well would double-count VAT. The exclusion uses the
- * same VAT-account identification as `vatPositionForPeriod`: `type = 'vat'`
- * (native-Rentemester chart) or the standard Danish block `64000`–`64099`.
- * The `64100`-block settlement accounts (`Momsafregning`) only shuttle money
- * between the VAT accounts and the bank, so they are excluded too.
+ * same VAT-account semantics as `vatPositionForPeriod`/`buildVatReport`; no
+ * broad account-number range is independently guessed here.
  */
 function liabilityBalancesAsOf(
   db: import("bun:sqlite").Database,
@@ -79,6 +78,8 @@ function liabilityBalancesAsOf(
     .query(
       `SELECT a.account_no AS accountNo,
               a.name       AS name,
+              a.type AS accountType,
+              a.normal_balance AS normalBalance,
               COALESCE(SUM(jl.credit_amount - jl.debit_amount), 0) AS balance
          FROM accounts a
          JOIN journal_lines jl     ON jl.account_id = a.id
@@ -86,23 +87,29 @@ function liabilityBalancesAsOf(
         WHERE a.type = 'liability'
           AND je.status = 'posted'
           AND je.transaction_date <= ?
-          AND a.type != 'vat'
-          AND NOT (a.account_no >= '64000' AND a.account_no < '64100')
-          AND lower(a.name) NOT LIKE '%momsafregning%'
-          AND a.account_no NOT GLOB '641[0-9][0-9]'
         GROUP BY a.id
         ORDER BY a.account_no ASC`,
     )
     .all(asOfDate) as Array<{
     accountNo: string;
     name: string;
+    accountType: string;
+    normalBalance: "debit" | "credit";
     balance: number;
   }>;
-  return rows.map((r) => ({
-    accountNo: r.accountNo,
-    name: r.name,
-    balance: roundKroner(r.balance),
-  }));
+  const semantics = loadVatAccountSemantics(db);
+  return rows
+    .filter(
+      (r) =>
+        !semantics.amountSideByAccountNo.has(r.accountNo) &&
+        !semantics.settlementAccountNos.has(r.accountNo) &&
+        !/momsafregning/i.test(r.name),
+    )
+    .map((r) => ({
+      accountNo: r.accountNo,
+      name: r.name,
+      balance: roundKroner(r.balance),
+    }));
 }
 
 /**
@@ -111,8 +118,9 @@ function liabilityBalancesAsOf(
  * where one is derivable. Every figure is read straight from the posted
  * ledger:
  *
- *  - VAT — the booked quarterly VAT position (`vatPositionForPeriod`); its
- *    deadline is the statutory filing date (`vatQuarterDeadline`).
+ *  - VAT — the booked position for each registered VAT period
+ *    (`vatPositionForPeriod`); its deadline comes from that cadence's
+ *    canonical period window.
  *  - Corporation tax, trade creditors, accrued auditor and any other payable
  *    — the credit balance of the `liability`-type accounts at the year end.
  *    Known account numbers get a precise Danish label; corporation tax also

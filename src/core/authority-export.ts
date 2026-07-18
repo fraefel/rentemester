@@ -9,6 +9,7 @@ import { writeFileAtomic } from "./atomic-file";
 import { buildTrialBalance } from "./financial-statements";
 import { formatAmount } from "./money";
 import { parsePurchaseVatLinesPayload } from "./documents";
+import { buildVatReport } from "./vat";
 
 const RULE_ID = "DK-BOOKKEEPING-AUTHORITY-EXPORT-001";
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
@@ -652,6 +653,7 @@ function buildExportReadme(input: {
     "- machine-readable/accounts.json — fuld kontoplan-kontekst",
     "- machine-readable/companies.json — virksomheds-stamdata",
     "- machine-readable/schema-migrations.json — anvendte schema-migrationer",
+    "- machine-readable/vat-report.json — kanonisk momsrapport og SKAT-rubrikker for perioden",
     "- documents-readable/* — kopierede læselige bilagsfiler inkluderet i pakken",
     "- manifest.json — pakke-metadata plus hashes for hver outputfil",
     "",
@@ -694,6 +696,7 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   const accounts = fetchAccounts(db);
   const companies = fetchCompanies(db);
   const schemaMigrations = fetchSchemaMigrations(db);
+  const vatReport = buildVatReport(db, input.periodStart, input.periodEnd);
 
   mkdirSync(machineReadableDir, { recursive: true });
   mkdirSync(documentsDir, { recursive: true });
@@ -732,6 +735,7 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   writeExportJson(exportDir, join(machineReadableDir, "accounts.json"), accounts, outputs);
   writeExportJson(exportDir, join(machineReadableDir, "companies.json"), companies, outputs);
   writeExportJson(exportDir, join(machineReadableDir, "schema-migrations.json"), schemaMigrations, outputs);
+  writeExportJson(exportDir, join(machineReadableDir, "vat-report.json"), vatReport, outputs);
 
   // EJER-14: human-friendly CSV siblings of the journal and the trial balance
   // (saldobalance), alongside the JSON, so a revisor can open them directly.
@@ -806,6 +810,7 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
       accounts: "machine-readable/accounts.json",
       companies: "machine-readable/companies.json",
       schemaMigrations: "machine-readable/schema-migrations.json",
+      vatReport: "machine-readable/vat-report.json",
       readableDocumentsDir: "documents-readable",
       readme: "README.txt",
     },

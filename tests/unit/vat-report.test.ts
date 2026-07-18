@@ -170,7 +170,7 @@ describe("vat report", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("warns when VAT base and booked VAT do not reconcile and distinguishes reversed entries in-period", () => {
+  test("blocks filing when VAT base and booked VAT do not reconcile and distinguishes reversed entries in-period", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-vat-warning-"));
     const inbox = mkdtempSync(join(tmpdir(), "rentemester-vat-warning-inbox-"));
     const sourceFile = join(inbox, "invoice.txt");
@@ -225,7 +225,7 @@ describe("vat report", () => {
     expect(reversed.ok).toBe(true);
 
     const report = buildVatReport(db, "2026-05-01", "2026-05-31");
-    expect(report.ok).toBe(true);
+    expect(report.ok).toBe(false);
     expect(report.purchaseBase25).toBe(1000);
     expect(report.inputVat).toBe(0);
     expect(report.outputVat).toBe(0);
@@ -238,7 +238,9 @@ describe("vat report", () => {
     expect(report.reversedLinesConsidered).toBe(3);
     expect(report.reversalLinesConsidered).toBe(3);
     expect(report.totalLinesConsidered).toBe(8);
-    expect(report.warnings).toContain("input VAT mismatch: booked 0, expected from base × rate 250");
+    expect(report.errors).toContain(
+      "input VAT mismatch: booked 0, expected from base × rate plus verified historical corrections 250",
+    );
 
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -11,21 +11,139 @@ function hasColumn(db: Database, table: string, column: string) {
   return cols.some((col) => col.name === column);
 }
 
+/** Legacy `vat_quarter` rows are only safe to canonicalise when their bounds
+ * match the company's stored cadence. Pre-fix monthly and half-yearly writers
+ * also used the misleading kind, while still persisting their real bounds. */
+function isCanonicalLegacyVatPeriod(
+  start: string,
+  end: string,
+  cadence: "month" | "quarter" | "half-year",
+): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  if (!match || match[3] !== "01") return false;
+  const year = Number(match[1]);
+  const startMonth = Number(match[2]);
+  const span = cadence === "month" ? 1 : cadence === "half-year" ? 6 : 3;
+  if (startMonth < 1 || startMonth > 12 || (startMonth - 1) % span !== 0) {
+    return false;
+  }
+  const endDate = new Date(Date.UTC(year, startMonth + span - 1, 0));
+  const expectedEnd = endDate.toISOString().slice(0, 10);
+  return end === expectedEnd;
+}
+
 /**
  * Legacy ledgers encoded VAT cadence in a misleading `vat_quarter` kind. The
  * table rebuild is deliberately lossless (including ids and lifecycle audit
- * references) and only runs for the old CHECK constraint. A conflicting pair
- * of already-filed legacy periods is a legal/human resolution problem, never
+ * references). It runs either for the old CHECK constraint or when a ledger
+ * still contains legacy rows despite already having the newer constraint.
+ * Conflicting filed periods are a legal/human resolution problem, never
  * something a migration may guess how to split.
  */
 function migrateLegacyVatPeriodKind(db: Database) {
   const sql = (db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'accounting_periods'").get() as { sql?: string } | null)?.sql ?? "";
-  if (/['"]vat_period['"]/.test(sql)) return;
+  const schemaSupportsCanonicalKind = /['"]vat_period['"]/.test(sql);
+  const legacyCount = (db.query("SELECT COUNT(*) AS n FROM accounting_periods WHERE kind = 'vat_quarter'").get() as { n: number }).n;
+  if (schemaSupportsCanonicalKind && legacyCount === 0) return;
+
+  const cadenceRow = hasColumn(db, "companies", "vat_period_type")
+    ? (db.query("SELECT vat_period_type AS value FROM companies WHERE id = 1").get() as {
+        value: string | null;
+      } | null)
+    : null;
+  const storedCadence = cadenceRow ? cadenceRow.value : "quarter";
+  const registeredCadence =
+    storedCadence === "month" ||
+    storedCadence === "quarter" ||
+    storedCadence === "half-year"
+      ? storedCadence
+      : null;
+
+  const vatPeriodRows = db.query(
+    `SELECT id, period_start, period_end, kind, status
+       FROM accounting_periods
+      WHERE kind IN ('vat_period', 'vat_quarter')
+      ORDER BY id ASC`,
+  ).all() as Array<{
+    id: number;
+    period_start: string;
+    period_end: string;
+    kind: "vat_period" | "vat_quarter";
+    status: string;
+  }>;
+  const noncanonicalPeriod = registeredCadence
+    ? vatPeriodRows.find(
+        (row) =>
+          !isCanonicalLegacyVatPeriod(
+            row.period_start,
+            row.period_end,
+            registeredCadence,
+          ),
+      )
+    : null;
+  if (noncanonicalPeriod) {
+    throw new Error(
+      `VAT period migration blocked: ${noncanonicalPeriod.kind} period #${noncanonicalPeriod.id} ` +
+        `${noncanonicalPeriod.period_start}..${noncanonicalPeriod.period_end} ` +
+        `(${noncanonicalPeriod.status}) does not match the registered ${registeredCadence} cadence. ` +
+        "The row was left unchanged; a human must verify the historical SKAT cadence and migrate or quarantine it explicitly before retrying.",
+    );
+  }
+
+  if (!registeredCadence) {
+    // Deregistration erased the former cadence. Every VAT period involved in
+    // this rebuild — including already-canonical rows in a partially migrated
+    // ledger — must nevertheless agree on one possible historical cadence.
+    // Row-by-row guessing can otherwise relabel a monthly and quarterly mix
+    // into a state that no future registration can reopen or file.
+    const commonHistoricalCadences = (
+      ["month", "quarter", "half-year"] as const
+    ).filter((cadence) =>
+      vatPeriodRows.every((row) =>
+        isCanonicalLegacyVatPeriod(
+          row.period_start,
+          row.period_end,
+          cadence,
+        ),
+      ),
+    );
+    if (commonHistoricalCadences.length === 0) {
+      const periods = vatPeriodRows
+        .map(
+          (row) =>
+            `#${row.id} ${row.period_start}..${row.period_end} (${row.kind}, ${row.status})`,
+        )
+        .join(", ");
+      throw new Error(
+        "VAT period migration blocked: the deregistered company's existing " +
+          `VAT periods do not share one canonical historical cadence (${periods}). ` +
+          "All rows were left unchanged; a human must record and reconcile the historical SKAT cadence before retrying.",
+      );
+    }
+  }
+
+  const exactDuplicate = db.query(
+    `SELECT legacy.id AS legacy_id, canonical.id AS canonical_id
+       FROM accounting_periods legacy
+       JOIN accounting_periods canonical
+         ON canonical.kind = 'vat_period'
+        AND canonical.period_start = legacy.period_start
+        AND canonical.period_end = legacy.period_end
+      WHERE legacy.kind = 'vat_quarter'
+      LIMIT 1`,
+  ).get() as { legacy_id: number; canonical_id: number } | null;
+  if (exactDuplicate) {
+    throw new Error(
+      `VAT period migration blocked: legacy period #${exactDuplicate.legacy_id} duplicates canonical period #${exactDuplicate.canonical_id}; resolve with a human before migration`,
+    );
+  }
+
   const conflicts = db.query(
     `SELECT a.id AS left_id, b.id AS right_id
        FROM accounting_periods a
        JOIN accounting_periods b ON a.id < b.id
-      WHERE a.kind = 'vat_quarter' AND b.kind = 'vat_quarter'
+      WHERE a.kind IN ('vat_period', 'vat_quarter')
+        AND b.kind IN ('vat_period', 'vat_quarter')
         AND a.status = 'reported' AND b.status = 'reported'
         AND NOT (a.period_end < b.period_start OR a.period_start > b.period_end)
       LIMIT 1`,
@@ -36,6 +154,7 @@ function migrateLegacyVatPeriodKind(db: Database) {
   db.transaction(() => {
     db.exec("DROP TRIGGER IF EXISTS accounting_periods_guard_update; DROP TRIGGER IF EXISTS accounting_periods_no_delete;");
     db.exec(`
+      DROP TABLE IF EXISTS accounting_periods_vat_period_rebuild;
       CREATE TABLE accounting_periods_vat_period_rebuild (
         id INTEGER PRIMARY KEY,
         period_start TEXT NOT NULL,

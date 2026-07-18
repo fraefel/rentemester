@@ -7,6 +7,7 @@ import { ensureCompanyDirs, companyPaths } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { issueCreditNote } from "../../src/core/credit-notes";
+import { seedAccounts } from "../../src/core/ledger";
 import { storeViesValidation } from "../../src/core/vies";
 import { readIssuedInvoicePdfText, renderIssuedInvoicePdf } from "../../src/core/invoice-pdf";
 
@@ -616,6 +617,7 @@ describe("invoice issue", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-credit-fail-"));
     const realDb = openDb(ensureCompanyDirs(root).db);
     migrate(realDb);
+    seedAccounts(realDb);
 
     const issued = issueInvoice(realDb, root, {
       invoiceType: "full",

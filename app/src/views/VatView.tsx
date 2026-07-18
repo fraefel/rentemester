@@ -1,6 +1,6 @@
 // Moms — the per-company VAT return (cockpit-redesign iteration 3).
 //
-// Renders `/api/companies/:slug/vat?year=`: the VAT return for the quarter —
+// Renders `/api/companies/:slug/vat?year=` for the registered VAT cadence —
 // output VAT (salgsmoms), input VAT (købsmoms), the resulting payable amount,
 // AND the full SKAT TastSelv momsangivelse rubrics (rubrik A/B/C, foreign
 // goods/services VAT) so the owner can file straight from the cockpit instead
@@ -97,7 +97,9 @@ export function VatView() {
           {/* #287: closing the VAT period is the prerequisite for a
               momsangivelse — hidden for an archived (read-only) year. Once the
               period is closed the action becomes a reopen instead (#301). */}
-          {!v.archived && v.periodStatus === "open" && (
+          {!v.archived &&
+            v.periodStatus === "open" &&
+            v.vatReportErrors.length === 0 && (
             <button
               type="button"
               className="btn"
@@ -140,6 +142,18 @@ export function VatView() {
       />
 
       {closedNotice && <Banner kind="success">{closedNotice}</Banner>}
+
+      {v.vatReportErrors.length > 0 && (
+        <Banner kind="error">
+          Momsrapporten kan ikke indberettes endnu: {v.vatReportErrors.join(" ")}
+        </Banner>
+      )}
+
+      {v.vatReportWarnings.length > 0 && (
+        <Banner kind="warning">
+          Kontrollér før indberetning: {v.vatReportWarnings.join(" ")}
+        </Banner>
+      )}
 
       {closing && (
         <ConfirmDialog
@@ -199,11 +213,9 @@ export function VatView() {
             await api.closePeriod(slug, {
               periodStart: v.periodStart,
               periodEnd: v.periodEnd,
-              kind: "vat_quarter",
+              kind: "vat_period",
             });
-            setClosedNotice(
-              `Momsperioden er lukket — ${v.periodLabel} kan nu indberettes.`,
-            );
+            setClosedNotice(`Momsperioden er lukket — tallene genindlæses nu.`);
             state.reload();
           }}
           onClose={() => setClosing(false)}
@@ -313,7 +325,7 @@ export function VatView() {
  * `vat momsangivelse`.
  *
  * #303: for an OPEN period the terminal `vat momsangivelse` refuses to produce
- * a momsangivelse at all (it requires a closed/reported vat_quarter period).
+ * a momsangivelse at all (it requires a closed/reported VAT period).
  * The card must therefore NOT claim its figures match that command — instead
  * it marks them provisional and says a closed period is the prerequisite.
  */
@@ -572,7 +584,7 @@ function ReopenDialog({
         await api.reopenPeriod(vat.slug, {
           periodStart: vat.periodStart,
           periodEnd: vat.periodEnd,
-          kind: "vat_quarter",
+          kind: "vat_period",
           reason: reason.trim(),
         });
         onReopened(vat.periodLabel);

@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { insertAuditLog, resolveActor, type ResolveActorInput } from "./actor";
 import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { isValidIsoDate as looksLikeIsoDate, addDays, todayIsoDate, MONTH_NAMES_DA } from "./dates";
+import { loadVatAccountSemantics, VAT_LINE_CODES } from "./vat-account-semantics";
 
 /** `vat_period` is cadence-neutral; `vat_quarter` is read-only legacy compatibility. */
 export type AccountingPeriodKind = "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
@@ -21,6 +22,17 @@ export type VatPeriodType = "month" | "quarter" | "half-year";
 export const DEFAULT_VAT_PERIOD_TYPE: VatPeriodType = "quarter";
 
 const VAT_PERIOD_TYPES = new Set<VatPeriodType>(["month", "quarter", "half-year"]);
+
+/** Read only the cadence without importing `company.ts` (which depends here). */
+function registeredVatPeriodType(db: Database): VatPeriodType | null {
+  ensureNullableVatPeriodColumn(db);
+  const row = db.query(
+    "SELECT vat_period_type AS value FROM companies WHERE id = 1",
+  ).get() as { value: string | null } | null;
+  if (!row) return DEFAULT_VAT_PERIOD_TYPE;
+  if (row.value === null) return null;
+  return normalizeVatPeriodType(row.value) ?? DEFAULT_VAT_PERIOD_TYPE;
+}
 
 /**
  * Validate a VAT-period-type input. Accepts exactly `month`, `quarter` or
@@ -64,12 +76,109 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+function isoUtc(year: number, month: number, day: number): string {
+  return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
+}
+
+/** Gregorian Easter Sunday (Meeus/Jones/Butcher), used for Danish holidays. */
+function easterSunday(year: number): string {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return isoUtc(year, month, day);
+}
+
+function danishBankHolidays(year: number): Set<string> {
+  const easter = easterSunday(year);
+  return new Set([
+    `${year}-01-01`,
+    addDays(easter, -3), // Skærtorsdag
+    addDays(easter, -2), // Langfredag
+    addDays(easter, 1), // 2. påskedag
+    addDays(easter, 39), // Kristi himmelfartsdag
+    addDays(easter, 50), // 2. pinsedag
+    `${year}-12-25`,
+    `${year}-12-26`,
+  ]);
+}
+
+/** Move a statutory due date to the next Danish banking day. */
+function nextDanishBankingDay(isoDate: string): string {
+  let candidate = isoDate;
+  for (;;) {
+    const date = new Date(`${candidate}T00:00:00.000Z`);
+    const day = date.getUTCDay();
+    const year = date.getUTCFullYear();
+    if (
+      day !== 0 &&
+      day !== 6 &&
+      !danishBankHolidays(year).has(candidate)
+    ) {
+      return candidate;
+    }
+    candidate = addDays(candidate, 1);
+  }
+}
+
+/**
+ * Canonical SKAT filing/payment deadline for a registered VAT cadence.
+ *
+ * - month: the 25th of the following month;
+ * - June month: the special statutory 17 August deadline;
+ * - quarter/half-year: the 1st of the third month after period end; and
+ * - a weekend/Danish bank holiday moves to the next banking day.
+ *
+ * The default remains `quarter` for source compatibility with older callers;
+ * every live surface passes the company's registered cadence explicitly.
+ */
+export function vatFilingDeadline(
+  periodEnd: string,
+  type: VatPeriodType = DEFAULT_VAT_PERIOD_TYPE,
+): string | null {
+  if (!looksLikeIsoDate(periodEnd)) return null;
+  const year = Number(periodEnd.slice(0, 4));
+  const month = Number(periodEnd.slice(5, 7));
+
+  let unshifted: string;
+  if (type === "month") {
+    if (month === 6) {
+      unshifted = `${year}-08-17`;
+    } else {
+      const next = new Date(Date.UTC(year, month, 25));
+      unshifted = isoUtc(
+        next.getUTCFullYear(),
+        next.getUTCMonth() + 1,
+        next.getUTCDate(),
+      );
+    }
+  } else {
+    const thirdMonth = new Date(Date.UTC(year, month + 2, 1));
+    unshifted = isoUtc(
+      thirdMonth.getUTCFullYear(),
+      thirdMonth.getUTCMonth() + 1,
+      1,
+    );
+  }
+  return nextDanishBankingDay(unshifted);
+}
+
 export type VatPeriodWindow = {
   /** First day of the VAT period (YYYY-MM-DD). */
   start: string;
   /** Last day of the VAT period (YYYY-MM-DD). */
   end: string;
-  /** SKAT filing/payment deadline: 1st of the 3rd month after period end. */
+  /** SKAT filing/payment deadline for this cadence, shifted to a banking day. */
   filingDeadline: string;
   /** The cadence this window was computed for. */
   vatPeriodType: VatPeriodType;
@@ -82,8 +191,7 @@ export type VatPeriodWindow = {
  * the period (and therefore every VAT deadline derived from it) follows the
  * company's real SKAT registration instead of a hardcoded quarter.
  *
- * The filing deadline is the 1st of the third month after the period ends,
- * consistent across cadences with `core/vat.ts#vatFilingDeadline`.
+ * The filing deadline comes from the cadence-aware statutory engine above.
  */
 export function vatPeriodWindowFor(isoDate: string, type: VatPeriodType): VatPeriodWindow {
   const year = Number(isoDate.slice(0, 4));
@@ -95,17 +203,11 @@ export function vatPeriodWindowFor(isoDate: string, type: VatPeriodType): VatPer
   const endMonth = startMonth + span - 1;
   // Day 0 of the next month is the last day of `endMonth`.
   const lastDay = new Date(Date.UTC(year, endMonth, 0)).getUTCDate();
-  // Filing deadline: 1st of the third month after the period-end month.
-  let deadlineMonth = endMonth + 3;
-  let deadlineYear = year;
-  while (deadlineMonth > 12) {
-    deadlineMonth -= 12;
-    deadlineYear += 1;
-  }
+  const end = `${year}-${pad2(endMonth)}-${pad2(lastDay)}`;
   return {
     start: `${year}-${pad2(startMonth)}-01`,
-    end: `${year}-${pad2(endMonth)}-${pad2(lastDay)}`,
-    filingDeadline: `${deadlineYear}-${pad2(deadlineMonth)}-01`,
+    end,
+    filingDeadline: vatFilingDeadline(end, type)!,
     vatPeriodType: type,
   };
 }
@@ -192,6 +294,61 @@ export function setCompanyVatPeriodType(
       errors: ["company has not been initialised — run 'rentemester init' first"],
     };
   }
+  const changed = before.t !== type;
+  // A cadence is currently stored as one company-wide value, not as an
+  // effective-dated registration history. Once VAT periods or VAT-classified
+  // postings exist, changing to another non-null cadence would reinterpret
+  // old activity and can make immutable closed periods overlap the new
+  // windows. Refuse until an explicit effective-dated migration exists.
+  if (changed && type !== null) {
+    const existingVatPeriods = db
+      .query(
+        `SELECT id, period_start, period_end
+           FROM accounting_periods
+          WHERE kind IN ('vat_period', 'vat_quarter')`,
+      )
+      .all() as Array<{ id: number; period_start: string; period_end: string }>;
+    const vatAccounts = loadVatAccountSemantics(db).amountSideByAccountNo;
+    const postedLines = db
+      .query(
+        `SELECT a.account_no, jl.vat_code
+           FROM journal_lines jl
+           JOIN accounts a ON a.id = jl.account_id
+           JOIN journal_entries je ON je.id = jl.journal_entry_id
+          WHERE je.status = 'posted'`,
+      )
+      .all() as Array<{ account_no: string; vat_code: string | null }>;
+    const hasVatActivity = postedLines.some((line) => {
+      const code = typeof line.vat_code === "string" ? line.vat_code.trim() : "";
+      return vatAccounts.has(line.account_no) || VAT_LINE_CODES.has(code);
+    });
+    const incompatibleRecoveryPeriod =
+      before.t === null
+        ? existingVatPeriods.find((period) => {
+            const window = vatPeriodWindowFor(period.period_start, type);
+            return (
+              window.start !== period.period_start ||
+              window.end !== period.period_end
+            );
+          })
+        : undefined;
+    const cannotRecoverPreviousCadence =
+      before.t === null
+        ? incompatibleRecoveryPeriod !== undefined ||
+          (existingVatPeriods.length === 0 && hasVatActivity)
+        : existingVatPeriods.length > 0 || hasVatActivity;
+    if (cannotRecoverPreviousCadence) {
+      return {
+        ok: false,
+        changed: false,
+        errors: [
+          incompatibleRecoveryPeriod
+            ? `momsregistreringen kan ikke genaktiveres med ${type}: eksisterende momsperiode #${incompatibleRecoveryPeriod.id} ${incompatibleRecoveryPeriod.period_start}..${incompatibleRecoveryPeriod.period_end} følger en anden kadence`
+            : "momsperiodens kadence kan ikke ændres, efter der er bogført momsaktivitet eller oprettet momsperioder; ændringen kræver en effective-dated kadencemigration, så historiske angivelser ikke omfortolkes eller strandes",
+        ],
+      };
+    }
+  }
   // Going from registered → not-registered must not silently strand posted
   // VAT activity (output VAT on a sale, deductible input VAT on a bilag).
   // Refuse when the ledger carries any posted entry on a `vat`-type account
@@ -206,16 +363,20 @@ export function setCompanyVatPeriodType(
   // exact failure this guard exists to prevent. This mirrors the lens
   // `closeAccountingPeriod` / `validateJournalTransactionDate` already use.
   if (type === null && before.t !== null) {
+    const vatAccounts = loadVatAccountSemantics(db).amountSideByAccountNo;
     const vatEntryDates = db
       .query(
-        `SELECT DISTINCT je.transaction_date AS d
+        `SELECT DISTINCT je.transaction_date AS d, a.account_no AS account_no
            FROM journal_lines jl
            JOIN accounts a ON a.id = jl.account_id
            JOIN journal_entries je ON je.id = jl.journal_entry_id
-          WHERE a.type = 'vat'
-            AND je.status = 'posted'`,
+          WHERE je.status = 'posted'`,
       )
-      .all() as Array<{ d: string }>;
+      .all()
+      .filter((row) => vatAccounts.has(row.account_no)) as Array<{
+      d: string;
+      account_no: string;
+    }>;
     if (vatEntryDates.length > 0) {
       const vatPeriods = db
         .query(
@@ -251,7 +412,6 @@ export function setCompanyVatPeriodType(
     }
   }
   db.query("UPDATE companies SET vat_period_type = ? WHERE id = 1").run(type);
-  const changed = before.t !== type;
   if (changed) {
     // Itemize the registration-state transition in the append-only audit_log
     // so deregistering (registered → not-registered), re-registering, or a
@@ -315,6 +475,10 @@ export type CloseAccountingPeriodResult = {
 const PERIOD_RULE_ID = "DK-BOOKKEEPING-PERIOD-LOCK-001";
 const PERIOD_KINDS = new Set<AccountingPeriodKind>(["vat_period", "vat_quarter", "fiscal_year", "custom"]);
 const PERIOD_STATUSES = new Set<Exclude<AccountingPeriodStatus, "open">>(["closed", "reported"]);
+
+function canonicalPeriodKind(kind: AccountingPeriodKind): AccountingPeriodKind {
+  return kind === "vat_quarter" ? "vat_period" : kind;
+}
 
 /**
  * Audit-log event type that drives a controlled reopen. The *latest*
@@ -485,7 +649,7 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
   const errors: string[] = [];
   const periodStart = input.periodStart?.trim();
   const periodEnd = input.periodEnd?.trim();
-  const kind = (input.kind ?? "vat_quarter").trim() as AccountingPeriodKind;
+  const requestedKind = (input.kind ?? "vat_period").trim() as AccountingPeriodKind;
   const status = (input.status ?? "closed").trim() as Exclude<AccountingPeriodStatus, "open">;
   const reference = input.reference?.trim();
 
@@ -494,10 +658,35 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
   if (looksLikeIsoDate(periodStart) && looksLikeIsoDate(periodEnd) && periodStart > periodEnd) {
     errors.push("periodStart must be before or equal to periodEnd");
   }
-  if (!PERIOD_KINDS.has(kind)) errors.push("kind must be one of vat_period, vat_quarter (legacy), fiscal_year, custom");
+  if (!PERIOD_KINDS.has(requestedKind)) errors.push("kind must be one of vat_period, vat_quarter (legacy), fiscal_year, custom");
   if (!PERIOD_STATUSES.has(status)) errors.push("status must be closed or reported");
 
   if (errors.length > 0) return { ok: false, appliedRules, errors };
+  const kind = canonicalPeriodKind(requestedKind);
+
+  if (kind === "vat_period") {
+    const vatPeriodType = registeredVatPeriodType(db);
+    if (vatPeriodType === null) {
+      return {
+        ok: false,
+        appliedRules,
+        errors: ["selskabet er ikke momsregistreret og har derfor ingen momsperiode at lukke"],
+      };
+    }
+    const canonicalWindow = vatPeriodWindowFor(periodStart, vatPeriodType);
+    if (
+      canonicalWindow.start !== periodStart ||
+      canonicalWindow.end !== periodEnd
+    ) {
+      return {
+        ok: false,
+        appliedRules,
+        errors: [
+          `VAT period ${periodStart}..${periodEnd} does not match the company's registered ${vatPeriodType} cadence; the canonical period containing ${periodStart} is ${canonicalWindow.start}..${canonicalWindow.end}`,
+        ],
+      };
+    }
+  }
 
   // EJER-6: refuse to close a period that ends in the FUTURE. A period whose
   // end date has not arrived yet (typically a whole fiscal year closed early)
@@ -587,14 +776,23 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
   }
   const forceBypassNote = bypassNotes.length > 0 ? ` — force: ${bypassNotes.join("; ")}` : "";
 
-  const overlap = db.query(
-    `SELECT id, period_start, period_end, kind, status
-       FROM accounting_periods
-      WHERE kind = ?
-        AND NOT (period_end < ? OR period_start > ?)
-      LIMIT 1`
-  ).get(kind, periodStart, periodEnd) as
-    | { id: number; period_start: string; period_end: string; kind: AccountingPeriodKind; status: AccountingPeriodStatus }
+  const overlap = (kind === "vat_period"
+    ? db.query(
+        `SELECT id, period_start, period_end, kind, status, reference
+           FROM accounting_periods
+          WHERE kind IN ('vat_period', 'vat_quarter')
+            AND NOT (period_end < ? OR period_start > ?)
+          ORDER BY CASE kind WHEN 'vat_period' THEN 0 ELSE 1 END, id ASC
+          LIMIT 1`,
+      ).get(periodStart, periodEnd)
+    : db.query(
+        `SELECT id, period_start, period_end, kind, status, reference
+           FROM accounting_periods
+          WHERE kind = ?
+            AND NOT (period_end < ? OR period_start > ?)
+          LIMIT 1`,
+      ).get(kind, periodStart, periodEnd)) as
+    | { id: number; period_start: string; period_end: string; kind: AccountingPeriodKind; status: AccountingPeriodStatus; reference: string | null }
     | null;
 
   if (overlap) {
@@ -604,17 +802,39 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
     // the immutable row keeps its original `closed`/`reported` status.
     const isSamePeriod = overlap.period_start === periodStart && overlap.period_end === periodEnd;
     const overlapEffective = effectivePeriodState(db, overlap.id, overlap.status);
-    if (isSamePeriod && overlapEffective === "open") {
-      insertAuditLog(db, {
-        eventType: status === "reported" ? "period_report" : "period_close",
-        entityType: "accounting_period",
-        entityId: overlap.id,
-        message:
-          `Re-closed ${kind} period ${periodStart}..${periodEnd}` +
-          `${reference ? ` (${reference})` : ""} after a controlled reopen${forceBypassNote}`,
-        createdBy: input.createdBy,
-        createdByProgram: input.createdByProgram,
-      });
+    const lifecycleTransition =
+      isSamePeriod &&
+      (overlapEffective === "open" ||
+        (overlapEffective === "closed" && status === "reported"));
+    if (lifecycleTransition) {
+      db.transaction(() => {
+        if (status === "reported" || reference !== undefined) {
+          db.query(
+            `UPDATE accounting_periods
+                SET status = ?,
+                    reported_at = CASE WHEN ? = 'reported' THEN ? ELSE reported_at END,
+                    reference = COALESCE(?, reference)
+              WHERE id = ?`,
+          ).run(
+            status === "reported" ? "reported" : overlap.status,
+            status,
+            status === "reported" ? new Date().toISOString() : null,
+            reference ?? null,
+            overlap.id,
+          );
+        }
+        insertAuditLog(db, {
+          eventType: status === "reported" ? "period_report" : "period_close",
+          entityType: "accounting_period",
+          entityId: overlap.id,
+          message:
+            `${status === "reported" ? "Marked reported" : "Re-closed"} ${kind} period ${periodStart}..${periodEnd}` +
+            `${reference ? ` (${reference})` : ""}${overlapEffective === "open" ? " after a controlled reopen" : ""}${forceBypassNote}`,
+          createdBy: input.createdBy,
+          createdByProgram: input.createdByProgram,
+        });
+      })();
+      const effectiveReference = reference ?? overlap.reference ?? undefined;
       return {
         ok: true,
         periodId: overlap.id,
@@ -622,7 +842,68 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
         periodEnd,
         kind,
         status,
-        reference,
+        reference: effectiveReference,
+        appliedRules,
+        errors,
+      };
+    }
+    if (isSamePeriod && overlapEffective === "reported" && status === "reported") {
+      // Some legacy ledgers recorded `period_report` only in the append-only
+      // audit lifecycle, leaving the row itself closed with no receipt. The
+      // effective state is already terminal, but one attributable receipt
+      // backfill must remain possible. Closed -> reported is permitted by the
+      // row guard; once persisted, ordinary reported immutability applies.
+      if (
+        overlap.status === "closed" &&
+        overlap.reference === null &&
+        reference !== undefined
+      ) {
+        db.transaction(() => {
+          db.query(
+            `UPDATE accounting_periods
+                SET status = 'reported',
+                    reported_at = COALESCE(reported_at, ?),
+                    reference = ?
+              WHERE id = ?`,
+          ).run(new Date().toISOString(), reference, overlap.id);
+          insertAuditLog(db, {
+            eventType: "period_report_reference_backfill",
+            entityType: "accounting_period",
+            entityId: overlap.id,
+            message: `Backfilled filing reference for reported ${kind} period ${periodStart}..${periodEnd} (${reference})`,
+            createdBy: input.createdBy,
+            createdByProgram: input.createdByProgram,
+          });
+        })();
+        return {
+          ok: true,
+          periodId: overlap.id,
+          periodStart,
+          periodEnd,
+          kind,
+          status,
+          reference,
+          appliedRules,
+          errors,
+        };
+      }
+      if (reference !== undefined && reference !== overlap.reference) {
+        return {
+          ok: false,
+          appliedRules,
+          errors: [
+            `${kind} period ${periodStart}..${periodEnd} is already reported with reference ${overlap.reference ?? "(none)"}; its immutable filing reference cannot be replaced with ${reference}`,
+          ],
+        };
+      }
+      return {
+        ok: true,
+        periodId: overlap.id,
+        periodStart,
+        periodEnd,
+        kind,
+        status,
+        reference: overlap.reference ?? undefined,
         appliedRules,
         errors,
       };
@@ -726,7 +1007,7 @@ export function reopenAccountingPeriod(
   const errors: string[] = [];
   const periodStart = input.periodStart?.trim();
   const periodEnd = input.periodEnd?.trim();
-  const kind = (input.kind ?? "vat_quarter").trim() as AccountingPeriodKind;
+  const requestedKind = (input.kind ?? "vat_period").trim() as AccountingPeriodKind;
   const reason = input.reason?.trim();
 
   if (!looksLikeIsoDate(periodStart)) errors.push("periodStart must be YYYY-MM-DD");
@@ -734,17 +1015,36 @@ export function reopenAccountingPeriod(
   if (looksLikeIsoDate(periodStart) && looksLikeIsoDate(periodEnd) && periodStart > periodEnd) {
     errors.push("periodStart must be before or equal to periodEnd");
   }
-  if (!PERIOD_KINDS.has(kind)) errors.push("kind must be one of vat_period, vat_quarter (legacy), fiscal_year, custom");
+  if (!PERIOD_KINDS.has(requestedKind)) errors.push("kind must be one of vat_period, vat_quarter (legacy), fiscal_year, custom");
   if (!reason) errors.push("reason is required: a reopen must record why the period is being reopened");
 
   if (errors.length > 0) return { ok: false, appliedRules, errors };
+  const kind = canonicalPeriodKind(requestedKind);
+  if (kind === "vat_period" && registeredVatPeriodType(db) === null) {
+    return {
+      ok: false,
+      appliedRules,
+      errors: [
+        "en momsperiode kan ikke genåbnes, mens selskabet ikke er momsregistreret; genaktivér først den kompatible moms-kadence",
+      ],
+    };
+  }
 
-  const period = db.query(
-    `SELECT id, period_start, period_end, kind, status
-       FROM accounting_periods
-      WHERE period_start = ? AND period_end = ? AND kind = ?
-      LIMIT 1`
-  ).get(periodStart, periodEnd, kind) as
+  const period = (kind === "vat_period"
+    ? db.query(
+        `SELECT id, period_start, period_end, kind, status
+           FROM accounting_periods
+          WHERE period_start = ? AND period_end = ?
+            AND kind IN ('vat_period', 'vat_quarter')
+          ORDER BY CASE kind WHEN 'vat_period' THEN 0 ELSE 1 END, id DESC
+          LIMIT 1`,
+      ).get(periodStart, periodEnd)
+    : db.query(
+        `SELECT id, period_start, period_end, kind, status
+           FROM accounting_periods
+          WHERE period_start = ? AND period_end = ? AND kind = ?
+          LIMIT 1`,
+      ).get(periodStart, periodEnd, kind)) as
     | { id: number; period_start: string; period_end: string; kind: AccountingPeriodKind; status: AccountingPeriodStatus }
     | null;
 

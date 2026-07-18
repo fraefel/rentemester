@@ -41,7 +41,7 @@ describe("period reopen (#247)", () => {
 
     // While closed, a posting inside the period is blocked.
     expect(validateJournalTransactionDate(db, "2026-05-15")).toEqual([
-      "transactionDate 2026-05-15 falls in closed period vat_quarter 2026-04-01..2026-06-30",
+      "transactionDate 2026-05-15 falls in closed period vat_period 2026-04-01..2026-06-30",
     ]);
 
     const reopened = reopenAccountingPeriod(db, {
@@ -104,7 +104,7 @@ describe("period reopen (#247)", () => {
     });
     expect(reclosed.ok).toBe(true);
     expect(validateJournalTransactionDate(db, "2026-05-15")).toEqual([
-      "transactionDate 2026-05-15 falls in closed period vat_quarter 2026-04-01..2026-06-30",
+      "transactionDate 2026-05-15 falls in closed period vat_period 2026-04-01..2026-06-30",
     ]);
 
     // Both the reopen and the re-close survive in the audit log.
@@ -166,7 +166,7 @@ describe("period reopen (#247)", () => {
       reason: "Findes ikke",
     });
     expect(missing.ok).toBe(false);
-    expect(missing.errors[0]).toContain("no vat_quarter period");
+    expect(missing.errors[0]).toContain("no vat_period period");
 
     // Period exists, closed, then reopened — reopening again is a no-op error.
     closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter", force: true });

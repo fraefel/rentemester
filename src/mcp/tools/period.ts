@@ -78,7 +78,8 @@ export function registerPeriodTools(server: McpServer): void {
           .enum(["vat_period", "vat_quarter", "fiscal_year", "custom"])
           .optional()
           .describe(
-            "Type of accounting period (default 'vat_quarter'): 'vat_quarter' = a VAT-reporting quarter; " +
+            "Type of accounting period (default 'vat_period'): 'vat_period' = a VAT period for the company's registered cadence; " +
+              "'vat_quarter' is accepted only as a legacy alias; " +
               "'fiscal_year' = a full fiscal year; 'custom' = an arbitrary date range. " +
               "A new period must not overlap an existing period of the same kind.",
           ),

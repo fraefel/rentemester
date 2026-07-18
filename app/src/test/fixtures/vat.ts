@@ -32,6 +32,8 @@ export function vat(over: Partial<CompanyVatRegistered> = {}): CompanyVatRegiste
     // (reopenable) or reported period override these two fields.
     periodStatus: "open",
     momsangivelseReady: false,
+    vatReportErrors: [],
+    vatReportWarnings: [],
     rubrikker: {
       salgsmoms: 4457,
       momsAfVarekobUdland: 0,

@@ -39,7 +39,7 @@ import {
 } from "../core/exceptions";
 import { buildPayablesList, payPayableFromBank } from "../core/payables";
 import { listDueAccrualRecognitionPeriods } from "../core/accruals";
-import { buildVatReport, vatFilingDeadline } from "../core/vat";
+import { buildVatReport } from "../core/vat";
 import { buildVatFiling } from "../core/vat-filing";
 import { annualReportDeadline, fiscalYearForDate } from "../core/fiscal-year";
 import { vatPeriodWindowFor, type VatPeriodWindow } from "../core/periods";
@@ -101,7 +101,7 @@ export type RoutedException = {
 };
 
 export type DeadlineNotice = {
-  kind: "vat_quarter" | "fiscal_year";
+  kind: "vat_period" | "fiscal_year";
   periodStart: string;
   periodEnd: string;
   /** Statutory filing/finalisation deadline. */
@@ -725,15 +725,17 @@ function reportVatPeriod(
   // The filing deadline comes from the canonical `core/vat.ts` helper — the
   // same date every other VAT surface uses. The window end is always a valid
   // ISO date, so the `null` branch is unreachable in practice.
-  const dueDate = vatFilingDeadline(window.end) ?? window.filingDeadline;
+  const dueDate = window.filingDeadline;
   const daysRemaining = diffDays(asOf, dueDate);
   const filing = buildVatFiling(db, window.start, window.end);
-  const periodReady = filing.periodStatus === "closed" || filing.periodStatus === "reported";
+  const periodClosed = filing.periodStatus === "closed" || filing.periodStatus === "reported";
+  const periodReady = filing.ok && periodClosed;
   const vatReport = buildVatReport(db, window.start, window.end);
   const net = vatReport.ok ? vatReport.netVatPayable : 0;
+  const filingError = filing.errors[0] ?? "momsrapporten kan ikke afstemmes";
 
   report.upcomingDeadlines.push({
-    kind: "vat_quarter",
+    kind: "vat_period",
     periodStart: window.start,
     periodEnd: window.end,
     dueDate,
@@ -741,7 +743,9 @@ function reportVatPeriod(
     ready: periodReady,
     note: periodReady
       ? `Momsperioden er lukket — momsangivelse klar (momstilsvar ${formatKroner(net)}).`
-      : `Momsperioden er endnu ikke lukket — luk den med 'period close' før momsangivelse.`,
+      : periodClosed
+        ? `Momsperioden er lukket, men momsangivelsen er blokeret: ${filingError}`
+        : `Momsperioden er endnu ikke lukket — luk den med 'period close' før momsangivelse.`,
   });
 
   // Escalate only when the human still has to act AND the deadline is near
@@ -757,16 +761,24 @@ function reportVatPeriod(
           ? "Momshalvåret"
           : "Momskvartalet";
     routeException(db, report, {
-      type: "AGENT_VAT_DEADLINE_OPEN",
+      type: periodClosed ? "AGENT_VAT_FILING_BLOCKED" : "AGENT_VAT_DEADLINE_OPEN",
       severity: daysRemaining < 0 ? "high" : "medium",
-      message:
-        `${periodWord} ${window.start}..${window.end} er endnu ikke lukket, og momsangivelsen ` +
-        (daysRemaining < 0
-          ? `skulle have været indberettet ${dueDate} (fristen er overskredet med ${Math.abs(daysRemaining)} dage pr. ${asOf}).`
-          : `skal indberettes senest ${dueDate} (${daysRemaining} dage fra ${asOf}).`),
-      requiredAction:
-        "Luk momsperioden med 'period close --kind vat_quarter', og indberet derefter momsangivelsen.",
-      sourceEvidence: { rule: AGENT_RULE_ID, dueDate, daysRemaining, periodStatus: filing.periodStatus },
+      message: periodClosed
+        ? `${periodWord} ${window.start}..${window.end} er lukket, men momsangivelsen kan ikke indberettes: ${filing.errors.join("; ")}. Frist: ${dueDate}.`
+        : `${periodWord} ${window.start}..${window.end} er endnu ikke lukket, og momsangivelsen ` +
+          (daysRemaining < 0
+            ? `skulle have været indberettet ${dueDate} (fristen er overskredet med ${Math.abs(daysRemaining)} dage pr. ${asOf}).`
+            : `skal indberettes senest ${dueDate} (${daysRemaining} dage fra ${asOf}).`),
+      requiredAction: periodClosed
+        ? "Ret momsgrundlag/-konti, så 'vat momsangivelse' afstemmer uden fejl, og indberet derefter via TastSelv."
+        : "Luk momsperioden med 'period close --kind vat_period', og indberet derefter momsangivelsen.",
+      sourceEvidence: {
+        rule: AGENT_RULE_ID,
+        dueDate,
+        daysRemaining,
+        periodStatus: filing.periodStatus,
+        filingErrors: filing.errors,
+      },
     });
   }
 }
@@ -792,7 +804,7 @@ function checkDeadlines(db: Database, asOf: string, report: AgentRunReport): voi
     // The previous period's momsangivelse is the one with a live deadline; it
     // is reported whenever its filing deadline has not yet passed.
     const previous = previousVatPeriod(current);
-    const previousDue = vatFilingDeadline(previous.end) ?? previous.filingDeadline;
+    const previousDue = previous.filingDeadline;
     if (diffDays(asOf, previousDue) >= 0) {
       reportVatPeriod(db, asOf, previous, report);
     }
@@ -869,7 +881,7 @@ function buildSummary(report: AgentRunReport): void {
     lines.push("Ingen deadlines inden for horisonten");
   } else {
     for (const d of report.upcomingDeadlines) {
-      const label = d.kind === "vat_quarter" ? "Momsangivelse" : "Årsrapport";
+      const label = d.kind === "vat_period" ? "Momsangivelse" : "Årsrapport";
       lines.push(
         `${label} ${d.periodStart}..${d.periodEnd} forfalder ${d.dueDate} ` +
           `(${d.daysRemaining} dage) — ${d.ready ? "klar" : "kræver handling"}`,

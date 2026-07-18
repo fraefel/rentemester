@@ -7,6 +7,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
 import { postJournalEntry, reverseJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { postDineroPostings } from "../../src/core/import/dinero-postings";
 
 describe("journal reversal", () => {
   test("can reverse an imported-historical income/expense voucher that has no document", () => {
@@ -19,20 +20,24 @@ describe("journal reversal", () => {
     migrate(db);
     seedAccounts(db);
 
-    const posted = postJournalEntry(db, {
-      transactionDate: "2026-05-16",
-      text: "Imported historical expense",
-      createdByProgram: "rentemester-import-postings",
-      importedHistorical: true,
-      lines: [
-        { accountNo: "3000", debitAmount: 100, text: "Historisk udgift" },
-        { accountNo: "2000", creditAmount: 100, text: "Bank" },
-      ],
-    });
-    expect(posted.ok).toBe(true);
+    const imported = postDineroPostings(
+      db,
+      [{
+        transactionDate: "2026-05-16",
+        text: "Imported historical expense",
+        voucherRef: "REV-1",
+        lines: [
+          { accountNo: "3000", debitAmount: 100, text: "Historisk udgift" },
+          { accountNo: "2000", creditAmount: 100, text: "Bank" },
+        ],
+      }],
+      new Set(["3000", "2000"]),
+    );
+    expect(imported.ok).toBe(true);
+    const posted = imported.posted[0]!;
 
     const reversed = reverseJournalEntry(db, {
-      entryId: posted.entryId!,
+      entryId: posted.entryId,
       transactionDate: "2026-05-17",
       reason: "Forkert migreringspostering",
     });

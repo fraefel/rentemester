@@ -11,6 +11,7 @@ import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 import { ingestDocument } from "../../src/core/documents";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 import { exportAuthorityPackage } from "../../src/core/authority-export";
+import { buildVatReport } from "../../src/core/vat";
 
 function sha256(path: string) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -110,6 +111,7 @@ describe("authority export", () => {
     expect(manifest.files.auditLog).toBe("machine-readable/audit-log.json");
     expect(manifest.files.accounts).toBe("machine-readable/accounts.json");
     expect(manifest.files.exceptions).toBe("machine-readable/exceptions.json");
+    expect(manifest.files.vatReport).toBe("machine-readable/vat-report.json");
     expect(manifest.files.readableDocumentsDir).toBe("documents-readable");
     expect(manifest.sourceCompanyRootName).toBe("company");
     expect(manifest.outputs.every((entry: any) => !entry.path.startsWith("/"))).toBe(true);
@@ -144,6 +146,11 @@ describe("authority export", () => {
 
     const exportedJournal = JSON.parse(readFileSync(join(first.exportDir!, "machine-readable", "journal-entries.json"), "utf8"));
     expect(exportedJournal.every((entry: any) => typeof entry.retainUntil === "string")).toBe(true);
+
+    const exportedVatReport = JSON.parse(
+      readFileSync(join(first.exportDir!, "machine-readable", "vat-report.json"), "utf8"),
+    );
+    expect(exportedVatReport).toEqual(buildVatReport(db, "2026-05-01", "2026-05-31"));
 
     const exportedBank = JSON.parse(readFileSync(join(first.exportDir!, "machine-readable", "bank-transactions.json"), "utf8"));
     expect(exportedBank.every((row: any) => typeof row.retainUntil === "string")).toBe(true);

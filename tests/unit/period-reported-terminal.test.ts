@@ -43,7 +43,7 @@ describe("reported period is terminal in lifecycle replay (KODE-9)", () => {
     // Effective state is reported, and a posting inside the period is blocked.
     expect(effectivePeriodState(db, periodId, "reported")).toBe("reported");
     expect(validateJournalTransactionDate(db, "2026-02-15")).toEqual([
-      "transactionDate 2026-02-15 falls in reported period vat_quarter 2026-01-01..2026-03-31",
+      "transactionDate 2026-02-15 falls in reported period vat_period 2026-01-01..2026-03-31",
     ]);
 
     // An attacker / corrupted client injects a raw reopen fact AFTER the report
@@ -62,7 +62,7 @@ describe("reported period is terminal in lifecycle replay (KODE-9)", () => {
     // the period stays reported and the posting stays blocked.
     expect(effectivePeriodState(db, periodId, "reported")).toBe("reported");
     expect(validateJournalTransactionDate(db, "2026-02-15")).toEqual([
-      "transactionDate 2026-02-15 falls in reported period vat_quarter 2026-01-01..2026-03-31",
+      "transactionDate 2026-02-15 falls in reported period vat_period 2026-01-01..2026-03-31",
     ]);
 
     db.close();
@@ -112,6 +112,82 @@ describe("reported period is terminal in lifecycle replay (KODE-9)", () => {
       "user:attacker",
     );
     expect(effectivePeriodState(db, periodId, "closed")).toBe("reported");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("an audit-only legacy report permits one attributable receipt backfill", () => {
+    const { root, db } = freshDb("rentemester-reported-reference-backfill-");
+    const closed = closeAccountingPeriod(db, {
+      periodStart: "2026-01-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_period",
+      createdBy: "user:ejer",
+    });
+    expect(closed.ok).toBe(true);
+    const periodId = closed.periodId!;
+    db.run(
+      "INSERT INTO audit_log (event_type, entity_type, entity_id, message, actor) VALUES (?, ?, ?, ?, ?)",
+      "period_reopen",
+      "accounting_period",
+      String(periodId),
+      "Legacy reopen",
+      "user:ejer",
+    );
+    db.run(
+      "INSERT INTO audit_log (event_type, entity_type, entity_id, message, actor) VALUES (?, ?, ?, ?, ?)",
+      "period_report",
+      "accounting_period",
+      String(periodId),
+      "Legacy report without structured receipt",
+      "user:ejer",
+    );
+    expect(effectivePeriodState(db, periodId, "closed")).toBe("reported");
+    expect(
+      db.query("SELECT status, reference FROM accounting_periods WHERE id = ?").get(periodId),
+    ).toEqual({ status: "closed", reference: null });
+
+    const backfilled = closeAccountingPeriod(db, {
+      periodStart: "2026-01-01",
+      periodEnd: "2026-03-31",
+      kind: "vat_period",
+      status: "reported",
+      reference: "SKAT-OLD",
+      createdBy: "user:ejer",
+      createdByProgram: "legacy-recovery",
+    });
+    expect(backfilled.ok).toBe(true);
+    expect(backfilled.reference).toBe("SKAT-OLD");
+    expect(
+      db.query("SELECT status, reference FROM accounting_periods WHERE id = ?").get(periodId),
+    ).toEqual({ status: "reported", reference: "SKAT-OLD" });
+    expect(
+      db.query(
+        "SELECT actor, event_type FROM audit_log WHERE event_type = 'period_report_reference_backfill' ORDER BY id DESC LIMIT 1",
+      ).get(),
+    ).toEqual({
+      actor: "user:ejer via legacy-recovery",
+      event_type: "period_report_reference_backfill",
+    });
+    expect(
+      closeAccountingPeriod(db, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        kind: "vat_period",
+        status: "reported",
+        reference: "SKAT-OLD",
+      }).ok,
+    ).toBe(true);
+    expect(
+      closeAccountingPeriod(db, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        kind: "vat_period",
+        status: "reported",
+        reference: "SKAT-DIFFERENT",
+      }).ok,
+    ).toBe(false);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

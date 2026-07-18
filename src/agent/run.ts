@@ -95,7 +95,7 @@ export function formatRunReport(report: AgentRunReport): string {
     lines.push("  ✓ ingen deadlines inden for horisonten");
   } else {
     for (const d of report.upcomingDeadlines) {
-      const label = d.kind === "vat_quarter" ? "Momsangivelse" : "Årsrapport";
+      const label = d.kind === "vat_period" ? "Momsangivelse" : "Årsrapport";
       lines.push(
         `  ${d.ready ? "✓" : "!"} ${label} ${d.periodStart}..${d.periodEnd} — ` +
           `forfalder ${d.dueDate} (${d.daysRemaining} dage)`,

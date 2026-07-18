@@ -38,7 +38,7 @@ import type {
   ParseResult,
   SourceParser,
 } from "./types";
-import type { AccountRole } from "../account-roles";
+import { DINERO_VAT_CONTROL_ACCOUNTS } from "../vat-account-semantics";
 
 const SYSTEM = "dinero";
 const LABEL = "Dinero (data export — chart of accounts, master data & opening balance)";
@@ -73,16 +73,6 @@ const VAT_CODE_MAP: Record<string, string> = {
   // Representation has a special limited-deduction code.
   REP: "REPRESENTATION_SPECIAL",
 };
-
-/** Dinero's source-native VAT control accounts. These exact identifiers are
- * source-system evidence, not Rentemester fallback numbers: they are used only
- * while parsing a Dinero chart and never applied to another importer or to a
- * manually created journal. */
-export const DINERO_VAT_CONTROL_ACCOUNTS = {
-  "64000": { role: "output_vat", normalBalance: "credit" },
-  "64040": { role: "reverse_charge_vat", normalBalance: "credit" },
-  "64060": { role: "input_vat", normalBalance: "debit" },
-} as const satisfies Record<string, { role: AccountRole; normalBalance: ImportNormalBalance }>;
 
 // Dinero codes Rentemester has no equivalent for. Listed explicitly so the
 // parser can tell a deliberately-unmapped code apart from an unrecognised one
@@ -403,13 +393,28 @@ function parseDineroSource(input: MultiArtifactSource): ParseResult {
         text: voucher.text,
         voucherRef: voucher.bilag,
         entryType: voucher.voucherType,
-        lines: voucher.lines.map((line) => ({
-          accountNo: line.accountNo,
-          ...(line.debitAmount !== undefined ? { debitAmount: line.debitAmount } : {}),
-          ...(line.creditAmount !== undefined ? { creditAmount: line.creditAmount } : {}),
-          text: line.text,
-          ...(line.vatCode ? { vatCode: line.vatCode } : {}),
-        })),
+        lines: voucher.lines.map((line) => {
+          const sourceVatCode = line.vatCode?.trim() ?? "";
+          const canonicalVatCode =
+            sourceVatCode.length > 0
+              ? VAT_CODE_MAP[vatCodeKey(sourceVatCode)]
+              : undefined;
+          if (sourceVatCode.length > 0 && canonicalVatCode === undefined) {
+            errors.push(
+              `${posteringer.name}: voucher ${voucher.bilag} account ${line.accountNo} has unsupported Dinero Momstype '${sourceVatCode}'`,
+            );
+          }
+          return {
+            accountNo: line.accountNo,
+            ...(line.debitAmount !== undefined ? { debitAmount: line.debitAmount } : {}),
+            ...(line.creditAmount !== undefined ? { creditAmount: line.creditAmount } : {}),
+            text: line.text,
+            // Persist Rentemester's canonical code, never Dinero's display
+            // text (`I25 - ...`). Only a genuinely blank source field may use
+            // the reviewed account default in the historical-import adapter.
+            ...(canonicalVatCode ? { vatCode: canonicalVatCode } : {}),
+          };
+        }),
       }))
     : [];
 

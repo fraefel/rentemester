@@ -11,6 +11,8 @@ export const journalSpecs: CommandSpec[] = [
       "transactionDate: YYYY-MM-DD (påkrævet)",
       "text: tekst (påkrævet)",
       "lines: mindst 2 linjer; hver linje { accountNo, debitAmount | creditAmount, vatCode?, text? }",
+      "vatCode skal være en understøttet, kanonisk kode. En manuel postering på en momskonto kræver koden på den reelle indtægts-/udgiftsgrundlinje; en kode på bank- eller momskontrollinjen tæller ikke.",
+      "Understøttede koder: DK_PURCHASE_25, DK_PURCHASE_EXEMPT, DK_SALE_25, DK_SALE_EXEMPT, EU_SERVICE_REVERSE_CHARGE, NON_EU_SERVICE_REVERSE_CHARGE, REPRESENTATION_SPECIAL, REPRESENTATION_NON_DEDUCTIBLE_VAT, DK_BAD_DEBT_25, REVERSE_CHARGE_EXEMPT, DOMESTIC_REVERSE_CHARGE_EXEMPT, OSS_EU_CONSUMER.",
       "debitAmount/creditAmount: positivt beløb i KRONER (decimal, fx 1250.50) — ikke øre",
       "Hver linje har enten debitAmount eller creditAmount, aldrig begge; sum debet == sum kredit",
       "documentId: heltal — PÅKRÆVET når en linje rammer en udgifts- eller indtægtskonto (bilagsbevis)",

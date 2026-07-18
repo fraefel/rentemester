@@ -1,7 +1,13 @@
 import type { Database } from "bun:sqlite";
-import { buildVatReport, vatFilingDeadline, type VatPeriodReport } from "./vat";
+import { buildVatReport, type VatPeriodReport } from "./vat";
 import { emptyVatRubric, type VatRubric } from "./vat-rubric";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
+import { getCompanySettings } from "./company";
+import {
+  effectivePeriodState,
+  vatPeriodWindowFor,
+  type VatPeriodType,
+} from "./periods";
 
 /**
  * Filing-ready momsangivelse (Danish VAT return).
@@ -11,10 +17,10 @@ import { isValidIsoDate as looksLikeIsoDate } from "./dates";
  * produces the numbers, the user files them. No direct SKAT submission, no
  * OSS/MOSS one-stop-shop.
  *
- * A momsangivelse can only be produced for a VAT period that has been closed
- * (or marked reported) as a vat_quarter accounting period — an open or
- * incomplete period fails clearly. All amounts are integer-øre-deterministic
- * via the money helpers; 25% is the only Danish standard rate.
+ * A momsangivelse can only be produced for an exact registered-cadence VAT
+ * period that has been closed (or marked reported) as a `vat_period` — an
+ * open or incomplete period fails clearly. All amounts are integer-øre-
+ * deterministic via the money helpers; 25% is the Danish standard rate.
  */
 export type VatFilingRubrikker = VatRubric;
 
@@ -23,13 +29,15 @@ export type VatFilingReport = {
   appliedRules: string[];
   periodStart: string;
   periodEnd: string;
-  /** Status of the matching accounting period: "open" when no closed/reported vat_quarter covers it exactly. */
+  /** Company's registered VAT cadence used for bounds and deadline. */
+  vatPeriodType: VatPeriodType | null;
+  /** Status of the matching accounting period: "open" when no final VAT period covers it exactly. */
   periodStatus: "open" | "closed" | "reported";
   /** Reference recorded on the closed accounting period, if any. */
   periodReference: string | null;
   /**
-   * SKAT filing/payment deadline (YYYY-MM-DD) — the 1st of the third month
-   * after the period ends. `null` only when periodEnd is not a valid date.
+   * Cadence-aware SKAT filing/payment deadline (YYYY-MM-DD). `null` only for
+   * a non-registered company or an invalid period end.
    */
   filingDeadline: string | null;
   rubrikker: VatFilingRubrikker;
@@ -41,46 +49,26 @@ export type VatFilingReport = {
 
 const FILING_RULE_ID = "DK-VAT-FILING-001";
 
-/**
- * The standard calendar quarters Rentemester's deadline formula assumes
- * (vatFilingDeadline = 1st of the third month after period-end). Only a
- * quarterly afregningsperiode is supported; monthly/half-yearly cadences have
- * different deadlines and are out of scope.
- *
- * The deadline is NOT shifted off weekends/holidays here: SKAT moves a due date
- * that lands on a non-banking day to the next banking day, which is purely in
- * the taxpayer's favour (later, never earlier). Surfacing the un-shifted,
- * conservative (earliest-possible) date is therefore safe — paying by it can
- * never be late — so the shift is deliberately omitted as cosmetic.
- */
-const STANDARD_QUARTER_SPANS: ReadonlyArray<{ start: string; end: string }> = [
-  { start: "01-01", end: "03-31" },
-  { start: "04-01", end: "06-30" },
-  { start: "07-01", end: "09-30" },
-  { start: "10-01", end: "12-31" },
-];
-
-/** True when [periodStart, periodEnd] spans exactly one standard calendar quarter. */
-function isStandardCalendarQuarter(periodStart: string, periodEnd: string): boolean {
-  const [startYear] = periodStart.split("-");
-  const [endYear] = periodEnd.split("-");
-  if (startYear !== endYear) return false;
-  const startMd = periodStart.slice(5);
-  const endMd = periodEnd.slice(5);
-  return STANDARD_QUARTER_SPANS.some((q) => q.start === startMd && q.end === endMd);
-}
-
 function emptyRubrikker(): VatFilingRubrikker { return emptyVatRubric(); }
 
-function failure(periodStart: string, periodEnd: string, periodStatus: VatFilingReport["periodStatus"], errors: string[], vatReport: VatPeriodReport): VatFilingReport {
+function failure(
+  periodStart: string,
+  periodEnd: string,
+  periodStatus: VatFilingReport["periodStatus"],
+  errors: string[],
+  vatReport: VatPeriodReport,
+  vatPeriodType: VatPeriodType | null,
+  periodReference: string | null = null,
+): VatFilingReport {
   return {
     ok: false,
     appliedRules: [FILING_RULE_ID],
     periodStart,
     periodEnd,
+    vatPeriodType,
     periodStatus,
-    periodReference: null,
-    filingDeadline: vatFilingDeadline(periodEnd),
+    periodReference,
+    filingDeadline: vatReport.filingDeadline,
     rubrikker: emptyRubrikker(),
     vatReport,
     warnings: [],
@@ -91,36 +79,88 @@ function failure(periodStart: string, periodEnd: string, periodStatus: VatFiling
 /**
  * Build a filing-ready momsangivelse for a VAT period.
  *
- * The period must exactly match a closed or reported `vat_quarter`
- * accounting period — otherwise the filing fails (an open period is not yet
- * final and must not be submitted).
+ * The period must exactly match a canonical window for the company's
+ * registered cadence and a closed/reported `vat_period` accounting period.
  */
 export function buildVatFiling(db: Database, periodStart: string, periodEnd: string): VatFilingReport {
   const vatReport = buildVatReport(db, periodStart, periodEnd);
-
-  // Surface date-validation errors from the underlying report verbatim.
-  if (!vatReport.ok) {
-    return failure(periodStart, periodEnd, "open", [...vatReport.errors], vatReport);
-  }
+  const vatPeriodType = getCompanySettings(db).vatPeriodType;
 
   if (!looksLikeIsoDate(periodStart) || !looksLikeIsoDate(periodEnd)) {
-    return failure(periodStart, periodEnd, "open", ["periodStart and periodEnd must be YYYY-MM-DD"], vatReport);
+    return failure(periodStart, periodEnd, "open", ["periodStart and periodEnd must be YYYY-MM-DD"], vatReport, vatPeriodType);
+  }
+
+  if (vatPeriodType === null) {
+    return failure(
+      periodStart,
+      periodEnd,
+      "open",
+      ["selskabet er ikke momsregistreret og har derfor ingen momsangivelsesperiode"],
+      vatReport,
+      null,
+    );
+  }
+
+  const canonicalWindow = vatPeriodWindowFor(periodStart, vatPeriodType);
+  if (
+    canonicalWindow.start !== periodStart ||
+    canonicalWindow.end !== periodEnd
+  ) {
+    return failure(
+      periodStart,
+      periodEnd,
+      "open",
+      [
+        `VAT period ${periodStart}..${periodEnd} does not match the company's registered ${vatPeriodType} cadence; the canonical period containing ${periodStart} is ${canonicalWindow.start}..${canonicalWindow.end}`,
+      ],
+      vatReport,
+      vatPeriodType,
+    );
   }
 
   // A momsangivelse may only be produced for a finalised VAT period. The
-  // period bounds must exactly match a closed or reported vat_quarter
+  // period bounds must exactly match a closed or reported VAT period
   // accounting period; anything else means the period is still open or
   // incomplete and must not be filed.
   const period = db.query(
-    `SELECT status, reference
+    `SELECT id, status, reference
        FROM accounting_periods
       WHERE period_start = ? AND period_end = ? AND kind IN ('vat_period', 'vat_quarter')
-        AND status IN ('closed', 'reported')
       ORDER BY CASE kind WHEN 'vat_period' THEN 0 ELSE 1 END, id DESC
       LIMIT 1`
-  ).get(periodStart, periodEnd) as { status: "closed" | "reported"; reference: string | null } | null;
+  ).get(periodStart, periodEnd) as {
+    id: number;
+    status: "open" | "closed" | "reported";
+    reference: string | null;
+  } | null;
 
-  if (!period) {
+  const periodStatus = period
+    ? effectivePeriodState(db, period.id, period.status)
+    : "open";
+
+  // Resolve lifecycle before surfacing report-integrity failures. A closed
+  // period with malformed legacy VAT data is still closed; labelling it open
+  // would send the user down the wrong recovery path. The report's own
+  // canonical deadline is used, so arbitrary bounds never gain a fake date.
+  if (!vatReport.ok) {
+    const reportErrors = [...vatReport.errors];
+    if (!period || periodStatus === "open") {
+      reportErrors.push(
+        `VAT period ${periodStart}..${periodEnd} is not closed: a momsangivelse requires a closed or reported vat_period accounting period covering exactly this period — run 'period close --kind vat_period' first`,
+      );
+    }
+    return failure(
+      periodStart,
+      periodEnd,
+      periodStatus,
+      reportErrors,
+      vatReport,
+      vatPeriodType,
+      period?.reference ?? null,
+    );
+  }
+
+  if (!period || periodStatus === "open") {
     return failure(
       periodStart,
       periodEnd,
@@ -129,6 +169,7 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
         `VAT period ${periodStart}..${periodEnd} is not closed: a momsangivelse requires a closed or reported vat_period accounting period covering exactly this period — run 'period close --kind vat_period' first`,
       ],
       vatReport,
+      vatPeriodType,
     );
   }
 
@@ -166,23 +207,6 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
   // them are GOODS. This is a warning only; it never changes any amount and
   // never breaks the momstilsvar == netVatPayable invariant.
   const momsAfVarekobUdland = rubrikker.momsAfVarekobUdland;
-  const filingWarnings: string[] = [];
-
-  // Cadence guard (JUR-12): the deadline formula assumes a quarterly
-  // afregningsperiode. If the closed period is not a standard calendar quarter,
-  // the registered cadence is likely monthly or half-yearly — which have
-  // different deadlines Rentemester does not compute. Warn so the user verifies
-  // the filing deadline manually. Warning only: the (conservative, un-shifted)
-  // deadline is still surfaced and the amounts are untouched.
-  if (!isStandardCalendarQuarter(periodStart, periodEnd)) {
-    filingWarnings.push(
-      "Afregningsperioden er ikke et standard-kvartal: Rentemester understøtter " +
-        "kun kvartalsvis momsafregning, og angivelsesfristen (1. i tredje måned " +
-        "efter periodens udløb) er beregnet ud fra denne kadence. Bekræft selskabets " +
-        "registrerede afregningsperiode og den korrekte frist hos SKAT — månedlig " +
-        "eller halvårlig afregning har andre frister.",
-    );
-  }
 
   const euGoodsWarnings: string[] = [];
   if (vatReport.reverseChargePurchaseBase > 0) {
@@ -228,9 +252,10 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
     appliedRules: [FILING_RULE_ID],
     periodStart,
     periodEnd,
-    periodStatus: period.status,
+    vatPeriodType,
+    periodStatus,
     periodReference: period.reference,
-    filingDeadline: vatFilingDeadline(periodEnd),
+    filingDeadline: canonicalWindow.filingDeadline,
     rubrikker: {
       salgsmoms,
       momsAfVarekobUdland,
@@ -242,7 +267,7 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
       rubrikC,
     },
     vatReport,
-    warnings: [...vatReport.warnings, ...filingWarnings, ...euGoodsWarnings],
+    warnings: [...vatReport.warnings, ...euGoodsWarnings],
     errors: [],
   };
 }

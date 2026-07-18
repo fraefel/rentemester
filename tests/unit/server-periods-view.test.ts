@@ -108,7 +108,7 @@ describe("#342 — GET /api/companies/:slug/periods", () => {
       const p = body.periods.periods[0]!;
       expect(p.periodStart).toBe("2026-01-01");
       expect(p.periodEnd).toBe("2026-03-31");
-      expect(p.kind).toBe("vat_quarter");
+      expect(p.kind).toBe("vat_period");
       expect(p.rowStatus).toBe("closed");
       expect(p.effectiveStatus).toBe("closed");
       expect(body.periods.byStatus.closed).toBe(1);

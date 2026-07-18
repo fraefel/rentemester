@@ -158,6 +158,30 @@ describe("VatView — Moms", () => {
     ).toBeInTheDocument();
   });
 
+  test("shows VAT integrity errors and does not offer to lock the period", async () => {
+    mockFetch(route({
+      vatReportErrors: ["Journalpost 17 mangler momskode på grundlinjen."],
+      momsangivelseReady: false,
+    }));
+    renderView();
+    expect(
+      await screen.findByText(/Journalpost 17 mangler momskode/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Luk momsperiode/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("surfaces canonical VAT report warnings before filing", async () => {
+    mockFetch(route({
+      vatReportWarnings: ["Historisk momskorrektion kræver kontrol."],
+    }));
+    renderView();
+    expect(
+      await screen.findByText(/Historisk momskorrektion kræver kontrol/),
+    ).toBeInTheDocument();
+  });
+
   test("closes the VAT period and confirms it", async () => {
     mockFetch({
       ...route(),

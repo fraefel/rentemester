@@ -149,10 +149,10 @@ describe("vat momsangivelse human output (#235, #236)", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-momsangivelse-human-"));
     const company = join(root, "company");
 
-    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
     await Bun.$`bun run src/cli.ts documents ingest --company ${company} --file examples/vendor-invoice.txt --metadata examples/vendor-invoice.metadata.json`.quiet();
     await Bun.$`bun run src/cli.ts journal post --company ${company} --input examples/journal-entry.expense.json`.quiet();
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --status closed`.quiet();
+    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_period --status closed`.quiet();
 
     const human = await runCli([
       "vat", "momsangivelse", "--company", company,
@@ -182,15 +182,14 @@ describe("vat momsangivelse human output (#235, #236)", () => {
     expect(human.stdout).not.toContain("momsAfVarekobUdland");
     expect(human.stdout).not.toContain("periodStatus");
     expect(human.stdout).not.toContain("{");
-    // The SKAT filing/payment deadline — 1st of the third month after the
-    // period ends (May → August). (#236)
-    expect(human.stdout).toContain("SKAT-frist for indberetning og betaling: 2026-08-01");
+    // Monthly filing: 25th of the following month. (#236, #546)
+    expect(human.stdout).toContain("SKAT-frist for indberetning og betaling: 2026-06-25");
 
     // The json path stays byte-stable and now carries filingDeadline.
     const parsed = JSON.parse(jsonRun.stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.rubrikker.momstilsvar).toBe(-250);
-    expect(parsed.filingDeadline).toBe("2026-08-01");
+    expect(parsed.filingDeadline).toBe("2026-06-25");
   });
 });
 
@@ -664,6 +663,6 @@ describe("momsangivelse prerequisite guidance (#227)", () => {
     // The terse core message is still there, plus actionable guidance.
     expect(human.stderr).toContain("Sådan kommer du videre:");
     expect(human.stderr).toContain("rentemester period close");
-    expect(human.stderr).toContain("--kind vat_quarter");
+    expect(human.stderr).toContain("--kind vat_period");
   });
 });

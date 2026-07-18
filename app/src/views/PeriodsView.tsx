@@ -17,6 +17,7 @@ import type {
 import { ErrorState, Loading } from "../components/Feedback";
 
 const KIND_LABEL: Record<AccountingPeriodKind, string> = {
+  vat_period: "Momsperiode",
   vat_quarter: "Momsperiode",
   fiscal_year: "Regnskabsår",
   custom: "Andet",
@@ -197,7 +198,7 @@ function ClosePeriodModal({
 }) {
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
-  const [kind, setKind] = useState<AccountingPeriodKind>("vat_quarter");
+  const [kind, setKind] = useState<AccountingPeriodKind>("vat_period");
   const [reference, setReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // #301 — a period whose end lies in the future is not over yet. Require a
@@ -260,7 +261,7 @@ function ClosePeriodModal({
               value={kind}
               onChange={(e) => setKind(e.target.value as AccountingPeriodKind)}
             >
-              <option value="vat_quarter">Momsperiode</option>
+              <option value="vat_period">Momsperiode</option>
               <option value="fiscal_year">Regnskabsår</option>
               <option value="custom">Andet</option>
             </select>

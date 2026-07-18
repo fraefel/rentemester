@@ -340,8 +340,8 @@ describe("CLI help, examples, and human formatting", () => {
     }
   });
 
-  // #262: vat momsangivelse / vat filing require a closed vat_quarter period;
-  // the help must name the error form and the period close --kind vat_quarter
+  // #262/#546: VAT filing requires a closed cadence-neutral VAT period;
+  // the help must name the error form and the period close --kind vat_period
   // recovery path.
   test("vat momsangivelse help documents the closed-period precondition and fix", async () => {
     for (const sub of ["momsangivelse", "filing"]) {
@@ -356,7 +356,7 @@ describe("CLI help, examples, and human formatting", () => {
       expect(stdout).toContain("Inputnoter:");
       expect(stdout).toMatch(/is not closed/);
       expect(stdout).toContain("period close");
-      expect(stdout).toContain("--kind vat_quarter");
+      expect(stdout).toContain("--kind vat_period");
     }
   });
 

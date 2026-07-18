@@ -3,7 +3,6 @@ import { Database } from "bun:sqlite";
 import { migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { accountRoleStatus, confirmAccountRole, persistAccountRoleProposals, proposeAccountRole, resolveAccountRole } from "../../src/core/account-roles";
-import { createTrustedHistoricalImportProvenance, isTrustedHistoricalImportProvenance } from "../../src/core/import-provenance";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -78,9 +77,22 @@ test("runtime posting helpers contain no native 1200/2000/4000 semantic fallback
   expect(offenders).toEqual([]);
 });
 
-test("historical import provenance is an internal runtime capability, not a forgeable payload", () => {
-  const provenance = createTrustedHistoricalImportProvenance();
-  expect(isTrustedHistoricalImportProvenance(provenance)).toBe(true);
-  expect(isTrustedHistoricalImportProvenance({})).toBe(false);
-  expect(isTrustedHistoricalImportProvenance(JSON.parse(JSON.stringify(provenance)))).toBe(false);
+test("the privileged historical posting adapter is only called by the Dinero importer", () => {
+  const sourceRoot = join(import.meta.dir, "../../src");
+  const callers: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (
+        entry.name.endsWith(".ts") &&
+        path !== join(sourceRoot, "core", "ledger.ts") &&
+        readFileSync(path, "utf8").includes("postVerifiedHistoricalImportEntry")
+      ) {
+        callers.push(path.slice(sourceRoot.length + 1));
+      }
+    }
+  };
+  walk(sourceRoot);
+  expect(callers).toEqual(["core/import/dinero-postings.ts"]);
 });

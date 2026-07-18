@@ -12,7 +12,14 @@ import { resolveOpenExceptionsForBankTransaction } from "./exceptions";
 import { compareDkk, fromOre, roundDkk, roundRate6, toOre } from "./money";
 import { asJournalEntryId, type JournalEntryId } from "./ids";
 import { seedNativeAccountRoles } from "./account-roles";
-import { isTrustedHistoricalImportProvenance, type HistoricalImportProvenance } from "./import-provenance";
+import {
+  HISTORICAL_IMPORT_PROGRAM,
+  isPersistedHistoricalImportProgram,
+} from "./import-provenance";
+import {
+  loadVatAccountSemantics,
+  VAT_LINE_CODES,
+} from "./vat-account-semantics";
 
 export type JournalLineInput = {
   accountNo: string;
@@ -33,26 +40,29 @@ export type JournalEntryInput = {
   fxRateToDkk?: number;
   createdBy?: string;
   createdByProgram?: string;
-  // When true the entry is a migration posting replayed from another
-  // accounting system (the Dinero import, #195): the income/expense
-  // document-evidence requirement is waived because the original receipt has
-  // not been ingested into Rentemester yet (#196 attaches the bilag later).
-  // The entry is still balanced, hash-chained and append-only — and stamped
-  // with an import `createdByProgram` so it is visibly an imported voucher.
-  importedHistorical?: boolean;
-  /**
-   * Internal-only capability carried by a verified historical-import adapter.
-   * It is deliberately not serialisable, so CLI/MCP payloads cannot activate
-   * account-default VAT inference.
-   */
-  historicalImportProvenance?: HistoricalImportProvenance;
   lines: JournalLineInput[];
 };
 
 // `created_by_program` values flagging a journal entry as a replayed import
 // posting (#195). Such entries are exempt from the income/expense
 // document-evidence requirement until #196 attaches the original bilag.
-const IMPORTED_HISTORICAL_PROGRAMS = new Set(["rentemester-import-postings"]);
+const IMPORTED_HISTORICAL_PROGRAMS = new Set([HISTORICAL_IMPORT_PROGRAM]);
+
+type JournalPostingPolicy = {
+  historicalImport: boolean;
+  /** A reversal may faithfully copy an older uncoded VAT correction. */
+  allowUncodedVatControl: boolean;
+};
+
+const MANUAL_POSTING_POLICY: JournalPostingPolicy = {
+  historicalImport: false,
+  allowUncodedVatControl: false,
+};
+
+const HISTORICAL_IMPORT_POSTING_POLICY: JournalPostingPolicy = {
+  historicalImport: true,
+  allowUncodedVatControl: true,
+};
 
 export type JournalPostResult = {
   ok: boolean;
@@ -292,7 +302,11 @@ function accountMap(db: Database) {
   return new Map(rows.map((row) => [row.account_no, row]));
 }
 
-export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
+function validateJournalEntryWithPolicy(
+  db: Database,
+  payload: JournalEntryInput,
+  policy: JournalPostingPolicy,
+) {
   const errors: string[] = [];
   const appliedRules = [LEDGER_RULES.BALANCED, LEDGER_RULES.APPEND_ONLY];
   const lines = payload.lines ?? [];
@@ -308,9 +322,24 @@ export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
   if (currency.length !== 3) errors.push("currency must be a 3-letter ISO code when present");
 
   const accounts = accountMap(db);
+  const vatSemantics = loadVatAccountSemantics(db);
+  const vatAccounts = vatSemantics.amountSideByAccountNo;
   let debitSum = 0n;
   let creditSum = 0n;
   let requiresDocument = false;
+  let touchesVatControl = false;
+  let hasExplicitVatBaseCode = false;
+  let touchesVatSettlement = false;
+  let everyLineIsVatControlOrSettlement = true;
+
+  if (
+    !policy.historicalImport &&
+    isPersistedHistoricalImportProgram(payload.createdByProgram)
+  ) {
+    errors.push(
+      `createdByProgram '${HISTORICAL_IMPORT_PROGRAM}' is reserved for the verified historical-import adapter`,
+    );
+  }
 
   lines.forEach((line, idx) => {
     const debit = normalizeAmount(line.debitAmount);
@@ -320,6 +349,22 @@ export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
       return;
     }
     const account = accounts.get(line.accountNo)!;
+    const isVatControl = vatAccounts.has(line.accountNo);
+    const isVatSettlement = vatSemantics.settlementAccountNos.has(line.accountNo);
+    if (isVatControl) touchesVatControl = true;
+    if (isVatSettlement) touchesVatSettlement = true;
+    if (!isVatControl && !isVatSettlement) everyLineIsVatControlOrSettlement = false;
+    if (line.vatCode != null && typeof line.vatCode !== "string") {
+      errors.push(`lines[${idx}].vatCode must be a string when present`);
+    }
+    if (typeof line.vatCode === "string" && line.vatCode.trim().length > 0) {
+      const vatCode = line.vatCode.trim();
+      if (!VAT_LINE_CODES.has(vatCode)) {
+        errors.push(`lines[${idx}].vatCode '${vatCode}' is not a supported VAT code`);
+      } else if (account.type === "income" || account.type === "expense") {
+        hasExplicitVatBaseCode = true;
+      }
+    }
     if (!account.active) errors.push(`lines[${idx}].accountNo refers to an inactive account`);
     if (debit < 0 || credit < 0) {
       errors.push(`lines[${idx}] debit and credit amounts must not be negative`);
@@ -333,6 +378,22 @@ export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
 
   if (debitSum !== creditSum) {
     errors.push(`journal entry must balance: debit ${fromOre(debitSum)} != credit ${fromOre(creditSum)}`);
+  }
+
+  // #533: a new manual entry that changes a VAT control account without any
+  // explicit base classification can produce the right payable but zero
+  // rubrik bases. Reject it at the write boundary. Verified historical imports
+  // and exact reversals use separate policies because old source systems may
+  // legitimately carry amount-only VAT corrections.
+  if (
+    !policy.allowUncodedVatControl &&
+    touchesVatControl &&
+    !hasExplicitVatBaseCode &&
+    !(touchesVatSettlement && everyLineIsVatControlOrSettlement)
+  ) {
+    errors.push(
+      "manual journal entries that affect a VAT amount account require an explicit vatCode on the VAT base line (for example DK_SALE_25, DK_PURCHASE_25, EU_SERVICE_REVERSE_CHARGE, or REPRESENTATION_SPECIAL)",
+    );
   }
 
   if (currency !== 'DKK') {
@@ -351,7 +412,7 @@ export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
 
   if (requiresDocument) {
     appliedRules.push(LEDGER_RULES.DOCUMENT);
-    if (payload.importedHistorical && !payload.documentId) {
+    if (policy.historicalImport && !payload.documentId) {
       // A replayed migration posting (#195): the original receipt is not yet
       // ingested into Rentemester. The entry is still recorded as needing
       // document evidence — #196 attaches the bilag — but is not rejected.
@@ -369,6 +430,11 @@ export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
   }
 
   return { ok: errors.length === 0, appliedRules, errors };
+}
+
+/** Validate the public/manual journal contract. Import privileges are absent. */
+export function validateJournalEntry(db: Database, payload: JournalEntryInput) {
+  return validateJournalEntryWithPolicy(db, payload, MANUAL_POSTING_POLICY);
 }
 
 // Thrown when the period-lock re-check inside the write transaction fails: a
@@ -390,6 +456,7 @@ function applyJournalEntry(
   db: Database,
   payload: JournalEntryInput,
   accounts: ReturnType<typeof accountMap>,
+  policy: JournalPostingPolicy,
 ): { entryId: JournalEntryId; entryNo: string; previousHash: string; entryHash: string } {
   // KODE-4: re-validate the period lock HERE, inside the BEGIN IMMEDIATE write
   // transaction, not only in the caller's earlier validateJournalEntry. The
@@ -408,16 +475,24 @@ function applyJournalEntry(
   const prevHash = previousHash(db);
   const actor = resolveActor({ createdBy: payload.createdBy, createdByProgram: payload.createdByProgram });
   // Explicit line classification is authoritative. A chart default is only a
-  // historical-import convenience, protected by a module-private capability;
-  // it is never a shortcut for manual/API journals.
-  const trustedHistoricalImport = isTrustedHistoricalImportProvenance(payload.historicalImportProvenance);
-  const canonicalLines = payload.lines.map((line) => ({
-    account_no: line.accountNo,
-    debit_amount: normalizeAmount(line.debitAmount),
-    credit_amount: normalizeAmount(line.creditAmount),
-    vat_code: line.vatCode ?? (trustedHistoricalImport ? accounts.get(line.accountNo)?.default_vat_code ?? null : null),
-    text: line.text ?? null,
-  }));
+  // historical-import convenience, selected only by an internal posting
+  // policy; it is never a shortcut for manual/API journals.
+  const canonicalLines = payload.lines.map((line) => {
+    const explicitVatCode =
+      typeof line.vatCode === "string" ? line.vatCode.trim() : "";
+    return {
+      account_no: line.accountNo,
+      debit_amount: normalizeAmount(line.debitAmount),
+      credit_amount: normalizeAmount(line.creditAmount),
+      vat_code:
+        explicitVatCode.length > 0
+          ? explicitVatCode
+          : policy.historicalImport
+            ? accounts.get(line.accountNo)?.default_vat_code ?? null
+            : null,
+      text: line.text ?? null,
+    };
+  });
   const entryDraft = {
     id: entryId,
     entry_no: entryNo,
@@ -496,8 +571,12 @@ function applyJournalEntry(
   return { entryId: asJournalEntryId(entry.id), entryNo: entry.entry_no, previousHash: prevHash, entryHash };
 }
 
-export function postJournalEntry(db: Database, payload: JournalEntryInput): JournalPostResult {
-  const validation = validateJournalEntry(db, payload);
+function postJournalEntryWithPolicy(
+  db: Database,
+  payload: JournalEntryInput,
+  policy: JournalPostingPolicy,
+): JournalPostResult {
+  const validation = validateJournalEntryWithPolicy(db, payload, policy);
   if (!validation.ok) return { ok: false, appliedRules: validation.appliedRules, errors: validation.errors };
 
   const accounts = accountMap(db);
@@ -505,7 +584,7 @@ export function postJournalEntry(db: Database, payload: JournalEntryInput): Jour
   let applied: ReturnType<typeof applyJournalEntry>;
   try {
     applied = db.transaction(
-      () => applyJournalEntry(db, payload, accounts),
+      () => applyJournalEntry(db, payload, accounts, policy),
       { immediate: true },
     )();
   } catch (error) {
@@ -520,6 +599,30 @@ export function postJournalEntry(db: Database, payload: JournalEntryInput): Jour
 
   const { previousHash: _previousHash, ...result } = applied;
   return { ok: true, appliedRules: validation.appliedRules, errors: [], ...result };
+}
+
+/** Public/manual journal posting. Import privileges cannot be supplied in data. */
+export function postJournalEntry(db: Database, payload: JournalEntryInput): JournalPostResult {
+  return postJournalEntryWithPolicy(db, payload, MANUAL_POSTING_POLICY);
+}
+
+/**
+ * Internal adapter for verified source vouchers. It hardcodes the only
+ * persisted import marker, waives missing Rentemester documents for the replay,
+ * and may persist a reviewed account default when the source line lacks a code.
+ * No equivalent flag exists on the public JournalEntryInput/CLI/MCP contract.
+ *
+ * @internal Used only by `core/import/dinero-postings.ts`.
+ */
+export function postVerifiedHistoricalImportEntry(
+  db: Database,
+  payload: Omit<JournalEntryInput, "createdByProgram">,
+): JournalPostResult {
+  return postJournalEntryWithPolicy(
+    db,
+    { ...payload, createdByProgram: HISTORICAL_IMPORT_PROGRAM },
+    HISTORICAL_IMPORT_POSTING_POLICY,
+  );
 }
 
 // Thrown to unwind a dry-run transaction once its effects have been captured.
@@ -564,7 +667,7 @@ function accountBalanceSnapshot(
 // can report the entry number, hash-chain continuation and per-account balance
 // effect *without* writing anything — not even the allocated sequence number.
 export function dryRunJournalEntry(db: Database, payload: JournalEntryInput): JournalDryRunResult {
-  const validation = validateJournalEntry(db, payload);
+  const validation = validateJournalEntryWithPolicy(db, payload, MANUAL_POSTING_POLICY);
   if (!validation.ok) return { ok: false, appliedRules: validation.appliedRules, errors: validation.errors };
 
   const accounts = accountMap(db);
@@ -577,7 +680,7 @@ export function dryRunJournalEntry(db: Database, payload: JournalEntryInput): Jo
   try {
     db.transaction(() => {
       const before = accountBalanceSnapshot(db, accountNos);
-      const applied = applyJournalEntry(db, payload, accounts);
+      const applied = applyJournalEntry(db, payload, accounts, MANUAL_POSTING_POLICY);
       const after = accountBalanceSnapshot(db, accountNos);
       const effects = accountNos.map((accountNo) => {
         const beforeOre = before.get(accountNo)!.balanceOre;
@@ -653,12 +756,10 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
   // document-less income/expense lines, so it must inherit the SAME exemption
   // the original carries — otherwise validateJournalEntry rejects it with
   // "documentId is required when posting expense or income lines" and a
-  // legitimately posted imported voucher could never be corrected. We mark the
-  // reversal `importedHistorical` (so the post-time DOCUMENT waiver applies)
-  // AND stamp it with the original's import `created_by_program` (so
-  // verifyAuditChain, which keys the same waiver off the program, also exempts
-  // it). When the original DID carry a document, the reversal copies that
-  // document and needs no exemption.
+  // legitimately posted imported voucher could never be corrected. The
+  // reversal selects the internal historical policy and retains the original's
+  // reserved import marker. When the original DID carry a document, the
+  // reversal copies that document and needs no exemption.
   const fromImport =
     IMPORTED_HISTORICAL_PROGRAMS.has(original.created_by_program) &&
     original.document_id == null;
@@ -674,7 +775,6 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
     fxRateToDkk: original.fx_rate_to_dkk ?? undefined,
     createdBy: input.createdBy,
     createdByProgram: fromImport ? original.created_by_program : input.createdByProgram,
-    importedHistorical: fromImport ? true : undefined,
     lines: originalLines.map((line) => ({
       accountNo: line.account_no,
       debitAmount: normalizeAmount(line.credit_amount) || undefined,
@@ -684,7 +784,11 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
     })),
   };
 
-  const validation = validateJournalEntry(db, reversalPayload);
+  const reversalPolicy: JournalPostingPolicy = {
+    historicalImport: fromImport,
+    allowUncodedVatControl: true,
+  };
+  const validation = validateJournalEntryWithPolicy(db, reversalPayload, reversalPolicy);
   if (!validation.ok) return { ok: false, appliedRules: [...new Set([...appliedRules, ...validation.appliedRules])], errors: validation.errors };
 
   const accounts = accountMap(db);

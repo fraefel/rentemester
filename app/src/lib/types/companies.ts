@@ -46,7 +46,7 @@ export type CompanySummary = {
   omsaetning: number;
   /** Actual bank balance from the imported statement, kroner; null if unknown. */
   actualBankBalance: number | null;
-  /** Current half-year VAT position + deadline; null when unknown. */
+  /** Current registered VAT-period position + deadline; null when unknown. */
   vat: CompanyVatSummary | null;
   /** Open tasks across the company. */
   openTaskCount: number;

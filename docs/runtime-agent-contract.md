@@ -63,7 +63,7 @@ depend on an earlier one's output.
    into the exception queue (`UNMATCHED_BANK_TRANSACTION`), via the shared
    reconciliation function. It runs *after* the payables phase so a creditor
    item just settled is no longer unmatched.
-6. **deadlines** — check the VAT-quarter and fiscal-year (årsrapport)
+6. **deadlines** — check registered VAT-period and fiscal-year (årsrapport)
    deadlines relative to `--as-of`. A VAT period that is still open and
    whose filing deadline is near (or past) is escalated as an
    `AGENT_VAT_DEADLINE_OPEN` exception. The phase also **surfaces** every
@@ -169,7 +169,7 @@ A single run produces one `AgentRunReport` object. Top-level fields:
 | `payablesMatched` | `PayableMatch[]` | The creditor items the agent settled automatically — an unmatched outgoing bank payment whose amount exactly matches exactly one open payable's open balance. Additive field; empty on a run with no payables. See below. |
 | `accrualRecognitionsDue` | `number` | Count of accrual recognition periods that are due/overdue as of `asOf` and not yet posted. Each is also surfaced as an `AGENT_ACCRUAL_RECOGNITION_DUE` exception. The agent never posts the recognition entry. |
 | `openExceptions` | `RoutedException[]` | Exceptions still open at end of run — the human's work list. See below. |
-| `upcomingDeadlines` | `DeadlineNotice[]` | VAT-quarter and fiscal-year deadlines relative to `asOf`. See below. |
+| `upcomingDeadlines` | `DeadlineNotice[]` | Registered VAT-period and fiscal-year deadlines relative to `asOf`. See below. |
 | `summary` | `string[]` | Plain-language (Danish) lines describing what was done and what needs the human. |
 | `errors` | `string[]` | Fatal-error messages. Empty on a clean run. |
 
@@ -204,7 +204,7 @@ A single run produces one `AgentRunReport` object. Top-level fields:
 | Field | Type | Meaning |
 |-------|------|---------|
 | `exceptionId` | `number` | The exception row id (use it with `exception resolve`). |
-| `type` | `string` | The exception type, e.g. `AGENT_DOCUMENT_REJECTED`, `AGENT_LOW_CONFIDENCE_MATCH`, `AGENT_NO_ACCOUNT_RULE`, `AGENT_POSSIBLE_FIXED_ASSET`, `AGENT_BOOKING_BLOCKED`, `AGENT_VAT_DEADLINE_OPEN`, `AGENT_PAYABLE_OVERDUE`, `AGENT_PAYABLE_MATCH_UNCERTAIN`, `AGENT_ACCRUAL_RECOGNITION_DUE`, `AGENT_TAX_RETURN_NEEDS_REVIEW`. |
+| `type` | `string` | The exception type, e.g. `AGENT_DOCUMENT_REJECTED`, `AGENT_LOW_CONFIDENCE_MATCH`, `AGENT_NO_ACCOUNT_RULE`, `AGENT_POSSIBLE_FIXED_ASSET`, `AGENT_BOOKING_BLOCKED`, `AGENT_VAT_DEADLINE_OPEN`, `AGENT_VAT_FILING_BLOCKED`, `AGENT_PAYABLE_OVERDUE`, `AGENT_PAYABLE_MATCH_UNCERTAIN`, `AGENT_ACCRUAL_RECOGNITION_DUE`, `AGENT_TAX_RETURN_NEEDS_REVIEW`. |
 | `severity` | `string` | `low` / `medium` / `high`. |
 | `message` | `string` | Human-readable description of what the agent could not resolve. |
 | `requiredAction` | `string \| null` | The concrete next step for the human, or `null`. |
@@ -213,12 +213,12 @@ A single run produces one `AgentRunReport` object. Top-level fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `kind` | `"vat_quarter" \| "fiscal_year"` | Which statutory deadline this notice is for. |
+| `kind` | `"vat_period" \| "fiscal_year"` | Which statutory deadline this notice is for. `vat_period` follows the company's configured monthly, quarterly or half-yearly cadence. |
 | `periodStart` | `string` | `YYYY-MM-DD` start of the period. |
 | `periodEnd` | `string` | `YYYY-MM-DD` end of the period. |
 | `dueDate` | `string` | `YYYY-MM-DD` statutory filing/finalisation deadline. |
 | `daysRemaining` | `number` | Days from `asOf` to `dueDate`; negative when the deadline is already past. |
-| `ready` | `boolean` | `true` when the period is already closed/reported and ready to file. `fiscal_year` notices are always `false` (the human finalises the årsrapport). |
+| `ready` | `boolean` | `true` only when the VAT period is closed/reported **and** the canonical VAT filing has no blocking errors. `fiscal_year` notices are always `false` (the human finalises the årsrapport). |
 | `note` | `string` | Plain-language (Danish) status line for this deadline. |
 
 ## Out of scope

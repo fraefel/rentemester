@@ -9,7 +9,7 @@ describe("period close CLI", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-periodcli-"));
     const company = join(root, "company");
 
-    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
 
     const closeProc = Bun.spawn([
       "bun", "run", "src/cli.ts", "period", "close",
@@ -46,12 +46,12 @@ describe("period close CLI", () => {
     expect({ closeExitCode, closeStderr }).toEqual({ closeExitCode: 0, closeStderr: "" });
     const closed = JSON.parse(closeStdout);
     expect(closed.ok).toBe(true);
-    expect(closed.kind).toBe("vat_quarter");
+    expect(closed.kind).toBe("vat_period");
 
     expect({ postExitCode, postStderr }).toEqual({ postExitCode: 1, postStderr: "" });
     const blocked = JSON.parse(postStdout);
     expect(blocked.ok).toBe(false);
-    expect(blocked.errors).toContain("transactionDate 2026-05-16 falls in closed period vat_quarter 2026-05-01..2026-05-31 ref SKAT-Q2-2026");
+    expect(blocked.errors).toContain("transactionDate 2026-05-16 falls in closed period vat_period 2026-05-01..2026-05-31 ref SKAT-Q2-2026");
   });
 });
 
@@ -60,7 +60,7 @@ describe("period reopen CLI (#247)", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-periodreopen-"));
     const company = join(root, "company");
 
-    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
 
     // Close 2026-05.
     await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer`.quiet();
@@ -121,7 +121,7 @@ describe("period reopen CLI (#247)", () => {
   test("refuses to reopen without a reason", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-periodreopen-noreason-"));
     const company = join(root, "company");
-    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
     await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer`.quiet();
 
     const proc = Bun.spawn(

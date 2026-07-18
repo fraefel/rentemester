@@ -93,6 +93,8 @@ export function buildCompanyVat(
         // no provisional figures are ever claimed filing-ready.
         periodStatus: "open" as EffectivePeriodState,
         momsangivelseReady: false,
+        vatReportErrors: [] as string[],
+        vatReportWarnings: [] as string[],
         rubrikker: emptyVatRubrikker(),
       };
     }
@@ -122,7 +124,8 @@ export function buildCompanyVat(
       vat.periodEnd,
     );
     const momsangivelseReady =
-      periodStatus === "closed" || periodStatus === "reported";
+      (periodStatus === "closed" || periodStatus === "reported") &&
+      vat.reportOk;
 
     // The full SKAT TastSelv rubrics — the same numbers the CLI's
     // `vat momsangivelse` reports — so an owner can file straight from here.
@@ -150,6 +153,8 @@ export function buildCompanyVat(
       daysRemaining: daysBetween(asOfDate, deadline),
       periodStatus,
       momsangivelseReady,
+      vatReportErrors: vat.reportErrors,
+      vatReportWarnings: vat.reportWarnings,
       rubrikker,
     };
   } finally {

@@ -324,7 +324,7 @@ export async function withCompanyMutation<T extends CoreResult>(
     //   - "already done":   `allerede` (Danish) OR `already` (English);
     //   - "overlapping state": `overlaps` — the period core (#287) refuses a
     //     `period close` whose range collides with an existing period
-    //     (`vat_quarter period … overlaps existing period …`). Closing an
+    //     (`vat_period period … overlaps existing period …`). Closing an
     //     already-closed period is a conflict with existing ledger state,
     //     not a bad input, so it is a 409.
     // The invoice core (#213, slice 4) speaks ENGLISH for its idempotency

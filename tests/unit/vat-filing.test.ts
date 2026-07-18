@@ -7,15 +7,17 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
 import { buildVatFiling } from "../../src/core/vat-filing";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod, setCompanyVatPeriodType, type VatPeriodType } from "../../src/core/periods";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 
-function newCompany(prefix: string) {
+function newCompany(prefix: string, cadence: VatPeriodType = "month") {
   const root = mkdtempSync(join(tmpdir(), prefix));
   const inbox = mkdtempSync(join(tmpdir(), `${prefix}inbox-`));
   const db = openDb(ensureCompanyDirs(root).db);
   migrate(db);
   seedAccounts(db);
+  db.run("INSERT INTO companies (id, name) VALUES (1, 'Test ApS')");
+  expect(setCompanyVatPeriodType(db, cadence).ok).toBe(true);
   return { root, inbox, db };
 }
 
@@ -430,7 +432,7 @@ describe("vat momsangivelse (filing)", () => {
   });
 
   test("fails when the period does not exactly match a closed accounting period", () => {
-    const { root, inbox, db } = newCompany("rentemester-vatfiling-mismatch-");
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-mismatch-", "quarter");
     ingest(db, root, inbox, "INV-FIL-MM", "DK11223344");
 
     // Close the full quarter, then ask for filing of a single month.
@@ -452,7 +454,7 @@ describe("vat momsangivelse (filing)", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("warns when the closed period is not a standard calendar quarter (deadline cadence assumption)", () => {
+  test("accepts an exact registered monthly period with the monthly deadline", () => {
     const { root, inbox, db } = newCompany("rentemester-vatfiling-nonquarter-");
     const docId = ingest(db, root, inbox, "INV-FIL-NQ", "DK11223344");
 
@@ -468,11 +470,10 @@ describe("vat momsangivelse (filing)", () => {
     });
     expect(sale.ok).toBe(true);
 
-    // A single month closed as a vat_quarter — not a real calendar quarter.
     const closed = closeAccountingPeriod(db, {
       periodStart: "2026-02-01",
       periodEnd: "2026-02-28",
-      kind: "vat_quarter",
+      kind: "vat_period",
       status: "closed",
       createdBy: "agent:test",
     });
@@ -480,12 +481,8 @@ describe("vat momsangivelse (filing)", () => {
 
     const filing = buildVatFiling(db, "2026-02-01", "2026-02-28");
     expect(filing.ok).toBe(true);
-    // Filing still succeeds (the cadence shift is in the taxpayer's favour /
-    // cosmetic), but the user must be warned that the deadline assumes a
-    // quarterly cadence.
-    expect(
-      filing.warnings.some((w) => w.toLowerCase().includes("kvartal") || w.toLowerCase().includes("afregningsperiode")),
-    ).toBe(true);
+    expect(filing.vatPeriodType).toBe("month");
+    expect(filing.filingDeadline).toBe("2026-03-25");
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -493,7 +490,7 @@ describe("vat momsangivelse (filing)", () => {
   });
 
   test("does not warn about cadence for a standard calendar-quarter period", () => {
-    const { root, inbox, db } = newCompany("rentemester-vatfiling-quarter-ok-");
+    const { root, inbox, db } = newCompany("rentemester-vatfiling-quarter-ok-", "quarter");
     const docId = ingest(db, root, inbox, "INV-FIL-QOK", "DK11223344");
     const sale = postJournalEntry(db, {
       transactionDate: "2026-03-10",

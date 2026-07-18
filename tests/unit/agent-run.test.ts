@@ -23,6 +23,7 @@ import { ingestDocument } from "../../src/core/documents";
 import { registerPayable } from "../../src/core/payables";
 import { registerAccrual } from "../../src/core/accruals";
 import { registerAsset, postDepreciationPeriod } from "../../src/core/assets";
+import { postDineroPostings } from "../../src/core/import/dinero-postings";
 
 const DEMO_DIR = join(import.meta.dir, "..", "..", "examples", "agent-demo");
 const INBOX = join(DEMO_DIR, "inbox");
@@ -76,15 +77,17 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
       expect(report.bankTransactionsImported).toBe(7);
 
       // The unambiguous standard-VAT operating expenses (deterministic account
-      // rule, no foreign-VAT guardrail) book automatically: DSB is a DK
-      // supplier; Google Ireland bills DK VAT for Workspace so it is standard
-      // too. The Elgiganten purchase is a 12.000 DKK MacBook — an asset-like
+      // rule, no foreign-VAT guardrail) book automatically: DSB has a resolved
+      // Danish CVR. Google Ireland only supplies an IE VAT identifier while
+      // claiming Danish VAT, so the strengthened supplier-identity guardrail
+      // routes it for human resolution instead of claiming Danish input VAT.
+      // The Elgiganten purchase is a 12.000 DKK MacBook — an asset-like
       // category — so the loop does NOT auto-book it as an operating expense;
       // it routes it for a fixed-asset decision (#223). The reverse-charge EU
       // purchases (OpenAI, AWS) do NOT auto-book either — the VIES guardrail
       // fires and the agent obeys it.
       const bookedSuppliers = report.expensesBooked.map((e) => e.supplier).sort();
-      expect(bookedSuppliers).toEqual(["DSB", "Google Ireland Limited"]);
+      expect(bookedSuppliers).toEqual(["DSB"]);
       for (const e of report.expensesBooked) {
         expect(e.journalEntryNo).toBeTruthy();
         expect(e.vatTreatment).toBe("standard");
@@ -112,7 +115,7 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
       // The deadline check surfaces the VAT quarter the company is currently
       // accruing in (Q2 2026, the one containing the as-of date).
       expect(report.upcomingDeadlines.length).toBeGreaterThan(0);
-      const vatQuarters = report.upcomingDeadlines.filter((d) => d.kind === "vat_quarter");
+      const vatQuarters = report.upcomingDeadlines.filter((d) => d.kind === "vat_period");
       expect(vatQuarters.length).toBeGreaterThan(0);
       const currentQuarter = vatQuarters.find((d) => d.periodStart === "2026-04-01");
       expect(currentQuarter).toBeDefined();
@@ -219,7 +222,7 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
       const closed = closeAccountingPeriod(db, {
         periodStart: "2026-01-01",
         periodEnd: "2026-03-31",
-        kind: "vat_quarter",
+        kind: "vat_period",
         createdBy: "system:test",
         createdByProgram: "agent-run-test",
       });
@@ -230,7 +233,7 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
       expect(report.ok).toBe(true);
 
       const closedQuarter = report.upcomingDeadlines.find(
-        (d) => d.kind === "vat_quarter" && d.periodStart === "2026-01-01" && d.ready,
+        (d) => d.kind === "vat_period" && d.periodStart === "2026-01-01" && d.ready,
       );
       expect(closedQuarter).toBeDefined();
       // The note must use the kroner formatter ("kr.") and must NOT label the
@@ -238,6 +241,48 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
       expect(closedQuarter!.note).toContain("momstilsvar");
       expect(closedQuarter!.note).toContain("kr.");
       expect(closedQuarter!.note).not.toContain("øre");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a closed VAT period with a blocking report error is not announced as filing-ready", () => {
+    const root = freshCompany();
+    try {
+      const db = openDb(companyPaths(root).db);
+      migrate(db);
+      const imported = postDineroPostings(db, [{
+        transactionDate: "2026-02-15",
+        text: "Historical base without booked input VAT",
+        voucherRef: "AGENT-VAT-BLOCKED",
+        lines: [
+          { accountNo: "3000", debitAmount: 100, vatCode: "DK_PURCHASE_25" },
+          { accountNo: "2000", creditAmount: 100 },
+        ],
+      }], new Set(["3000", "2000"]));
+      expect(imported.ok).toBe(true);
+      expect(closeAccountingPeriod(db, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        kind: "vat_period",
+        force: true,
+      }).ok).toBe(true);
+      db.close();
+
+      const report = runAgentLoop({ companyRoot: root, asOf: AS_OF });
+      expect(report.ok).toBe(true);
+      const blockedPeriod = report.upcomingDeadlines.find(
+        (d) => d.kind === "vat_period" && d.periodStart === "2026-01-01",
+      );
+      expect(blockedPeriod).toBeDefined();
+      expect(blockedPeriod!.ready).toBe(false);
+      expect(blockedPeriod!.note).toContain("momsangivelsen er blokeret");
+      expect(blockedPeriod!.note).toContain("input VAT mismatch");
+      const blockedException = report.openExceptions.find(
+        (exception) => exception.type === "AGENT_VAT_FILING_BLOCKED",
+      );
+      expect(blockedException).toBeDefined();
+      expect(blockedException!.message).toContain("input VAT mismatch");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -558,7 +603,7 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
         const report = runAgentLoop({ companyRoot: root, asOf: AS_OF });
         expect(report.ok).toBe(true);
         const current = report.upcomingDeadlines.find(
-          (d) => d.kind === "vat_quarter" && d.periodStart === "2026-04-01",
+          (d) => d.kind === "vat_period" && d.periodStart === "2026-04-01",
         );
         expect(current).toBeDefined();
         // Q2 2026: Apr 1 .. Jun 30, due 1 September.
@@ -577,16 +622,16 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
         // The as-of date is in May 2026 — a monthly filer's current VAT period
         // is May 2026, NOT the hardcoded Q2 quarter.
         const current = report.upcomingDeadlines.find(
-          (d) => d.kind === "vat_quarter" && d.periodStart === "2026-05-01",
+          (d) => d.kind === "vat_period" && d.periodStart === "2026-05-01",
         );
         expect(current).toBeDefined();
         expect(current!.periodEnd).toBe("2026-05-31");
-        // Filing deadline: 1st of the third month after period end (Aug 1).
-        expect(current!.dueDate).toBe("2026-08-01");
+        // Monthly filing deadline: 25th of the following month.
+        expect(current!.dueDate).toBe("2026-06-25");
         // No hardcoded quarter window leaks through.
         expect(
           report.upcomingDeadlines.some(
-            (d) => d.kind === "vat_quarter" && d.periodEnd === "2026-06-30",
+            (d) => d.kind === "vat_period" && d.periodEnd === "2026-06-30",
           ),
         ).toBe(false);
       } finally {
@@ -601,7 +646,7 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
         expect(report.ok).toBe(true);
         // May 2026 falls in the first half-year period: Jan 1 .. Jun 30.
         const current = report.upcomingDeadlines.find(
-          (d) => d.kind === "vat_quarter" && d.periodStart === "2026-01-01",
+          (d) => d.kind === "vat_period" && d.periodStart === "2026-01-01",
         );
         expect(current).toBeDefined();
         expect(current!.periodEnd).toBe("2026-06-30");

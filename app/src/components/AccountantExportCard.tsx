@@ -22,7 +22,7 @@ import { Banner } from "./Feedback";
  *
  * The default period spans the current calendar year up to today, which
  * matches the year-end use case. The owner can narrow or widen it to any
- * sub-period (e.g. one VAT quarter) before generating.
+ * sub-period (e.g. one registered VAT period) before generating.
  */
 export function AccountantExportCard({ slug }: { slug: string }) {
   // Use the LOCAL date — `toISOString()` is UTC and is off-by-one in Danish

@@ -14,6 +14,7 @@ import {
   vatPeriodsForYear,
   vatPeriodWindowFor,
   setCompanyVatPeriodType,
+  reopenAccountingPeriod,
 } from "../../src/core/periods";
 import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
 import { createCompany } from "../../src/core/company";
@@ -55,18 +56,36 @@ function makeWorkspace(label: string, vatPeriodType: string) {
 }
 
 /**
- * Books output VAT (a credit on the `vat`-type account `1200`) on `date` so a
- * VAT period carrying that date has activity and a positive payable.
+ * Books a documented taxable sale on `date` so the VAT period has both an
+ * explicit taxable base and the corresponding output-VAT amount.
  */
 function postVatSale(ws: string, slug: string, date: string, vatAmount = 250) {
   const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
   try {
     migrate(db);
+    const netAmount = vatAmount * 4;
+    const grossAmount = netAmount + vatAmount;
+    const document = db.query(
+      `INSERT INTO documents (
+         source, sha256_hash, invoice_no, invoice_date, amount_inc_vat,
+         currency, vat_amount, document_type, retain_until
+       ) VALUES (?, ?, ?, ?, ?, 'DKK', ?, 'issued_invoice', '2031-12-31')
+       RETURNING id`,
+    ).get(
+      "test-fixture",
+      `vat-period-type-${date}-${vatAmount}`,
+      `VAT-${date}-${vatAmount}`,
+      date,
+      grossAmount,
+      vatAmount,
+    ) as { id: number };
     const res = postJournalEntry(db, {
       transactionDate: date,
       text: "Salg med moms",
+      documentId: document.id,
       lines: [
-        { accountNo: "2000", debitAmount: vatAmount },
+        { accountNo: "2000", debitAmount: grossAmount },
+        { accountNo: "1000", creditAmount: netAmount, vatCode: "DK_SALE_25" },
         { accountNo: "1200", creditAmount: vatAmount },
       ],
     });
@@ -512,7 +531,7 @@ describe("cockpit reopen period (#301)", () => {
       // `withCompanyMutation`'s core-result mapping.
       expect(res.status).toBe(400);
       expect(res.body.ok).toBe(false);
-      expect(JSON.stringify(res.body)).toContain("no vat_quarter period");
+      expect(JSON.stringify(res.body)).toContain("no vat_period period");
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -784,6 +803,49 @@ describe("setCompanyVatPeriodType — deregistration guard vs open VAT periods",
       expect(res.ok).toBe(false);
       expect(res.changed).toBe(false);
       expect(res.errors[0]).toContain("åben momsperiode");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("deregistered companies cannot reopen VAT periods and can recover only the compatible cadence", async () => {
+    const { root: ws, slug } = makeWorkspace("dereg-recover", "quarter");
+    try {
+      postVatSale(ws, slug, "2026-02-15");
+      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        confirm: true,
+      });
+      expect(closed.status).toBe(200);
+      const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+      migrate(db);
+      expect(setCompanyVatPeriodType(db, null).ok).toBe(true);
+      const reopenWhileUnregistered = reopenAccountingPeriod(db, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        kind: "vat_period",
+        reason: "må ikke strande perioden",
+      });
+      expect(reopenWhileUnregistered.ok).toBe(false);
+      expect(reopenWhileUnregistered.errors.join(" ")).toContain(
+        "ikke er momsregistreret",
+      );
+      const incompatible = setCompanyVatPeriodType(db, "half-year");
+      expect(incompatible.ok).toBe(false);
+      expect(incompatible.errors.join(" ")).toContain("følger en anden kadence");
+      expect(setCompanyVatPeriodType(db, "quarter")).toEqual({
+        ok: true,
+        changed: true,
+        errors: [],
+      });
+      expect(reopenAccountingPeriod(db, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-03-31",
+        kind: "vat_period",
+        reason: "rettelse efter genregistrering",
+      }).ok).toBe(true);
+      db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

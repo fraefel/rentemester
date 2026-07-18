@@ -47,8 +47,9 @@ describe("#294 — scalar-flag tools carry field descriptions and the documentId
     }
     // date must state the YYYY-MM-DD format.
     expect(props.date?.description).toContain("YYYY-MM-DD");
-    // paymentAccount must state the account-2000 default.
-    expect(props.paymentAccount?.description).toContain("2000");
+    // paymentAccount must state the semantic role default, not a native
+    // account-number fallback that may be wrong for imported charts (#544).
+    expect(props.paymentAccount?.description).toContain("confirmed bank role");
   });
 
   test("invoice_remind / journal_reverse flat scalar fields carry descriptions", () => {

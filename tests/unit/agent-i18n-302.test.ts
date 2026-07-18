@@ -103,14 +103,15 @@ describe("#302 — expense posting text is fully Danish", () => {
       const bank = importBankCsv(db, root, csv);
       expect(bank.ok).toBe(true);
 
-      // A cash-register receipt may carry no sender name at all.
+      // A cash-register receipt may carry no sender identity or name at all.
+      // It cannot support Danish input-VAT deduction, so book the gross amount
+      // explicitly as non-deductible while exercising the Danish text fallback.
       const doc = ingestDocument(db, root, sourceFile, {
         source: "photo-upload",
         documentType: "cash_register_receipt",
         issueDate: "2026-05-16",
         amountIncVat: 1250,
         currency: "DKK",
-        sender: { name: "Ukendt forretning" },
         vatAmount: 250,
         paymentDetails: "Card payment",
       });
@@ -121,6 +122,7 @@ describe("#302 — expense posting text is fully Danish", () => {
         documentId: doc.documentId!,
         bankTransactionId: bankRow.id,
         expenseAccountNo: "3000",
+        vatTreatment: "non_deductible",
       });
       expect(booked.ok).toBe(true);
 
@@ -176,7 +178,7 @@ describe("#302 — agent exception messages and the VAT-deadline note are Danish
     try {
       const report = runAgentLoop({ companyRoot: root, asOf: "2026-05-20" });
       const openQuarter = report.upcomingDeadlines.find(
-        (d) => d.kind === "vat_quarter" && !d.ready,
+        (d) => d.kind === "vat_period" && !d.ready,
       );
       expect(openQuarter).toBeDefined();
       // The note (already Danish before #302) must not regress.

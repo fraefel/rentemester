@@ -48,8 +48,8 @@ export function deadlineSection(input: DashboardInput): string {
   const period = {
     label: window ? vatPeriodLabel(window) : "—",
   };
-  // The countdown targets the real SKAT filing/payment deadline — the 1st of
-  // the third month after the period ends — for the company's actual cadence.
+  // The countdown targets the canonical SKAT filing/payment deadline for the
+  // company's actual cadence (including monthly special dates and bank days).
   const deadline = window ? window.filingDeadline : null;
   const daysRemaining = deadline ? signedDaysBetween(input.asOfDate, deadline) : 0;
   const errors = input.vatPeriod.errors ?? [];

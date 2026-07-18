@@ -220,7 +220,7 @@ export async function handleCompanyProfile(
 // --------------------------------------------------------------------------
 // Close an accounting period (#287).
 //
-// A momsangivelse (VAT return) requires a CLOSED `vat_quarter` period — so
+// A momsangivelse (VAT return) requires a CLOSED `vat_period` — so
 // without this route the key recurring legal duty cannot be completed from the
 // Cockpit at all. This route is the third caller of the SAME
 // `closeAccountingPeriod` core function the CLI's `period close` command uses.
@@ -229,7 +229,7 @@ export async function handleCompanyProfile(
 /**
  * POST /api/companies/:slug/periods/close — closes an accounting period.
  *
- * Body: `{ periodStart: string, periodEnd: string, kind?: 'vat_quarter' |
+ * Body: `{ periodStart: string, periodEnd: string, kind?: 'vat_period' |
  * 'fiscal_year' | 'custom', reference?: string, confirm: true }`. Calls the
  * SAME `closeAccountingPeriod` core function the CLI uses.
  *
@@ -259,7 +259,7 @@ export async function handleClosePeriod(
         kindRaw !== "custom"
       ) {
         throw ApiError.badRequest(
-          "'kind' must be 'vat_quarter', 'fiscal_year' or 'custom' when present",
+          "'kind' must be 'vat_period', 'fiscal_year' or 'custom' when present (vat_quarter is a legacy alias)",
         );
       }
       const force = body.force === true;
@@ -313,7 +313,7 @@ export async function handleClosePeriod(
  * POST /api/companies/:slug/periods/reopen — reopens a closed accounting
  * period.
  *
- * Body: `{ periodStart: string, periodEnd: string, kind?: 'vat_quarter' |
+ * Body: `{ periodStart: string, periodEnd: string, kind?: 'vat_period' |
  * 'fiscal_year' | 'custom', reason: string, confirm: true }`. The mandatory
  * `reason` is recorded verbatim in the audit log. Calls the SAME
  * `reopenAccountingPeriod` core the CLI's `period reopen` uses, so a `reported`
@@ -342,7 +342,7 @@ export async function handleReopenPeriod(
         kindRaw !== "custom"
       ) {
         throw ApiError.badRequest(
-          "'kind' must be 'vat_quarter', 'fiscal_year' or 'custom' when present",
+          "'kind' must be 'vat_period', 'fiscal_year' or 'custom' when present (vat_quarter is a legacy alias)",
         );
       }
       const reopened = reopenAccountingPeriod(ctx.db, {

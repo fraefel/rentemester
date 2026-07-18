@@ -166,7 +166,7 @@ describe("journal posting — FX, attribution & period locks", () => {
     const closed = closeAccountingPeriod(db, {
       periodStart: "2026-05-01",
       periodEnd: "2026-05-31",
-      kind: "vat_quarter",
+      kind: "custom",
       reference: "SKAT-Q2-2026"
     });
     expect(closed.ok).toBe(true);
@@ -180,7 +180,7 @@ describe("journal posting — FX, attribution & period locks", () => {
       ]
     });
     expect(insideClosed.ok).toBe(false);
-    expect(insideClosed.errors).toContain("transactionDate 2026-05-16 falls in closed period vat_quarter 2026-05-01..2026-05-31 ref SKAT-Q2-2026");
+    expect(insideClosed.errors).toContain("transactionDate 2026-05-16 falls in closed period custom 2026-05-01..2026-05-31 ref SKAT-Q2-2026");
 
     const futureDated = postJournalEntry(db, {
       transactionDate: "2099-12-31",

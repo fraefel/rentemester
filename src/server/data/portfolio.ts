@@ -39,7 +39,7 @@ import { groupExceptions, type ExceptionGroup } from "./exceptions";
 
 /** The VAT block on a portfolio card — null when no VAT period is known. */
 export type CompanyVatSummary = {
-  /** Net VAT payable for the company's current quarter, kroner. */
+  /** Net VAT payable for the company's selected registered VAT period. */
   payable: number;
   /** The statutory filing/payment deadline (YYYY-MM-DD). */
   deadline: string;
@@ -72,7 +72,7 @@ export type CompanySummary = {
    * importeret" for a company whose import simply lacked a balance column.
    */
   bankStatementStatus: "known" | "no-balance-column" | "none";
-  /** Current half-year VAT position + deadline; null when unknown. */
+  /** Current registered VAT-period position + deadline; null when unknown. */
   vat: CompanyVatSummary | null;
   /** Open tasks — open exceptions, grouped into Danish summary lines. */
   openTaskCount: number;

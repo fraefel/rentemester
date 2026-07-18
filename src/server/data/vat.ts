@@ -44,6 +44,10 @@ export type VatPosition = {
   inputVat: number;
   /** outputVat + outputVatAdjustment − inputVat; positive is payable, kroner. */
   payable: number;
+  /** Whether the canonical VAT report is filing-safe for this period. */
+  reportOk: boolean;
+  reportErrors: string[];
+  reportWarnings: string[];
 };
 
 /**
@@ -54,7 +58,7 @@ export type VatPosition = {
 export type VatRubrikker = VatRubric;
 
 /** Whether a VAT position carries any booked activity at all. */
-function vatQuarterHasActivity(pos: VatPosition): boolean {
+function vatPeriodHasActivity(pos: VatPosition): boolean {
   return (
     pos.payable !== 0 ||
     pos.outputVat !== 0 ||
@@ -64,69 +68,18 @@ function vatQuarterHasActivity(pos: VatPosition): boolean {
 }
 
 /**
- * The VAT position for a period, computed from the VAT *amounts booked on the
- * VAT accounts themselves* — the truthful obligation regardless of how the
- * chart of accounts numbers them.
- *
- * A VAT account is any account that is `type = 'vat'` (the native-Rentemester
- * chart: `1200` Salgsmoms, `4000` Købsmoms) OR sits in the standard Danish VAT
- * block `64000`–`64099` (a Dinero-imported chart, where the VAT accounts are
- * typed `liability`). The `64100` settlement account is excluded — it only
- * moves money between the VAT accounts and the bank and is not itself an
- * obligation.
- *
- * Output VAT is the credit-signed movement of output-side VAT accounts; input
- * VAT the credit-signed movement of input-side ones. An account is input-side
- * when it is debit-normal (the native-Rentemester `4000` Købsmoms) or carries
- * a standard Danish input-VAT account number (`64060` Købsmoms; `64080`/
- * `64085`/`64090` afgift-reclaim). The net payable is output − input —
- * arithmetically the credit-signed net of every VAT account, so it is correct
- * regardless of how cleanly the input/output split lands. Money is kroner.
+ * The VAT position for a period. It is a projection of the canonical core VAT
+ * report, not a second SQL/account-number implementation. Report, filing,
+ * cockpit and exports therefore share account semantics and failure state.
  */
-const INPUT_VAT_ACCOUNT_NOS = new Set(["64060", "64080", "64085", "64090"]);
-
 export function vatPositionForPeriod(
   db: Database,
   periodStart: string,
   periodEnd: string,
 ): VatPosition {
-  const rows = db
-    .query(
-      `SELECT a.account_no     AS accountNo,
-              a.normal_balance AS normalBalance,
-              jl.debit_amount  AS debit,
-              jl.credit_amount AS credit
-         FROM journal_entries je
-         JOIN journal_lines jl ON jl.journal_entry_id = je.id
-         JOIN accounts a       ON a.id = jl.account_id
-        WHERE je.status = 'posted'
-          AND je.transaction_date >= ? AND je.transaction_date <= ?
-          AND (a.type = 'vat'
-               OR (a.account_no >= '64000' AND a.account_no < '64100'))`,
-    )
-    .all(periodStart, periodEnd) as Array<{
-    accountNo: string;
-    normalBalance: "debit" | "credit";
-    debit: number;
-    credit: number;
-  }>;
-
-  let bookedOutputVat = 0;
-  let inputVat = 0;
-  for (const row of rows) {
-    const debit = Number(row.debit ?? 0);
-    const credit = Number(row.credit ?? 0);
-    const isInput =
-      row.normalBalance === "debit" || INPUT_VAT_ACCOUNT_NOS.has(row.accountNo);
-    if (isInput) {
-      inputVat += debit - credit;
-    } else {
-      bookedOutputVat += credit - debit;
-    }
-  }
-
-  bookedOutputVat = roundKroner(bookedOutputVat);
-  inputVat = roundKroner(inputVat);
+  const report = buildVatReport(db, periodStart, periodEnd);
+  const bookedOutputVat = roundKroner(report.outputVat);
+  const inputVat = roundKroner(report.inputVat);
 
   // A bad-debt write-off (debitortab) books a debit on the output-VAT account
   // to claim back the VAT on a receivable that will never be paid. The booked
@@ -135,7 +88,6 @@ export function vatPositionForPeriod(
   // headline salgsmoms shows the genuine VAT on sales and the adjustment sits
   // on its own clearly-labelled line (#271). `buildVatReport` keys the relief
   // off the `DK_BAD_DEBT_25` vat-code base, the same source the CLI uses.
-  const report = buildVatReport(db, periodStart, periodEnd);
   const outputVatAdjustment = roundKroner(
     -percentOfDkk(report.badDebtReliefBase25, 25),
   );
@@ -148,7 +100,10 @@ export function vatPositionForPeriod(
     outputVat,
     outputVatAdjustment,
     inputVat,
-    payable: roundKroner(outputVat + outputVatAdjustment - inputVat),
+    payable: roundKroner(report.netVatPayable),
+    reportOk: report.ok,
+    reportErrors: [...report.errors],
+    reportWarnings: [...report.warnings],
   };
 }
 
@@ -187,7 +142,7 @@ export function selectVatPeriod(
   // The latest period index at or before `cap` that carries activity, or null.
   const latestActiveUpTo = (cap: number): number | null => {
     for (let i = windows.length - 1; i >= 0; i -= 1) {
-      if (i <= cap && vatQuarterHasActivity(positions[i]!)) return i;
+      if (i <= cap && vatPeriodHasActivity(positions[i]!)) return i;
     }
     return null;
   };
@@ -211,7 +166,7 @@ export function selectVatPeriod(
     selected = windows.findIndex(
       (window, index) =>
         index <= currentIndex &&
-        vatQuarterHasActivity(positions[index]!) &&
+        vatPeriodHasActivity(positions[index]!) &&
         vatPeriodEffectiveStatus(db, window.start, window.end) !== "reported",
     );
     if (selected < 0) {
@@ -265,7 +220,7 @@ export function vatPeriodEffectiveStatus(
  * This is the SAME mapping `core/vat-filing.ts#buildVatFiling` applies, run
  * directly off `core/vat.ts#buildVatReport` so the cockpit can show the
  * rubrics for an *open* (not yet closed) period too — `buildVatFiling` itself
- * only produces a return for a closed `vat_quarter` accounting period. The
+ * only produces a return for a closed cadence-neutral VAT period. The
  * numbers are identical to what the CLI's `vat momsangivelse` reports once the
  * period is closed; the cockpit surface and the terminal therefore agree.
  */

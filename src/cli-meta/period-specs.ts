@@ -3,12 +3,12 @@ import type { CommandSpec } from "./_shared";
 export const periodSpecs: CommandSpec[] = [
   {
     key: "period close",
-    usage: "period close --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> [--kind vat_quarter|fiscal_year|custom] [--status closed|reported] [--reference <text>]",
+    usage: "period close --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> [--kind vat_period|fiscal_year|custom] [--status closed|reported] [--reference <text>]",
     description: "Lukker eller markerer en regnskabsperiode. En lukket periode blokerer ny bogføring med transaktionsdato i perioden — og er en forudsætning for 'vat momsangivelse' og 'report annual'.",
     allowedFlags: ["--company", "--from", "--to", "--kind", "--status", "--reference"],
     inputNotes: [
       "--from / --to afgrænser perioden (begge YYYY-MM-DD, inklusive). Perioder af samme --kind må ikke overlappe.",
-      "--kind: vat_quarter (momsperiode — kræves af 'vat momsangivelse'), fiscal_year (regnskabsår — kræves af 'report annual'), custom. Standard: vat_quarter.",
+      "--kind: vat_period (momsperiode for virksomhedens registrerede kadence — kræves af 'vat momsangivelse'), fiscal_year (regnskabsår — kræves af 'report annual'), custom. Standard: vat_period. vat_quarter accepteres kun som legacy-alias.",
       "--status: 'closed' = perioden er afsluttet og bogføringen låst; 'reported' = derudover indberettet til myndigheden (SKAT/Erhvervsstyrelsen). Standard: closed.",
       "Begge statusser låser bogføringen lige hårdt — forskellen er kun om indberetning er sket. Vælg 'reported' når du allerede har indsendt; ellers 'closed'.",
       "--reference: valgfri fri tekst der gemmes på perioden (fx kvittering/journalnummer fra indberetningen).",
@@ -17,7 +17,7 @@ export const periodSpecs: CommandSpec[] = [
   },
   {
     key: "period reopen",
-    usage: "period reopen --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> [--kind vat_quarter|fiscal_year|custom] --reason <text>",
+    usage: "period reopen --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> [--kind vat_period|fiscal_year|custom] --reason <text>",
     description: "Åbner en lukket regnskabsperiode igen via en kontrolleret, fuldt revisionssporet handling. Efter genåbning kan der igen bogføres med transaktionsdato i perioden — luk den igen med 'period close', når rettelsen er bogført.",
     allowedFlags: ["--company", "--from", "--to", "--kind", "--reason"],
     inputNotes: [

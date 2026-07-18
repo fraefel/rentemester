@@ -12,7 +12,7 @@ import { buildVatReport } from "../../src/core/vat";
 import { buildVatFiling } from "../../src/core/vat-filing";
 import { vatRubrikkerForPeriod } from "../../src/server/data/vat";
 import { buildOssReport } from "../../src/core/vat-oss";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod, setCompanyVatPeriodType } from "../../src/core/periods";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 
 function newCompany(prefix: string) {
@@ -21,6 +21,8 @@ function newCompany(prefix: string) {
   const db = openDb(ensureCompanyDirs(root).db);
   migrate(db);
   seedAccounts(db);
+  db.run("INSERT INTO companies (id, name) VALUES (1, 'Test ApS')");
+  expect(setCompanyVatPeriodType(db, "month").ok).toBe(true);
   return { root, inbox, db };
 }
 

@@ -19,7 +19,7 @@ export type ClosePeriodResponse = {
 export type ClosePeriodInput = {
   periodStart: string;
   periodEnd: string;
-  kind?: "vat_quarter" | "fiscal_year" | "custom";
+  kind?: "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
   reference?: string;
 };
 
@@ -44,7 +44,7 @@ export type ReopenPeriodResponse = {
 export type ReopenPeriodInput = {
   periodStart: string;
   periodEnd: string;
-  kind?: "vat_quarter" | "fiscal_year" | "custom";
+  kind?: "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
   reason: string;
 };
 
@@ -52,7 +52,7 @@ export type ReopenPeriodInput = {
 // #342 — Periodelås.
 // ---------------------------------------------------------------------------
 
-export type AccountingPeriodKind = "vat_quarter" | "fiscal_year" | "custom";
+export type AccountingPeriodKind = "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
 export type AccountingPeriodStatus = "open" | "closed" | "reported";
 
 export type AccountingPeriodRow = {

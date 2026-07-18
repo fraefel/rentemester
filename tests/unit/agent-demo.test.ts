@@ -85,8 +85,9 @@ describe("examples/agent-demo/run.ts (rule-based)", () => {
       const audit = verifyAuditChain(db);
       expect(audit.ok).toBe(true);
       const count = audit.entries ?? 0;
-      // 5 auto-bogførte expense-entries.
-      expect(count).toBeGreaterThanOrEqual(5);
+      // Four vouchers have sufficient supplier identity for safe auto-booking;
+      // the Google Ireland voucher is deliberately held for review (#529).
+      expect(count).toBeGreaterThanOrEqual(4);
     } finally {
       db.close();
     }

@@ -85,6 +85,10 @@ export type CompanyVatRegistered = CompanyVatCommon & {
    * momsangivelse unless this is true (#303).
    */
   momsangivelseReady: boolean;
+  /** Blocking integrity/classification errors from the canonical VAT report. */
+  vatReportErrors: string[];
+  /** Non-blocking review notes from the canonical VAT report. */
+  vatReportWarnings: string[];
   /** The full SKAT TastSelv momsangivelse rubrics for the period. */
   rubrikker: VatRubrikker;
 };

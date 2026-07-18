@@ -22,6 +22,7 @@ import { resolveSource } from "../../src/core/import/source";
 import { dineroParser } from "../../src/core/import/dinero";
 import { reconcileChartOfAccounts, reconcileCompanyMasterData } from "../../src/core/import/reconcile";
 import { runImport } from "../../src/core/import/framework";
+import { postDineroPostings } from "../../src/core/import/dinero-postings";
 import { accountRoleStatus, resolveAccountRole } from "../../src/core/account-roles";
 
 const FIXTURE = join(import.meta.dir, "../../examples/import-dinero");
@@ -107,6 +108,15 @@ describe("Dinero parser: multi-file export -> normalised source", () => {
     // An account whose Momstype is unmapped carries no default VAT code.
     const chart = parsed.source!.chartOfAccounts;
     expect(chart.find((a) => a.accountNo === "3020")!.defaultVatCode ?? null).toBeNull();
+  });
+
+  test("blocks a nonblank unsupported Momstype on a historical posting", () => {
+    const source = resolveSource(FIXTURE);
+    const postings = source.files["2025/Posteringer.csv"]!;
+    postings.text = postings.text.replace("I25 -", "MYSTERY -");
+    const parsed = dineroParser.parseSource!(source);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.errors.join(" ")).toContain("unsupported Dinero Momstype 'MYSTERY");
   });
 
   test("parses company master data from Firmaoplysninger.csv", () => {
@@ -213,16 +223,15 @@ describe("Dinero reconciliation into the live ledger", () => {
       // Seeded account 3000 ('Software og SaaS', expense/debit) differs from
       // the fixture's 3000 ('Vareforbrug') — but this time it already carries
       // a posting, so it must NOT be reclassified.
-      const posted = postJournalEntry(db, {
+      const posted = postDineroPostings(db, [{
         transactionDate: "2026-01-15",
         text: "Seed activity on account 3000",
-        importedHistorical: true,
-        createdByProgram: "rentemester-import-postings",
+        voucherRef: "SEED-1",
         lines: [
           { accountNo: "3000", debitAmount: 100 },
           { accountNo: "2000", creditAmount: 100 },
         ],
-      });
+      }], new Set(["3000", "2000"]));
       expect(posted.ok).toBe(true);
 
       const result = reconcileChartOfAccounts(db, source, { createdBy: "user:tester" });

@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   config,
+  companyPaths,
+  companyRootForSlug,
   get,
   makeWorkspace,
+  migrate,
+  openDb,
   postLiability,
   postPnlEntry,
   rmSync,
 } from "./_shared";
+import { postDineroPostings } from "../../../src/core/import/dinero-postings";
 
 describe("cockpit API — obligations (GET .../obligations)", () => {
   test("surfaces VAT with its statutory deadline and liability payables", async () => {
@@ -56,8 +61,42 @@ describe("cockpit API — obligations (GET .../obligations)", () => {
       // *net* VAT computation (here output-only: 4457.25 + 62.50 = 4519.75
       // payable for H1) and must NOT also surface as their own per-account
       // obligations.
-      postLiability(ws, "acme-aps", "2026-06-30", "64000", "Salgsmoms (udgående moms)", 4457.25);
-      postLiability(ws, "acme-aps", "2026-06-30", "64040", "Moms af ydelser fra udlandet", 62.5);
+      const db = openDb(companyPaths(companyRootForSlug(ws, "acme-aps")).db);
+      try {
+        migrate(db);
+        db.run(
+          `INSERT INTO accounts (account_no, name, type, normal_balance)
+           VALUES ('64000', 'Salgsmoms (udgående moms)', 'liability', 'credit'),
+                  ('64040', 'Moms af ydelser fra udlandet', 'liability', 'credit')`,
+        );
+        const imported = postDineroPostings(
+          db,
+          [
+            {
+              transactionDate: "2026-06-30",
+              text: "Historisk salgsmomsregulering",
+              voucherRef: "VAT-OUTPUT",
+              lines: [
+                { accountNo: "2000", debitAmount: 4457.25 },
+                { accountNo: "64000", creditAmount: 4457.25 },
+              ],
+            },
+            {
+              transactionDate: "2026-06-30",
+              text: "Historisk reverse-charge-regulering",
+              voucherRef: "VAT-RC",
+              lines: [
+                { accountNo: "2000", debitAmount: 62.5 },
+                { accountNo: "64040", creditAmount: 62.5 },
+              ],
+            },
+          ],
+          new Set(["2000", "64000", "64040"]),
+        );
+        expect(imported.ok).toBe(true);
+      } finally {
+        db.close();
+      }
       // A genuine, non-VAT liability that MUST still surface unchanged.
       postLiability(ws, "acme-aps", "2026-06-30", "63060", "Skyldig selskabsskat", 264);
       const res = await get(

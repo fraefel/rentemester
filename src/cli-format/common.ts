@@ -78,7 +78,7 @@ function appendPeriodCloseGuidance(lines: string[], errors: string[]): void {
   if (!closeError) return;
   const range = closeError.match(/(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})/);
   const isFiscalYear = /fiscal|regnskabsår|annual/i.test(closeError);
-  const kind = isFiscalYear ? "fiscal_year" : "vat_quarter";
+  const kind = isFiscalYear ? "fiscal_year" : "vat_period";
   const fromTo = range ? `--from ${range[1]} --to ${range[2]}` : "--from <YYYY-MM-DD> --to <YYYY-MM-DD>";
   lines.push("");
   lines.push("  Sådan kommer du videre:");

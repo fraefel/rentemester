@@ -26,16 +26,16 @@
 // The Dinero postings are taken as the source of truth for the migration
 // window: this module does NOT re-derive them from bilag. Linking a receipt to
 // its voucher's journal entry is #196's job — the entries land here with no
-// `document_id`, marked `importedHistorical` so the ledger accepts them.
+// `document_id`, through the ledger's narrow verified-import policy.
 //
 // The parser part is PURE and DETERMINISTIC: the same `Posteringer.csv` always
 // yields the same ordered list of `DineroVoucher`s.
 
 import type { Database } from "bun:sqlite";
-import { postJournalEntry } from "../ledger";
-import { createTrustedHistoricalImportProvenance } from "../import-provenance";
+import { postVerifiedHistoricalImportEntry } from "../ledger";
+import { HISTORICAL_IMPORT_PROGRAM } from "../import-provenance";
 import { isValidIsoDate } from "../dates";
-import { toOre } from "../money";
+import { percentOfDkk, toOre } from "../money";
 import type { ImportHistoricalEntry } from "./types";
 
 /**
@@ -45,7 +45,7 @@ import type { ImportHistoricalEntry } from "./types";
  * can exempt it from the income/expense document-evidence requirement until
  * #196 attaches the bilag.
  */
-export const IMPORT_POSTINGS_PROGRAM = "rentemester-import-postings";
+export const IMPORT_POSTINGS_PROGRAM = HISTORICAL_IMPORT_PROGRAM;
 
 /** The import rule applied to a replayed year-to-date voucher. */
 export const IMPORT_POSTINGS_RULE = "DK-IMPORT-POSTINGS-001";
@@ -283,22 +283,128 @@ function validateVouchers(
 }
 
 /**
+ * Dinero records EU-service reverse charge through the exact control-account
+ * pair 64040 (credit output VAT) + 64060 (debit input VAT). Older exports may
+ * leave Momstype blank on the expense base even though that source-native
+ * control pattern is present. Treating both control movements as unrelated
+ * generic corrections would produce a filing with VAT amounts but no rubrik-A
+ * base. Infer the base only when one unclassified expense line matches the
+ * 25% controls exactly; otherwise fail closed for human resolution.
+ */
+function classifyDineroReverseChargePatterns(
+  db: Database,
+  entries: ImportHistoricalEntry[],
+): { entries: ImportHistoricalEntry[]; errors: string[] } {
+  const accountRows = db
+    .query("SELECT account_no, type, default_vat_code FROM accounts")
+    .all() as Array<{
+    account_no: string;
+    type: string;
+    default_vat_code: string | null;
+  }>;
+  const accounts = new Map(accountRows.map((row) => [row.account_no, row]));
+  const errors: string[] = [];
+  const accountNoOf = (line: ImportHistoricalEntry["lines"][number]): string =>
+    typeof line.accountNo === "string" ? line.accountNo.trim() : "";
+
+  const classified = entries.map((entry, entryIndex) => {
+    const lines = Array.isArray(entry.lines) ? entry.lines : [];
+    const outputControls = lines.filter((line) => accountNoOf(line) === "64040");
+    const inputControls = lines.filter((line) => accountNoOf(line) === "64060");
+    if (outputControls.length === 0 || inputControls.length === 0) return entry;
+
+    const ref = refOf(entry, entryIndex);
+    const outputOre = outputControls.reduce(
+      (sum, line) => sum + toOre(line.creditAmount ?? 0) - toOre(line.debitAmount ?? 0),
+      0n,
+    );
+    const inputOre = inputControls.reduce(
+      (sum, line) => sum + toOre(line.debitAmount ?? 0) - toOre(line.creditAmount ?? 0),
+      0n,
+    );
+    if (outputOre <= 0n || inputOre <= 0n || outputOre !== inputOre) {
+      errors.push(
+        `voucher ${ref} has an inconsistent Dinero reverse-charge control pattern on 64040/64060; human resolution is required`,
+      );
+      return entry;
+    }
+
+    const expenseIndexes = lines.flatMap((line, lineIndex) =>
+      accounts.get(accountNoOf(line))?.type === "expense" ? [lineIndex] : [],
+    );
+    const effectiveCode = (lineIndex: number): string => {
+      const line = lines[lineIndex]!;
+      const explicit = typeof line.vatCode === "string" ? line.vatCode.trim() : "";
+      return explicit || accounts.get(accountNoOf(line))?.default_vat_code?.trim() || "";
+    };
+    const alreadyClassified = expenseIndexes.filter(
+      (lineIndex) => effectiveCode(lineIndex) === "EU_SERVICE_REVERSE_CHARGE",
+    );
+
+    let baseIndexes = alreadyClassified;
+    if (baseIndexes.length === 0) {
+      const conflicting = expenseIndexes.filter((lineIndex) => effectiveCode(lineIndex).length > 0);
+      if (conflicting.length > 0) {
+        errors.push(
+          `voucher ${ref} has Dinero reverse-charge controls but its expense base carries a conflicting VAT code; human resolution is required`,
+        );
+        return entry;
+      }
+      baseIndexes = expenseIndexes.filter((lineIndex) => {
+        const line = lines[lineIndex]!;
+        const netDebit = Number(line.debitAmount ?? 0) - Number(line.creditAmount ?? 0);
+        return netDebit > 0 && toOre(percentOfDkk(netDebit, 25)) === outputOre;
+      });
+      if (baseIndexes.length !== 1) {
+        errors.push(
+          `voucher ${ref} has Dinero reverse-charge controls but no single unclassified expense base matching 25%; human resolution is required`,
+        );
+        return entry;
+      }
+    }
+
+    const baseOre = baseIndexes.reduce((sum, lineIndex) => {
+      const line = lines[lineIndex]!;
+      return sum + toOre(Number(line.debitAmount ?? 0) - Number(line.creditAmount ?? 0));
+    }, 0n);
+    if (toOre(percentOfDkk(Number(baseOre) / 100, 25)) !== outputOre) {
+      errors.push(
+        `voucher ${ref} has Dinero reverse-charge controls that do not reconcile to its classified expense base; human resolution is required`,
+      );
+      return entry;
+    }
+
+    const baseIndexSet = new Set(baseIndexes);
+    return {
+      ...entry,
+      lines: lines.map((line, lineIndex) =>
+        baseIndexSet.has(lineIndex)
+          ? { ...line, vatCode: "EU_SERVICE_REVERSE_CHARGE" }
+          : line,
+      ),
+    };
+  });
+
+  return { entries: classified, errors };
+}
+
+/**
  * Replays a source system's year-to-date vouchers into the live ledger as
  * journal entries — one balanced entry per voucher.
  *
  * The whole batch is validated FIRST (accounts known, every voucher balances);
  * if any voucher fails, nothing is posted and the faults are returned. On a
- * clean batch each voucher is posted via `postJournalEntry`, in voucher order,
+ * clean batch each voucher is posted through the verified import path, in voucher order,
  * stamped with `IMPORT_POSTINGS_PROGRAM` so the entries are auditable imports.
- * Entries are posted `importedHistorical` — the source postings are the
- * migration's source of truth and carry no Rentemester document yet (#196
- * attaches the bilag), so the income/expense document requirement is waived.
+ * The source postings are the migration's source of truth and carry no
+ * Rentemester document yet (#196 attaches the bilag), so the narrow internal
+ * historical-import policy waives that document requirement.
  */
 export function postDineroPostings(
   db: Database,
   entries: ImportHistoricalEntry[],
   chartAccountNos: Set<string>,
-  options: { createdBy?: string; createdByProgram?: string } = {},
+  options: { createdBy?: string } = {},
 ): DineroPostingsResult {
   const auditTrail: string[] = [];
   const posted: PostedVoucher[] = [];
@@ -308,7 +414,11 @@ export function postDineroPostings(
     return { ok: true, posted, auditTrail, errors: [] };
   }
 
-  const validationErrors = validateVouchers(entries, chartAccountNos);
+  const reverseChargeClassification = classifyDineroReverseChargePatterns(db, entries);
+  const validationErrors = [
+    ...reverseChargeClassification.errors,
+    ...validateVouchers(reverseChargeClassification.entries, chartAccountNos),
+  ];
   if (validationErrors.length > 0) {
     auditTrail.push(
       `Year-to-date postings rejected: ${validationErrors.length} voucher validation error(s) — nothing posted`,
@@ -316,12 +426,8 @@ export function postDineroPostings(
     return { ok: false, posted, auditTrail, errors: validationErrors };
   }
 
-  const createdByProgram = options.createdByProgram ?? IMPORT_POSTINGS_PROGRAM;
-  // One opaque capability for this verified import batch. It is intentionally
-  // created inside the importer, never from source payload data.
-  const historicalImportProvenance = createTrustedHistoricalImportProvenance();
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index]!;
+  for (let index = 0; index < reverseChargeClassification.entries.length; index += 1) {
+    const entry = reverseChargeClassification.entries[index]!;
     const ref = refOf(entry, index);
     const baseText = typeof entry.text === "string" && entry.text.trim().length > 0
       ? entry.text.trim()
@@ -331,13 +437,10 @@ export function postDineroPostings(
       entryType.length > 0
         ? `Import: ${entryType} (bilag ${ref}) — ${baseText}`
         : `Import: bilag ${ref} — ${baseText}`;
-    const result = postJournalEntry(db, {
+    const result = postVerifiedHistoricalImportEntry(db, {
       transactionDate: entry.transactionDate,
       text,
       createdBy: options.createdBy,
-      createdByProgram,
-      importedHistorical: true,
-      historicalImportProvenance,
       lines: entry.lines.map((line) => ({
         accountNo: line.accountNo,
         debitAmount: line.debitAmount,

@@ -49,7 +49,11 @@ const lineSchema = z.object({
   vatCode: z
     .string()
     .optional()
-    .describe("Optional VAT code for the line, e.g. 'DK_PURCHASE_25', 'DK_SALE_25'."),
+    .describe(
+      "Optional canonical VAT classification. Unknown values are rejected. " +
+        "When a manual entry changes a VAT amount account, place a supported code " +
+        "on the actual income/expense base line; a code on bank/VAT-control lines does not qualify.",
+    ),
   text: z.string().optional().describe("Optional free-text description of the line."),
 });
 

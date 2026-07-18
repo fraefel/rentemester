@@ -6,8 +6,18 @@ import { requireCachedViesValidation, normalizeEuVatNumber } from "./vies";
 import { addDkk, compareDkk, fromOre, percentOfDkk, roundDkk, subtractDkk, sumDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
 import { emptyVatRubric, projectVatRubric, type VatRubric } from "./vat-rubric";
+import {
+  loadVatAccountSemantics,
+  VAT_LINE_CODES,
+} from "./vat-account-semantics";
+import { isPersistedHistoricalImportProgram } from "./import-provenance";
 import { deductibleDanishPurchaseSupplierErrors, resolvePersistedSupplierIdentity, type SupplierIdentityResolution } from "./supplier-identity";
 import { parsePurchaseVatLinesPayload } from "./documents";
+import { vatPeriodWindowFor, type VatPeriodType } from "./periods";
+
+// Backward-compatible export; the implementation lives in the canonical
+// cadence engine (`periods.ts`). New callers should import it there.
+export { vatFilingDeadline } from "./periods";
 
 /** Absolute difference between two DKK amounts, expressed in whole øre. */
 function oreDifference(left: number, right: number): number {
@@ -20,6 +30,10 @@ export type VatPeriodReport = {
   appliedRules: string[];
   periodStart: string;
   periodEnd: string;
+  /** Registered cadence, null for a non-registered company. */
+  vatPeriodType: VatPeriodType | null;
+  /** Deadline only when the requested bounds equal one canonical VAT period. */
+  filingDeadline: string | null;
   outputVat: number;
   inputVat: number;
   netVatPayable: number;
@@ -54,13 +68,11 @@ export type VatPeriodReport = {
    * foreign-service reverse-charge VAT, but never to EU-only rubrik A. */
   nonEuServiceReverseChargePurchaseBase: number;
   /**
-   * Output VAT actually booked on the reverse-charge VAT role by foreign
-   * service purchases (EU and non-EU). This is
-   * the *booked* sum — the øre-rounded VAT of each individual purchase added up
-   * — which can differ by up to 1 øre per purchase from 25% of the summed
-   * combined EU/non-EU foreign-service base. The momsangivelse uses this figure for "Moms af
-   * ydelseskøb i udlandet" so that rubrik, and the salgsmoms derived by
-   * subtracting it from the booked outputVat, are both exact.
+   * Output VAT allocated to foreign-service reverse charge (EU and non-EU).
+   * A dedicated, source-proven VAT account supplies its booked amount; ledgers
+   * where ordinary and reverse-charge output VAT share one account use the
+   * øre-rounded VAT expected from each reverse-charge base line. The report
+   * reconciles this category independently before it can be filed.
    */
   reverseChargePurchaseOutputVat: number;
   representationPurchaseBase: number;
@@ -128,43 +140,6 @@ const NON_REGISTERED_NON_EU_SERVICE_MSG =
 // `expense book --vat-treatment non_deductible`, not this partial-deduction path.
 const NON_REGISTERED_REPRESENTATION_MSG =
   "selskabet er ikke momsregistreret — repræsentationsmoms kan ikke fradrages (momsloven § 37); bogfør bilaget brutto med 'expense book --vat-treatment non_deductible', så hele momsen absorberes i udgiften";
-
-/**
- * SKAT filing/payment deadline for a VAT period (#236).
- *
- * For quarterly VAT (the only cadence Rentemester supports) the momsangivelse
- * must be filed and the moms paid by the 1st day of the third month after the
- * period ends — e.g. Q2 (ends 30-06) is due 1 September. This is the single
- * date that costs money with SKAT if missed, so it is computed here from the
- * period-end date and surfaced on every VAT output.
- *
- * Returns the deadline as a YYYY-MM-DD ISO date, or `null` when `periodEnd`
- * is not a valid ISO date.
- *
- * Cadence (JUR-12): this formula is correct ONLY for a quarterly afregnings-
- * periode — the single cadence Rentemester supports. buildVatFiling additionally
- * warns if the closed period is not a standard calendar quarter. The deadline is
- * deliberately NOT shifted off weekends/holidays: SKAT moves a non-banking-day
- * due date to the next banking day, always later, so the un-shifted date is the
- * conservative (earliest-possible) one and paying by it can never be late.
- */
-export function vatFilingDeadline(periodEnd: string): string | null {
-  if (!looksLikeIsoDate(periodEnd)) return null;
-  const [yearStr, monthStr] = periodEnd.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  if (!Number.isInteger(year) || !Number.isInteger(month)) return null;
-  // The 1st of the third month after the period-end month. month is 1-based;
-  // adding 3 and normalising the year keeps quarter-end → deadline correct
-  // (06 → 09 same year, 12 → 03 next year).
-  let deadlineMonth = month + 3;
-  let deadlineYear = year;
-  while (deadlineMonth > 12) {
-    deadlineMonth -= 12;
-    deadlineYear += 1;
-  }
-  return `${deadlineYear}-${String(deadlineMonth).padStart(2, "0")}-01`;
-}
 
 export type ReverseChargePurchaseInput = {
   transactionDate: string;
@@ -532,15 +507,26 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
 
 export function buildVatReport(db: Database, periodStart: string, periodEnd: string): VatPeriodReport {
   const errors: string[] = [];
+  const vatPeriodType = getCompanySettings(db).vatPeriodType;
   if (!looksLikeIsoDate(periodStart)) errors.push("periodStart must be YYYY-MM-DD");
   if (!looksLikeIsoDate(periodEnd)) errors.push("periodEnd must be YYYY-MM-DD");
   if (errors.length === 0 && periodStart > periodEnd) errors.push("periodStart must be before or equal to periodEnd");
+  const canonicalWindow =
+    errors.length === 0 && vatPeriodType !== null
+      ? vatPeriodWindowFor(periodStart, vatPeriodType)
+      : null;
+  const filingDeadline =
+    canonicalWindow?.start === periodStart && canonicalWindow.end === periodEnd
+      ? canonicalWindow.filingDeadline
+      : null;
   if (errors.length > 0) {
     return {
       ok: false,
       appliedRules: [RULE_ID],
       periodStart,
       periodEnd,
+      vatPeriodType,
+      filingDeadline,
       outputVat: 0,
       inputVat: 0,
       netVatPayable: 0,
@@ -572,7 +558,10 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   }
 
   const rows = db.query(
-    `SELECT je.id as entry_id, je.status, je.reversal_of_entry_id, je.currency as entry_currency, a.account_no, a.type as account_type, a.normal_balance, a.default_vat_code, jl.debit_amount, jl.credit_amount, jl.vat_code
+    `SELECT je.id as entry_id, jl.id as line_id, je.status, je.reversal_of_entry_id,
+            je.currency as entry_currency, je.created_by_program,
+            a.account_no, a.type as account_type, a.normal_balance,
+            a.default_vat_code, jl.debit_amount, jl.credit_amount, jl.vat_code
      FROM journal_entries je
      JOIN journal_lines jl ON jl.journal_entry_id = je.id
      JOIN accounts a ON a.id = jl.account_id
@@ -580,9 +569,11 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
      ORDER BY je.id ASC, jl.id ASC`
   ).all(periodStart, periodEnd) as Array<{
     entry_id: number;
+    line_id: number;
     status: string;
     reversal_of_entry_id: number | null;
     entry_currency: string;
+    created_by_program: string;
     account_no: string;
     account_type: string;
     normal_balance: "debit" | "credit";
@@ -591,9 +582,144 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     credit_amount: number;
     vat_code: string | null;
   }>;
-  const outputVatRole = resolveAccountRole(db, "output_vat");
-  const reverseChargeVatRole = resolveAccountRole(db, "reverse_charge_vat");
-  const inputVatRole = resolveAccountRole(db, "input_vat");
+  const vatAccountSemantics = loadVatAccountSemantics(db);
+  const vatAmountSideByAccountNo =
+    vatAccountSemantics.amountSideByAccountNo;
+  const reverseChargeOutputAccountNos =
+    vatAccountSemantics.reverseChargeOutputAccountNos;
+  const vatSettlementAccountNos = vatAccountSemantics.settlementAccountNos;
+
+  // Older Dinero ledgers can contain the source-native 64040/64060
+  // reverse-charge control pair while Momstype was left blank on the expense
+  // base. New imports persist the inferred code, but existing immutable rows
+  // need the same conservative read-time interpretation. Infer only one exact
+  // 25%-matching, otherwise unclassified expense line. Explicit/default codes
+  // remain authoritative; ambiguous or inconsistent source patterns block the
+  // report instead of becoming amount-only corrections with missing rubrik A.
+  const inferredVatCodeByLineId = new Map<number, string>();
+  const historicalRowsByEntry = new Map<number, typeof rows>();
+  for (const row of rows) {
+    if (!isPersistedHistoricalImportProgram(row.created_by_program)) continue;
+    const entryRows = historicalRowsByEntry.get(row.entry_id) ?? [];
+    entryRows.push(row);
+    historicalRowsByEntry.set(row.entry_id, entryRows);
+  }
+  for (const [entryId, entryRows] of historicalRowsByEntry) {
+    const outputControls = entryRows.filter(
+      (row) => row.account_no === "64040",
+    );
+    const inputControls = entryRows.filter(
+      (row) => row.account_no === "64060",
+    );
+    if (outputControls.length === 0 || inputControls.length === 0) continue;
+
+    const outputControl = roundDkk(
+      outputControls.reduce(
+        (sum, row) =>
+          sum + Number(row.credit_amount ?? 0) - Number(row.debit_amount ?? 0),
+        0,
+      ),
+    );
+    const inputControl = roundDkk(
+      inputControls.reduce(
+        (sum, row) =>
+          sum + Number(row.debit_amount ?? 0) - Number(row.credit_amount ?? 0),
+        0,
+      ),
+    );
+    if (
+      outputControl === 0 ||
+      inputControl === 0 ||
+      toOre(outputControl) !== toOre(inputControl)
+    ) {
+      errors.push(
+        `journal entry ${entryId} has an inconsistent Dinero reverse-charge control pattern on 64040/64060; human resolution is required`,
+      );
+      continue;
+    }
+
+    const expenseRows = entryRows.filter((row) => row.account_type === "expense");
+    const effectiveCode = (row: (typeof rows)[number]): string =>
+      row.vat_code?.trim() || row.default_vat_code?.trim() || "";
+    let baseRows = expenseRows.filter(
+      (row) => effectiveCode(row) === "EU_SERVICE_REVERSE_CHARGE",
+    );
+    if (baseRows.length === 0) {
+      if (expenseRows.some((row) => effectiveCode(row).length > 0)) {
+        errors.push(
+          `journal entry ${entryId} has Dinero reverse-charge controls but its expense base carries a conflicting VAT code; human resolution is required`,
+        );
+        continue;
+      }
+      baseRows = expenseRows.filter((row) => {
+        const netDebit = roundDkk(
+          Number(row.debit_amount ?? 0) - Number(row.credit_amount ?? 0),
+        );
+        return (
+          netDebit !== 0 &&
+          Math.sign(netDebit) === Math.sign(outputControl) &&
+          toOre(percentOfDkk(netDebit, 25)) === toOre(outputControl)
+        );
+      });
+      if (baseRows.length !== 1) {
+        errors.push(
+          `journal entry ${entryId} has Dinero reverse-charge controls but no single unclassified expense base matching 25%; human resolution is required`,
+        );
+        continue;
+      }
+      inferredVatCodeByLineId.set(
+        baseRows[0]!.line_id,
+        "EU_SERVICE_REVERSE_CHARGE",
+      );
+    }
+
+    const classifiedBase = roundDkk(
+      baseRows.reduce(
+        (sum, row) =>
+          sum + Number(row.debit_amount ?? 0) - Number(row.credit_amount ?? 0),
+        0,
+      ),
+    );
+    if (toOre(percentOfDkk(classifiedBase, 25)) !== toOre(outputControl)) {
+      errors.push(
+        `journal entry ${entryId} has Dinero reverse-charge controls that do not reconcile to its classified expense base; human resolution is required`,
+      );
+    }
+  }
+
+  // A pure transfer between VAT amount accounts and a confirmed settlement
+  // account settles an earlier return; it is not fresh output/input VAT for
+  // the transaction-date period. Identify the shape per journal before the
+  // line scan so neither its amount nor its lack of a base code pollutes the
+  // current report.
+  const entryShapes = new Map<number, {
+    touchesVatAmount: boolean;
+    touchesVatSettlement: boolean;
+    touchesOther: boolean;
+  }>();
+  for (const row of rows) {
+    const shape = entryShapes.get(row.entry_id) ?? {
+      touchesVatAmount: false,
+      touchesVatSettlement: false,
+      touchesOther: false,
+    };
+    if (vatAmountSideByAccountNo.has(row.account_no)) {
+      shape.touchesVatAmount = true;
+    } else if (vatSettlementAccountNos.has(row.account_no)) {
+      shape.touchesVatSettlement = true;
+    } else {
+      shape.touchesOther = true;
+    }
+    entryShapes.set(row.entry_id, shape);
+  }
+  const settlementTransferEntryIds = new Set(
+    [...entryShapes.entries()]
+      .filter(([, shape]) =>
+        shape.touchesVatAmount &&
+        shape.touchesVatSettlement &&
+        !shape.touchesOther)
+      .map(([entryId]) => entryId),
+  );
 
   let outputVat = 0;
   let inputVat = 0;
@@ -610,7 +736,10 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   // 1200 net (credit − debit) per journal entry and the set of entries that
   // carry an EU_SERVICE_REVERSE_CHARGE base line, then sum 1200 over exactly
   // those entries after the scan.
-  const account1200NetByEntry = new Map<number, number>();
+  const outputVatNetByEntry = new Map<number, number>();
+  const dedicatedReverseChargeOutputNetByEntry = new Map<number, number>();
+  const reverseChargeExpectedVatByEntry = new Map<number, number>();
+  const inputVatNetByEntry = new Map<number, number>();
   const reverseChargeEntryIds = new Set<number>();
   let badDebtReliefBase25 = 0;
   let exemptSalesBase = 0;
@@ -626,9 +755,22 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   let inputVatBaseLines = 0;
   let foreignOutputVatBaseLines = 0;
   let foreignInputVatBaseLines = 0;
+  let ordinaryOutputVatBaseLines = 0;
+  let foreignOrdinaryOutputVatBaseLines = 0;
+  let foreignReverseChargeOutputVatBaseLines = 0;
   const activeEntryIds = new Set<number>();
   const reversedEntryIds = new Set<number>();
   const reversalEntryIds = new Set<number>();
+  const manualVatControlEntryIds = new Set<number>();
+  const classifiedManualVatEntryIds = new Set<number>();
+  const historicalVatControlEntryIds = new Set<number>();
+  const classifiedHistoricalVatEntryIds = new Set<number>();
+  const markClassified = (entryId: number, trustedHistoricalImport: boolean) => {
+    (trustedHistoricalImport
+      ? classifiedHistoricalVatEntryIds
+      : classifiedManualVatEntryIds
+    ).add(entryId);
+  };
   let activeLinesConsidered = 0;
   let reversedLinesConsidered = 0;
   let reversalLinesConsidered = 0;
@@ -651,85 +793,165 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
 
     const debit = roundDkk(Number(row.debit_amount ?? 0));
     const credit = roundDkk(Number(row.credit_amount ?? 0));
+    const amountSide = vatAmountSideByAccountNo.get(row.account_no);
+    const trustedHistoricalImport = isPersistedHistoricalImportProgram(
+      row.created_by_program,
+    );
+    // Explicit persisted line classification is authoritative. Only an exact
+    // verified historical-import marker may fall back to the reviewed account
+    // default; ordinary/manual entries never inherit one at report time.
+    const effectiveVatCode =
+      row.vat_code ??
+      inferredVatCodeByLineId.get(row.line_id) ??
+      (trustedHistoricalImport &&
+      (row.account_type === "income" || row.account_type === "expense")
+        ? row.default_vat_code
+        : null);
+    const isVatBaseLine =
+      row.account_type === "income" || row.account_type === "expense";
+    const isSettlementTransfer = settlementTransferEntryIds.has(row.entry_id);
 
-    // Native account roles are resolved centrally; Dinero's trusted
-    // historical chart has the standard 64000/64040 output and 64060 input
-    // accounts. No income-number heuristic is used (1200 can be ordinary
-    // income in an imported chart).
-    const isDineroOutputVat = row.account_no === "64000" || row.account_no === "64040";
-    const isDineroInputVat = row.account_no === "64060";
-    const isNativeOutputVat =
-      (outputVatRole.ok && row.account_no === outputVatRole.accountNo) ||
-      (reverseChargeVatRole.ok && row.account_no === reverseChargeVatRole.accountNo);
-    const isNativeInputVat = inputVatRole.ok && row.account_no === inputVatRole.accountNo;
-    if (isNativeOutputVat || isDineroOutputVat) {
-      outputVat += credit - debit;
-      account1200NetByEntry.set(row.entry_id, (account1200NetByEntry.get(row.entry_id) ?? 0) + (credit - debit));
+    if (
+      effectiveVatCode !== null &&
+      !VAT_LINE_CODES.has(effectiveVatCode)
+    ) {
+      errors.push(
+        `journal entry ${row.entry_id} line on account ${row.account_no} has unsupported vat_code '${effectiveVatCode}'`,
+      );
     }
-    if (isNativeInputVat || isDineroInputVat) inputVat += debit - credit;
 
-    // Ledger hashes make old lines immutable. Rather than retroactively
-    // guessing from their account defaults, make an unclassified VAT-relevant
-    // line a blocking, auditable report error. New verified imports receive
-    // the default at posting time; manual calls never do.
-    if (row.vat_code === null && row.default_vat_code !== null && (row.account_type === "income" || row.account_type === "expense")) {
-      errors.push(`journal entry ${row.entry_id} line on VAT-relevant account ${row.account_no} has no explicit vat_code; no VAT base was inferred — document and resolve the classification before filing`);
+    if (!isSettlementTransfer && amountSide === "output") {
+      outputVat += credit - debit;
+      outputVatNetByEntry.set(
+        row.entry_id,
+        (outputVatNetByEntry.get(row.entry_id) ?? 0) + (credit - debit),
+      );
+      if (reverseChargeOutputAccountNos.has(row.account_no)) {
+        dedicatedReverseChargeOutputNetByEntry.set(
+          row.entry_id,
+          (dedicatedReverseChargeOutputNetByEntry.get(row.entry_id) ?? 0) +
+            (credit - debit),
+        );
+      }
+    }
+    if (!isSettlementTransfer && amountSide === "input") {
+      inputVat += debit - credit;
+      inputVatNetByEntry.set(
+        row.entry_id,
+        (inputVatNetByEntry.get(row.entry_id) ?? 0) + (debit - credit),
+      );
+    }
+    if (!isSettlementTransfer && amountSide !== undefined && !trustedHistoricalImport) {
+      manualVatControlEntryIds.add(row.entry_id);
+    } else if (!isSettlementTransfer && amountSide !== undefined) {
+      historicalVatControlEntryIds.add(row.entry_id);
     }
 
     const isForeignCurrencyEntry = row.entry_currency !== "DKK";
-    if (row.vat_code === "DK_PURCHASE_25") {
+    if (isVatBaseLine && effectiveVatCode === "DK_PURCHASE_25") {
+      markClassified(row.entry_id, trustedHistoricalImport);
       purchaseBase25 += debit - credit;
       inputVatBaseLines += 1;
       if (isForeignCurrencyEntry) foreignInputVatBaseLines += 1;
     }
-    if (row.vat_code === "DK_SALE_25") {
+    if (isVatBaseLine && effectiveVatCode === "DK_SALE_25") {
+      markClassified(row.entry_id, trustedHistoricalImport);
       salesBase25 += credit - debit;
       outputVatBaseLines += 1;
-      if (isForeignCurrencyEntry) foreignOutputVatBaseLines += 1;
+      ordinaryOutputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) {
+        foreignOutputVatBaseLines += 1;
+        foreignOrdinaryOutputVatBaseLines += 1;
+      }
     }
     // JUR-2/KODE-2: keep the two reverse-charge sales bases apart so the
     // momsangivelse can route foreign → rubrik B (VIES) and domestic → rubrik C.
-    if (row.vat_code === "REVERSE_CHARGE_EXEMPT") foreignReverseChargeSalesBase += credit - debit;
-    if (row.vat_code === "DOMESTIC_REVERSE_CHARGE_EXEMPT") domesticReverseChargeSalesBase += credit - debit;
-    if (row.vat_code === "EU_SERVICE_REVERSE_CHARGE") {
+    if (isVatBaseLine && effectiveVatCode === "REVERSE_CHARGE_EXEMPT") {
+      markClassified(row.entry_id, trustedHistoricalImport);
+      foreignReverseChargeSalesBase += credit - debit;
+    }
+    if (isVatBaseLine && effectiveVatCode === "DOMESTIC_REVERSE_CHARGE_EXEMPT") {
+      markClassified(row.entry_id, trustedHistoricalImport);
+      domesticReverseChargeSalesBase += credit - debit;
+    }
+    if (isVatBaseLine && effectiveVatCode === "EU_SERVICE_REVERSE_CHARGE") {
+      markClassified(row.entry_id, trustedHistoricalImport);
       reverseChargePurchaseBase += debit - credit;
       reverseChargeEntryIds.add(row.entry_id);
+      reverseChargeExpectedVatByEntry.set(
+        row.entry_id,
+        addDkk(
+          reverseChargeExpectedVatByEntry.get(row.entry_id) ?? 0,
+          percentOfDkk(debit - credit, 25),
+        ),
+      );
       // Reverse charge contributes to both output and input VAT.
       inputVatBaseLines += 1;
       outputVatBaseLines += 1;
       if (isForeignCurrencyEntry) {
         foreignInputVatBaseLines += 1;
         foreignOutputVatBaseLines += 1;
+        foreignReverseChargeOutputVatBaseLines += 1;
       }
     }
-    if (row.vat_code === "NON_EU_SERVICE_REVERSE_CHARGE") {
+    if (isVatBaseLine && effectiveVatCode === "NON_EU_SERVICE_REVERSE_CHARGE") {
+      markClassified(row.entry_id, trustedHistoricalImport);
       nonEuServiceReverseChargePurchaseBase += debit - credit;
       reverseChargeEntryIds.add(row.entry_id);
+      reverseChargeExpectedVatByEntry.set(
+        row.entry_id,
+        addDkk(
+          reverseChargeExpectedVatByEntry.get(row.entry_id) ?? 0,
+          percentOfDkk(debit - credit, 25),
+        ),
+      );
       inputVatBaseLines += 1;
       outputVatBaseLines += 1;
       if (isForeignCurrencyEntry) {
         foreignInputVatBaseLines += 1;
         foreignOutputVatBaseLines += 1;
+        foreignReverseChargeOutputVatBaseLines += 1;
       }
     }
-    if (row.vat_code === "REPRESENTATION_SPECIAL") {
+    if (isVatBaseLine && effectiveVatCode === "REPRESENTATION_SPECIAL") {
+      markClassified(row.entry_id, trustedHistoricalImport);
       representationPurchaseBase += debit - credit;
       inputVatBaseLines += 1;
       if (isForeignCurrencyEntry) foreignInputVatBaseLines += 1;
     }
-    if (row.vat_code === "DK_BAD_DEBT_25") {
+    if (isVatBaseLine && effectiveVatCode === "DK_BAD_DEBT_25") {
+      markClassified(row.entry_id, trustedHistoricalImport);
       badDebtReliefBase25 += debit - credit;
       outputVatBaseLines += 1;
-      if (isForeignCurrencyEntry) foreignOutputVatBaseLines += 1;
+      ordinaryOutputVatBaseLines += 1;
+      if (isForeignCurrencyEntry) {
+        foreignOutputVatBaseLines += 1;
+        foreignOrdinaryOutputVatBaseLines += 1;
+      }
     }
     // VAT-exempt domestic sales (momsloven §13) and OSS consumer sales carry
     // NO Danish output VAT, so they are tracked in their own bases and are
     // deliberately NOT added to outputVatBaseLines (the output-VAT
     // reconciliation must not expect 25% of them).
-    if (row.vat_code === "DK_SALE_EXEMPT") exemptSalesBase += credit - debit;
-    if (row.vat_code === "OSS_EU_CONSUMER") {
+    if (isVatBaseLine && effectiveVatCode === "DK_SALE_EXEMPT") {
+      markClassified(row.entry_id, trustedHistoricalImport);
+      exemptSalesBase += credit - debit;
+    }
+    if (isVatBaseLine && effectiveVatCode === "OSS_EU_CONSUMER") {
+      markClassified(row.entry_id, trustedHistoricalImport);
       ossConsumerSalesBase += credit - debit;
       ossConsumerSalesEntryIds.add(row.entry_id);
+    }
+  }
+
+  // #533 legacy guard: the write boundary now rejects this shape, but an old
+  // ledger may already contain a manual amount-only VAT journal. Never present
+  // its payable as filing-ready while the SKAT bases are empty.
+  for (const entryId of manualVatControlEntryIds) {
+    if (!classifiedManualVatEntryIds.has(entryId)) {
+      errors.push(
+        `journal entry ${entryId} changes a VAT amount account but has no explicit vat_code on a VAT base line; the VAT bases cannot be filed until the classification is corrected`,
+      );
     }
   }
 
@@ -742,13 +964,50 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   const reverseChargeSalesBase = addDkk(foreignReverseChargeSalesBase, domesticReverseChargeSalesBase);
   reverseChargePurchaseBase = roundDkk(reverseChargePurchaseBase);
   nonEuServiceReverseChargePurchaseBase = roundDkk(nonEuServiceReverseChargePurchaseBase);
-  // Booked reverse-charge output VAT: the 1200 net booked on exactly the
-  // entries that carry a reverse-charge base line. Summed as the øre-rounded
-  // per-entry amounts so the figure equals what hit account 1200, not 25% of
-  // the aggregate base.
-  let reverseChargePurchaseOutputVat = 0;
+  const historicalAmountOnlyEntryIds = [...historicalVatControlEntryIds].filter(
+    (entryId) => !classifiedHistoricalVatEntryIds.has(entryId),
+  );
+  const historicalOutputCorrection = roundDkk(
+    historicalAmountOnlyEntryIds.reduce(
+      (sum, entryId) => sum + (outputVatNetByEntry.get(entryId) ?? 0),
+      0,
+    ),
+  );
+  const historicalDedicatedReverseChargeCorrection = roundDkk(
+    historicalAmountOnlyEntryIds.reduce(
+      (sum, entryId) =>
+        sum + (dedicatedReverseChargeOutputNetByEntry.get(entryId) ?? 0),
+      0,
+    ),
+  );
+  const historicalOrdinaryOutputCorrection = subtractDkk(
+    historicalOutputCorrection,
+    historicalDedicatedReverseChargeCorrection,
+  );
+  const historicalInputCorrection = roundDkk(
+    historicalAmountOnlyEntryIds.reduce(
+      (sum, entryId) => sum + (inputVatNetByEntry.get(entryId) ?? 0),
+      0,
+    ),
+  );
+
+  // A dedicated source-/role-proven control account (Dinero 64040) always
+  // belongs to the foreign-service VAT category. For shared accounts (native
+  // 1200), only the per-line expected reverse-charge VAT can be allocated; the
+  // remaining booked output VAT stays in the ordinary sales category.
+  let reverseChargePurchaseOutputVat = roundDkk(
+    [...dedicatedReverseChargeOutputNetByEntry.values()].reduce(
+      (sum, amount) => sum + amount,
+      0,
+    ),
+  );
   for (const entryId of reverseChargeEntryIds) {
-    reverseChargePurchaseOutputVat = addDkk(reverseChargePurchaseOutputVat, account1200NetByEntry.get(entryId) ?? 0);
+    if (!dedicatedReverseChargeOutputNetByEntry.has(entryId)) {
+      reverseChargePurchaseOutputVat = addDkk(
+        reverseChargePurchaseOutputVat,
+        reverseChargeExpectedVatByEntry.get(entryId) ?? 0,
+      );
+    }
   }
   representationPurchaseBase = roundDkk(representationPurchaseBase);
   badDebtReliefBase25 = roundDkk(badDebtReliefBase25);
@@ -763,17 +1022,76 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   // so the booked aggregate can differ from "25% of the summed base" by up to
   // 1 øre per line. Only the *first* line establishes the aggregate; the
   // remaining (n-1) lines can each drift it, so the tolerance is (n-1) øre.
-  // A genuine mis-booking exceeds this small bound and still warns.
+  // A genuine mis-booking exceeds this small bound and blocks filing.
   // Foreign-currency entries round the stated VAT and its net base into DKK
   // independently before balancing. That conversion can add one further øre
   // of legitimate drift per foreign base line.
   const outputVatTolerance = Math.max(0, outputVatBaseLines - 1) + foreignOutputVatBaseLines;
   const inputVatTolerance = Math.max(0, inputVatBaseLines - 1) + foreignInputVatBaseLines;
-  if (oreDifference(outputVat, expectedOutputVat) > outputVatTolerance) {
-    warnings.push(`output VAT mismatch: booked ${outputVat}, expected from base × rate ${expectedOutputVat}`);
+  const explainedOutputVat = addDkk(expectedOutputVat, historicalOutputCorrection);
+  const explainedInputVat = addDkk(expectedInputVat, historicalInputCorrection);
+  if (historicalOutputCorrection !== 0 || historicalInputCorrection !== 0) {
+    warnings.push(
+      `verified historical amount-only VAT corrections included: output ${historicalOutputCorrection}, input ${historicalInputCorrection}`,
+    );
   }
-  if (oreDifference(inputVat, expectedInputVat) > inputVatTolerance) {
-    warnings.push(`input VAT mismatch: booked ${inputVat}, expected from base × rate ${expectedInputVat}`);
+  if (oreDifference(outputVat, explainedOutputVat) > outputVatTolerance) {
+    errors.push(
+      `output VAT mismatch: booked ${outputVat}, expected from base × rate plus verified historical corrections ${explainedOutputVat}`,
+    );
+  }
+  if (oreDifference(inputVat, explainedInputVat) > inputVatTolerance) {
+    errors.push(
+      `input VAT mismatch: booked ${inputVat}, expected from base × rate plus verified historical corrections ${explainedInputVat}`,
+    );
+  }
+
+  // Aggregate reconciliation is not sufficient: an overstated ordinary
+  // output amount and an understated dedicated reverse-charge amount can
+  // cancel each other while producing wrong SKAT rubrics. Reconcile both
+  // categories independently. Shared-account reverse charge is allocated from
+  // its base above, so any unexplained remainder lands in (and is checked
+  // against) ordinary sales VAT.
+  const expectedReverseChargeOutputVat = addDkk(
+    [...reverseChargeExpectedVatByEntry.values()].reduce(
+      (sum, amount) => sum + amount,
+      0,
+    ),
+    historicalDedicatedReverseChargeCorrection,
+  );
+  const expectedOrdinaryOutputVat = addDkk(
+    subtractDkk(
+      percentOfDkk(salesBase25, 25),
+      percentOfDkk(badDebtReliefBase25, 25),
+    ),
+    historicalOrdinaryOutputCorrection,
+  );
+  const bookedOrdinaryOutputVat = subtractDkk(
+    outputVat,
+    reverseChargePurchaseOutputVat,
+  );
+  const reverseChargeOutputVatTolerance =
+    foreignReverseChargeOutputVatBaseLines;
+  const ordinaryOutputVatTolerance =
+    Math.max(0, ordinaryOutputVatBaseLines - 1) +
+    foreignOrdinaryOutputVatBaseLines;
+  if (
+    oreDifference(
+      reverseChargePurchaseOutputVat,
+      expectedReverseChargeOutputVat,
+    ) > reverseChargeOutputVatTolerance
+  ) {
+    errors.push(
+      `reverse-charge output VAT mismatch: booked ${reverseChargePurchaseOutputVat}, expected from foreign-service bases plus verified historical corrections ${expectedReverseChargeOutputVat}`,
+    );
+  }
+  if (
+    oreDifference(bookedOrdinaryOutputVat, expectedOrdinaryOutputVat) >
+    ordinaryOutputVatTolerance
+  ) {
+    errors.push(
+      `ordinary output VAT mismatch: booked ${bookedOrdinaryOutputVat}, expected from sales and bad-debt bases plus verified historical corrections ${expectedOrdinaryOutputVat}`,
+    );
   }
 
   // Partial deduction (delvis fradragsret, momsloven §§37-38) is NOT modelled:
@@ -798,6 +1116,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     appliedRules: [RULE_ID],
     periodStart,
     periodEnd,
+    vatPeriodType,
+    filingDeadline,
     outputVat,
     inputVat,
     netVatPayable: subtractDkk(outputVat, inputVat),

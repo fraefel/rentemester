@@ -46,7 +46,7 @@ export type AgentLoopPhase = (typeof AGENT_LOOP_PHASES)[number];
 export const AUTO_BOOK_CONFIDENCE_THRESHOLD = 0.65;
 
 /**
- * Days before a VAT-quarter / year-end deadline at which the agent starts
+ * Days before a registered VAT-period / year-end deadline at which the agent starts
  * surfacing it in the end-of-run report. A deadline already in the window
  * is reported even when its period is not yet closed.
  */

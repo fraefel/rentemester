@@ -73,11 +73,12 @@ export const vatFilingSpecs: CommandSpec[] = [
   {
     key: "vat momsangivelse",
     usage: "vat momsangivelse --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD>",
-    description: "Bygger en indberetningsklar momsangivelse (SKAT-rubrikker + momstilsvar) for en lukket momsperiode. Kræver en lukket/indberettet vat_quarter-periode.",
+    description: "Bygger en indberetningsklar momsangivelse (SKAT-rubrikker + momstilsvar) for en lukket momsperiode i virksomhedens registrerede kadence.",
     allowedFlags: ["--company", "--from", "--to"],
     inputNotes: [
-      "FORUDSÆTNING: --from..--to skal præcist matche en LUKKET (closed) eller INDBERETTET (reported) vat_quarter-periode. Er der ingen sådan periode, afvises kaldet med exit 1 og errors[]: \"VAT period <from>..<to> is not closed: a momsangivelse requires a closed or reported vat_quarter accounting period covering exactly this period — run 'period close' first\".",
-      "RETTELSE: luk perioden først med 'rentemester period close --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --kind vat_quarter' (kræver en actor), og kør derefter momsangivelsen igen med nøjagtigt samme datoer.",
+      "FORUDSÆTNING: --from..--to skal præcist matche virksomhedens registrerede måneds-, kvartals- eller halvårsrytme og en LUKKET (closed) eller INDBERETTET (reported) vat_period-periode.",
+      "Hvis perioden ikke er lukket, returneres fejlen 'VAT period <from>..<to> is not closed'.",
+      "RETTELSE: luk perioden først med 'rentemester period close --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --kind vat_period' (kræver en actor), og kør derefter momsangivelsen igen med nøjagtigt samme datoer.",
       "--json/--format json-outputtets felter (SKAT-rubrikker, momstilsvar m.m.) er en CLI-only rapport. Det fulde skema er dokumenteret i docs/cli-contract.md afsnit 3 og docs/mcp-tool-surface.md — slå formen op dér før maskinel parsing.",
     ],
   },
@@ -87,8 +88,9 @@ export const vatFilingSpecs: CommandSpec[] = [
     description: "Alias for 'vat momsangivelse': indberetningsklar momsangivelse for en lukket momsperiode.",
     allowedFlags: ["--company", "--from", "--to"],
     inputNotes: [
-      "FORUDSÆTNING: --from..--to skal præcist matche en LUKKET (closed) eller INDBERETTET (reported) vat_quarter-periode. Er der ingen sådan periode, afvises kaldet med exit 1 og errors[]: \"VAT period <from>..<to> is not closed: a momsangivelse requires a closed or reported vat_quarter accounting period covering exactly this period — run 'period close' first\".",
-      "RETTELSE: luk perioden først med 'rentemester period close --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --kind vat_quarter' (kræver en actor), og kør derefter momsangivelsen igen med nøjagtigt samme datoer.",
+      "FORUDSÆTNING: --from..--to skal præcist matche virksomhedens registrerede måneds-, kvartals- eller halvårsrytme og en LUKKET (closed) eller INDBERETTET (reported) vat_period-periode.",
+      "Hvis perioden ikke er lukket, returneres fejlen 'VAT period <from>..<to> is not closed'.",
+      "RETTELSE: luk perioden først med 'rentemester period close --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --kind vat_period' (kræver en actor), og kør derefter momsangivelsen igen med nøjagtigt samme datoer.",
       "--json/--format json-outputtets felter (SKAT-rubrikker, momstilsvar m.m.) er en CLI-only rapport. Det fulde skema er dokumenteret i docs/cli-contract.md afsnit 3 og docs/mcp-tool-surface.md — slå formen op dér før maskinel parsing.",
     ],
   },

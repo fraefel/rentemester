@@ -18,7 +18,7 @@ import { restoreSystemBackup } from "../../src/core/system-restore";
 function makeBackup(prefix: string) {
   const sourceRoot = mkdtempSync(join(tmpdir(), `${prefix}-src-`));
   const paths = ensureCompanyDirs(sourceRoot);
-  const db = openDb(paths.db);
+  const db = openDb(paths.db, { journalMode: "DELETE" });
   migrate(db);
   const backup = createSystemBackup(db, sourceRoot, { createdAt: "2026-05-17T02:09:00.000Z" });
   db.close();

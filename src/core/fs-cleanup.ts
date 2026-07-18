@@ -1,4 +1,4 @@
-import { rmSync, type RmDirOptions } from "node:fs";
+import { renameSync, rmSync, type RmDirOptions } from "node:fs";
 
 export type ClosableResource = { close(): void };
 
@@ -8,7 +8,10 @@ export type CleanupRetryOptions = {
 };
 
 const TRANSIENT_WINDOWS_CLEANUP_CODES = new Set(["EBUSY", "EPERM", "ENOTEMPTY"]);
-const DEFAULT_BACKOFF_MS = [10, 25, 50] as const;
+// Windows can keep recently closed SQLite and antivirus-scanned files busy for
+// noticeably longer than one scheduler tick. Keep the retry window bounded,
+// but long enough (1.585 seconds total) for those handles to be released.
+const DEFAULT_BACKOFF_MS = [10, 25, 50, 100, 200, 400, 800] as const;
 
 function defaultSleep(milliseconds: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
@@ -38,6 +41,11 @@ export function retryTransientCleanup<T>(operation: () => T, options: CleanupRet
 /** Removes exactly `path`; it never expands the caller's deletion target. */
 export function removePathWithRetry(path: string, options: RmDirOptions = { recursive: true, force: true }): void {
   retryTransientCleanup(() => rmSync(path, options));
+}
+
+/** Atomically moves one exact path, retrying only transient Windows locks. */
+export function renamePathWithRetry(source: string, destination: string): void {
+  retryTransientCleanup(() => renameSync(source, destination));
 }
 
 /** Closes an owning resource before attempting its filesystem cleanup. */

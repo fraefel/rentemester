@@ -1940,8 +1940,8 @@
     "semantic_hash": ""
   },
   "src/core/invoice-bad-debt.ts": {
-    "mtime": 1784394104.2163298,
-    "ast_hash": "9547da3f1dca920b52aa8ab9bacaa803",
+    "mtime": 1784396081.8571534,
+    "ast_hash": "f11a21f17dd3385287dc4afed701c4dc",
     "semantic_hash": ""
   },
   "src/core/invoice-booking.ts": {
@@ -2015,8 +2015,8 @@
     "semantic_hash": ""
   },
   "src/core/ledger.ts": {
-    "mtime": 1784393318.9579654,
-    "ast_hash": "445bb3da0c87f651eefdc8d1002e0bb5",
+    "mtime": 1784395725.6732275,
+    "ast_hash": "1c00531e5c00377597e56d445072ed07",
     "semantic_hash": ""
   },
   "src/core/legal-provisions.ts": {
@@ -2110,8 +2110,8 @@
     "semantic_hash": ""
   },
   "src/core/schema.sql": {
-    "mtime": 1784394090.317515,
-    "ast_hash": "1bfb09784649960ec9ef67e7b837d16b",
+    "mtime": 1784396244.5676444,
+    "ast_hash": "f0b30c0d3a297c2a2ac7f22c875b3330",
     "semantic_hash": ""
   },
   "src/core/sequences.ts": {
@@ -2730,8 +2730,8 @@
     "semantic_hash": ""
   },
   "tests/unit/audit-verify.test.ts": {
-    "mtime": 1784393467.7040727,
-    "ast_hash": "3fdd60cf83e0d20e4f09f5566832cb9b",
+    "mtime": 1784396048.1001282,
+    "ast_hash": "9059eefa92bc828eeba9966abedeb96d",
     "semantic_hash": ""
   },
   "tests/unit/authority-export-cli.test.ts": {
@@ -3195,8 +3195,8 @@
     "semantic_hash": ""
   },
   "tests/unit/invoice-bad-debt.test.ts": {
-    "mtime": 1784394188.3626692,
-    "ast_hash": "0662dae18c33918d030f983a1aaad709",
+    "mtime": 1784396290.8787854,
+    "ast_hash": "b0f77189ab567af122d4cbd960520080",
     "semantic_hash": ""
   },
   "tests/unit/invoice-booking-cli.test.ts": {

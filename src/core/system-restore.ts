@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, win32 } from "node:path";
 import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
@@ -9,7 +9,7 @@ import { backupAsymmetricSignaturePath, backupManifestKeyPath, backupManifestSig
 import type { BackupManifest, ManifestFile } from "./system-backups";
 import { extractTar } from "./tar";
 import { insertAuditLog } from "./actor";
-import { closeThenRemovePath, removePathWithRetry } from "./fs-cleanup";
+import { removePathWithRetry, renamePathWithRetry } from "./fs-cleanup";
 
 const RULE_ID = "DK-BOOKKEEPING-RESTORE-001";
 
@@ -253,9 +253,11 @@ function validateRestoredDb(
   dbPath: string,
   manifest: BackupManifest,
   restoredCompanyRoot: string,
-  cleanupOnFailure?: string,
 ) {
-  const db = openDb(dbPath);
+  // Bun can retain Windows handles for WAL-mode databases after close(). The
+  // staging tree must be immediately movable/removable, so validate it in the
+  // rollback journal mode; a normal open after the swap restores WAL mode.
+  const db = openDb(dbPath, { journalMode: "DELETE" });
   let result: { ok: true } | { ok: false; error: string } | undefined;
   try {
     const integrity = db.query("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
@@ -289,11 +291,19 @@ function validateRestoredDb(
     result = { ok: true };
     return result;
   } finally {
-    if (result?.ok === false && cleanupOnFailure) {
-      closeThenRemovePath(db, cleanupOnFailure);
-    } else {
-      db.close();
-    }
+    db.close();
+  }
+}
+
+function cleanupRestoreStaging(stagingRoot: string): string[] {
+  if (!existsSync(stagingRoot)) return [];
+  try {
+    removePathWithRetry(stagingRoot);
+    return [];
+  } catch (error) {
+    // Cleanup must never replace the primary restore/validation error. The
+    // staging directory is isolated and cannot overwrite the requested target.
+    return [`restore staging cleanup failed: ${String(error)}`];
   }
 }
 
@@ -502,12 +512,19 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       config: restoreFiles(input.backupDir, manifest.copiedFiles.config, stagingPaths.config),
     };
 
-    const validation = validateRestoredDb(stagingPaths.db, manifest, stagingRoot, stagingRoot);
+    const validation = validateRestoredDb(stagingPaths.db, manifest, stagingRoot);
     if (!validation.ok) {
-      return { ok: false, appliedRules: [RULE_ID], errors: [validation.error] };
+      return {
+        ok: false,
+        appliedRules: [RULE_ID],
+        errors: [validation.error, ...cleanupRestoreStaging(stagingRoot)],
+      };
     }
 
-    const db = openDb(stagingPaths.db);
+    // Keep the final audit write in DELETE mode too. Reopening in WAL here
+    // would recreate the Windows handle that prevents the atomic directory
+    // rename immediately below.
+    const db = openDb(stagingPaths.db, { journalMode: "DELETE" });
     try {
       insertAuditLog(db, {
         eventType: "system_restore",
@@ -528,21 +545,27 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       // ledger could have been created in the target during that window. Never
       // recursively wipe a directory that now holds a ledger.
       if (targetHoldsLiveCompany(resolvedTarget)) {
-        removePathWithRetry(stagingRoot);
-        return { ok: false, appliedRules: [RULE_ID], errors: [`targetCompanyRoot already contains a company ledger; refusing to overwrite: ${input.targetCompanyRoot}`] };
+        return {
+          ok: false,
+          appliedRules: [RULE_ID],
+          errors: [
+            `targetCompanyRoot already contains a company ledger; refusing to overwrite: ${input.targetCompanyRoot}`,
+            ...cleanupRestoreStaging(stagingRoot),
+          ],
+        };
       }
       // KODE-8: refuse to recursively delete a NON-EMPTY ledger-less directory
       // unless the caller explicitly opted in. The target might be the user's
       // own files pointed at by mistake; an empty placeholder is safe to drop.
       const entries = readdirSync(resolvedTarget);
       if (entries.length > 0 && !input.allowNonEmptyTarget) {
-        removePathWithRetry(stagingRoot);
         return {
           ok: false,
           appliedRules: [RULE_ID],
           errors: [
             `targetCompanyRoot exists and is not empty (no ledger db): ${input.targetCompanyRoot}. ` +
               `Refusing to recursively delete it — restore into an empty/new directory, or set allowNonEmptyTarget to overwrite deliberately.`,
+            ...cleanupRestoreStaging(stagingRoot),
           ],
         };
       }
@@ -550,10 +573,13 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
     } else {
       mkdirSync(dirname(resolvedTarget), { recursive: true });
     }
-    renameSync(stagingRoot, resolvedTarget);
+    renamePathWithRetry(stagingRoot, resolvedTarget);
   } catch (error) {
-    removePathWithRetry(stagingRoot);
-    return { ok: false, appliedRules: [RULE_ID], errors: [`restore failed: ${String(error)}`] };
+    return {
+      ok: false,
+      appliedRules: [RULE_ID],
+      errors: [`restore failed: ${String(error)}`, ...cleanupRestoreStaging(stagingRoot)],
+    };
   }
 
   return {

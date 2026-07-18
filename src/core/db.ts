@@ -233,14 +233,25 @@ function migrateGdprErasureTable(db: Database) {
   })();
 }
 
-export function openDb(path: string) {
+export type OpenDbOptions = {
+  /**
+   * Normal ledgers use WAL. Disposable restore staging databases use DELETE so
+   * Bun on Windows releases every filesystem handle before the atomic swap.
+   */
+  journalMode?: "WAL" | "DELETE";
+};
+
+export function openDb(path: string, options: OpenDbOptions = {}) {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   // busy_timeout must absorb transient contention when several short-lived
   // processes open the same company ledger at once (the agent-demo pipeline,
   // parallel test runs on a saturated CI host). 5s was too tight under load;
   // 30s lets the single writer finish rather than erroring "database is locked".
-  db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000;");
+  db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 30000;");
+  db.exec(options.journalMode === "DELETE"
+    ? "PRAGMA journal_mode = DELETE;"
+    : "PRAGMA journal_mode = WAL;");
   return db;
 }
 

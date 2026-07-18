@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { closeThenCleanup, retryTransientCleanup } from "../../src/core/fs-cleanup";
+import { closeThenCleanup, removePathWithRetry, renamePathWithRetry, retryTransientCleanup } from "../../src/core/fs-cleanup";
 import { resolveManifestPath } from "../../src/core/system-restore";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { migrate, openDb } from "../../src/core/db";
@@ -35,7 +35,7 @@ describe("Windows filesystem safety", () => {
     const outsideRoot = mkdtempSync(join(tmpdir(), "rentemester-restore-symlink-outside-"));
     try {
       const paths = ensureCompanyDirs(sourceRoot);
-      const db = openDb(paths.db);
+      const db = openDb(paths.db, { journalMode: "DELETE" });
       migrate(db);
       const backup = createSystemBackup(db, sourceRoot, { createdAt: "2026-07-18T00:00:00.000Z" });
       db.close();
@@ -48,9 +48,9 @@ describe("Windows filesystem safety", () => {
       expect(restored.ok).toBe(false);
       expect(restored.errors.join(" ")).toContain("through symlink");
     } finally {
-      rmSync(sourceRoot, { recursive: true, force: true });
-      rmSync(targetRoot, { recursive: true, force: true });
-      rmSync(outsideRoot, { recursive: true, force: true });
+      removePathWithRetry(sourceRoot);
+      removePathWithRetry(targetRoot);
+      removePathWithRetry(outsideRoot);
     }
   });
 
@@ -80,6 +80,36 @@ describe("Windows filesystem safety", () => {
       throw errno("EACCES");
     }, { sleep: () => {} })).toThrow("EACCES");
     expect(permanentAttempts).toBe(1);
+  });
+
+  test("the default retry budget tolerates a delayed Windows handle release", () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    const result = retryTransientCleanup(() => {
+      attempts += 1;
+      if (attempts < 8) throw errno("EBUSY");
+      return "released";
+    }, { sleep: (delay) => delays.push(delay) });
+    expect(result).toBe("released");
+    expect(attempts).toBe(8);
+    expect(delays).toEqual([10, 25, 50, 100, 200, 400, 800]);
+  });
+
+  test("DELETE-mode staging databases can be moved immediately after close", () => {
+    const parent = mkdtempSync(join(tmpdir(), "rentemester-windows-staging-move-"));
+    const source = join(parent, "source");
+    const destination = join(parent, "destination");
+    try {
+      const db = openDb(join(source, "ledger.sqlite"), { journalMode: "DELETE" });
+      const mode = db.query("PRAGMA journal_mode").get() as { journal_mode: string };
+      expect(mode.journal_mode.toLowerCase()).toBe("delete");
+      db.close();
+
+      renamePathWithRetry(source, destination);
+      expect(existsSync(join(destination, "ledger.sqlite"))).toBe(true);
+    } finally {
+      removePathWithRetry(parent);
+    }
   });
 
   test("closes SQLite-like resources before cleanup", () => {

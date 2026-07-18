@@ -43,6 +43,16 @@ export function todayIsoDate(): string {
 }
 
 /**
+ * Wall-clock date for irreversible legal gates. Unlike {@link todayIsoDate},
+ * this deliberately ignores `RENTEMESTER_TODAY`: a process environment value
+ * is useful for deterministic read-side tests, but must never make retained
+ * records eligible for GDPR erasure.
+ */
+export function trustedTodayIsoDate(): string {
+  return isoDateInTimeZone(new Date());
+}
+
+/**
  * Add `days` (may be negative) to a YYYY-MM-DD date and return the resulting
  * YYYY-MM-DD date. UTC-based, so leap years and year boundaries are handled
  * by the calendar without timezone drift.

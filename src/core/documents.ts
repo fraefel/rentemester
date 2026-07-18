@@ -10,6 +10,7 @@ import { retainUntilForDate } from "./retention";
 import { asDocumentId, type DocumentId } from "./ids";
 import { resolveLegacySupplierIdentity, resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
 import { compareDkk, percentOfDkk, roundDkk, sumDkk } from "./money";
+import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 
 export type DocumentType = "purchase_sale" | "cash_register_receipt";
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
@@ -413,6 +414,15 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
         JSON.stringify(metadata),
         retainUntilForDate(db, retentionBasisDate),
       ) as { id: number };
+
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: metadata.sender?.name,
+        cvr: senderVatOrCvr,
+      });
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: metadata.recipient?.name,
+        cvr: metadata.recipient?.vatOrCvr,
+      });
 
       insertAuditLog(db, {
         eventType: "document_ingest",

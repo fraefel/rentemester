@@ -1,7 +1,7 @@
 // Misc company-scoped read handlers — settings, sync-cvr, obligations,
 // cashflow, mileage, budget(s), archive-year, accruals, bilagsmail,
 // annual-report, accounts, retention, integrity, exceptions, periods,
-// gdpr export, payables, agent-suggestions.
+// payables, agent-suggestions.
 
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
@@ -10,7 +10,6 @@ import { buildCompanyAccruals } from "../data/accruals-view";
 import { buildCompanyAnnualReport } from "../data/annual-report-view";
 import { buildCompanyBilagsmail } from "../data/bilagsmail-view";
 import { buildCompanyExceptions } from "../data/exceptions-list";
-import { buildCompanyGdprExport } from "../data/gdpr-view";
 import { buildCompanyIntegrity } from "../data/integrity-view";
 import { buildCompanyPeriods } from "../data/periods-view";
 import { buildCompanyRetention } from "../data/retention-view";
@@ -256,28 +255,6 @@ export function handleCompanyPeriods(
 ): Response {
   const data = buildCompanyPeriods(config.workspaceRoot, slug);
   return okResponse({ periods: data });
-}
-
-/**
- * GET /api/companies/:slug/gdpr/export?cvr=&name=&asOf= — GDPR-indsigt (#334).
- *
- * Wrapper omkring buildGdprSubjectExport. Read-only: en indsigtsrapport
- * over de personoplysninger en data-subject findes med pr. en given dato.
- */
-export function handleCompanyGdprExport(
-  config: ServerConfig,
-  slug: string,
-  url: URL,
-): Response {
-  const cvr = url.searchParams.get("cvr") ?? undefined;
-  const name = url.searchParams.get("name") ?? undefined;
-  const asOf = url.searchParams.get("asOf") ?? undefined;
-  const data = buildCompanyGdprExport(config.workspaceRoot, slug, {
-    cvr: cvr || undefined,
-    name: name || undefined,
-    asOf: asOf || undefined,
-  });
-  return okResponse({ gdpr: data });
 }
 
 /**

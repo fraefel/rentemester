@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 109 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 112 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-109 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+112 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -178,6 +178,9 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `exceptions_list` | `{ exceptions: [...], count }` |
 | `period_list` | `{ periods: [{ id, periodStart, periodEnd, kind, status, reference, createdAt }], count }` — `kind` er `"vat_period" \| "fiscal_year" \| "custom"`; ældre rækker kan læses som `"vat_quarter"`, der kun er et legacy-alias. `status` er `"open" \| "closed" \| "reported"`; `reference` kan være `null`. |
 | `audit_verify` | `{ entries: <number> }` — kun antallet af verificerede posteringer. Integritets-verdikten læses fra **konvolutten**: `ok=true` (+ tom `errors[]`) ⇒ kæden er intakt; `ok=false` ⇒ `errors[]` lister bruddene. Der er hverken `ok` eller `errors` *inde i* `data`. |
+| `gdpr_discover` | `{ subject: { cvr, name }, rows: [{ source, sourceRowId, label, personalData, retainUntil, erased }], byTable: { customers, vendors, documents, bank_transactions, journal_entries, journal_lines, audit_log } }` — tombstone-overlayet gælder også discovery; opslaget append-only audit-logges og kræver derfor `confirm:true`. |
+| `gdpr_export` | `{ asOf, subject: { cvr, name }, records: [{ source, sourceRowId, label, personalData, retainUntil, underRetention, erased, erasable }] }` — `erasable=false` for retention, allerede slettede rækker og hash-kædede journaldata. DSAR-eksporten append-only audit-logges og kræver derfor `confirm:true`. |
+| `gdpr_audit_log` | `{ format, ruleId, asOf, since, until, events: [{ id, occurredAt, eventType, subjectKey, actor, message }], canonicalPayload, fingerprint, signature? }`; `canonicalPayload` er de eksakte UTF-8-bytes som fingerprint/signatur dækker. `signature` findes kun når `signWithEd25519:true` og et komplet, matchende backup-nøglepar kan læses. |
 | `invoice_status` | `{ invoiceDocumentId, invoiceNumber, grossAmount, creditedAmount, paidAmount, openBalance, claimOpenBalance, asOfDate, dueDate, effectiveDueDate, isOverdue, overdueDays, status, payments[], creditNotes[], refunds[], claimPayments[], badDebtWriteOffs[], reminders[], compensationClaims[], interestClaims[], interestCorrections[], totalReminderFees, totalCompensationClaims, totalInterestClaims, totalInterestCorrections, totalClaimPayments, totalBadDebtWrittenOff }` — feltet hedder `invoiceDocumentId` (ikke `documentId`), `invoiceNumber` (ikke `invoiceNo`) og `overdueDays` (ikke `daysOverdue`). `status` er `"open" \| "paid" \| "credited" \| "refunded" \| "overpaid" \| "written_off"`. Den fulde typedefinition er `InvoiceStatusResult` i `src/core/invoice-payments.ts`. |
 
 `write`-tools returnerer id'er + hashes på den nyligt oprettede entitet:
@@ -216,15 +219,15 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
-- **Read-tools**: 48
+- **Read-tools**: 49
 - **Write-reversible**: 13
-- **Write-irreversible**: 47
+- **Write-irreversible**: 49
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **109**
+- **Total**: **112**
 
 ## Read-tools
 
-48 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
+49 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
 frit og parallelt.
 
 | Tool | CLI-ækvivalent | Input | Brief |
@@ -268,6 +271,7 @@ frit og parallelt.
 | `reconcile_bank` | `reconcile bank` | `{ company, from, to, status?, textMatch?, amount?, account? }` | Bygger bank-afstemningsrapport for periode. |
 | `recurring_invoice_list` | `recurring-invoice list` | `{ company, includeInactive? }` | Lister gentagende fakturaskabeloner. |
 | `retention_status` | `retention status` | `{ company, asOf? }` | Viser opbevaringsfrister og udløbet materiale. |
+| `gdpr_audit_log` | `gdpr audit-log` | `{ company, since?, until?, asOf?, signWithEd25519? }` | Eksporterer GDPR-hændelser med deterministisk fingerprint og valgfri signatur; skriver ikke state. |
 | `system_backup_destination_list` | `system backup-destinations` | `{ company }` | Lister konfigurerede backup-destinationer med attestering. |
 | `system_backup_governance` | `system backup-governance` | `{ company, asOf? }` | Samlet backup-status: forfald, lås, destinationer, sikker placering. |
 | `system_backup_status` | `system backup-status` | `{ company, asOf? }` | Tjekker om backup-pligten er opfyldt. |
@@ -344,13 +348,15 @@ append-only finanskæde.
 
 ### write-irreversible
 
-47 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
+49 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
 revisionsklare/eksterne artefakter; kan kun "rulles tilbage" via en
 modpostering.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
 | `accounts_add` | `accounts add` | `{ company, input: CreateAccountInput, confirm }` | Tilføjer én konto append-only; der findes ingen archive/undo. `defaultVatCode` skal være kanonisk. Oprettelsen bekræfter aldrig en kontorolle — brug separat `accounts_role_confirm`. |
+| `gdpr_discover` | `gdpr discover` | `{ company, cvr?, name?, confirm }` | Finder alle rækker med persondata om den registrerede og skriver et actor-attribueret, append-only `gdpr_discover`-audit-event. |
+| `gdpr_export` | `gdpr export` | `{ company, cvr?, name?, asOf?, confirm }` | Bygger en retention-annoteret DSAR og skriver et actor-attribueret, append-only `gdpr_export`-audit-event. |
 | `accrual_recognize` | `accrual recognize` | `{ company, accrualId, period, date?, settlementAccountNo?, confirm }` | Indtægts-/omkostningsfører én periode af en periodeafgrænsningspost. |
 | `efaktura_konfigurer` | `efaktura konfigurer` | `{ company, apiLicenseKey, environment?, confirm }` | Gemmer Digisense API license-key i secret-laget (config/digisense.json, 0600). PRECONDITION for efaktura_registrer/efaktura_modtag/efaktura_send. license-key rammer aldrig ledger'en. |
 | `efaktura_registrer` | `efaktura registrer` | `{ company, cvr, companyName, network?, confirm }` | Registrerer en virksomhed i NemHandel via Digisense: register-company ⇒ gemmer companyKey ⇒ register-participant for BÅDE outbound OG inbound. webhookUrl=null (vi poller selv). Idempotent: re-run med samme CVR duplikerer ikke state. |
@@ -564,13 +570,12 @@ regnskabsperiode (`period reopen`) er fx CLI-only — se også underafsnittet
   (registrér/lis bankkonti for FX-bogføring). Ingen `bank_account_*`-MCP-tools.
 - `src/cli/init.ts` — `init` (initialisér en virksomhed). MCP eksponerer
   `company_add` (`src/mcp/tools/system.ts`) i stedet, ikke `init` direkte.
-- `src/cli/gdpr.ts` — `gdpr export`, `gdpr discover` (subject-discovery),
-  `gdpr audit-log` (signed eksport af GDPR-handlinger; MCP's `audit_log_list`
-  er kun en *delvis* pendant — et filtreret read, ikke den signerede pakke)
-  og `gdpr forget` (legacy alias: `gdpr erase`). Ingen `gdpr_*`-MCP-tools —
-  bevidst CLI-gatet for actor-attribution. `gdpr forget`/`gdpr erase` er
-  actor-gatede mutationer; `gdpr forget` kræver derudover det eksplicitte
-  flag `--after-retention-expiry` (exit `2` uden).
+- `src/cli/gdpr.ts` — kun slettevejen `gdpr forget` (legacy alias:
+  `gdpr erase`) er CLI-only og kræver det eksplicitte flag
+  `--after-retention-expiry` (exit `2` uden). `gdpr discover`, `gdpr export`
+  og `gdpr audit-log` har nu direkte MCP-pendanter i `src/mcp/tools/gdpr.ts`;
+  discover/export er actor- og `confirm`-gatede, mens audit-log-eksporten er
+  read-only og kan signeres med en eksisterende Ed25519-backupnøgle.
 
 **CLI-only på kommando-niveau** — filen har en MCP-tvilling, men disse
 enkelt-kommandoer har intet MCP-tool (verificeret mod `rentemester --help`
@@ -635,7 +640,7 @@ og `tools/list`):
 >
 > Flere CLI-kommandoer eksponeres ikke som tools, fx `init`, `serve`,
 > `report *`, `vat momsangivelse`/`vat filing`, `period reopen`,
-> `gdpr export`/`gdpr erase`, `opening-balance post`, `bank-account add`/`list`,
+> `gdpr erase`, `opening-balance post`, `bank-account add`/`list`,
 > `import run`/`systems`/`contacts`, `agent run`, `reg coverage`/`reg citations`,
 > `invoice create`, `invoice export-public`/`invoice export-public-oioubl` og
 > diverse `system export-*`/`verify-*`-kommandoer. Disse driver lokale

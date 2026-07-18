@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { openDb } from "../../src/core/db";
+import { companyPaths } from "../../src/core/paths";
 
 async function runCli(args: string[]) {
   const proc = Bun.spawn(["bun", "run", "src/cli.ts", ...args], {
@@ -45,12 +47,15 @@ describe("GDPR CLI", () => {
     expect(exported.exitCode).toBe(0);
     const exportJson = JSON.parse(exported.stdout);
     expect(exportJson.ok).toBe(true);
-    expect(exportJson.records.length).toBe(1);
-    expect(exportJson.records[0].personalData.email).toBe("gdpr-kunde@example.com");
+    const customerRecord = exportJson.records.find(
+      (record: { source: string }) => record.source === "customers",
+    );
+    expect(customerRecord).toBeDefined();
+    expect(customerRecord.personalData.email).toBe("gdpr-kunde@example.com");
 
     // No linked bookkeeping records, so a far-future date allows erasure.
     const erased = await runCli([
-      "gdpr", "erase", "--company", company, "--cvr", "DK90909090", "--as-of", "2099-01-01",
+      "gdpr", "erase", "--company", company, "--cvr", "DK90909090",
     ]);
     expect(erased.exitCode).toBe(0);
     const eraseJson = JSON.parse(erased.stdout);
@@ -165,7 +170,11 @@ describe("GDPR CLI", () => {
     const onDisk = JSON.parse(readFileSync(payload.outPath, "utf8"));
     expect(onDisk.ok).toBe(true);
     expect(onDisk.subject.cvr).toBe("DK11111111");
-    expect(onDisk.records[0].personalData.email).toBe("out@example.com");
+    const customerRecord = onDisk.records.find(
+      (record: { source: string }) => record.source === "customers",
+    );
+    expect(customerRecord).toBeDefined();
+    expect(customerRecord.personalData.email).toBe("out@example.com");
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -198,7 +207,7 @@ describe("GDPR CLI", () => {
 
     const forgotten = await runCli([
       "gdpr", "forget", "--company", company, "--subject", "DK33333333",
-      "--as-of", "2099-01-01", "--after-retention-expiry",
+      "--after-retention-expiry",
     ]);
     expect(forgotten.exitCode).toBe(0);
     const payload = JSON.parse(forgotten.stdout);
@@ -206,5 +215,57 @@ describe("GDPR CLI", () => {
     expect(payload.erasedCount).toBeGreaterThan(0);
     expect(payload.refusedCount).toBe(0);
     rmSync(root, { recursive: true, force: true });
+  });
+
+  test("erase/forget afviser en caller-styret --as-of retention-clock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-gdpr-cli-clock-"));
+    const company = join(root, "company");
+    await initCompany(company);
+    await runCli([
+      "customer", "create", "--company", company,
+      "--name", "Clock Kunde", "--cvr", "DK44444444",
+    ]);
+
+    for (const command of ["erase", "forget"]) {
+      const args = [
+        "gdpr", command, "--company", company, "--cvr", "DK44444444",
+        "--as-of", "2099-01-01",
+      ];
+      if (command === "forget") args.push("--after-retention-expiry");
+      const result = await runCli(args);
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("--as-of");
+    }
+
+    const db = openDb(companyPaths(company).db);
+    const tombstones = db
+      .query("SELECT COUNT(*) AS n FROM gdpr_erasures")
+      .get() as { n: number };
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    expect(tombstones.n).toBe(0);
+  });
+
+  test("discover bevarer --actor-via i det append-only audit-event", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-gdpr-cli-actor-via-"));
+    const company = join(root, "company");
+    await initCompany(company);
+    await runCli([
+      "customer", "create", "--company", company,
+      "--name", "Actor Kunde", "--cvr", "DK66666666",
+    ]);
+    const discovered = await runCli([
+      "gdpr", "discover", "--company", company, "--cvr", "DK66666666",
+      "--actor-via", "gdpr-cli-test",
+    ]);
+    expect(discovered.exitCode).toBe(0);
+
+    const db = openDb(companyPaths(company).db);
+    const audit = db
+      .query("SELECT actor FROM audit_log WHERE event_type = 'gdpr_discover'")
+      .get() as { actor: string };
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    expect(audit.actor).toBe("user:gdpr-test via gdpr-cli-test");
   });
 });

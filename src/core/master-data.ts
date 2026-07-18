@@ -6,6 +6,7 @@ import { addDays } from "./dates";
 import { normalizeEanNumber, trimToNull } from "./ean";
 import { lookupCvrCompany, type CvrCompanyInfo, type CvrLookupOptions } from "./cvr";
 import { resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
+import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 
 export type CustomerRecord = {
   id: number;
@@ -77,6 +78,7 @@ function normalizeCurrency(value: string | null | undefined) {
 export function createCustomer(db: Database, input: CreateCustomerInput) {
   const name = trimToNull(input.name);
   if (!name) return { ok: false, errors: ["name is required"] };
+  const vatOrCvr = trimToNull(input.vatOrCvr);
   const rawEanNumber = trimToNull(input.eanNumber);
   const eanNumber = rawEanNumber ? normalizeEanNumber(rawEanNumber) : null;
   if (rawEanNumber && !eanNumber) return { ok: false, errors: ["eanNumber must be 13 digits"] };
@@ -105,7 +107,7 @@ export function createCustomer(db: Database, input: CreateCustomerInput) {
     ).get(
       name,
       trimToNull(input.address),
-      trimToNull(input.vatOrCvr),
+      vatOrCvr,
       trimToNull(input.email),
       trimToNull(input.phone),
       trimToNull(input.website),
@@ -114,6 +116,11 @@ export function createCustomer(db: Database, input: CreateCustomerInput) {
       defaultCurrency,
       trimToNull(input.notes),
     ) as { id: number; created_at: string };
+
+    strengthenGdprErasureAliasesForIdentity(db, {
+      name,
+      cvr: vatOrCvr,
+    });
 
     insertAuditLog(db, {
       eventType: "customer_create",
@@ -167,6 +174,7 @@ export function createVendor(db: Database, input: CreateVendorInput) {
     ? resolveSupplierIdentity({ country: input.countryCode ?? "", identifier: input.vatOrCvr, identifierKind: input.identifierKind })
     : null;
   if (identity && !identity.ok) return { ok: false, status: identity.status, errors: identity.errors };
+  const vatOrCvr = identity?.ok ? identity.identifier : trimToNull(input.vatOrCvr);
 
   const inserted = db.transaction(() => {
     const row = db.query(
@@ -176,7 +184,7 @@ export function createVendor(db: Database, input: CreateVendorInput) {
     ).get(
       name,
       trimToNull(input.address),
-      identity?.ok ? identity.identifier : trimToNull(input.vatOrCvr),
+      vatOrCvr,
       identity?.ok ? identity.country : null,
       identity?.ok ? identity.identifierKind : null,
       identity?.ok ? identity.status : "human_resolution_required",
@@ -187,6 +195,11 @@ export function createVendor(db: Database, input: CreateVendorInput) {
       trimToNull(input.defaultVatTreatment),
       trimToNull(input.notes),
     ) as { id: number; created_at: string };
+
+    strengthenGdprErasureAliasesForIdentity(db, {
+      name,
+      cvr: vatOrCvr,
+    });
 
     insertAuditLog(db, {
       eventType: "vendor_create",
@@ -343,6 +356,11 @@ export function updateCustomer(
         id,
       ],
     );
+
+    strengthenGdprErasureAliasesForIdentity(db, {
+      name: nextName,
+      cvr: nextVatOrCvr,
+    });
 
     insertAuditLog(db, {
       eventType: "customer_update",
@@ -565,6 +583,7 @@ export function updateVendor(
   const nextExpenseAcct = input.defaultExpenseAccount !== undefined ? trimToNull(input.defaultExpenseAccount) : existing.default_expense_account;
   const nextVatTreatment = input.defaultVatTreatment !== undefined ? trimToNull(input.defaultVatTreatment) : existing.default_vat_treatment;
   const nextNotes = input.notes !== undefined ? trimToNull(input.notes) : existing.notes;
+  const resolvedVatOrCvr = identity?.ok ? identity.identifier : nextVatOrCvr;
 
   db.transaction(() => {
     db.run(
@@ -576,7 +595,7 @@ export function updateVendor(
       [
         nextName,
         nextAddress,
-        identity?.ok ? identity.identifier : nextVatOrCvr,
+        resolvedVatOrCvr,
         identity?.ok ? identity.country : existing.country_code,
         identity?.ok ? identity.identifierKind : existing.identifier_kind,
         identity?.ok ? identity.status : existing.identity_status,
@@ -589,6 +608,11 @@ export function updateVendor(
         id,
       ],
     );
+
+    strengthenGdprErasureAliasesForIdentity(db, {
+      name: nextName,
+      cvr: resolvedVatOrCvr,
+    });
 
     insertAuditLog(db, {
       eventType: "vendor_update",

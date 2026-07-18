@@ -99,6 +99,10 @@ export const MUTATING_COMMANDS = new Set([
   "invoice send",
   // ===== END EMAIL DELIVERY (#180) =====
   // ===== GDPR (#184) =====
+  // Discovery and export append immutable audit_log events, so they are
+  // mutations even though the subject data itself is only read.
+  "gdpr discover",
+  "gdpr export",
   "gdpr erase",
   // Audit 2026-06-11 (AGENT-1): `gdpr forget` er det kanoniske navn for
   // samme runEraser som legacy-aliaset `gdpr erase` — et alias og dets

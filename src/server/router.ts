@@ -76,7 +76,6 @@ import {
   handleCompanyBudgetVsActual,
   handleCompanyCashflow,
   handleCompanyExceptions,
-  handleCompanyGdprExport,
   handleCompanyIntegrity,
   handleCompanyMileage,
   handleCompanyObligations,
@@ -100,6 +99,7 @@ import {
   handleClosePeriod,
   handleCreateBankAccount,
   handleDeleteBilagsmailImapConfig,
+  handleGdprExport,
   handleGdprErase,
   handleSaveBilagsmailImapConfig,
   handleSetBilagsmailAlias,
@@ -210,7 +210,7 @@ export const ROUTE_CATALOG: ReadonlyArray<{
   { method: "GET", pattern: "/api/companies/:slug/periods", summary: "Periodelås-liste med effective status (#342)." },
   { method: "GET", pattern: "/api/companies/:slug/bank-accounts", summary: "Registrerede bankkonti + CSV-mapping-profiler (#345)." },
   { method: "POST", pattern: "/api/companies/:slug/bank-accounts", summary: "Opretter en bankkonto (#345)." },
-  { method: "GET", pattern: "/api/companies/:slug/gdpr/export", summary: "GDPR-indsigt — finder personoplysninger for en data-subject (#334)." },
+  { method: "POST", pattern: "/api/companies/:slug/gdpr/export", summary: "GDPR-indsigt — actor-attribueret og confirm-gatet (#334)." },
   { method: "POST", pattern: "/api/companies/:slug/gdpr/erase", summary: "GDPR-anonymisering — append-only tombstones (#334)." },
   { method: "GET", pattern: "/api/companies/:slug/bilagsmail", summary: "Bilagsmail-status: IMAP-config, alias, inbox (#348/#350/#351)." },
   { method: "POST", pattern: "/api/companies/:slug/bilagsmail/imap-config", summary: "Gemmer IMAP-config til config/imap.json (#348)." },
@@ -702,12 +702,12 @@ export async function handleRequest(
       throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
     }
 
-    // GDPR export (read) + erase (write) (#334).
+    // GDPR export + erase are both actor-attributed writes (#334).
     const gdprExportMatch = /^\/api\/companies\/([^/]+)\/gdpr\/export$/.exec(path);
     if (gdprExportMatch) {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
       const slug = decodeURIComponent(gdprExportMatch[1]!);
-      return handleCompanyGdprExport(config, slug, url);
+      return await handleGdprExport(config, request, slug);
     }
 
     const gdprEraseMatch = /^\/api\/companies\/([^/]+)\/gdpr\/erase$/.exec(path);

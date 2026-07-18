@@ -1,5 +1,5 @@
 // Tests: src/core/gdpr.ts (GDPR erasure never breaks the audit chain — #184)
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,6 +21,15 @@ function freshCompany(prefix: string) {
      VALUES (1, 'Rentemester ApS', 'DK12345678', 1, 'end-year')`,
   );
   return { root, company, db };
+}
+
+function withToday<T>(date: string, run: () => T): T {
+  setSystemTime(new Date(`${date}T12:00:00.000Z`));
+  try {
+    return run();
+  } finally {
+    setSystemTime();
+  }
 }
 
 describe("GDPR erasure keeps the ledger and audit chain verifiable", () => {
@@ -61,7 +70,9 @@ describe("GDPR erasure keeps the ledger and audit chain verifiable", () => {
     const before = verifyAuditChain(db);
     expect(before.ok).toBe(true);
 
-    const erase = eraseGdprSubject(db, { cvr: "DK10101010", asOf: "2099-01-01" });
+    const erase = withToday("2026-07-18", () =>
+      eraseGdprSubject(db, { cvr: "DK10101010" }),
+    );
     expect(erase.ok).toBe(true);
     expect(erase.erasedCount).toBeGreaterThan(0);
 
@@ -106,7 +117,9 @@ describe("GDPR erasure keeps the ledger and audit chain verifiable", () => {
       ],
     });
 
-    const erase = eraseGdprSubject(db, { cvr: "DK20202020", asOf: "2027-06-01" });
+    const erase = withToday("2027-06-01", () =>
+      eraseGdprSubject(db, { cvr: "DK20202020" }),
+    );
     expect(erase.ok).toBe(true);
     expect(erase.erasedCount).toBe(0);
     expect(erase.refusedCount).toBeGreaterThan(0);

@@ -20,6 +20,9 @@ const SOURCE_LABEL: Record<string, string> = {
   vendors: "Leverandør",
   documents: "Bilag",
   bank_transactions: "Banktransaktion",
+  journal_entries: "Postering",
+  journal_lines: "Posteringslinje",
+  audit_log: "Audit-log",
 };
 
 export function GdprView() {
@@ -180,9 +183,7 @@ function ExportPanel({
 }) {
   const { records } = data.export;
   const underRetention = records.filter((r) => r.underRetention).length;
-  const erasable = records.filter(
-    (r) => !r.underRetention && !r.erased,
-  ).length;
+  const erasable = records.filter((r) => r.erasable).length;
   const alreadyErased = records.filter((r) => r.erased).length;
 
   return (
@@ -252,6 +253,8 @@ function RecordRow({ row }: { row: GdprExportRecord }) {
           <span className="pill">Anonymiseret</span>
         ) : row.underRetention ? (
           <span className="pill warn">Under bogføringspligt</span>
+        ) : !row.erasable ? (
+          <span className="pill warn">Kan ikke anonymiseres</span>
         ) : (
           <span className="pill ok">Kan anonymiseres</span>
         )}
@@ -286,7 +289,7 @@ function ErasureSummary({ result }: { result: GdprErasureResult }) {
                 <tr key={i}>
                   <td>{SOURCE_LABEL[r.source] ?? r.source}</td>
                   <td>{r.label ?? `#${r.sourceRowId}`}</td>
-                  <td className="muted">{r.retainUntil}</td>
+                  <td className="muted">{r.retainUntil ?? "—"}</td>
                   <td>{r.reason}</td>
                 </tr>
               ))}

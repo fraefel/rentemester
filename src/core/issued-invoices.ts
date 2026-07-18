@@ -12,6 +12,7 @@ import { retainUntilForDate } from "./retention";
 import { validateJournalTransactionDate } from "./periods";
 import { requireCachedViesValidation } from "./vies";
 import { buildIssuedInvoicePdf } from "./invoice-pdf";
+import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 import {
   companyAddressLine,
   getCompanySettings,
@@ -410,7 +411,16 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
       vatAmount,
       serialized,
       retainUntilForDate(db, payload.issueDate),
-    ) as { id: number };
+      ) as { id: number };
+
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: payload.seller?.name,
+        cvr: payload.seller?.vatOrCvr,
+      });
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: payload.buyer?.name,
+        cvr: payload.buyer?.vatOrCvr,
+      });
 
       insertAuditLog(db, {
         eventType: "invoice_issue",

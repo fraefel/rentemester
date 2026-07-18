@@ -11,6 +11,7 @@ import { fromOre, roundDkk, toOre } from "./money";
 import { companySequenceScope, fiscalYearLabelFromDate, nextSequenceValue, reserveSequenceValue } from "./sequences";
 import { retainUntilForDate } from "./retention";
 import { resolveAccountRole } from "./account-roles";
+import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 
 export type IssueCreditNoteInput = {
   originalInvoiceDocumentId: number;
@@ -289,6 +290,15 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
         serialized,
         retainUntilForDate(db, input.issueDate),
       ) as { id: number };
+
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: payload?.seller?.name,
+        cvr: payload?.seller?.vatOrCvr,
+      });
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: payload?.buyer?.name,
+        cvr: payload?.buyer?.vatOrCvr,
+      });
 
       const journal = postJournalEntry(db, {
         transactionDate: input.issueDate,

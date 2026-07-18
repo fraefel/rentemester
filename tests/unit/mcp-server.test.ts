@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
+import { ensureEd25519Keypair } from "../../src/core/system-backups";
 
 /**
  * Integration-test for MCP-server-scaffolden (#77).
@@ -275,6 +276,7 @@ describe("MCP tools full surface (#78)", () => {
     "customer_validate_vat",
     "documents_list",
     "exceptions_list",
+    "gdpr_audit_log",
     "invoice_compensation_calc",
     "invoice_find",
     "invoice_interest_calc",
@@ -300,6 +302,8 @@ describe("MCP tools full surface (#78)", () => {
     // write-irreversible
     "accounts_add",
     "expense_book",
+    "gdpr_discover",
+    "gdpr_export",
     "invoice_apply_payment",
     "invoice_claim_compensation",
     "invoice_claim_interest",
@@ -473,6 +477,105 @@ describe("MCP tools full surface (#78)", () => {
     const structured = response.result?.structuredContent;
     expect(structured?.ok).toBe(false);
     expect(structured?.errors?.some((m: string) => m.includes("confirm: true required"))).toBe(true);
+  });
+
+  test("GDPR MCP tools gate audited reads, preserve the MCP actor, and sign only on request", async () => {
+    for (const name of ["gdpr_discover", "gdpr_export"]) {
+      const rejected = await client.send("tools/call", {
+        name,
+        arguments: { company: companyRoot, cvr: "DK12121212" },
+      });
+      expect(rejected.error).toBeUndefined();
+      expect(rejected.result?.structuredContent).toMatchObject({
+        ok: false,
+        code: "CONFIRM_REQUIRED",
+      });
+    }
+
+    const discover = await client.send("tools/call", {
+      name: "gdpr_discover",
+      arguments: { company: companyRoot, cvr: "DK12121212", confirm: true },
+    });
+    expect(discover.result?.structuredContent?.ok).toBe(true);
+
+    const exported = await client.send("tools/call", {
+      name: "gdpr_export",
+      arguments: {
+        company: companyRoot,
+        cvr: "DK12121212",
+        asOf: "2026-07-18",
+        confirm: true,
+      },
+    });
+    expect(exported.result?.structuredContent?.ok).toBe(true);
+
+    const db = openDb(join(companyRoot, "data", "ledger.sqlite"));
+    const actors = db
+      .query(
+        `SELECT event_type, actor
+           FROM audit_log
+          WHERE event_type IN ('gdpr_discover', 'gdpr_export')
+          ORDER BY id ASC`,
+      )
+      .all() as Array<{ event_type: string; actor: string }>;
+    db.close();
+    expect(actors).toEqual([
+      {
+        event_type: "gdpr_discover",
+        actor: "agent:rentemester-test-harness/0.0.1 via rentemester-mcp",
+      },
+      {
+        event_type: "gdpr_export",
+        actor: "agent:rentemester-test-harness/0.0.1 via rentemester-mcp",
+      },
+    ]);
+
+    const unsigned = await client.send("tools/call", {
+      name: "gdpr_audit_log",
+      arguments: { company: companyRoot, asOf: "2026-07-18" },
+    });
+    expect(unsigned.result?.structuredContent?.ok).toBe(true);
+    expect(unsigned.result?.structuredContent?.data?.events).toHaveLength(2);
+    expect(unsigned.result?.structuredContent?.data?.signature).toBeUndefined();
+
+    const missingKey = await client.send("tools/call", {
+      name: "gdpr_audit_log",
+      arguments: {
+        company: companyRoot,
+        asOf: "2026-07-18",
+        signWithEd25519: true,
+      },
+    });
+    expect(missingKey.result?.structuredContent?.ok).toBe(false);
+    expect(missingKey.result?.structuredContent?.errors?.[0]).toContain(
+      "no ed25519 backup signing key",
+    );
+    expect(missingKey.result?.structuredContent?.errors?.join(" ")).not.toContain(
+      companyRoot,
+    );
+
+    ensureEd25519Keypair(companyRoot);
+    const signed = await client.send("tools/call", {
+      name: "gdpr_audit_log",
+      arguments: {
+        company: companyRoot,
+        asOf: "2026-07-18",
+        signWithEd25519: true,
+      },
+    });
+    expect(signed.result?.structuredContent?.ok).toBe(true);
+    expect(signed.result?.structuredContent?.data?.signature).toMatchObject({
+      algorithm: "ed25519",
+      encoding: "utf8",
+      signedField: "canonicalPayload",
+    });
+    expect(
+      JSON.parse(signed.result?.structuredContent?.data?.canonicalPayload),
+    ).toMatchObject({
+      format: "rentemester.gdpr-audit.v1",
+      ruleId: "GDPR-AUDIT-LOG",
+    });
+    expect(signed.result?.structuredContent?.data?.signature?.base64.length).toBeGreaterThan(40);
   });
 
   test("invoice_issue without confirm:true returns envelope error", async () => {

@@ -8,13 +8,21 @@ export type GdprPersonalData = {
 };
 
 export type GdprExportRecord = {
-  source: "customers" | "vendors" | "documents" | "bank_transactions";
+  source:
+    | "customers"
+    | "vendors"
+    | "documents"
+    | "bank_transactions"
+    | "journal_entries"
+    | "journal_lines"
+    | "audit_log";
   sourceRowId: number;
   label: string | null;
   personalData: GdprPersonalData;
   retainUntil: string | null;
   underRetention: boolean;
   erased: boolean;
+  erasable: boolean;
 };
 
 export type GdprSubjectExport = {
@@ -59,7 +67,7 @@ export type GdprErasureResult = {
     source: string;
     sourceRowId: number;
     label: string | null;
-    retainUntil: string;
+    retainUntil: string | null;
     reason: string;
   }>;
   errors: string[];

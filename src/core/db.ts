@@ -176,6 +176,57 @@ function migrateLegacyVatPeriodKind(db: Database) {
   })();
 }
 
+/**
+ * GDPR audit-log rows became overlay-redactable and tombstones became
+ * subject-scoped after the original table shipped. SQLite cannot widen the
+ * CHECK/UNIQUE constraints in place, so rebuild the append-only table without
+ * changing ids, timestamps, legacy raw subject keys or existing evidence.
+ */
+function migrateGdprErasureTable(db: Database) {
+  const tableSql =
+    (db
+      .query(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gdpr_erasures'",
+      )
+      .get() as { sql?: string } | null)?.sql ?? "";
+  const supportsAuditOverlay = /['"]audit_log['"]/.test(tableSql);
+  const subjectScoped =
+    /UNIQUE\s*\(\s*subject_key\s*,\s*source\s*,\s*source_row_id\s*\)/i.test(
+      tableSql,
+    );
+  if (supportsAuditOverlay && subjectScoped) return;
+
+  db.transaction(() => {
+    db.exec(`
+      DROP TRIGGER IF EXISTS gdpr_erasures_no_update;
+      DROP TRIGGER IF EXISTS gdpr_erasures_no_delete;
+      DROP TABLE IF EXISTS gdpr_erasures_source_rebuild;
+      CREATE TABLE gdpr_erasures_source_rebuild (
+        id INTEGER PRIMARY KEY,
+        subject_key TEXT NOT NULL,
+        source TEXT NOT NULL CHECK(source IN ('customers','vendors','documents','bank_transactions','audit_log')),
+        source_row_id INTEGER NOT NULL,
+        redacted_fields TEXT NOT NULL,
+        rule_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        retained_until_at_erasure TEXT,
+        erased_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(subject_key, source, source_row_id)
+      );
+      INSERT INTO gdpr_erasures_source_rebuild
+        (id, subject_key, source, source_row_id, redacted_fields, rule_id,
+         reason, retained_until_at_erasure, erased_at)
+      SELECT id, subject_key, source, source_row_id, redacted_fields, rule_id,
+             reason, retained_until_at_erasure, erased_at
+        FROM gdpr_erasures;
+      DROP TABLE gdpr_erasures;
+      ALTER TABLE gdpr_erasures_source_rebuild RENAME TO gdpr_erasures;
+      CREATE INDEX idx_gdpr_erasures_subject
+        ON gdpr_erasures(subject_key);
+    `);
+  })();
+}
+
 export function openDb(path: string) {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
@@ -208,6 +259,7 @@ export function migrate(db: Database) {
   const schema = readFileSync(join(import.meta.dir, "../../src/core/schema.sql"), "utf8");
   db.exec(schema);
   migrateLegacyVatPeriodKind(db);
+  migrateGdprErasureTable(db);
   restoreSchemaTriggers(db, schema);
   if (!hasColumn(db, "companies", "cvr")) db.exec("ALTER TABLE companies ADD COLUMN cvr TEXT;");
   if (!hasColumn(db, "companies", "fiscal_year_start_month")) db.exec("ALTER TABLE companies ADD COLUMN fiscal_year_start_month INTEGER NOT NULL DEFAULT 1 CHECK(fiscal_year_start_month BETWEEN 1 AND 12);");

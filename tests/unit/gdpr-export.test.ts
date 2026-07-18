@@ -1,5 +1,5 @@
 // Tests: src/core/gdpr.ts (GDPR data-subject export — #184)
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,7 +8,11 @@ import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
 import { createCustomer, createVendor } from "../../src/core/master-data";
-import { buildGdprSubjectExport, eraseGdprSubject } from "../../src/core/gdpr";
+import {
+  buildGdprSubjectExport,
+  eraseGdprSubject,
+  findGdprSubject,
+} from "../../src/core/gdpr";
 import { verifyAuditLogIntegrity } from "../../src/core/audit-log";
 
 function freshCompany() {
@@ -22,6 +26,15 @@ function freshCompany() {
      VALUES (1, 'Rentemester ApS', 'DK12345678', 1, 'end-year')`,
   );
   return { root, company, db };
+}
+
+function withToday<T>(date: string, run: () => T): T {
+  setSystemTime(new Date(`${date}T12:00:00.000Z`));
+  try {
+    return run();
+  } finally {
+    setSystemTime();
+  }
 }
 
 describe("GDPR data-subject export", () => {
@@ -54,6 +67,117 @@ describe("GDPR data-subject export", () => {
     // Every record carries a retention verdict so the data subject knows why
     // data is kept.
     expect(typeof customerRecords[0]!.retainUntil === "string" || customerRecords[0]!.retainUntil === null).toBe(true);
+  });
+
+  test("binds cvr and name to the same party before export, discovery or erasure", () => {
+    const { root, db } = freshCompany();
+    createCustomer(db, { name: "Alice Andersen", vatOrCvr: "DK11112222" });
+    createCustomer(db, { name: "Bob Bertelsen", vatOrCvr: "DK33334444" });
+
+    const mismatchedKey = { cvr: "DK11112222", name: "Bob Bertelsen" };
+    const exported = buildGdprSubjectExport(db, mismatchedKey);
+    const discovered = findGdprSubject(db, mismatchedKey);
+    const erased = withToday("2026-07-18", () =>
+      eraseGdprSubject(db, mismatchedKey),
+    );
+    expect(exported).toMatchObject({ ok: false, records: [] });
+    expect(discovered).toMatchObject({ ok: false, rows: [] });
+    expect(erased).toMatchObject({ ok: false, erasedCount: 0, refusedCount: 0 });
+    expect(exported.errors[0]).toContain("same GDPR subject");
+
+    const auditCount = db
+      .query(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE event_type LIKE 'gdpr_%'",
+      )
+      .get() as { n: number };
+    const tombstoneCount = db
+      .query("SELECT COUNT(*) AS n FROM gdpr_erasures")
+      .get() as { n: number };
+    expect(auditCount.n).toBe(0);
+    expect(tombstoneCount.n).toBe(0);
+
+    const matched = buildGdprSubjectExport(db, {
+      cvr: "DK11112222",
+      name: "Alice Andersen",
+    });
+    expect(matched.ok).toBe(true);
+    expect(matched.records.filter((row) => row.source === "customers")).toHaveLength(1);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("cvr-only scope resolves structured names for bank, journal and audit text", () => {
+    const { root, db } = freshCompany();
+    createVendor(db, { name: "Navn Fra CVR", vatOrCvr: "DK55556666" });
+    db.run(
+      `INSERT INTO bank_transactions
+         (transaction_date, text, amount, currency, transaction_hash)
+       VALUES ('2026-04-01', 'Betaling Navn Fra CVR', -100, 'DKK', 'gdpr-cvr-bank')`,
+    );
+    const posted = postJournalEntry(db, {
+      transactionDate: "2026-04-01",
+      text: "Journal for Navn Fra CVR",
+      lines: [
+        { accountNo: "1100", debitAmount: 100, text: "Linje Navn Fra CVR" },
+        { accountNo: "2000", creditAmount: 100 },
+      ],
+    });
+    expect(posted.ok).toBe(true);
+    db.run(
+      `INSERT INTO audit_log (event_type, entity_type, entity_id, message, actor)
+       VALUES ('note', 'vendor', 'DK55556666', 'Note om Navn Fra CVR', 'agent:test')`,
+    );
+
+    const report = buildGdprSubjectExport(db, { cvr: "DK55556666" });
+    const discovered = findGdprSubject(db, { cvr: "DK55556666" });
+    const sources = new Set(report.records.map((row) => row.source));
+    expect(report.ok).toBe(true);
+    expect(sources).toEqual(
+      new Set([
+        "vendors",
+        "bank_transactions",
+        "journal_entries",
+        "journal_lines",
+        "audit_log",
+      ]),
+    );
+    expect(discovered.ok).toBe(true);
+    expect(discovered.byTable.bank_transactions).toBe(1);
+    expect(discovered.byTable.journal_entries).toBe(1);
+    expect(discovered.byTable.journal_lines).toBe(1);
+    expect(discovered.byTable.audit_log).toBeGreaterThanOrEqual(1);
+
+    const laterReport = buildGdprSubjectExport(db, { cvr: "DK55556666" });
+    const gdprAuditRows = laterReport.records.filter(
+      (row) =>
+        row.source === "audit_log" &&
+        (row.label === "gdpr_export" || row.label === "gdpr_discover"),
+    );
+    expect(gdprAuditRows.length).toBeGreaterThanOrEqual(2);
+    expect(gdprAuditRows.every((row) => row.retainUntil !== null)).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects an invalid export asOf before reading or audit-logging subject data", () => {
+    const { root, db } = freshCompany();
+    createCustomer(db, { name: "Dato Kunde", vatOrCvr: "DK77778888" });
+    const report = buildGdprSubjectExport(db, {
+      cvr: "DK77778888",
+      asOf: "2026-02-30",
+    });
+    const auditCount = db
+      .query("SELECT COUNT(*) AS n FROM audit_log WHERE event_type = 'gdpr_export'")
+      .get() as { n: number };
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+
+    expect(report.ok).toBe(false);
+    expect(report.records).toEqual([]);
+    expect(report.errors[0]).toContain("valid YYYY-MM-DD");
+    expect(auditCount.n).toBe(0);
   });
 
   test("includes vendor master-data, ingested documents and bank text", () => {
@@ -158,12 +282,27 @@ describe("GDPR data-subject export", () => {
     expect(auditRec).toBeDefined();
     expect(auditRec!.personalData.name).toContain("Frida Fritekst");
 
+    // The audit overlay follows the linked bookkeeping retention deadline;
+    // once that deadline has passed, its immutable raw row is hidden from
+    // future subject exports without changing the audit bytes.
+    const erasure = withToday("2032-01-01", () =>
+      eraseGdprSubject(db, { name: "Frida Fritekst" }),
+    );
+    expect(erasure.erased.some((row) => row.source === "audit_log")).toBe(true);
+    const afterErasure = buildGdprSubjectExport(db, { name: "Frida Fritekst" });
+    const redactedAudit = afterErasure.records.find(
+      (row) => row.source === "audit_log" && row.sourceRowId === auditRec!.sourceRowId,
+    );
+    expect(redactedAudit).toBeDefined();
+    expect(redactedAudit!.erased).toBe(true);
+    expect(redactedAudit!.personalData.name).not.toContain("Frida Fritekst");
+
     db.close();
     rmSync(root, { recursive: true, force: true });
   });
 
-  // JUR-8 — erasure must NEVER tombstone ledger free-text: those bytes are
-  // hash-chained / immutable. It exports them but leaves them untouched.
+  // JUR-8 — erasure must NEVER tombstone hash-chained journal free-text. Audit
+  // rows stay immutable too, but may be hidden by an append-only overlay.
   test("erasure never redacts ledger free-text and keeps the audit chain valid", () => {
     const { root, company, db } = freshCompany();
     const docFile = join(root, "erase-ledgertext.txt");
@@ -192,12 +331,13 @@ describe("GDPR data-subject export", () => {
       ],
     });
 
-    // Far-future asOf so any retention deadline has lapsed.
-    const result = eraseGdprSubject(db, { name: "Gustav Gammel", asOf: "2099-01-01" });
+    const result = withToday("2026-07-18", () =>
+      eraseGdprSubject(db, { name: "Gustav Gammel" }),
+    );
     expect(result.ok).toBe(true);
     // No ledger-text source may ever appear among the erased records.
     for (const e of result.erased) {
-      expect(["journal_entries", "journal_lines", "audit_log"]).not.toContain(e.source);
+      expect(["journal_entries", "journal_lines"]).not.toContain(e.source);
     }
 
     // The audit chain stays verifiable after erasure.

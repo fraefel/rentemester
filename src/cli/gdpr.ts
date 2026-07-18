@@ -46,6 +46,30 @@ function readSubject(ctx: CommandContext): {
   };
 }
 
+function readErasureSubject(ctx: CommandContext): {
+  cvr: string | null;
+  name: string | null;
+} {
+  const subject = readSubject(ctx);
+  return { cvr: subject.cvr, name: subject.name };
+}
+
+function cliAuditActor(ctx: CommandContext): {
+  createdBy: string;
+  createdByProgram: string;
+} {
+  const createdBy =
+    ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor();
+  if (!createdBy) ctx.fatal("actor required for mutations");
+  return {
+    createdBy,
+    createdByProgram:
+      ctx.cliActorVia ??
+      process.env.RENTEMESTER_ACTOR_VIA ??
+      "rentemester-cli",
+  };
+}
+
 /** Build a stable filename for the on-disk export: deterministic, safe chars. */
 function sanitizeSubjectKey(cvr: string | null, name: string | null): string {
   const raw = cvr ?? name ?? "subject";
@@ -60,7 +84,7 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("gdpr", "export", (ctx) => {
     const db = openCommandDb(ctx);
     migrate(db);
-    const result = buildGdprSubjectExport(db, readSubject(ctx));
+    const result = buildGdprSubjectExport(db, readSubject(ctx), cliAuditActor(ctx));
     const outDir = ctx.trimToNull(ctx.arg("--out"));
     let outPath: string | undefined;
     if (outDir && result.ok) {
@@ -86,7 +110,7 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("gdpr", "discover", (ctx) => {
     const db = openCommandDb(ctx);
     migrate(db);
-    const result = findGdprSubject(db, readSubject(ctx));
+    const result = findGdprSubject(db, readSubject(ctx), cliAuditActor(ctx));
     ctx.emitResult(result as unknown as Record<string, unknown>);
     db.close();
     if (!result.ok) process.exit(1);
@@ -126,7 +150,11 @@ export function register(dispatch: CommandDispatch): void {
   function runErasure(ctx: CommandContext): void {
     const db = openCommandDb(ctx);
     migrate(db);
-    const result = eraseGdprSubject(db, readSubject(ctx));
+    const result = eraseGdprSubject(
+      db,
+      readErasureSubject(ctx),
+      cliAuditActor(ctx),
+    );
     ctx.emitResult(result as unknown as Record<string, unknown>);
     db.close();
     if (!result.ok) process.exit(1);

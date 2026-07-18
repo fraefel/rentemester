@@ -57,11 +57,12 @@ Hver række er én logisk mutation. **Kræves** betyder afvisning uden samtykke.
 | Straksafskriv aktiv | `asset_write_off` / *(N/A)* / `asset write-off` | `confirm: true` | N/A | **`--confirm yes`** (matcher det MCP-felt der hedder `confirmImmediateWriteOff`) |
 | Tag backup | `system_backup` / *(N/A)* / `system backup` | `confirm: true` | N/A | Ikke krævet |
 | Genskab fra backup | `system_restore_backup` (**destructive**) / *(N/A)* / `system restore-backup` | `confirm: true` **+ `confirmText: "RESTORE <targetCompany>"`** | N/A | **`--confirm yes`** |
-| GDPR-slet persondata | *(ingen `gdpr_*` MCP-tools — bevidst CLI-only)* / *(N/A)* / `gdpr forget` (legacy alias: `gdpr erase`) | N/A | N/A | Ikke `--confirm yes`, men **`--after-retention-expiry`** (eksplicit flag; exit `2` uden) + actor — kommandoen er actor-gatet muterende |
+| GDPR-indsigtsrapport | `gdpr_export` / `POST /gdpr/export` / `gdpr export` | `confirm: true` | `confirm: true` | Ikke et confirm-flag, men actor er påkrævet; eksporten append-only audit-logges |
+| GDPR-slet persondata | *(ingen MCP-slette-tool — bevidst CLI/Cockpit-only)* / `POST /gdpr/erase` / `gdpr forget` (legacy alias: `gdpr erase`) | N/A | `confirm: true` | Ikke `--confirm yes`, men **`--after-retention-expiry`** (eksplicit flag; exit `2` uden) + actor — retention vurderes altid mod dags dato |
 | Slet kontakt fra cockpittet | *(N/A)* / `DELETE /contacts/:id` / *(N/A)* | N/A | `confirm: true` | N/A |
 
-(Tabellen er ikke udtømmende for alle 101 MCP-tools — heraf er 54
-confirm-gatede (53 writes + 1 destructive); den dækker de
+(Tabellen er ikke udtømmende for alle 112 MCP-tools — heraf er 63
+confirm-gatede (62 writes + 1 destructive); den dækker de
 business-operationer der har en konflikt eller en afvigelse mellem stakke.
 For den fulde liste pr. tool, se `annotations` i `docs/mcp-tool-surface.md`.)
 
@@ -105,8 +106,8 @@ Samme business-operation, modsat regel — og det er **med vilje**:
   shell-prompt; en eksplicit `confirm` er det eneste signal en agent kan
   give om at den ikke kalder ved et uheld. Selv om `invoice_issue` kun
   producerer en kladde (intet journal-entry endnu), kræver kontrakten
-  alligevel `confirm` — det er ensartet på tværs af alle 54 confirm-gatede
-  tools (53 writes + det destruktive restore), så agenten ikke skal huske
+  alligevel `confirm` — det er ensartet på tværs af alle 63 confirm-gatede
+  tools (62 writes + det destruktive restore), så agenten ikke skal huske
   undtagelser.
 - **Cockpittets `POST /invoices/issue` kræver det IKKE.** Den multi-linje
   faktura-modal i SPA'en *er* samtykket — at trykke "Udsted faktura"-knappen

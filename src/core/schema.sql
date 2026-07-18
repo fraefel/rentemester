@@ -1239,14 +1239,14 @@ END;
 CREATE TABLE IF NOT EXISTS gdpr_erasures (
   id INTEGER PRIMARY KEY,
   subject_key TEXT NOT NULL,
-  source TEXT NOT NULL CHECK(source IN ('customers','vendors','documents','bank_transactions')),
+  source TEXT NOT NULL CHECK(source IN ('customers','vendors','documents','bank_transactions','audit_log')),
   source_row_id INTEGER NOT NULL,
   redacted_fields TEXT NOT NULL,
   rule_id TEXT NOT NULL,
   reason TEXT NOT NULL,
   retained_until_at_erasure TEXT,
   erased_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(source, source_row_id)
+  UNIQUE(subject_key, source, source_row_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gdpr_erasures_subject ON gdpr_erasures(subject_key);

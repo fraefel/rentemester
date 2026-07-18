@@ -1,6 +1,6 @@
 // Tests: src/core/dates.ts
-import { describe, expect, test } from "bun:test";
-import { isValidIsoDate, addDays, diffDays, daysBetween, todayIsoDate, isoDateInTimeZone } from "../../src/core/dates";
+import { describe, expect, setSystemTime, test } from "bun:test";
+import { isValidIsoDate, addDays, diffDays, daysBetween, todayIsoDate, isoDateInTimeZone, trustedTodayIsoDate } from "../../src/core/dates";
 
 describe("ISO date validation", () => {
   test("accepts real calendar dates including leap day", () => {
@@ -103,6 +103,22 @@ describe("todayIsoDate", () => {
       expect(todayIsoDate()).toBe(isoDateInTimeZone(new Date(), "Europe/Copenhagen"));
     } finally {
       if (previous !== undefined) process.env.RENTEMESTER_TODAY = previous;
+    }
+  });
+});
+
+describe("trustedTodayIsoDate", () => {
+  test("ignores the public test override used by read-side clocks", () => {
+    const previous = process.env.RENTEMESTER_TODAY;
+    process.env.RENTEMESTER_TODAY = "2099-01-01";
+    setSystemTime(new Date("2026-07-18T12:00:00.000Z"));
+    try {
+      expect(todayIsoDate()).toBe("2099-01-01");
+      expect(trustedTodayIsoDate()).toBe("2026-07-18");
+    } finally {
+      setSystemTime();
+      if (previous === undefined) delete process.env.RENTEMESTER_TODAY;
+      else process.env.RENTEMESTER_TODAY = previous;
     }
   });
 });

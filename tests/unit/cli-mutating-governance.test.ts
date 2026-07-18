@@ -94,9 +94,9 @@ describe("MUTATING_COMMANDS governance-klasser (audit AGENT-1/AGENT-2)", () => {
   //   - `system rotate-backup-keypair`: skriver KUN nøglefiler til disk
   //     (mode 0o600), ingen db/audit_log-række. Nøgle-administration, ikke en
   //     attribueret ledger/audit-skrivning.
-  //   - `gdpr export`/`discover`/`audit-log`: read-only ledger-læsninger der
-  //     evt. dumper en JSON-fil til --out; ingen db/audit-mutation. (Selve
-  //     redaktionen `gdpr erase`/`forget` ER gated.)
+  //   - `gdpr audit-log`: read-only ledger-læsning der evt. dumper en JSON-fil
+  //     til --out. `gdpr export`/`discover` skriver derimod audit-events og er
+  //     derfor medtaget nedenfor sammen med slettevejen.
   //   - `import archive`/`systems`: read-only.
   const DB_OR_AUDIT_WRITING_COMMANDS: string[] = [
     "accounts role-confirm",
@@ -107,6 +107,8 @@ describe("MUTATING_COMMANDS governance-klasser (audit AGENT-1/AGENT-2)", () => {
     "system export-authority",
     "system export-accountant",
     "system export-saft",
+    "gdpr discover",
+    "gdpr export",
     "gdpr erase",
     "gdpr forget",
   ];
@@ -159,6 +161,12 @@ describe("global hjælp grupperer efter governance-klasse", () => {
     expect(sectionOf("gdpr forget")).toBe("write");
   });
 
+  test("gdpr discover og export vises som writes, mens audit-log forbliver read-only", () => {
+    expect(sectionOf("gdpr discover")).toBe("write");
+    expect(sectionOf("gdpr export")).toBe("write");
+    expect(sectionOf("gdpr audit-log")).toBe("read");
+  });
+
   test("company sync-cvr vises under Skrivekommandoer", () => {
     expect(sectionOf("company sync-cvr")).toBe("write");
   });
@@ -181,6 +189,7 @@ describe("actor-gaten håndhæves for de to nyklassificerede kommandoer", () => 
       "RENTEMESTER_USER",
       "USER",
       "LOGNAME",
+      "USERNAME",
     ];
     for (const v of vars) {
       saved[v] = process.env[v];
@@ -208,6 +217,11 @@ describe("actor-gaten håndhæves for de to nyklassificerede kommandoer", () => 
   test("gdpr forget uden actor afvises (alias og kanonisk navn opfører sig ens)", () => {
     expect(runGateWithoutActor("gdpr erase")).toContain("actor required for mutations");
     expect(runGateWithoutActor("gdpr forget")).toContain("actor required for mutations");
+  });
+
+  test("gdpr discover og export uden actor afvises, fordi de skriver audit-events", () => {
+    expect(runGateWithoutActor("gdpr discover")).toContain("actor required for mutations");
+    expect(runGateWithoutActor("gdpr export")).toContain("actor required for mutations");
   });
 
   test("company sync-cvr uden actor afvises", () => {

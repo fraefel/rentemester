@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
+import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 import type { InvoicePayload } from "./invoice";
 import { companyPaths } from "./paths";
 import { insertAuditLog } from "./actor";
@@ -825,6 +826,15 @@ export function renderIssuedInvoicePdf(db: Database, companyRoot: string, input:
         invoice.payload_json,
         invoice.retain_until ?? null,
       ) as { id: number };
+
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: payload.seller?.name,
+        cvr: payload.seller?.vatOrCvr,
+      });
+      strengthenGdprErasureAliasesForIdentity(db, {
+        name: payload.buyer?.name,
+        cvr: payload.buyer?.vatOrCvr,
+      });
 
       insertAuditLog(db, {
         eventType: "invoice_render_pdf",

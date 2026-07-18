@@ -30,7 +30,7 @@ function exportPayload(records: any[] = []) {
 
 function renderView(record = exportPayload()) {
   mockFetch({
-    "GET /api/companies/acme-aps/gdpr/export": record,
+    "POST /api/companies/acme-aps/gdpr/export": record,
   });
   return renderAt(<GdprView />, {
     route: "/companies/acme-aps/gdpr",
@@ -58,6 +58,13 @@ describe("GdprView (#334)", () => {
     expect(
       await screen.findByText(/Ingen personoplysninger fundet/),
     ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/companies/acme-aps/gdpr/export",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ cvr: "DK99999999", confirm: true }),
+      }),
+    );
   });
 
   test("rapport-panel viser records med under-retention-status", async () => {
@@ -77,6 +84,7 @@ describe("GdprView (#334)", () => {
           retainUntil: "2031-12-31",
           underRetention: true,
           erased: false,
+          erasable: false,
         },
         {
           source: "vendors",
@@ -91,6 +99,22 @@ describe("GdprView (#334)", () => {
           retainUntil: null,
           underRetention: false,
           erased: false,
+          erasable: true,
+        },
+        {
+          source: "journal_entries",
+          sourceRowId: 3,
+          label: "2020-0001",
+          personalData: {
+            name: "Historisk journaltekst",
+            address: null,
+            email: null,
+            vatOrCvr: null,
+          },
+          retainUntil: "2025-12-31",
+          underRetention: false,
+          erased: false,
+          erasable: false,
         },
       ]),
     );
@@ -111,5 +135,9 @@ describe("GdprView (#334)", () => {
     expect(
       screen.getAllByText(/Kan anonymiseres/).length,
     ).toBeGreaterThan(0);
+    expect(screen.getByText("Kan ikke anonymiseres")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Anonymisér de 1 mulige rækker" }),
+    ).toBeInTheDocument();
   });
 });

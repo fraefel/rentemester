@@ -104,6 +104,75 @@ describe("bank import", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("imports multiline quoted fields and trailing-minus amounts in one logical pass", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bank-multiline-"));
+    const csv = join(root, "multiline.csv");
+    writeFileSync(
+      csv,
+      "\uFEFFtransaction_date;text;amount;currency;reference\r\n" +
+        "17-05-2026;\"Første; linje\r\n\r\nAnden \"\"A-42\"\"\";\"1.234,56-\";DKK;REF-MULTI",
+    );
+
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const result = importBankCsv(db, root, csv);
+    expect(result.ok).toBe(true);
+    expect(result.imported).toBe(1);
+    const row = db
+      .query(
+        "SELECT transaction_date, text, amount, reference FROM bank_transactions ORDER BY id ASC LIMIT 1",
+      )
+      .get();
+    expect(row).toEqual({
+      transaction_date: "2026-05-17",
+      text: 'Første; linje\n\nAnden "A-42"',
+      amount: -1234.56,
+      reference: "REF-MULTI",
+    });
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("reports the physical start line for an unterminated multiline record", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bank-multiline-line-"));
+    const csv = join(root, "unterminated-row.csv");
+    writeFileSync(
+      csv,
+      [
+        "transaction_date,text,amount,currency,reference",
+        '2026-05-16,"Første',
+        'anden",100,DKK,OK-1',
+        "",
+        '2026-05-17,"Uafsluttet',
+      ].join("\n"),
+    );
+
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const result = importBankCsv(db, root, csv);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("CSV row 5 has unterminated quoted field");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("fails closed for an unterminated header even without a data row", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bank-header-quote-"));
+    const csv = join(root, "unterminated-header.csv");
+    writeFileSync(csv, '"transaction_date,text,amount');
+
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const result = importBankCsv(db, root, csv);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("CSV header has unterminated quoted field");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("imports Danish bank headers with semicolon delimiter and European amounts", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-bank-danish-"));
     const csv = join(root, "nordea.csv");
@@ -162,8 +231,8 @@ describe("bank import", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("rejects hex and scientific-notation amounts (issue #130)", () => {
-    for (const bad of ["0xff", "1e3"]) {
+  test("rejects hex, scientific notation and conflicting trailing signs (issue #130)", () => {
+    for (const bad of ["0xff", "1e3", "0xff-", "1e3-", "-123-", "+123-", "(123)-"]) {
       const root = mkdtempSync(join(tmpdir(), "rentemester-bank-garbage-"));
       const csv = join(root, "garbage.csv");
       writeFileSync(csv, [
@@ -180,6 +249,33 @@ describe("bank import", () => {
       db.close();
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("preserves parentheses, currency suffixes and Danish thousands parsing", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bank-number-forms-"));
+    const csv = join(root, "number-forms.csv");
+    writeFileSync(csv, [
+      "transaction_date,text,amount,currency,reference",
+      '2026-05-16,Parentheses,"(1.234,56)",DKK,PAREN',
+      '2026-05-17,Currency suffix,"1.234,56 DKK",DKK,CURRENCY',
+      "2026-05-18,Thousands,1.234,DKK,THOUSANDS",
+    ].join("\n"));
+
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const result = importBankCsv(db, root, csv);
+    expect(result.ok).toBe(true);
+    const rows = db
+      .query("SELECT reference, amount FROM bank_transactions ORDER BY id ASC")
+      .all();
+    expect(rows).toEqual([
+      { reference: "PAREN", amount: -1234.56 },
+      { reference: "CURRENCY", amount: 1234.56 },
+      { reference: "THOUSANDS", amount: 1234 },
+    ]);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   });
 
   test("rejects ambiguous dd-mm/mm-dd dates rather than guessing (issue #137)", () => {

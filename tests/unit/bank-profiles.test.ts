@@ -48,6 +48,54 @@ describe("Danske Bank CSV profile (#186)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("imports multiline profile fields and trailing-minus amount/balance", () => {
+    const { root, db } = setup();
+    const csv = join(root, "danske-multiline.csv");
+    writeFileSync(
+      csv,
+      "\uFEFF" + DANSKE_HEADER + "\r\n" +
+        '05.04.2026;06.04.2026;"Overførsel; første linje\r\n\r\nAnden ""linje""";1.234,56-;DKK;10.000,00-;ACME ApS;3000111122223333;Faktura 100;ARK-M',
+    );
+
+    const result = importBankCsv(db, root, csv, { profile: "danske-bank" });
+    expect(result.ok).toBe(true);
+    expect(result.imported).toBe(1);
+    const row = db
+      .query("SELECT text, amount, balance_after, raw_json FROM bank_transactions LIMIT 1")
+      .get() as {
+      text: string;
+      amount: number;
+      balance_after: number;
+      raw_json: string;
+    };
+    expect(row.text).toBe('Overførsel; første linje\n\nAnden "linje"');
+    expect(row.amount).toBe(-1234.56);
+    expect(row.balance_after).toBe(-10000);
+    expect(JSON.parse(row.raw_json).Tekst).toBe(row.text);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("reports profiled multiline errors at the logical record start line", () => {
+    const { root, db } = setup();
+    const csv = join(root, "danske-bad-multiline.csv");
+    writeFileSync(csv, [
+      DANSKE_HEADER,
+      '05.04.2026;06.04.2026;"Første',
+      'linje";100,00;DKK;100,00;;;;ARK-1',
+      "",
+      '07.05.2026;08.05.2026;"Uafsluttet',
+    ].join("\n"));
+
+    const result = importBankCsv(db, root, csv, { profile: "danske-bank" });
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("CSV row 5 has unterminated quoted field");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("the same ambiguous file is rejected WITHOUT the profile", () => {
     const { root, db } = setup();
     const csv = join(root, "danske.csv");

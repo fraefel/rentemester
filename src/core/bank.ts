@@ -271,12 +271,58 @@ function parseCsvLine(line: string, delimiter: string) {
   return { values, unterminatedQuote: inQuotes };
 }
 
-function parseCsv(content: string): CsvParseResult {
-  const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return { rows: [], errors: [] };
+type LogicalCsvRecord = {
+  text: string;
+  /** One-based physical line where this logical record starts. */
+  startLine: number;
+};
 
-  const delimiter = detectDelimiter(lines[0]);
-  const headerParsed = parseCsvLine(lines[0], delimiter);
+/**
+ * Tokenizes physical CSV lines into complete logical records in one pass.
+ * Quoted fields may contain delimiters, CRLF/LF/lone-CR newlines, escaped
+ * quotes and blank lines. Blank physical lines outside a record are ignored;
+ * an unfinished EOF record is retained so callers can fail closed with the
+ * correct starting line.
+ */
+function tokenizeLogicalCsvRecords(content: string): LogicalCsvRecord[] {
+  const physicalLines = content
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const records: LogicalCsvRecord[] = [];
+  let recordLines: string[] = [];
+  let startLine = 1;
+  let inQuotes = false;
+
+  for (const [lineIndex, line] of physicalLines.entries()) {
+    if (recordLines.length === 0 && line.trim().length === 0) continue;
+    if (recordLines.length === 0) startLine = lineIndex + 1;
+    recordLines.push(line);
+
+    for (let idx = 0; idx < line.length; idx += 1) {
+      if (line[idx] !== '"') continue;
+      if (inQuotes && line[idx + 1] === '"') idx += 1;
+      else inQuotes = !inQuotes;
+    }
+
+    if (!inQuotes) {
+      records.push({ text: recordLines.join("\n"), startLine });
+      recordLines = [];
+    }
+  }
+
+  if (recordLines.length > 0) {
+    records.push({ text: recordLines.join("\n"), startLine });
+  }
+  return records;
+}
+
+function parseCsv(content: string): CsvParseResult {
+  const records = tokenizeLogicalCsvRecords(content);
+  if (records.length === 0) return { rows: [], errors: [] };
+
+  const delimiter = detectDelimiter(records[0].text);
+  const headerParsed = parseCsvLine(records[0].text, delimiter);
   const header = headerParsed.values.map(canonicalHeader);
   const errors: string[] = [];
   if (headerParsed.unterminatedQuote) errors.push("CSV header has unterminated quoted field");
@@ -296,12 +342,11 @@ function parseCsv(content: string): CsvParseResult {
   }
 
   const rows: Record<string, string>[] = [];
-  for (const [lineOffset, line] of lines.slice(1).entries()) {
-    const lineNumber = lineOffset + 2;
-    const parsed = parseCsvLine(line, delimiter);
-    if (parsed.unterminatedQuote) errors.push(`CSV row ${lineNumber} has unterminated quoted field`);
+  for (const record of records.slice(1)) {
+    const parsed = parseCsvLine(record.text, delimiter);
+    if (parsed.unterminatedQuote) errors.push(`CSV row ${record.startLine} has unterminated quoted field`);
     if (parsed.values.length !== header.length) {
-      errors.push(`CSV row ${lineNumber} has ${parsed.values.length} fields, header has ${header.length}`);
+      errors.push(`CSV row ${record.startLine} has ${parsed.values.length} fields, header has ${header.length}`);
       continue;
     }
     const row: Record<string, string> = {};
@@ -330,11 +375,23 @@ function parseLocalizedNumber(value: string | undefined) {
     sign = "-";
     trimmed = paren[1].trim();
   }
+  // Some Danish bank exports encode debits as a trailing minus. It is only
+  // accepted when no other sign notation is present; conflicting forms such
+  // as -123-, +123- and (123)- remain invalid.
+  if (trimmed.endsWith("-")) {
+    if (sign) return NaN;
+    trimmed = trimmed.slice(0, -1).trim();
+    if (/^[+-]/.test(trimmed.replace(/\s/g, ""))) return NaN;
+    sign = "-";
+  }
   const compact = trimmed.replace(/\s/g, "");
 
   let normalized: string;
   if (compact.includes(",")) {
     // Comma present: comma is the decimal separator, dots are thousands.
+    if (!/^[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+),\d+$/.test(compact)) {
+      return NaN;
+    }
     normalized = compact.replace(/\./g, "").replace(",", ".");
   } else if (/^[+-]?\d+(\.\d{3})+$/.test(compact)) {
     // Only digits and dots, every dot followed by exactly 3 digits and no
@@ -436,11 +493,11 @@ type ProfileParseResult = { rows: BankImportRow[]; errors: string[] };
  * declared date order and an explicit column->field map. No alias guessing.
  */
 export function parseCsvWithProfile(bytes: Uint8Array, profile: BankImportProfile): ProfileParseResult {
-  const content = decodeForProfile(bytes, profile.encoding).replace(/^﻿/, "");
-  const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return { rows: [], errors: [] };
+  const content = decodeForProfile(bytes, profile.encoding);
+  const records = tokenizeLogicalCsvRecords(content);
+  if (records.length === 0) return { rows: [], errors: [] };
 
-  const headerParsed = parseCsvLine(lines[0], profile.delimiter);
+  const headerParsed = parseCsvLine(records[0].text, profile.delimiter);
   const errors: string[] = [];
   if (headerParsed.unterminatedQuote) errors.push("CSV header has unterminated quoted field");
 
@@ -457,12 +514,11 @@ export function parseCsvWithProfile(bytes: Uint8Array, profile: BankImportProfil
   if (errors.length > 0) return { rows: [], errors };
 
   const rows: BankImportRow[] = [];
-  for (const [lineOffset, line] of lines.slice(1).entries()) {
-    const lineNumber = lineOffset + 2;
-    const parsed = parseCsvLine(line, profile.delimiter);
-    if (parsed.unterminatedQuote) errors.push(`CSV row ${lineNumber} has unterminated quoted field`);
+  for (const record of records.slice(1)) {
+    const parsed = parseCsvLine(record.text, profile.delimiter);
+    if (parsed.unterminatedQuote) errors.push(`CSV row ${record.startLine} has unterminated quoted field`);
     if (parsed.values.length !== headerParsed.values.length) {
-      errors.push(`CSV row ${lineNumber} has ${parsed.values.length} fields, header has ${headerParsed.values.length}`);
+      errors.push(`CSV row ${record.startLine} has ${parsed.values.length} fields, header has ${headerParsed.values.length}`);
       continue;
     }
     const fields: Partial<Record<ProfileFieldName, string>> = {};

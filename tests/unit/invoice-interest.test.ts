@@ -13,7 +13,7 @@ import { importBankCsv } from "../../src/core/bank";
 import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 import { settleInvoiceFromBank } from "../../src/core/invoice-settlement";
 import { settleInvoiceClaimsFromBank } from "../../src/core/invoice-claim-settlement";
-import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 
 function failingInterestPostingDb(realDb: any) {
   let failed = false;
@@ -32,6 +32,71 @@ function failingInterestPostingDb(realDb: any) {
       return typeof value === "function" ? value.bind(target) : value;
     },
   }) as any;
+}
+
+function insertDirectPlannedInterestCorrection(
+  db: any,
+  input: {
+    invoiceDocumentId: number;
+    interestClaimId: number;
+    claimDate: string;
+    amountDkk: number;
+    claimCeilingDkk: number;
+    incomeAccountNo?: string;
+    receivableAccountNo?: string;
+  },
+) {
+  const incomeAccountNo = input.incomeAccountNo ?? "1010";
+  const receivableAccountNo = input.receivableAccountNo ?? "1100";
+  const journal = postJournalEntry(db, {
+    transactionDate: input.claimDate,
+    text: "Direct planned interest correction attempt",
+    documentId: input.invoiceDocumentId,
+    lines: [
+      { accountNo: incomeAccountNo, debitAmount: input.amountDkk },
+      { accountNo: receivableAccountNo, creditAmount: input.amountDkk },
+    ],
+  });
+  if (!journal.ok) throw new Error(journal.errors.join("; "));
+  db.run(
+    `INSERT INTO invoice_interest_correction_plans
+       (journal_entry_id, invoice_document_id, correction_date, amount_dkk)
+     VALUES (?, ?, ?, ?)`,
+    journal.entryId,
+    input.invoiceDocumentId,
+    input.claimDate,
+    input.amountDkk,
+  );
+  db.run(
+    `INSERT INTO invoice_interest_correction_plan_claims
+       (journal_entry_id, interest_claim_id, claim_date, amount_dkk, claim_ceiling_dkk)
+     VALUES (?, ?, ?, ?, ?)`,
+    journal.entryId,
+    input.interestClaimId,
+    input.claimDate,
+    input.amountDkk,
+    input.claimCeilingDkk,
+  );
+  db.run(
+    `INSERT INTO invoice_interest_correction_plan_lines
+       (journal_entry_id, account_no, debit_amount, credit_amount)
+     VALUES (?, ?, ?, 0), (?, ?, 0, ?)`,
+    journal.entryId,
+    incomeAccountNo,
+    input.amountDkk,
+    journal.entryId,
+    receivableAccountNo,
+    input.amountDkk,
+  );
+  db.run(
+    `INSERT INTO invoice_interest_corrections
+       (invoice_document_id, correction_date, amount_dkk, reason, journal_entry_id)
+     VALUES (?, ?, ?, 'direct planned row', ?)`,
+    input.invoiceDocumentId,
+    input.claimDate,
+    input.amountDkk,
+    journal.entryId,
+  );
 }
 
 describe("invoice late interest", () => {
@@ -54,6 +119,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -96,6 +162,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -154,6 +221,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -275,6 +343,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -287,6 +356,16 @@ describe("invoice late interest", () => {
       referenceRatePercent: 2.2,
       note: "First registered interest"
     }).ok).toBe(true);
+
+    const journalCountBeforeRejectedAccount = (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n;
+    const rejectedLiability = postInvoiceLateInterestToLedger(db, {
+      invoiceDocumentId: issued.documentId!,
+      interestIncomeAccountNo: "7000",
+    });
+    expect(rejectedLiability.ok).toBe(false);
+    expect(rejectedLiability.errors.join(" ")).toContain("credit-normal income account");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: journalCountBeforeRejectedAccount });
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_postings").get()).toEqual({ n: 0 });
 
     const posted = postInvoiceLateInterestToLedger(db, { invoiceDocumentId: issued.documentId! });
     expect(posted.ok).toBe(true);
@@ -338,6 +417,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(realDb, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(realDb, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -353,12 +433,12 @@ describe("invoice late interest", () => {
     const failed = postInvoiceLateInterestToLedger(db, { invoiceDocumentId: issued.documentId! });
     expect(failed.ok).toBe(false);
     expect(failed.errors[0]).toContain("simulated interest posting link failure");
-    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 1 });
+    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 2 });
     expect(realDb.query("SELECT COUNT(*) AS n FROM invoice_interest_postings").get()).toEqual({ n: 0 });
 
     const retry = postInvoiceLateInterestToLedger(realDb, { invoiceDocumentId: issued.documentId! });
     expect(retry.ok).toBe(true);
-    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 2 });
+    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 3 });
     expect(realDb.query("SELECT COUNT(*) AS n FROM invoice_interest_postings").get()).toEqual({ n: 1 });
 
     realDb.close();
@@ -497,6 +577,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     // Claim 1: 30 days on the full 100.000 kr.
     const c1 = registerInvoiceLateInterest(db, { invoiceDocumentId: issued.documentId!, asOfDate: "2026-03-02", referenceRatePercent: 2 });
@@ -543,6 +624,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     const c1 = registerInvoiceLateInterest(db, { invoiceDocumentId: issued.documentId!, asOfDate: "2026-03-02", referenceRatePercent: 2 });
     expect(c1.ok).toBe(true);
@@ -581,6 +663,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     // Claim 1 billed 59 days on the full 100.000 (no payment known yet) = 1.616,44.
     const c1 = registerInvoiceLateInterest(db, { invoiceDocumentId: issued.documentId!, asOfDate: "2026-03-31", referenceRatePercent: 2 });
@@ -632,6 +715,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     // Claim 1 billed + POSTED on the full 100.000 (1.616,44).
     expect(registerInvoiceLateInterest(db, { invoiceDocumentId: issued.documentId!, asOfDate: "2026-03-31", referenceRatePercent: 2 }).ok).toBe(true);
@@ -649,9 +733,76 @@ describe("invoice late interest", () => {
     expect(proposal.overClaimedAmount).toBe(602.74);
     expect(proposal.throughDate).toBe("2026-03-31");
 
+    const journalCountBeforeRejectedCorrections = (db.query(
+      "SELECT COUNT(*) AS n FROM journal_entries",
+    ).get() as { n: number }).n;
+    const early = postInterestCorrection(db, {
+      invoiceDocumentId: issued.documentId!,
+      transactionDate: "2025-12-31",
+      reason: "must not predate the causal claim",
+    });
+    expect(early.ok).toBe(false);
+    expect(early.errors.join(" ")).toContain("latest causal interest claim 2026-03-31");
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCountBeforeRejectedCorrections);
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_corrections").get()).toEqual({ n: 0 });
+
+    expect(() => db.transaction(() => {
+      const unplannedJournal = postJournalEntry(db, {
+        transactionDate: "2026-03-31",
+        text: "Unplanned direct correction attempt",
+        documentId: issued.documentId!,
+        lines: [
+          { accountNo: "1010", debitAmount: 1 },
+          { accountNo: "1100", creditAmount: 1 },
+        ],
+      });
+      if (!unplannedJournal.ok) throw new Error(unplannedJournal.errors.join("; "));
+      db.run(
+        `INSERT INTO invoice_interest_corrections
+           (invoice_document_id, correction_date, amount_dkk, reason, journal_entry_id)
+         VALUES (?, '2026-03-31', 1, 'unplanned direct row', ?)`,
+        issued.documentId!,
+        unplannedJournal.entryId!,
+      );
+    }).immediate()).toThrow("one-time causal plan");
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCountBeforeRejectedCorrections);
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_corrections").get()).toEqual({ n: 0 });
+    expect(verifyAuditChain(db).ok).toBe(true);
+
+    const claim = db.query(
+      "SELECT id, claim_date FROM invoice_interest_claims WHERE invoice_document_id = ?",
+    ).get(issued.documentId!) as { id: number; claim_date: string };
+    expect(db.query(
+      `SELECT authorised_ceiling_dkk
+         FROM invoice_interest_correction_authorized_claims
+        WHERE claim_id = ?`,
+    ).get(claim.id)).toEqual({ authorised_ceiling_dkk: 602.74 });
+    expect(() => db.transaction(() => insertDirectPlannedInterestCorrection(db, {
+      invoiceDocumentId: issued.documentId!,
+      interestClaimId: claim.id,
+      claimDate: claim.claim_date,
+      amountDkk: 602.75,
+      claimCeilingDkk: 602.75,
+    })).immediate()).toThrow("DB-authoritative lawful ceiling");
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCountBeforeRejectedCorrections);
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_correction_plans").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_corrections").get()).toEqual({ n: 0 });
+    expect(() => db.transaction(() => insertDirectPlannedInterestCorrection(db, {
+      invoiceDocumentId: issued.documentId!,
+      interestClaimId: claim.id,
+      claimDate: claim.claim_date,
+      amountDkk: 1,
+      claimCeilingDkk: 602.74,
+      incomeAccountNo: "1020",
+      receivableAccountNo: "1300",
+    })).immediate()).toThrow("journal does not exactly match its planned accounts");
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCountBeforeRejectedCorrections);
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_correction_plans").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_corrections").get()).toEqual({ n: 0 });
+
     // Book the correction: debit interest income (1010), credit receivable (1100).
     const correction = postInterestCorrection(db, { invoiceDocumentId: issued.documentId!, reason: "Bagud-dateret betaling" });
-    expect(correction.ok).toBe(true);
+    expect(correction.ok, JSON.stringify(correction)).toBe(true);
     expect(correction.correctedAmount).toBe(602.74);
     expect(correction.correctionId).toBeDefined();
 
@@ -678,6 +829,30 @@ describe("invoice late interest", () => {
     expect(second.ok).toBe(false);
     expect(second.errors[0]).toContain("no over-claimed");
 
+    const journalCountAtZeroCeiling = (db.query(
+      "SELECT COUNT(*) AS n FROM journal_entries",
+    ).get() as { n: number }).n;
+    expect(() => db.transaction(() => {
+      const unplanned = postJournalEntry(db, {
+        transactionDate: "2026-03-31",
+        text: "Direct correction against zero remaining ceiling",
+        documentId: issued.documentId!,
+        lines: [
+          { accountNo: "1010", debitAmount: 1 },
+          { accountNo: "1100", creditAmount: 1 },
+        ],
+      });
+      if (!unplanned.ok) throw new Error(unplanned.errors.join("; "));
+      db.run(
+        `INSERT INTO invoice_interest_corrections
+           (invoice_document_id, correction_date, amount_dkk, reason, journal_entry_id)
+         VALUES (?, '2026-03-31', 1, 'zero-ceiling direct row', ?)`,
+        issued.documentId!,
+        unplanned.entryId!,
+      );
+    }).immediate()).toThrow("one-time causal plan");
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCountAtZeroCeiling);
+
     expect(verifyAuditChain(db).ok).toBe(true);
 
     db.close();
@@ -703,6 +878,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     // Claim 1 posted on the full 100.000 (1.616,44), back-dated 50.000 payment,
     // then the over-claim corrected (602,74 reversed → net booked 1.013,70).
@@ -747,6 +923,7 @@ describe("invoice late interest", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     // Claim 1 registered but LEFT UNPOSTED; claim 2 (its incremental window) POSTED.
     const c1 = registerInvoiceLateInterest(db, { invoiceDocumentId: issued.documentId!, asOfDate: "2026-03-02", referenceRatePercent: 2 });
@@ -825,6 +1002,24 @@ describe("invoice late interest", () => {
     expect(correction.ok).toBe(false);
     expect(correction.errors[0]).toContain("refund");
 
+    const paidClaim = db.query(
+      "SELECT id, claim_date FROM invoice_interest_claims WHERE invoice_document_id = ?",
+    ).get(issued.documentId!) as { id: number; claim_date: string };
+    expect(db.query(
+      "SELECT * FROM invoice_interest_correction_receivable_capacity WHERE invoice_document_id = ?",
+    ).all(issued.documentId!)).toEqual([]);
+    const journalCount = (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n;
+    expect(() => db.transaction(() => insertDirectPlannedInterestCorrection(db, {
+      invoiceDocumentId: issued.documentId!,
+      interestClaimId: paidClaim.id,
+      claimDate: paidClaim.claim_date,
+      amountDkk: 602.74,
+      claimCeilingDkk: 602.74,
+    })).immediate()).toThrow("journal does not exactly match its planned accounts");
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCount);
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_correction_plans").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_corrections").get()).toEqual({ n: 0 });
+
     expect(verifyAuditChain(db).ok).toBe(true);
 
     db.close();
@@ -857,6 +1052,24 @@ describe("invoice late interest", () => {
     expect(proposal.ok).toBe(true);
     expect(proposal.hasProposal).toBe(false);
     expect(proposal.overClaimedAmount).toBe(0);
+
+    const cleanClaim = db.query(
+      "SELECT id, claim_date FROM invoice_interest_claims WHERE invoice_document_id = ?",
+    ).get(issued.documentId!) as { id: number; claim_date: string };
+    expect(db.query(
+      "SELECT * FROM invoice_interest_correction_authorized_claims WHERE invoice_document_id = ?",
+    ).all(issued.documentId!)).toEqual([]);
+    const journalCount = (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n;
+    expect(() => db.transaction(() => insertDirectPlannedInterestCorrection(db, {
+      invoiceDocumentId: issued.documentId!,
+      interestClaimId: cleanClaim.id,
+      claimDate: cleanClaim.claim_date,
+      amountDkk: 1,
+      claimCeilingDkk: 1,
+    })).immediate()).toThrow("DB-authoritative lawful ceiling");
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCount);
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_correction_plans").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_interest_corrections").get()).toEqual({ n: 0 });
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -925,6 +1138,7 @@ describe("invoice late interest – statutory reference-rate table (JUR-7/EJER-8
       currency: "DKK",
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     return { root, db, documentId: issued.documentId! };
   }
 
@@ -1121,6 +1335,7 @@ describe("invoice late interest – correction reconstructs a TABLE claim with t
       currency: "DKK",
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     return { root, db, documentId: issued.documentId! };
   }
 
@@ -1163,6 +1378,11 @@ describe("invoice late interest – correction reconstructs a TABLE claim with t
     expect(proposal.lawfulInterest).toBe(224.31);
     expect(proposal.overClaimedAmount).toBe(91.08);
     expect(proposal.hasProposal).toBe(true);
+    expect(db.query(
+      `SELECT authorised_ceiling_dkk
+         FROM invoice_interest_correction_authorized_claims
+        WHERE invoice_document_id = ?`,
+    ).get(documentId)).toEqual({ authorised_ceiling_dkk: 91.08 });
     db.close();
     rmSync(root, { recursive: true, force: true });
   });

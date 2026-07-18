@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Database } from "bun:sqlite";
 import { getInvoiceStatus } from "./invoice-payments";
 import { currentRuleBundleVersion } from "./rules-metadata";
@@ -20,6 +22,9 @@ import {
   loadVatAccountSemantics,
   VAT_LINE_CODES,
 } from "./vat-account-semantics";
+import { validateInvoiceJournalEvidence } from "./invoice-journal-evidence";
+import { validateLegacyInvoiceRepairEvidence } from "./invoice-legacy-repair-evidence";
+import { companyPaths } from "./paths";
 
 export type JournalLineInput = {
   accountNo: string;
@@ -302,6 +307,19 @@ function accountMap(db: Database) {
   return new Map(rows.map((row) => [row.account_no, row]));
 }
 
+function existingCreditNoteJournal(db: Database, documentId: number | undefined) {
+  if (documentId == null) return null;
+  return db.query(
+    `SELECT existing.id, existing.entry_no
+       FROM documents credit
+       JOIN journal_entries existing ON existing.document_id = credit.id
+      WHERE credit.id = ?
+        AND credit.document_type = 'credit_note'
+      ORDER BY existing.id ASC
+      LIMIT 1`,
+  ).get(documentId) as { id: number; entry_no: string } | null;
+}
+
 function validateJournalEntryWithPolicy(
   db: Database,
   payload: JournalEntryInput,
@@ -424,6 +442,13 @@ function validateJournalEntryWithPolicy(
     }
   }
 
+  const existingCreditJournal = existingCreditNoteJournal(db, payload.documentId);
+  if (existingCreditJournal) {
+    errors.push(
+      `credit note document ${payload.documentId} already has accounting journal ${existingCreditJournal.entry_no}; issue a new credit note document for another correction`,
+    );
+  }
+
   if (payload.sourceBankTransactionId) {
     const bank = db.query("SELECT id FROM bank_transactions WHERE id = ?").get(payload.sourceBankTransactionId) as { id: number } | null;
     if (!bank) errors.push(`sourceBankTransactionId ${payload.sourceBankTransactionId} does not exist`);
@@ -448,6 +473,13 @@ class PeriodLockRaceError extends Error {
   }
 }
 
+class CreditNoteJournalRaceError extends Error {
+  constructor(public readonly documentId: number, public readonly entryNo: string) {
+    super(`credit note document ${documentId} already has accounting journal ${entryNo}; issue a new credit note document for another correction`);
+    this.name = "CreditNoteJournalRaceError";
+  }
+}
+
 // Inserts a validated entry into the append-only chain: journal row, lines,
 // audit log and any bank-exception resolution. MUST run inside a db transaction
 // — postJournalEntry commits it, dryRunJournalEntry rolls it back. The caller is
@@ -469,6 +501,11 @@ function applyJournalEntry(
   // harmless no-op there.
   const periodErrors = validateJournalTransactionDate(db, payload.transactionDate);
   if (periodErrors.length > 0) throw new PeriodLockRaceError(periodErrors);
+
+  const existingCreditJournal = existingCreditNoteJournal(db, payload.documentId);
+  if (existingCreditJournal && payload.documentId != null) {
+    throw new CreditNoteJournalRaceError(payload.documentId, existingCreditJournal.entry_no);
+  }
 
   const entryId = nextEntryId(db);
   const entryNo = nextEntryNo(db, payload.transactionDate);
@@ -593,6 +630,9 @@ function postJournalEntryWithPolicy(
     // result; the transaction has already rolled back, so nothing was written.
     if (error instanceof PeriodLockRaceError) {
       return { ok: false, appliedRules: validation.appliedRules, errors: error.periodErrors };
+    }
+    if (error instanceof CreditNoteJournalRaceError) {
+      return { ok: false, appliedRules: validation.appliedRules, errors: [error.message] };
     }
     throw error;
   }
@@ -719,7 +759,57 @@ export function dryRunJournalEntry(db: Database, payload: JournalEntryInput): Jo
   };
 }
 
-export function reverseJournalEntry(db: Database, input: { entryId: JournalEntryId; transactionDate: string; reason: string; createdBy?: string; createdByProgram?: string; }): JournalReverseResult {
+type ReverseJournalInput = {
+  entryId: JournalEntryId;
+  transactionDate: string;
+  reason: string;
+  createdBy?: string;
+  createdByProgram?: string;
+};
+
+type IssuedInvoiceRepairReversalAuthorization = {
+  invoiceDocumentId: number;
+  replacementJournalEntryId: number;
+};
+
+function protectedInvoiceReversalError(
+  db: Database,
+  original: {
+    id: number;
+    entry_no: string;
+    document_id: number | null;
+    transaction_date: string;
+  },
+  input: ReverseJournalInput,
+  authorization?: IssuedInvoiceRepairReversalAuthorization,
+): string | null {
+  if (original.document_id == null) return null;
+  const document = db.query(
+    `SELECT document_type FROM documents
+      WHERE id = ? AND document_type IN ('issued_invoice', 'credit_note')`,
+  ).get(original.document_id) as { document_type: string } | null;
+  if (!document) return null;
+  const genericError = `journal entry ${input.entryId} is protected invoice evidence (${document.document_type}) and cannot be reversed without an atomic invoice correction workflow`;
+  if (
+    document.document_type !== "issued_invoice" ||
+    !authorization ||
+    authorization.invoiceDocumentId !== original.document_id ||
+    input.transactionDate !== original.transaction_date
+  ) return genericError;
+
+  const repair = validateLegacyInvoiceRepairEvidence(db, {
+    invoiceDocumentId: authorization.invoiceDocumentId,
+    legacyJournalEntryId: original.id,
+    replacementJournalEntryId: authorization.replacementJournalEntryId,
+  });
+  return repair.ok ? null : `${genericError}: ${repair.errors.join("; ")}`;
+}
+
+function reverseJournalEntryInternal(
+  db: Database,
+  input: ReverseJournalInput,
+  authorization?: IssuedInvoiceRepairReversalAuthorization,
+): JournalReverseResult {
   const appliedRules = [LEDGER_RULES.APPEND_ONLY, LEDGER_RULES.REVERSAL];
   const errors: string[] = [];
 
@@ -734,6 +824,20 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
   ).get(input.entryId) as any | null;
   if (!original) return { ok: false, appliedRules, errors: [`journal entry ${input.entryId} does not exist`] };
   if (original.reversal_of_entry_id != null) return { ok: false, appliedRules, errors: [`journal entry ${input.entryId} is already a reversal entry`] };
+
+  // Invoice domain rows are append-only and currently have no atomic
+  // superseding/relink workflow. Reversing their journal in isolation would
+  // leave the invoice/payment/claim row pointing at dead evidence forever and
+  // could strand a bank source or receivable balance. Refuse until the domain
+  // can reverse both the journal and its application state atomically.
+  const protectedError = protectedInvoiceReversalError(db, original, input, authorization);
+  if (protectedError) {
+    return {
+      ok: false,
+      appliedRules,
+      errors: [protectedError],
+    };
+  }
 
   const existingReversal = db.query("SELECT id, entry_no FROM journal_entries WHERE reversal_of_entry_id = ? LIMIT 1").get(input.entryId) as { id: number; entry_no: string } | null;
   if (existingReversal) {
@@ -796,6 +900,8 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
   let result: { entryId: JournalEntryId; entryNo: string; entryHash: string };
   try {
     result = db.transaction(() => {
+    const protectedInsideLock = protectedInvoiceReversalError(db, original, input, authorization);
+    if (protectedInsideLock) throw new Error(protectedInsideLock);
     // KODE-4: re-check the period lock inside the write transaction, matching
     // applyJournalEntry — a reversal date that fell into a period closed after
     // the outer validation must abort here rather than slip into a locked period.
@@ -888,10 +994,182 @@ export function reverseJournalEntry(db: Database, input: { entryId: JournalEntry
   return { ok: true, originalEntryId: asJournalEntryId(original.id), appliedRules: [...new Set([...appliedRules, ...validation.appliedRules])], errors: [], ...result };
 }
 
-export function verifyAuditChain(db: Database) {
+export function reverseJournalEntry(db: Database, input: ReverseJournalInput): JournalReverseResult {
+  return reverseJournalEntryInternal(db, input);
+}
+
+/**
+ * Narrow adapter used only by the atomic issued-invoice legacy repair. It does
+ * not expose a generic bypass: the original date is immutable, and the helper
+ * revalidates the exact active replacement plus the dependency-free invoice
+ * state both before and inside the ledger write lock.
+ */
+export function reverseUnlinkedIssuedInvoiceJournalAfterReplacement(
+  db: Database,
+  input: {
+    invoiceDocumentId: number;
+    legacyJournalEntryId: number;
+    replacementJournalEntryId: number;
+    reason: string;
+    createdBy?: string;
+    createdByProgram?: string;
+  },
+): JournalReverseResult {
+  const original = db.query(
+    "SELECT transaction_date FROM journal_entries WHERE id = ?",
+  ).get(input.legacyJournalEntryId) as { transaction_date: string } | null;
+  if (!original) {
+    return {
+      ok: false,
+      appliedRules: [LEDGER_RULES.APPEND_ONLY, LEDGER_RULES.REVERSAL],
+      errors: [`journal entry ${input.legacyJournalEntryId} does not exist`],
+    };
+  }
+  return reverseJournalEntryInternal(
+    db,
+    {
+      entryId: asJournalEntryId(input.legacyJournalEntryId),
+      transactionDate: original.transaction_date,
+      reason: input.reason,
+      createdBy: input.createdBy,
+      createdByProgram: input.createdByProgram,
+    },
+    {
+      invoiceDocumentId: input.invoiceDocumentId,
+      replacementJournalEntryId: input.replacementJournalEntryId,
+    },
+  );
+}
+
+export type VerifyAuditChainOptions = {
+  /**
+   * Root whose on-disk evidence is being verified. Restore must pass its
+   * staging root explicitly; normal live callers can rely on DB-path inference.
+   */
+  companyRoot?: string;
+};
+
+function inferredAuditCompanyRoot(db: Database, explicit?: string) {
+  if (typeof explicit === "string" && explicit.trim().length > 0) {
+    return resolve(explicit.trim());
+  }
+  const filename = (db as unknown as { filename?: string }).filename;
+  if (typeof filename !== "string" || filename.length === 0 || filename === ":memory:") {
+    return null;
+  }
+  return dirname(dirname(resolve(filename)));
+}
+
+type AuditEvidenceDocument = {
+  id: number;
+  document_no?: string | null;
+  sha256_hash: string | null;
+  stored_path: string | null;
+  document_type: string;
+};
+
+function pathIsContained(root: string, candidate: string) {
+  const fromRoot = relative(root, candidate);
+  return fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(fromRoot));
+}
+
+/**
+ * Validate one registered document without ever reading its historical
+ * absolute `stored_path` directly. Only the basename is rebased into the
+ * expected store below the company root, so moved backups remain portable and
+ * attacker-controlled paths cannot make audit_verify read arbitrary host
+ * files. Returned errors deliberately contain no absolute paths.
+ */
+function verifyRegisteredDocumentEvidence(
+  document: AuditEvidenceDocument,
+  companyRoot: string | null,
+): string | null {
+  if (!document.stored_path || document.stored_path.trim().length === 0) {
+    return "has no stored_path";
+  }
+  if (!document.sha256_hash || !/^[0-9a-f]{64}$/i.test(document.sha256_hash.trim())) {
+    return "has an invalid sha256_hash";
+  }
+  if (!companyRoot) return "cannot resolve the current company root";
+
+  const isIssuedEvidence =
+    document.document_type === "issued_invoice" ||
+    document.document_type === "issued_invoice_pdf" ||
+    document.document_type === "credit_note";
+  const expectedRelativeStore = isIssuedEvidence ? "invoices/issued" : "documents/originals";
+  const normalizedStoredPath = document.stored_path.trim().replaceAll("\\", "/").replace(/\/+/g, "/");
+  const rawSegments = normalizedStoredPath.split("/");
+  if (rawSegments.includes("..")) return "stored_path contains traversal segments";
+  const evidenceBasename = rawSegments.at(-1)?.trim() ?? "";
+  if (!evidenceBasename || evidenceBasename === "." || evidenceBasename === "..") {
+    return "stored_path has no safe filename";
+  }
+  // Accept portable basename-only legacy rows and historical absolute paths
+  // only when those absolute paths identify the same canonical store class.
+  if (
+    rawSegments.length > 1 &&
+    normalizedStoredPath !== `${expectedRelativeStore}/${evidenceBasename}` &&
+    !normalizedStoredPath.endsWith(`/${expectedRelativeStore}/${evidenceBasename}`)
+  ) {
+    return `stored_path is outside the ${expectedRelativeStore} evidence store`;
+  }
+
+  const paths = companyPaths(companyRoot);
+  const evidenceStore = isIssuedEvidence ? paths.invoicesIssued : paths.documentsOriginals;
+  const candidate = join(evidenceStore, basename(evidenceBasename));
+  try {
+    const canonicalCompanyRoot = realpathSync(companyRoot);
+    const storeStat = lstatSync(evidenceStore);
+    if (storeStat.isSymbolicLink() || !storeStat.isDirectory()) {
+      return `${expectedRelativeStore} evidence store is not a regular directory`;
+    }
+    const canonicalStore = realpathSync(evidenceStore);
+    if (!pathIsContained(canonicalCompanyRoot, canonicalStore)) {
+      return `${expectedRelativeStore} evidence store escapes the company root`;
+    }
+    const candidateStat = lstatSync(candidate);
+    if (candidateStat.isSymbolicLink()) return "stored evidence file is a symbolic link";
+    if (!candidateStat.isFile()) return "stored evidence path is not a regular file";
+    const canonicalCandidate = realpathSync(candidate);
+    if (!pathIsContained(canonicalStore, canonicalCandidate)) {
+      return "stored evidence file escapes its canonical store";
+    }
+    let content: Buffer;
+    try {
+      content = readFileSync(candidate);
+    } catch {
+      return "stored evidence file cannot be read";
+    }
+    const actual = createHash("sha256").update(content).digest("hex");
+    if (actual !== document.sha256_hash.trim().toLowerCase()) {
+      return "stored evidence sha256 does not match the document register";
+    }
+    return null;
+  } catch {
+    return "stored evidence file is missing or inaccessible";
+  }
+}
+
+export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions = {}) {
   const entries = db.query("SELECT id, entry_no, transaction_date, text, source_bank_transaction_id, document_id, currency, amount_foreign, amount_dkk, fx_rate_to_dkk, rule_version, created_by, created_by_program, status, reversal_of_entry_id, previous_hash, entry_hash FROM journal_entries ORDER BY id ASC").all() as any[];
   let prev = "GENESIS";
   const errors: string[] = [];
+  const entriesById = new Map<number, any>(entries.map((entry) => [Number(entry.id), entry]));
+  const linesByEntryId = new Map<number, any[]>();
+  const reversalCounts = new Map<number, number>();
+  for (const entry of entries) {
+    if (entry.reversal_of_entry_id == null) continue;
+    const originalId = Number(entry.reversal_of_entry_id);
+    reversalCounts.set(originalId, (reversalCounts.get(originalId) ?? 0) + 1);
+  }
+  for (const [originalId, count] of reversalCounts) {
+    if (count <= 1) continue;
+    const original = entriesById.get(originalId);
+    errors.push(`${original?.entry_no ?? `journal entry id ${originalId}`}: has ${count} reversal rows; exactly one is allowed`);
+  }
+  const companyRoot = inferredAuditCompanyRoot(db, options.companyRoot);
+  const documentEvidenceCache = new Map<number, string | null>();
+  const journalReferencedDocumentIds = new Set<number>();
 
   const foreignKeyErrors = db.query("PRAGMA foreign_key_check").all() as Array<{ table: string; rowid: number; parent: string; fkid: number }>;
   for (const fk of foreignKeyErrors) {
@@ -928,6 +1206,7 @@ export function verifyAuditChain(db: Database) {
        WHERE jl.journal_entry_id = ?
        ORDER BY jl.id ASC`
     ).all(e.id) as any[];
+    linesByEntryId.set(Number(e.id), lines);
     if (lines.length === 0) errors.push(`${e.entry_no}: entry has no journal lines`);
 
     const canonicalLines = lines.map(({ account_type, ...line }) => line);
@@ -938,23 +1217,127 @@ export function verifyAuditChain(db: Database) {
     const debitSum = lines.reduce((sum, line) => sum + toOre(Number(line.debit_amount ?? 0)), 0n);
     const creditSum = lines.reduce((sum, line) => sum + toOre(Number(line.credit_amount ?? 0)), 0n);
     if (debitSum !== creditSum) errors.push(`${e.entry_no}: entry is unbalanced (${fromOre(debitSum)} != ${fromOre(creditSum)})`);
+    if (
+      (e.status === "reversed" && e.reversal_of_entry_id == null) ||
+      (e.status === "posted" && e.reversal_of_entry_id != null)
+    ) {
+      errors.push(`${e.entry_no}: journal reversal status does not match reversal_of_entry_id`);
+    }
+    if (e.reversal_of_entry_id != null) {
+      const originalId = Number(e.reversal_of_entry_id);
+      const original = entriesById.get(originalId);
+      if (!original) {
+        errors.push(`${e.entry_no}: reversal target journal entry ${originalId} does not exist`);
+      } else {
+        if (original.status !== "posted" || original.reversal_of_entry_id != null) {
+          errors.push(`${e.entry_no}: reversal target ${original.entry_no} is not an unreversed posted original`);
+        }
+        if (Number(original.id) >= Number(e.id)) {
+          errors.push(`${e.entry_no}: reversal target ${original.entry_no} must precede the reversal row`);
+        }
+
+        const metadataMismatches: string[] = [];
+        if ((e.document_id ?? null) !== (original.document_id ?? null)) metadataMismatches.push("document_id");
+        if ((e.source_bank_transaction_id ?? null) !== (original.source_bank_transaction_id ?? null)) {
+          metadataMismatches.push("source_bank_transaction_id");
+        }
+        if (String(e.currency ?? "DKK").trim().toUpperCase() !== String(original.currency ?? "DKK").trim().toUpperCase()) {
+          metadataMismatches.push("currency");
+        }
+        const sameNullableAmount = (left: unknown, right: unknown) => {
+          if (left == null || right == null) return left == null && right == null;
+          return compareDkk(Number(left), Number(right)) === 0;
+        };
+        if (!sameNullableAmount(e.amount_foreign, original.amount_foreign)) metadataMismatches.push("amount_foreign");
+        if (!sameNullableAmount(e.amount_dkk, original.amount_dkk)) metadataMismatches.push("amount_dkk");
+        const sameNullableRate = (left: unknown, right: unknown) => {
+          if (left == null || right == null) return left == null && right == null;
+          return roundRate6(Number(left)) === roundRate6(Number(right));
+        };
+        if (!sameNullableRate(e.fx_rate_to_dkk, original.fx_rate_to_dkk)) metadataMismatches.push("fx_rate_to_dkk");
+        if (metadataMismatches.length > 0) {
+          errors.push(`${e.entry_no}: reversal metadata differs from ${original.entry_no} (${metadataMismatches.join(", ")})`);
+        }
+
+        const originalLines = linesByEntryId.get(originalId) ?? db.query(
+          `SELECT a.account_no, a.type AS account_type, jl.debit_amount, jl.credit_amount, jl.vat_code, jl.text
+             FROM journal_lines jl
+             JOIN accounts a ON a.id = jl.account_id
+            WHERE jl.journal_entry_id = ?
+            ORDER BY jl.id ASC`,
+        ).all(originalId) as any[];
+        let exactInverse = originalLines.length === lines.length;
+        if (exactInverse) {
+          for (let index = 0; index < lines.length; index += 1) {
+            const reversalLine = lines[index];
+            const originalLine = originalLines[index];
+            if (
+              reversalLine.account_no !== originalLine.account_no ||
+              (reversalLine.vat_code ?? null) !== (originalLine.vat_code ?? null) ||
+              toOre(Number(reversalLine.debit_amount ?? 0)) !== toOre(Number(originalLine.credit_amount ?? 0)) ||
+              toOre(Number(reversalLine.credit_amount ?? 0)) !== toOre(Number(originalLine.debit_amount ?? 0))
+            ) {
+              exactInverse = false;
+              break;
+            }
+          }
+        }
+        if (!exactInverse) {
+          errors.push(`${e.entry_no}: reversal lines do not exactly invert ${original.entry_no}`);
+        }
+      }
+    }
 
     const requiresDocument = lines.some((line) => line.account_type === "expense" || line.account_type === "income");
     // A replayed migration posting (#195) carries no Rentemester document yet —
     // #196 attaches the original bilag. It is identified by its import
     // `created_by_program` and exempted from the document-evidence check.
     const isImportedHistorical = IMPORTED_HISTORICAL_PROGRAMS.has(e.created_by_program);
-    if (requiresDocument && !isImportedHistorical) {
-      if (e.document_id == null) {
-        errors.push(`${e.entry_no}: income/expense entry is missing document evidence`);
+    if (requiresDocument && !isImportedHistorical && e.document_id == null) {
+      errors.push(`${e.entry_no}: income/expense entry is missing document evidence`);
+    }
+    if (e.document_id != null) {
+      const document = db.query(
+        "SELECT id, document_no, sha256_hash, stored_path, document_type FROM documents WHERE id = ?",
+      ).get(e.document_id) as AuditEvidenceDocument | null;
+      if (!document) {
+        errors.push(`${e.entry_no}: document_id ${e.document_id} is missing`);
       } else {
-        const document = db.query("SELECT id, sha256_hash, stored_path FROM documents WHERE id = ?").get(e.document_id) as { id: number; sha256_hash: string; stored_path: string | null } | null;
-        if (!document) errors.push(`${e.entry_no}: document_id ${e.document_id} is missing`);
-        if (document && (!document.sha256_hash || document.sha256_hash.trim().length === 0)) errors.push(`${e.entry_no}: document_id ${e.document_id} has no sha256_hash`);
+        journalReferencedDocumentIds.add(document.id);
+        let evidenceError = documentEvidenceCache.get(document.id);
+        if (evidenceError === undefined && !documentEvidenceCache.has(document.id)) {
+          evidenceError = verifyRegisteredDocumentEvidence(document, companyRoot);
+          documentEvidenceCache.set(document.id, evidenceError);
+        }
+        if (evidenceError) {
+          errors.push(`${e.entry_no}: document_id ${document.id} ${evidenceError}`);
+        }
       }
     }
 
     prev = e.entry_hash;
+  }
+
+  // The document register is itself retained bookkeeping evidence. Verify all
+  // rows, including invoice PDFs, balance-only journal attachments, and
+  // ingested documents that have not yet been posted. A signed backup manifest
+  // authenticates the backup package, but it must not be able to replace the
+  // independent hash committed in this register.
+  const registeredDocuments = db.query(
+    `SELECT id, document_no, sha256_hash, stored_path, document_type
+       FROM documents
+      ORDER BY id ASC`,
+  ).all() as AuditEvidenceDocument[];
+  for (const document of registeredDocuments) {
+    if (journalReferencedDocumentIds.has(document.id)) continue;
+    let evidenceError = documentEvidenceCache.get(document.id);
+    if (evidenceError === undefined && !documentEvidenceCache.has(document.id)) {
+      evidenceError = verifyRegisteredDocumentEvidence(document, companyRoot);
+      documentEvidenceCache.set(document.id, evidenceError);
+    }
+    if (evidenceError) {
+      errors.push(`document ${document.document_no ?? document.id}: ${evidenceError}`);
+    }
   }
 
   // Tail-truncation guard: the journal_entry sequence is monotonic and protected
@@ -1017,17 +1400,8 @@ export function verifyAuditChain(db: Database) {
     }
   }
 
-  const unlinkedInvoicePayments = db.query(
-    `SELECT p.id, p.invoice_document_id, p.journal_entry_id, d.invoice_no
-     FROM invoice_payments p
-     LEFT JOIN journal_entries j ON j.id = p.journal_entry_id
-     LEFT JOIN documents d ON d.id = p.invoice_document_id
-     WHERE p.journal_entry_id IS NULL OR j.id IS NULL
-     ORDER BY p.id ASC`
-  ).all() as Array<{ id: number; invoice_document_id: number; journal_entry_id: number | null; invoice_no: string | null }>;
-  for (const payment of unlinkedInvoicePayments) {
-    errors.push(`invoice payment ${payment.id} for invoice ${payment.invoice_no ?? payment.invoice_document_id} is missing journal evidence`);
-  }
+  const invoiceEvidence = validateInvoiceJournalEvidence(db);
+  errors.push(...invoiceEvidence.errors);
 
   const issuedInvoices = db.query("SELECT id, invoice_no, status FROM documents WHERE document_type = 'issued_invoice' ORDER BY id ASC").all() as Array<{ id: number; invoice_no: string | null; status: string | null }>;
   const allowedStoredStatus: Record<string, string[]> = {

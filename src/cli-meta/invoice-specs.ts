@@ -102,6 +102,16 @@ export const invoiceSpecs: CommandSpec[] = [
   },
   { key: "invoice post", usage: "invoice post --company <path> (--document-id <n> | --invoice-number <no>)", description: "Bogfører en udstedt faktura i finansen.", allowedFlags: ["--company", "--document-id", "--invoice-number"] },
   {
+    key: "invoice repair-posting",
+    usage: "invoice repair-posting --company <path> (--document-id <n> | --invoice-number <no>) --legacy-journal-entry-id <n> --reason <text>",
+    description: "Erstatter atomisk én navngivet, uklassificeret legacy-fakturajournal med den kanoniske bogføring og en modpostering.",
+    allowedFlags: ["--company", "--document-id", "--invoice-number", "--legacy-journal-entry-id", "--reason"],
+    inputNotes: [
+      "Administrativ reparationssti: journal-id'et skal angives eksplicit og må ikke have betalinger, krav, kreditnotaer eller anden følge-evidens.",
+      "Både fakturadatoens og legacy-journalens regnskabsperioder skal være åbne; lukkede perioder skal genåbnes særskilt af en autoriseret bruger.",
+    ],
+  },
+  {
     key: "invoice settle-bank",
     usage: "invoice settle-bank --company <path> --input <file.json>",
     description: "Matcher en bankbetaling mod en faktura.",

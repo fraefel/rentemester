@@ -16,6 +16,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
+import { applyInvoicePayment } from "../../src/core/invoice-payments";
+import { seedAccounts } from "../../src/core/ledger";
+import { issueInvoice } from "../../src/core/issued-invoices";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 import {
   createCustomer,
   createVendor,
@@ -113,51 +117,36 @@ describe("deleteCustomer / deleteVendor — #430", () => {
 
   test("a customer remains deletable once the invoice has been paid", () => {
     const { root, db } = freshDb();
+    seedAccounts(db);
     const created = createCustomer(db, {
       name: "Betalt-kunde ApS",
       vatOrCvr: "DK87654321",
     });
     const id = (created as { customerId: number }).customerId;
 
-    // Issue + insert a fully-paid invoice via raw SQL — we exercise the
-    // status-detect path on the documents+invoice_payments tables.
-    db.run(
-      `INSERT INTO documents (
-         document_no, source, sha256_hash, document_type, invoice_no,
-         invoice_date, amount_inc_vat, currency, payload_json
-       ) VALUES (
-         'F-9001', 'cockpit', 'hash-betalt-kunde-9001', 'issued_invoice',
-         'F-9001', '2026-04-01', 500.00, 'DKK', ?
-       ) RETURNING id`,
-      JSON.stringify({
-        buyer: { name: "Betalt-kunde ApS", vatOrCvr: "DK87654321" },
-        totals: { grossAmount: 500.0 },
-      }),
-    );
-    const docId = (
-      db.query("SELECT id FROM documents WHERE document_no = 'F-9001'").get() as {
-        id: number;
-      }
-    ).id;
+    // Use the normal issue + post lifecycle so the settlement has immutable
+    // receivable evidence as well as the payment application row.
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-04-01",
+      dueDate: "2026-04-15",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Betalt-kunde ApS", address: "Kundevej 2", vatOrCvr: "DK87654321" },
+      lines: [{ description: "Ydelse", quantity: 1, unitPriceExVat: 400, lineTotalExVat: 400 }],
+      totals: { netAmount: 400, vatRate: 0.25, vatAmount: 100, grossAmount: 500 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    const docId = issued.documentId!;
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: docId }).ok).toBe(true);
 
-    // Minimal balanced journal entry — required as `journal_entry_id` FK
-    // for `invoice_payments`. We use an existing or a fresh entry_no.
-    db.run(
-      `INSERT INTO journal_entries (entry_no, transaction_date, text, document_id, rule_version, entry_hash)
-       VALUES ('JE-0001', '2026-04-15', 'Betaling F-9001', ?, 'test', 'hash-je-0001')`,
-      docId,
-    );
-    const jeId = (
-      db.query("SELECT id FROM journal_entries WHERE entry_no = 'JE-0001'").get() as {
-        id: number;
-      }
-    ).id;
-
-    db.run(
-      `INSERT INTO invoice_payments (invoice_document_id, journal_entry_id, payment_date, amount)
-       VALUES (?, ?, '2026-04-15', 500.00)`,
-      [docId, jeId],
-    );
+    expect(applyInvoicePayment(db, {
+      invoiceDocumentId: docId,
+      paymentDate: "2026-04-15",
+      amount: 500,
+    }).ok).toBe(true);
 
     const result = deleteCustomer(db, id);
     expect(result.ok).toBe(true);

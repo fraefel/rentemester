@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, linkSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, basename, join } from "node:path";
 
@@ -70,6 +70,21 @@ export function promoteTempFile(tempPath: string, finalPath: string) {
   // KODE-7: persist the rename. The temp file's bytes were already fsync'd in
   // writeTempFileFor; this makes the directory entry pointing at finalPath
   // durable too, so a crash right after the rename cannot lose the file.
+  fsyncDir(finalPath);
+}
+
+/**
+ * Publish an immutable artifact without replacing an existing destination.
+ * The temp file lives beside the destination, so creating a hard link is an
+ * atomic no-clobber operation: an existing file, directory, or symlink makes
+ * linkSync fail with EEXIST and leaves both entries untouched. Once the link
+ * exists the final path already names the fully written, fsync'd inode; removal
+ * of the staging name is therefore only cleanup and must not turn a completed
+ * publication into an ambiguous failure.
+ */
+export function promoteTempFileExclusive(tempPath: string, finalPath: string) {
+  linkSync(tempPath, finalPath);
+  removeIfExists(tempPath);
   fsyncDir(finalPath);
 }
 

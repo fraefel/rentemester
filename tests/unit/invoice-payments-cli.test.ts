@@ -12,6 +12,7 @@ describe("invoice payment CLI", () => {
 
     await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
     await Bun.$`bun run src/cli.ts invoice issue --company ${company} --input examples/full-invoice.dk.json`.quiet();
+    await Bun.$`bun run src/cli.ts invoice post --company ${company} --invoice-number 2026-0001`.quiet();
     writeFileSync(paymentJson, JSON.stringify({
       invoiceDocumentId: 1,
       paymentDate: "2026-05-20",

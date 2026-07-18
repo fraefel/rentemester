@@ -6,10 +6,15 @@
 // fsync the file's bytes BEFORE rename, and fsync the containing directory
 // AFTER rename so the directory entry naming the file is durable too.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { writeFileAtomic } from "../../src/core/atomic-file";
+import {
+  promoteTempFileExclusive,
+  removeIfExists,
+  writeFileAtomic,
+  writeTempFileFor,
+} from "../../src/core/atomic-file";
 
 describe("writeFileAtomic durability (KODE-7)", () => {
   test("writes exact content and leaves no temp files for both string and bytes", () => {
@@ -43,6 +48,20 @@ describe("writeFileAtomic durability (KODE-7)", () => {
     // No staging files survive the directory fsync + rename.
     expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
 
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("exclusive promotion never clobbers an existing immutable artifact", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rentemester-atomic-exclusive-"));
+    const target = join(dir, "invoice.json");
+    writeFileSync(target, "sentinel\n");
+    const tempPath = writeTempFileFor(target, "new legal snapshot\n");
+
+    expect(() => promoteTempFileExclusive(tempPath, target)).toThrow();
+    expect(readFileSync(target, "utf8")).toBe("sentinel\n");
+    expect(readFileSync(tempPath, "utf8")).toBe("new legal snapshot\n");
+
+    removeIfExists(tempPath);
     rmSync(dir, { recursive: true, force: true });
   });
 });

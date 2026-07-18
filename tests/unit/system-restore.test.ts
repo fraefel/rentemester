@@ -48,12 +48,17 @@ describe("system restore", () => {
     mkdirSync(movedBackupsRoot, { recursive: true });
     const movedBackupDir = join(movedBackupsRoot, "portable-backup");
     renameSync(backup.backupDir!, movedBackupDir);
+    const detachedVerificationKey = join(root, "detached-backup.key");
+    copyFileSync(backupManifestKeyPath(companyRoot), detachedVerificationKey);
+    // A portable restore must validate the files copied into staging. The old
+    // source company (and every historical absolute stored_path) may be gone.
+    rmSync(companyRoot, { recursive: true, force: true });
 
     const prevActor = process.env.RENTEMESTER_ACTOR;
     const prevVia = process.env.RENTEMESTER_ACTOR_VIA;
     process.env.RENTEMESTER_ACTOR = "user:mikkel";
     process.env.RENTEMESTER_ACTOR_VIA = "restore-cli";
-    const restored = restoreSystemBackup({ backupDir: movedBackupDir, targetCompanyRoot: restoredRoot, verificationKeyPath: backupManifestKeyPath(companyRoot) });
+    const restored = restoreSystemBackup({ backupDir: movedBackupDir, targetCompanyRoot: restoredRoot, verificationKeyPath: detachedVerificationKey });
     if (prevActor === undefined) delete process.env.RENTEMESTER_ACTOR; else process.env.RENTEMESTER_ACTOR = prevActor;
     if (prevVia === undefined) delete process.env.RENTEMESTER_ACTOR_VIA; else process.env.RENTEMESTER_ACTOR_VIA = prevVia;
     expect(restored.ok).toBe(true);
@@ -74,6 +79,53 @@ describe("system restore", () => {
     expect(restoreEvent?.event_type).toBe("system_restore");
     expect(restoreEvent?.actor).toBe("user:mikkel via restore-cli");
     expect(restoreEvent?.message).toContain("backup-20260517T023900Z");
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects re-signed unposted evidence that differs from the document register before target swap", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-restore-evidence-tamper-"));
+    const companyRoot = join(root, "company");
+    const restoredRoot = join(root, "restored-company");
+    const paths = ensureCompanyDirs(companyRoot);
+    const db = openDb(paths.db);
+    migrate(db);
+    seedAccounts(db);
+    const ingested = ingestDocument(
+      db,
+      companyRoot,
+      join(process.cwd(), "examples/vendor-invoice.txt"),
+      JSON.parse(readFileSync(join(process.cwd(), "examples/vendor-invoice.metadata.json"), "utf8")),
+    );
+    expect(ingested.ok).toBe(true);
+    const sourceEvidenceHash = sha256File(ingested.storedPath!);
+    const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:39:00.000Z" });
+    expect(backup.ok).toBe(true);
+    db.close();
+
+    const manifestPath = join(backup.backupDir!, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const evidenceManifest = manifest.copiedFiles.documentsOriginals[0];
+    const backupEvidencePath = join(backup.backupDir!, evidenceManifest.path);
+    writeFileSync(backupEvidencePath, "re-signed but ledger-inconsistent evidence");
+    evidenceManifest.sha256 = sha256File(backupEvidencePath);
+    evidenceManifest.sizeBytes = readFileSync(backupEvidencePath).byteLength;
+    rewriteSignedManifest(companyRoot, backup.backupDir!, manifest);
+
+    mkdirSync(restoredRoot, { recursive: true });
+    const sentinel = join(restoredRoot, "keep-me.txt");
+    writeFileSync(sentinel, "existing target content");
+    const restored = restoreSystemBackup({
+      backupDir: backup.backupDir!,
+      targetCompanyRoot: restoredRoot,
+      allowNonEmptyTarget: true,
+    });
+    expect(restored.ok).toBe(false);
+    expect(restored.errors.join(" ")).toContain("stored evidence sha256 does not match");
+    expect(readFileSync(sentinel, "utf8")).toBe("existing target content");
+    expect(existsSync(join(restoredRoot, "data", "ledger.sqlite"))).toBe(false);
+    // The intact source file must not have been consulted as a fallback.
+    expect(sha256File(ingested.storedPath!)).toBe(sourceEvidenceHash);
 
     rmSync(root, { recursive: true, force: true });
   });

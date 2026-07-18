@@ -4,14 +4,17 @@ import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { companyPaths } from "./paths";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
-import { promoteTempFile, removeIfExists, writeTempFileFor } from "./atomic-file";
+import { promoteTempFileExclusive, removeIfExists, writeTempFileFor } from "./atomic-file";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { fromOre, roundDkk, toOre } from "./money";
 import { companySequenceScope, fiscalYearLabelFromDate, nextSequenceValue, reserveSequenceValue } from "./sequences";
 import { retainUntilForDate } from "./retention";
-import { resolveAccountRole } from "./account-roles";
 import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
+import {
+  resolveInvoiceReceivableAccount,
+  validateInvoiceCreditNoteEvidence,
+} from "./invoice-fx-receivable";
 
 export type IssueCreditNoteInput = {
   originalInvoiceDocumentId: number;
@@ -41,6 +44,14 @@ const REVERSE_RULE_ID = "DK-INVOICE-BOOKKEEPING-REVERSE-002";
 
 function sha256(text: string) {
   return createHash("sha256").update(text).digest("hex");
+}
+
+function hasCommittedDocumentAtPath(db: Database, storedPath: string): boolean | null {
+  try {
+    return db.query("SELECT 1 AS present FROM documents WHERE stored_path = ? LIMIT 1").get(storedPath) != null;
+  } catch {
+    return null;
+  }
 }
 
 
@@ -78,22 +89,16 @@ function reserveManualCreditNoteNumber(db: Database, issueDate: string, creditNo
 }
 
 
-function scaledJournalAmount(amount: number, factor: number) {
-  return roundDkk(amount * factor);
-}
-
-function creditNoteLinesFromOriginalJournal(db: Database, originalInvoiceDocumentId: number, originalGrossAmount: number, grossAmount: number) {
+function creditNoteLinesFromOriginalJournal(
+  db: Database,
+  originalInvoiceDocumentId: number,
+  originalJournalEntryId: number,
+  originalGrossAmount: number,
+  cumulativeGrossAmount: number,
+  receivableAccountNo: string,
+  cumulativeReceivableReliefDkk: number,
+) {
   if (!(originalGrossAmount > 0)) return null;
-
-  const originalEntry = db.query(
-    `SELECT id, entry_no
-       FROM journal_entries
-      WHERE document_id = ?
-        AND reversal_of_entry_id IS NULL
-      ORDER BY id ASC
-      LIMIT 1`
-  ).get(originalInvoiceDocumentId) as { id: number; entry_no: string } | null;
-  if (!originalEntry) return null;
 
   const originalLines = db.query(
     `SELECT a.account_no, jl.debit_amount, jl.credit_amount, jl.vat_code, jl.text
@@ -101,7 +106,7 @@ function creditNoteLinesFromOriginalJournal(db: Database, originalInvoiceDocumen
        JOIN accounts a ON a.id = jl.account_id
       WHERE jl.journal_entry_id = ?
       ORDER BY jl.id ASC`
-  ).all(originalEntry.id) as Array<{
+  ).all(originalJournalEntryId) as Array<{
     account_no: string;
     debit_amount: number;
     credit_amount: number;
@@ -109,76 +114,115 @@ function creditNoteLinesFromOriginalJournal(db: Database, originalInvoiceDocumen
     text: string | null;
   }>;
   if (originalLines.length === 0) return null;
+  const receivableOrigins = originalLines.filter(
+    (line) => line.account_no === receivableAccountNo && line.debit_amount > 0 && line.credit_amount === 0,
+  );
+  if (receivableOrigins.length !== 1 || !(cumulativeReceivableReliefDkk > 0)) return null;
 
-  const factor = grossAmount / originalGrossAmount;
-  const reversedLines = originalLines
-    .map((line) => ({
-      accountNo: line.account_no,
-      debitAmount: line.credit_amount > 0 ? scaledJournalAmount(line.credit_amount, factor) : undefined,
-      creditAmount: line.debit_amount > 0 ? scaledJournalAmount(line.debit_amount, factor) : undefined,
-      vatCode: line.vat_code ?? undefined,
-      text: line.text ?? undefined,
-    }))
-    .filter((line) => (line.debitAmount ?? 0) > 0 || (line.creditAmount ?? 0) > 0);
-  if (reversedLines.length === 0) return null;
+  type Counter = {
+    accountNo: string;
+    vatCode?: string;
+    text?: string;
+    originalDkk: number;
+    desiredCumulativeDkk: number;
+  };
+  const counterByKey = new Map<string, Counter>();
+  for (const line of originalLines) {
+    if (line === receivableOrigins[0]) continue;
+    if (!(line.credit_amount > 0) || line.debit_amount !== 0) return null;
+    const key = JSON.stringify([line.account_no, line.vat_code]);
+    const existing = counterByKey.get(key);
+    if (existing) {
+      existing.originalDkk = roundDkk(existing.originalDkk + Number(line.credit_amount));
+    } else {
+      counterByKey.set(key, {
+        accountNo: line.account_no,
+        vatCode: line.vat_code ?? undefined,
+        text: line.text ?? undefined,
+        originalDkk: roundDkk(Number(line.credit_amount)),
+        desiredCumulativeDkk: 0,
+      });
+    }
+  }
+  if (counterByKey.size === 0) return null;
 
-  // KODE-3: each line is rounded to øre independently, so the rounded debits
-  // can sum to one øre more (or less) than the rounded credits (e.g. gross
-  // 125.06 credited 62.53 → revenue 50.03 + VAT 12.51 = 62.54 vs receivable
-  // 62.53) and postJournalEntry would reject the entry. Balance the entry per
-  // construction — same technique as computeAccrualSchedule's residual-in-the-
-  // last-period: park the whole rounding residual on ONE line. The carrier is
-  // the revenue line (largest debit carrying a vat_code), NOT the receivable
-  // counter-line: the receivable must stay exactly equal to the credit-note
-  // gross (the bilag total — it scales exactly: gross/originalGross ×
-  // originalGross), and the VAT line must stay pro-rata so it keeps matching
-  // the credit-note document's vatAmount. This mirrors fallbackCreditNoteLines
-  // where net = gross − vat by construction.
-  const debitOre = reversedLines.reduce((sum, line) => sum + toOre(line.debitAmount ?? 0), 0n);
-  const creditOre = reversedLines.reduce((sum, line) => sum + toOre(line.creditAmount ?? 0), 0n);
-  const residualOre = debitOre - creditOre;
+  const isFinalCredit = cumulativeGrossAmount === originalGrossAmount;
+  for (const counter of counterByKey.values()) {
+    counter.desiredCumulativeDkk = isFinalCredit
+      ? counter.originalDkk
+      : roundDkk((counter.originalDkk * cumulativeGrossAmount) / originalGrossAmount);
+  }
+  // Balance the cumulative target, not each note independently. Any one-øre
+  // residual lives on the largest revenue line now and is automatically
+  // corrected by the next note; a full credit lands exactly on every original
+  // revenue/VAT account.
+  const desiredDebitOre = [...counterByKey.values()].reduce(
+    (sum, counter) => sum + toOre(counter.desiredCumulativeDkk),
+    0n,
+  );
+  const residualOre = desiredDebitOre - toOre(cumulativeReceivableReliefDkk);
   if (residualOre !== 0n) {
-    const debitLines = reversedLines.filter((line) => (line.debitAmount ?? 0) > 0);
-    const carrierPool = debitLines.filter((line) => line.vatCode !== undefined);
-    const carrier = (carrierPool.length > 0 ? carrierPool : debitLines)
-      .reduce<typeof reversedLines[number] | null>(
-        (best, line) => (best === null || (line.debitAmount ?? 0) > (best.debitAmount ?? 0) ? line : best),
-        null,
-      );
-    if (!carrier) return null; // degenerate entry — let the fallback lines handle it
-    const adjusted = fromOre(toOre(carrier.debitAmount!) - residualOre);
-    if (!(adjusted > 0)) return null; // residual would zero out the carrier — fall back
-    carrier.debitAmount = adjusted;
+    const carrier = [...counterByKey.values()]
+      .filter((counter) => counter.vatCode !== undefined)
+      .sort((left, right) => right.desiredCumulativeDkk - left.desiredCumulativeDkk)[0];
+    if (!carrier) return null;
+    const adjusted = fromOre(toOre(carrier.desiredCumulativeDkk) - residualOre);
+    if (!(adjusted >= 0)) return null;
+    carrier.desiredCumulativeDkk = adjusted;
   }
 
+  const priorRows = db.query(
+    `SELECT a.account_no, jl.vat_code,
+            SUM(jl.debit_amount) - SUM(jl.credit_amount) AS amount_dkk
+       FROM credit_note_postings p
+       JOIN journal_lines jl ON jl.journal_entry_id = p.journal_entry_id
+       JOIN accounts a ON a.id = jl.account_id
+      WHERE p.original_invoice_document_id = ?
+        AND a.account_no <> ?
+      GROUP BY a.account_no, jl.vat_code`,
+  ).all(originalInvoiceDocumentId, receivableAccountNo) as Array<{
+    account_no: string;
+    vat_code: string | null;
+    amount_dkk: number;
+  }>;
+  const priorByKey = new Map(
+    priorRows.map((row) => [JSON.stringify([row.account_no, row.vat_code]), roundDkk(Number(row.amount_dkk))] as const),
+  );
+
+  const currentReceivableRelief = roundDkk(
+    cumulativeReceivableReliefDkk -
+      Number((db.query(
+        `SELECT COALESCE(SUM(booked_gross_dkk), 0) AS total
+           FROM credit_note_postings
+          WHERE original_invoice_document_id = ?`,
+      ).get(originalInvoiceDocumentId) as { total: number }).total ?? 0),
+  );
+  if (!(currentReceivableRelief > 0)) return null;
+  const reversedLines: Array<{
+    accountNo: string;
+    debitAmount?: number;
+    creditAmount?: number;
+    vatCode?: string;
+    text?: string;
+  }> = [{
+    accountNo: receivableAccountNo,
+    creditAmount: currentReceivableRelief,
+    text: receivableOrigins[0]!.text ?? undefined,
+  }];
+  for (const [key, counter] of counterByKey) {
+    const current = roundDkk(counter.desiredCumulativeDkk - (priorByKey.get(key) ?? 0));
+    if (current < 0) return null;
+    if (current === 0) continue;
+    reversedLines.push({
+      accountNo: counter.accountNo,
+      debitAmount: current,
+      vatCode: counter.vatCode,
+      text: counter.text,
+    });
+  }
+  const debitOre = reversedLines.reduce((sum, line) => sum + toOre(line.debitAmount ?? 0), 0n);
+  if (debitOre !== toOre(currentReceivableRelief)) return null;
   return reversedLines;
-}
-
-function fallbackCreditNoteLines(originalInvoiceNo: string, payload: any, grossAmount: number, netAmount: number, vatAmount: number, debtorsAccountNo: string, outputVatAccountNo?: string) {
-  const vatTreatment = payload?.vatTreatment ?? "standard";
-  const isDomesticReverseCharge = vatTreatment === "domestic_reverse_charge";
-  const isReverseCharge = isDomesticReverseCharge || vatTreatment === "foreign_reverse_charge";
-  // JUR-2/KODE-2: mirror invoice-booking.ts — domestic §46 reverse charge uses
-  // DOMESTIC_REVERSE_CHARGE_EXEMPT (rubrik C), foreign EU reverse charge uses
-  // REVERSE_CHARGE_EXEMPT (rubrik B + VIES). A credit note reverses the same
-  // base, so it must carry the same code to net out of the correct rubrik.
-  // (When the original invoice was posted, creditNoteLinesFromOriginalJournal
-  // copies the booked vat_code verbatim; this fallback covers the unposted case.)
-  const reverseChargeVatCode = isDomesticReverseCharge ? "DOMESTIC_REVERSE_CHARGE_EXEMPT" : "REVERSE_CHARGE_EXEMPT";
-  const lines: Array<{ accountNo: string; debitAmount?: number; creditAmount?: number; vatCode?: string; text: string }> = [
-    {
-      accountNo: "1000",
-      debitAmount: netAmount,
-      vatCode: isReverseCharge ? reverseChargeVatCode : "DK_SALE_25",
-      text: `Revenue reversal ${originalInvoiceNo}`
-    },
-    { accountNo: debtorsAccountNo, creditAmount: grossAmount, text: `Receivable reversal ${originalInvoiceNo}` },
-  ];
-  if (!isReverseCharge && vatAmount > 0) {
-    if (!outputVatAccountNo) throw new Error("resolved output VAT account role is required for credit-note fallback");
-    lines.splice(1, 0, { accountNo: outputVatAccountNo, debitAmount: vatAmount, text: `VAT reversal ${originalInvoiceNo}` });
-  }
-  return { lines, isReverseCharge };
 }
 
 export function issueCreditNote(db: Database, companyRoot: string, input: IssueCreditNoteInput): IssueCreditNoteResult {
@@ -198,41 +242,97 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
   const payload = original.payload_json ? JSON.parse(original.payload_json) : null;
   const originalGrossAmount = roundDkk(Number(original.amount_inc_vat ?? payload?.totals?.grossAmount ?? 0));
   const originalVatAmount = roundDkk(Number(original.vat_amount ?? payload?.totals?.vatAmount ?? 0));
-  const creditedSoFar = roundDkk(Number((db.query("SELECT COALESCE(SUM(amount_inc_vat), 0) AS total FROM documents WHERE document_type = 'credit_note' AND payment_details = ?").get(original.invoice_no) as { total: number }).total ?? 0));
-  const remainingGrossAmount = roundDkk(originalGrossAmount - creditedSoFar);
-  if (remainingGrossAmount <= 0) return { ok: false, appliedRules: [RULE_ID], errors: [`invoice ${original.invoice_no} is already fully credited`] };
-
-  const grossAmount = roundDkk(input.grossAmount ?? remainingGrossAmount);
-  if (!Number.isFinite(grossAmount) || grossAmount <= 0) return { ok: false, appliedRules: [RULE_ID], errors: ["grossAmount must be a positive number when present"] };
-  if (grossAmount > remainingGrossAmount) return { ok: false, appliedRules: [RULE_ID], errors: [`credit amount ${grossAmount} exceeds remaining creditable amount ${remainingGrossAmount}`] };
-
-  const vatRatio = originalGrossAmount > 0 ? originalVatAmount / originalGrossAmount : 0;
-  const vatAmount = roundDkk(grossAmount * vatRatio);
-  const netAmount = roundDkk(grossAmount - vatAmount);
-  const originalJournalLines = creditNoteLinesFromOriginalJournal(db, original.id, originalGrossAmount, grossAmount);
-  let fallback: ReturnType<typeof fallbackCreditNoteLines> | null = null;
-  if (!originalJournalLines) {
-    const debtors = resolveAccountRole(db, "debtors");
-    if (!debtors.ok) return { ok: false, appliedRules: [RULE_ID], errors: [debtors.error] };
-    const treatment = payload?.vatTreatment ?? "standard";
-    const needsOutputVat = treatment !== "domestic_reverse_charge" && treatment !== "foreign_reverse_charge" && vatAmount > 0;
-    const outputVat = needsOutputVat ? resolveAccountRole(db, "output_vat") : null;
-    if (outputVat && !outputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [outputVat.error] };
-    fallback = fallbackCreditNoteLines(original.invoice_no, payload, grossAmount, netAmount, vatAmount, debtors.accountNo, outputVat?.ok ? outputVat.accountNo : undefined);
-  }
   const explicitCreditNoteNumber = input.creditNoteNumber?.trim();
   if (explicitCreditNoteNumber) {
     const scopeError = validateManualCreditNoteNumberScope(db, input.issueDate, explicitCreditNoteNumber);
     if (scopeError) return { ok: false, appliedRules: [RULE_ID], errors: [scopeError] };
   }
-
   const paths = companyPaths(companyRoot);
   mkdirSync(paths.invoicesIssued, { recursive: true });
   let tempPath: string | undefined;
   let storedPath: string | undefined;
+  let storedPathPromoted = false;
 
   try {
     const result = db.transaction(() => {
+      // Booking/reversal state and the cumulative credit cap are mutable. Read
+      // and validate them only after BEGIN IMMEDIATE so concurrent issuers
+      // cannot both consume the same remaining invoice amount.
+      const originalBooking = resolveInvoiceReceivableAccount(db, {
+        invoiceDocumentId: original.id,
+      });
+      if (!originalBooking.ok) {
+        return {
+          ok: false as const,
+          error: `invoice ${original.invoice_no} must have explicit active invoice-posting evidence before a credit note can be issued: ${originalBooking.error}`,
+        };
+      }
+      const priorEvidence = validateInvoiceCreditNoteEvidence(db, {
+        invoiceDocumentId: original.id,
+      });
+      if (!priorEvidence.ok) {
+        return { ok: false as const, error: priorEvidence.errors.join("; ") };
+      }
+      const creditedTotals = db.query(
+        `SELECT COALESCE(SUM(c.amount_inc_vat), 0) AS total,
+                COALESCE(SUM(c.vat_amount), 0) AS vat_total
+           FROM documents c
+           JOIN credit_note_postings p ON p.credit_note_document_id = c.id
+          WHERE c.document_type = 'credit_note'
+            AND p.original_invoice_document_id = ?`,
+      ).get(original.id) as { total: number; vat_total: number };
+      const creditedSoFar = roundDkk(Number(creditedTotals.total ?? 0));
+      const creditedVatSoFar = roundDkk(Number(creditedTotals.vat_total ?? 0));
+      const remainingGrossAmount = roundDkk(originalGrossAmount - creditedSoFar);
+      if (remainingGrossAmount <= 0) {
+        return { ok: false as const, error: `invoice ${original.invoice_no} is already fully credited` };
+      }
+      const grossAmount = roundDkk(input.grossAmount ?? remainingGrossAmount);
+      if (!Number.isFinite(grossAmount) || grossAmount <= 0) {
+        return { ok: false as const, error: "grossAmount must be a positive number when present" };
+      }
+      if (grossAmount > remainingGrossAmount) {
+        return { ok: false as const, error: `credit amount ${grossAmount} exceeds remaining creditable amount ${remainingGrossAmount}` };
+      }
+
+      const creditedDkkSoFar = roundDkk(Number((db.query(
+        `SELECT COALESCE(SUM(booked_gross_dkk), 0) AS total
+           FROM credit_note_postings
+          WHERE original_invoice_document_id = ?`,
+      ).get(original.id) as { total: number }).total ?? 0));
+      const cumulativeForeignCredit = roundDkk(creditedSoFar + grossAmount);
+      const cumulativeVatCredit = cumulativeForeignCredit === originalGrossAmount
+        ? originalVatAmount
+        : roundDkk((originalVatAmount * cumulativeForeignCredit) / originalGrossAmount);
+      const vatAmount = roundDkk(cumulativeVatCredit - creditedVatSoFar);
+      const netAmount = roundDkk(grossAmount - vatAmount);
+      const cumulativeDkkRelief = cumulativeForeignCredit === originalGrossAmount
+        ? originalBooking.bookedGrossDkk
+        : roundDkk((originalBooking.bookedGrossDkk * cumulativeForeignCredit) / originalGrossAmount);
+      const bookedCreditDkk = roundDkk(cumulativeDkkRelief - creditedDkkSoFar);
+      if (!(bookedCreditDkk > 0)) {
+        return { ok: false as const, error: `invoice ${original.invoice_no} credit note has no positive remaining DKK receivable relief` };
+      }
+      const originalJournalLines = creditNoteLinesFromOriginalJournal(
+        db,
+        original.id,
+        originalBooking.bookingJournalEntryId,
+        originalGrossAmount,
+        cumulativeForeignCredit,
+        originalBooking.accountNo,
+        cumulativeDkkRelief,
+      );
+      if (!originalJournalLines) {
+        return { ok: false as const, error: `invoice ${original.invoice_no} booking cannot be reversed into an exact credit-note journal` };
+      }
+      const actualBookedCreditDkk = roundDkk(originalJournalLines.reduce((sum, line) => {
+        if (line.accountNo !== originalBooking.accountNo) return sum;
+        return sum + Number(line.creditAmount ?? 0) - Number(line.debitAmount ?? 0);
+      }, 0));
+      if (actualBookedCreditDkk !== bookedCreditDkk) {
+        return { ok: false as const, error: `invoice ${original.invoice_no} credit note does not reduce its booked receivable account` };
+      }
+
       let creditNoteNumber = explicitCreditNoteNumber;
       if (creditNoteNumber) {
         const reserved = reserveManualCreditNoteNumber(db, input.issueDate, creditNoteNumber);
@@ -304,11 +404,47 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
         transactionDate: input.issueDate,
         text: `Credit note ${creditNoteNumber} for invoice ${original.invoice_no}`,
         documentId: doc.id,
+        currency: (original.currency ?? "DKK").trim().toUpperCase() === "DKK"
+          ? undefined
+          : (original.currency ?? "DKK").trim().toUpperCase(),
+        amountForeign: (original.currency ?? "DKK").trim().toUpperCase() === "DKK"
+          ? undefined
+          : grossAmount,
+        amountDkk: (original.currency ?? "DKK").trim().toUpperCase() === "DKK"
+          ? undefined
+          : bookedCreditDkk,
+        fxRateToDkk: (original.currency ?? "DKK").trim().toUpperCase() === "DKK"
+          ? undefined
+          : bookedCreditDkk / grossAmount,
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
-        lines: originalJournalLines ?? fallback!.lines,
+        lines: originalJournalLines,
       });
       if (!journal.ok) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));
+
+      const receivableAccount = db.query(
+        "SELECT id FROM accounts WHERE account_no = ?",
+      ).get(originalBooking.accountNo) as { id: number } | null;
+      if (!receivableAccount || journal.entryId == null) {
+        throw new Error(`credit note ${creditNoteNumber} cannot persist its receivable posting evidence`);
+      }
+      db.run(
+        `INSERT INTO credit_note_postings
+           (credit_note_document_id, original_invoice_document_id, journal_entry_id,
+            receivable_account_id, booked_gross_dkk)
+         VALUES (?, ?, ?, ?, ?)`,
+        doc.id,
+        original.id,
+        journal.entryId,
+        receivableAccount.id,
+        bookedCreditDkk,
+      );
+      const evidence = validateInvoiceCreditNoteEvidence(db, {
+        invoiceDocumentId: original.id,
+      });
+      if (!evidence.ok) {
+        throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: evidence.errors }));
+      }
 
       insertAuditLog(db, {
         eventType: "credit_note_issue",
@@ -319,12 +455,17 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
         createdByProgram: input.createdByProgram,
       });
 
+      // Keep the legal snapshot and its financial evidence atomic from the
+      // caller's perspective: a destination/promotion failure aborts the DB
+      // transaction, while a later COMMIT failure removes the published file.
+      promoteTempFileExclusive(tempPath!, storedPath!);
+      storedPathPromoted = true;
+
       const treatment = payload?.vatTreatment ?? "standard";
       return { ok: true as const, docId: doc.id, creditNoteNumber, sha256: hash, journal, isReverseCharge: treatment === "domestic_reverse_charge" || treatment === "foreign_reverse_charge" };
     }, { immediate: true })();
 
     if (!result.ok) return { ok: false, appliedRules: [RULE_ID], errors: [result.error] };
-    promoteTempFile(tempPath!, storedPath!);
     return {
       ok: true,
       documentId: result.docId,
@@ -339,6 +480,11 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
     };
   } catch (error) {
     if (tempPath) removeIfExists(tempPath);
+    if (
+      storedPathPromoted &&
+      storedPath &&
+      hasCommittedDocumentAtPath(db, storedPath) === false
+    ) removeIfExists(storedPath);
     const parsed = typeof error === "object" && error && "message" in error ? (() => {
       try { return JSON.parse(String((error as any).message)); } catch { return null; }
     })() : null;

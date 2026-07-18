@@ -19,7 +19,7 @@ import { settleInvoiceFromBank } from "../../src/core/invoice-settlement";
 import { issueCreditNote } from "../../src/core/credit-notes";
 import { refundInvoiceToBank } from "../../src/core/invoice-refunds";
 import { registerInvoiceLateCompensation } from "../../src/core/invoice-compensation";
-import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 
 function netOnAccount(db: any, accountNo: string): number {
   const row = db.query(
@@ -62,12 +62,12 @@ function issueEurInvoice(db: any, root: string, invoiceRate: number) {
   return issued.documentId! as number;
 }
 
-function payEur(db: any, root: string, csvName: string, paymentRate: number, ref: string) {
-  const amountDkk = Math.round(125 * paymentRate * 100) / 100;
+function payEur(db: any, root: string, csvName: string, paymentRate: number, ref: string, amount = 125) {
+  const amountDkk = Math.round(amount * paymentRate * 100) / 100;
   const csvPath = join(root, csvName);
   writeFileSync(
     csvPath,
-    `transaction_date,booking_date,text,amount,currency,amount_dkk,fx_rate_to_dkk,reference\n2026-05-20,2026-05-20,Customer payment,125,EUR,${amountDkk},${paymentRate},${ref}\n`
+    `transaction_date,booking_date,text,amount,currency,amount_dkk,fx_rate_to_dkk,reference\n2026-05-20,2026-05-20,Customer payment,${amount},EUR,${amountDkk},${paymentRate},${ref}\n`
   );
   expect(importBankCsv(db, root, csvPath).ok).toBe(true);
   return db.query("SELECT id FROM bank_transactions WHERE reference = ?").get(ref) as { id: number };
@@ -91,6 +91,46 @@ describe("realised exchange gain/loss on invoice settlement", () => {
 
     expect(getInvoiceStatus(db, invoiceId).status).toBe("paid");
     expect(verifyAuditChain(db).ok).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("audit rejects an FX journal that disguises receivable under-relief as a gain", () => {
+    const { root, db } = setup("rentemester-fx-false-gain-");
+    const invoiceId = issueEurInvoice(db, root, 7.45);
+    const bankTx = payEur(db, root, "bank-false-gain.csv", 7.46, "INV-FALSE-GAIN");
+    const journal = postJournalEntry(db, {
+      transactionDate: "2026-05-20",
+      text: "Balanced but false FX settlement",
+      sourceBankTransactionId: bankTx.id,
+      documentId: invoiceId,
+      currency: "EUR",
+      amountForeign: 125,
+      amountDkk: 932.5,
+      fxRateToDkk: 7.46,
+      lines: [
+        { accountNo: "2000", debitAmount: 932.5 },
+        { accountNo: "1100", creditAmount: 1 },
+        { accountNo: "1020", creditAmount: 931.5 },
+      ],
+    });
+    expect(journal.ok).toBe(true);
+    db.run(
+      `INSERT INTO invoice_payments
+         (invoice_document_id, bank_transaction_id, journal_entry_id, payment_date, amount, currency)
+       VALUES (?, ?, ?, '2026-05-20', 125, 'EUR')`,
+      invoiceId,
+      bankTx.id,
+      journal.entryId!,
+    );
+
+    const status = getInvoiceStatus(db, invoiceId);
+    expect(status.ok).toBe(false);
+    expect(status.errors.join(" ")).toContain("actual DKK receivable relief");
+    const audit = verifyAuditChain(db);
+    expect(audit.ok).toBe(false);
+    expect(audit.errors.join(" ")).toContain("actual DKK receivable relief");
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -122,8 +162,7 @@ describe("realised exchange gain/loss on invoice settlement", () => {
     // 25 EUR foreign credit note → relieves 1100 by 25*7.45 = 186.25 → 1100 = 745.00, open 100 EUR.
     expect(issueCreditNote(db, root, { originalInvoiceDocumentId: invoiceId, issueDate: "2026-05-18", reason: "Delvis kreditering", grossAmount: 25 }).ok).toBe(true);
 
-    const bankTx = payEur(db, root, "bank-cn.csv", 7.46, "INV-CN"); // bank tx is 125 EUR / 932.5 DKK...
-    // ...but only 100 EUR remains open; settle exactly the open foreign balance.
+    const bankTx = payEur(db, root, "bank-cn.csv", 7.46, "INV-CN", 100); // bank tx is exactly the remaining 100 EUR / 746 DKK.
     const settled = settleInvoiceFromBank(db, { invoiceDocumentId: invoiceId, bankTransactionId: bankTx.id, amount: 100 });
     expect(settled.ok).toBe(true);
 
@@ -134,6 +173,37 @@ describe("realised exchange gain/loss on invoice settlement", () => {
     expect(netOnAccount(db, "3320")).toBe(0);
 
     expect(verifyAuditChain(db).ok).toBe(true);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("half credit note at an awkward rate leaves no one-øre phantom FX on the closing payment", () => {
+    const { root, db } = setup("rentemester-fx-half-cent-");
+    // 125 EUR @ 7.4567 = 932.09 DKK. The independently rounded 50% credit
+    // note relieves 466.05 DKK, while the remaining 62.5 EUR converts to
+    // 466.04 DKK. The closing payment must take that exact carrying remainder,
+    // not re-scale the original invoice and manufacture a 0.01 DKK loss.
+    const invoiceId = issueEurInvoice(db, root, 7.4567);
+    expect(issueCreditNote(db, root, {
+      originalInvoiceDocumentId: invoiceId,
+      issueDate: "2026-05-18",
+      reason: "50% credit",
+      grossAmount: 62.5,
+    }).ok).toBe(true);
+
+    const bankTx = payEur(db, root, "bank-half-cent.csv", 7.4567, "INV-HALF-CENT", 62.5);
+    const settled = settleInvoiceFromBank(db, {
+      invoiceDocumentId: invoiceId,
+      bankTransactionId: bankTx.id,
+      amount: 62.5,
+    });
+    expect(settled.ok).toBe(true);
+    expect(netOnAccount(db, "1100")).toBe(0);
+    expect(netOnAccount(db, "1020")).toBe(0);
+    expect(netOnAccount(db, "3320")).toBe(0);
+    expect(getInvoiceStatus(db, invoiceId).status).toBe("paid");
+    expect(verifyAuditChain(db).ok).toBe(true);
+
     db.close();
     rmSync(root, { recursive: true, force: true });
   });

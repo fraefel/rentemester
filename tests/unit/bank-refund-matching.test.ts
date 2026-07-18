@@ -8,6 +8,8 @@ import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { issueCreditNote } from "../../src/core/credit-notes";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
+import { applyInvoicePayment } from "../../src/core/invoice-payments";
 import { ingestDocument } from "../../src/core/documents";
 import { importBankCsv } from "../../src/core/bank";
 import { suggestBankMatches } from "../../src/core/bank-suggest-matches";
@@ -41,6 +43,7 @@ describe("cross-currency suggestion guard", () => {
     const { root, db } = setup("rentemester-suggest-fx-");
     const invoice = issueInvoice(db, root, invoicePayload({ invoiceNumber: "2026-0001" }));
     expect(invoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: invoice.documentId! }).ok).toBe(true);
 
     // An incoming bank row of 1250 — but in EUR, not DKK. The amount coincides
     // with the DKK invoice gross (1250) and the text names the invoice, so
@@ -71,6 +74,12 @@ describe("refund / credit-note matching (#182)", () => {
     const { root, db } = setup("rentemester-refund-cn-");
     const invoice = issueInvoice(db, root, invoicePayload({ invoiceNumber: "2026-0001" }));
     expect(invoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: invoice.documentId! }).ok).toBe(true);
+    expect(applyInvoicePayment(db, {
+      invoiceDocumentId: invoice.documentId!,
+      paymentDate: "2026-05-19",
+      amount: 1250,
+    }).ok).toBe(true);
 
     // Credit note CN-2026-0001 against the invoice — a 1250 credit note.
     const cn = issueCreditNote(db, root, {
@@ -145,6 +154,12 @@ describe("refund / credit-note matching (#182)", () => {
     const { root, db } = setup("rentemester-refund-amtonly-");
     const invoice = issueInvoice(db, root, invoicePayload({ invoiceNumber: "2026-0001" }));
     expect(invoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: invoice.documentId! }).ok).toBe(true);
+    expect(applyInvoicePayment(db, {
+      invoiceDocumentId: invoice.documentId!,
+      paymentDate: "2026-05-19",
+      amount: 1250,
+    }).ok).toBe(true);
     const cn = issueCreditNote(db, root, {
       originalInvoiceDocumentId: invoice.documentId!,
       issueDate: "2026-05-20",
@@ -173,6 +188,7 @@ describe("refund / credit-note matching (#182)", () => {
     const { root, db } = setup("rentemester-refund-regression-");
     const invoice = issueInvoice(db, root, invoicePayload({ invoiceNumber: "2026-0001" }));
     expect(invoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: invoice.documentId! }).ok).toBe(true);
 
     const csv = join(root, "tx.csv");
     writeFileSync(csv, [
@@ -185,6 +201,29 @@ describe("refund / credit-note matching (#182)", () => {
     const row = result.rows.find((r) => r.reference === "INV-PAY-1")!;
     expect(row.suggestions[0].kind).toBe("issued_invoice");
     expect(row.suggestions[0].invoiceNo).toBe("2026-0001");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("an orphan credit-note document without posting evidence is never suggested", () => {
+    const { root, db } = setup("rentemester-refund-orphan-cn-");
+    db.run(
+      `INSERT INTO documents
+         (source, sha256_hash, invoice_no, invoice_date, amount_inc_vat, currency,
+          status, document_type, recipient_name, payment_details)
+       VALUES ('test', 'orphan-credit-note-hash', 'CN-ORPHAN', '2026-05-20', 1250,
+               'DKK', 'issued', 'credit_note', 'Kunde A/S', '2026-0001')`,
+    );
+    const csv = join(root, "orphan.csv");
+    writeFileSync(csv, [
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-22,2026-05-22,Refusion CN-ORPHAN Kunde A/S,-1250,DKK,ORPHAN-RFND-1",
+    ].join("\n"));
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+
+    const row = suggestBankMatches(db, {}).rows.find((candidate) => candidate.reference === "ORPHAN-RFND-1")!;
+    expect(row.suggestions.some((suggestion) => suggestion.kind === "credit_note_refund")).toBe(false);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

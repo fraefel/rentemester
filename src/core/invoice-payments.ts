@@ -2,8 +2,17 @@ import type { Database } from "bun:sqlite";
 import { postJournalEntry } from "./ledger";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate, addDays, diffDays, todayIsoDate } from "./dates";
-import { addDkk, roundDkk, subtractDkk, sumDkk } from "./money";
+import { addDkk, compareDkk, roundDkk, subtractDkk, sumDkk } from "./money";
 import { resolveAccountRole } from "./account-roles";
+import { validateInvoiceJournalEvidence } from "./invoice-journal-evidence";
+import {
+  calculateForeignReceivableRelief,
+  calculateInvoiceReceivableCarryingBalance,
+  resolveInvoiceReceivableAccount,
+  resolveSettlementBankAccount,
+  validateInvoiceCreditNoteEvidence,
+} from "./invoice-fx-receivable";
+import { accountRoleCompatibility } from "./account-roles";
 
 export type ApplyInvoicePaymentInput = {
   invoiceDocumentId: number;
@@ -63,6 +72,7 @@ export type InvoiceStatusResult = {
     refundDate: string;
     amount: number;
     bankTransactionId: number | null;
+    journalEntryId: number | null;
     note: string | null;
   }>;
   claimPayments?: Array<{
@@ -70,6 +80,7 @@ export type InvoiceStatusResult = {
     paymentDate: string;
     amount: number;
     bankTransactionId: number | null;
+    journalEntryId: number | null;
     note: string | null;
   }>;
   badDebtWriteOffs?: Array<{
@@ -133,54 +144,28 @@ const FX_LOSS_ACCOUNT_NO = "3320"; // Valutakurstab (expense, debit)
 
 type JournalLineInput = { accountNo: string; debitAmount?: number; creditAmount?: number; text?: string };
 
-// For a foreign-currency invoice payment, relieve the receivable (1100) at the
-// rate the invoice was BOOKED at — never the payment-date rate. The relief for
-// this payment is the share of the booked receivable DKK (grossAmountDkk,
-// rounded ONCE at booking) that corresponds to the foreign balance this payment
-// settles, computed as the DIFFERENCE of two cumulative proportional figures
-// (relief on the open balance before vs after the payment). Computing it that
-// way makes the per-payment reliefs TELESCOPE: across any split of the foreign
-// amount they sum to exactly grossAmountDkk, so 1100 nets to zero with no
-// per-partial rounding residue (adversarial re-review #1/#2). The foreign open
-// balance already nets credit notes (which relieve 1100 at the invoice rate via
-// creditNoteLinesFromOriginalJournal), so their relief is accounted for
-// automatically. The difference between the DKK actually received
+// For a foreign-currency invoice payment, relieve the receivable by its actual
+// remaining DKK carrying amount, apportioned over the remaining foreign
+// principal. calculateForeignReceivableRelief reads the posted invoice,
+// credit-note, payment and write-off lines, so independently rounded credit
+// notes cannot create a phantom one-øre FX result. A closing payment always
+// takes the exact DKK remainder. The difference between the DKK actually received
 // (paymentAmountDkk, at the payment-date rate) and the relieved receivable is
 // the realised exchange gain/loss line, which makes the entry balance and routes
-// the rate drift to the result. (An earlier snap-to-remainder design anchored on
-// the gross receivable and reconstructed prior relief from payments only — it
-// double-counted credit-note relief and drove 1100 negative; adversarial
-// findings #4/#6/#7/#8. Foreign-currency REFUNDS are refused upstream because
-// that path is not yet currency-aware — see invoice-refunds.ts.)
+// the rate drift to the result. Foreign-currency refunds remain refused upstream
+// because that path is not yet currency-aware (invoice-refunds.ts).
 function buildForeignPaymentLines(args: {
-  payloadJson: string | null;
   invoiceNo: string;
-  amountForeign: number;
-  grossForeign: number;
-  openForeignBefore: number;
   paymentAmountDkk: number;
+  receivableReliefDkk: number;
   bankAccountNo: string;
   receivableAccountNo: string;
 }): { lines: JournalLineInput[]; fxApplied: boolean } {
-  const payload = args.payloadJson ? JSON.parse(args.payloadJson) : null;
-  const invoiceRate = Number(payload?.totals?.fxRateToDkk ?? 0);
-  const grossAmountDkk = roundDkk(Number(payload?.totals?.grossAmountDkk ?? 0));
-
-  let receivableReliefDkk: number;
-  if (args.grossForeign > 0 && grossAmountDkk > 0) {
-    const openAfter = subtractDkk(args.openForeignBefore, args.amountForeign);
-    const cumulativeReliefBefore = roundDkk((grossAmountDkk * args.openForeignBefore) / args.grossForeign);
-    const cumulativeReliefAfter = roundDkk((grossAmountDkk * openAfter) / args.grossForeign);
-    receivableReliefDkk = subtractDkk(cumulativeReliefBefore, cumulativeReliefAfter);
-  } else {
-    receivableReliefDkk = roundDkk(args.amountForeign * invoiceRate);
-  }
-
   const lines: JournalLineInput[] = [
     { accountNo: args.bankAccountNo, debitAmount: args.paymentAmountDkk, text: `Payment receipt ${args.invoiceNo}` },
-    { accountNo: args.receivableAccountNo, creditAmount: receivableReliefDkk, text: `Receivable settlement ${args.invoiceNo}` },
+    { accountNo: args.receivableAccountNo, creditAmount: args.receivableReliefDkk, text: `Receivable settlement ${args.invoiceNo}` },
   ];
-  const fxDelta = roundDkk(subtractDkk(args.paymentAmountDkk, receivableReliefDkk));
+  const fxDelta = roundDkk(subtractDkk(args.paymentAmountDkk, args.receivableReliefDkk));
   if (fxDelta > 0) {
     lines.push({ accountNo: FX_GAIN_ACCOUNT_NO, creditAmount: fxDelta, text: `Realiseret valutakursgevinst ${args.invoiceNo}` });
   } else if (fxDelta < 0) {
@@ -197,17 +182,28 @@ function getIssuedInvoice(db: Database, documentId: number) {
   ).get(documentId) as { id: number; invoice_no: string; amount_inc_vat: number; currency: string; document_type: string; status: string; invoice_date: string | null; payload_json: string | null } | null;
 }
 
-export function getInvoiceStatus(db: Database, invoiceDocumentId: number, asOfDate?: string): InvoiceStatusResult {
+export function getInvoiceStatus(
+  db: Database,
+  invoiceDocumentId: number,
+  asOfDate?: string,
+  options: { skipEvidenceValidation?: boolean } = {},
+): InvoiceStatusResult {
   const invoice = getIssuedInvoice(db, invoiceDocumentId);
   if (!invoice) return { ok: false, errors: [`invoice document ${invoiceDocumentId} does not exist`] };
   if (invoice.document_type !== "issued_invoice") return { ok: false, errors: [`document ${invoiceDocumentId} is not an issued invoice`] };
+
+  if (!options.skipEvidenceValidation) {
+    const evidence = validateInvoiceJournalEvidence(db, { invoiceDocumentId });
+    if (!evidence.ok) return { ok: false, errors: evidence.errors };
+    const creditEvidence = validateInvoiceCreditNoteEvidence(db, { invoiceDocumentId });
+    if (!creditEvidence.ok) return { ok: false, errors: creditEvidence.errors };
+  }
 
   const payload = invoice.payload_json ? JSON.parse(invoice.payload_json) : null;
 
   const payments = db.query(
     `SELECT p.id, p.payment_date, p.amount, p.bank_transaction_id, p.journal_entry_id, p.note
      FROM invoice_payments p
-     JOIN journal_entries j ON j.id = p.journal_entry_id
      WHERE p.invoice_document_id = ?
      ORDER BY p.id ASC`
   ).all(invoiceDocumentId) as Array<{ id: number; payment_date: string; amount: number; bank_transaction_id: number | null; journal_entry_id: number | null; note: string | null }>;
@@ -220,14 +216,14 @@ export function getInvoiceStatus(db: Database, invoiceDocumentId: number, asOfDa
   ).all(invoice.invoice_no) as Array<{ id: number; invoice_no: string; amount_inc_vat: number | null; invoice_date: string | null }>;
 
   const refunds = db.query(
-    `SELECT id, refund_date, amount, bank_transaction_id, note
+    `SELECT id, refund_date, amount, bank_transaction_id, journal_entry_id, note
      FROM invoice_refunds WHERE invoice_document_id = ? ORDER BY id ASC`
-  ).all(invoiceDocumentId) as Array<{ id: number; refund_date: string; amount: number; bank_transaction_id: number | null; note: string | null }>;
+  ).all(invoiceDocumentId) as Array<{ id: number; refund_date: string; amount: number; bank_transaction_id: number | null; journal_entry_id: number | null; note: string | null }>;
 
   const claimPayments = db.query(
-    `SELECT id, payment_date, amount, bank_transaction_id, note
+    `SELECT id, payment_date, amount, bank_transaction_id, journal_entry_id, note
      FROM invoice_claim_payments WHERE invoice_document_id = ? ORDER BY id ASC`
-  ).all(invoiceDocumentId) as Array<{ id: number; payment_date: string; amount: number; bank_transaction_id: number | null; note: string | null }>;
+  ).all(invoiceDocumentId) as Array<{ id: number; payment_date: string; amount: number; bank_transaction_id: number | null; journal_entry_id: number | null; note: string | null }>;
 
   const badDebtWriteOffs = db.query(
     `SELECT id, writeoff_date, gross_amount, net_amount, vat_amount, journal_entry_id, note
@@ -317,8 +313,8 @@ export function getInvoiceStatus(db: Database, invoiceDocumentId: number, asOfDa
     status,
     payments: payments.map((p) => ({ paymentId: p.id, paymentDate: p.payment_date, amount: roundDkk(Number(p.amount)), bankTransactionId: p.bank_transaction_id, journalEntryId: p.journal_entry_id == null ? null : Number(p.journal_entry_id), note: p.note })),
     creditNotes: creditNotes.map((c) => ({ documentId: c.id, creditNoteNumber: c.invoice_no, amount: roundDkk(Number(c.amount_inc_vat ?? 0)), issueDate: c.invoice_date })),
-    refunds: refunds.map((r) => ({ refundId: r.id, refundDate: r.refund_date, amount: roundDkk(Number(r.amount)), bankTransactionId: r.bank_transaction_id, note: r.note })),
-    claimPayments: claimPayments.map((p) => ({ claimPaymentId: p.id, paymentDate: p.payment_date, amount: roundDkk(Number(p.amount)), bankTransactionId: p.bank_transaction_id, note: p.note })),
+    refunds: refunds.map((r) => ({ refundId: r.id, refundDate: r.refund_date, amount: roundDkk(Number(r.amount)), bankTransactionId: r.bank_transaction_id, journalEntryId: r.journal_entry_id == null ? null : Number(r.journal_entry_id), note: r.note })),
+    claimPayments: claimPayments.map((p) => ({ claimPaymentId: p.id, paymentDate: p.payment_date, amount: roundDkk(Number(p.amount)), bankTransactionId: p.bank_transaction_id, journalEntryId: p.journal_entry_id == null ? null : Number(p.journal_entry_id), note: p.note })),
     badDebtWriteOffs: badDebtWriteOffs.map((w) => ({ writeOffId: w.id, writeOffDate: w.writeoff_date, grossAmount: roundDkk(Number(w.gross_amount)), netAmount: roundDkk(Number(w.net_amount)), vatAmount: roundDkk(Number(w.vat_amount)), journalEntryId: Number(w.journal_entry_id), note: w.note })),
     reminders: reminders.map((r) => ({ reminderId: r.id, reminderDate: r.reminder_date, feeAmount: roundDkk(Number(r.fee_amount)), note: r.note, journalEntryId: r.journal_entry_id == null ? null : Number(r.journal_entry_id) })),
     compensationClaims: compensationClaims.map((c) => ({ claimId: c.id, claimDate: c.claim_date, amountDkk: roundDkk(Number(c.amount_dkk)), note: c.note, journalEntryId: c.journal_entry_id == null ? null : Number(c.journal_entry_id) })),
@@ -385,26 +381,98 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
     return { ok: false, appliedRules: [RULE_ID], errors: ["non-DKK invoice payments require a bankTransactionId"] };
   }
 
-  const status = getInvoiceStatus(db, input.invoiceDocumentId);
+  const status = getInvoiceStatus(
+    db,
+    input.invoiceDocumentId,
+    undefined,
+    { skipEvidenceValidation: input.journalEntryId !== undefined },
+  );
   if (!status.ok) return { ok: false, appliedRules: [RULE_ID], errors: status.errors };
   const openBalance = roundDkk(status.openBalance!);
   const amount = roundDkk(input.amount);
+  if (bank && !(Number(bank.amount) > 0)) {
+    return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} is not an incoming customer payment`] };
+  }
+  if (bank && compareDkk(amount, Number(bank.amount)) !== 0) {
+    return { ok: false, appliedRules: [RULE_ID], errors: [`payment amount ${amount} must equal bank transaction ${bank.id} amount ${Number(bank.amount)}`] };
+  }
   if (amount > openBalance) {
     return { ok: false, appliedRules: [RULE_ID, CORRECTION_BALANCE_RULE_ID], errors: [`payment amount ${amount} exceeds open invoice balance ${openBalance}`] };
-  }
-
-  let postingAccounts: { bankAccountNo: string; receivableAccountNo: string } | undefined;
-  if (input.journalEntryId === undefined) {
-    const bankRole = input.bankAccountNo ? { ok: true as const, accountNo: input.bankAccountNo } : resolveAccountRole(db, "bank");
-    const debtorsRole = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
-    const roleErrors = [bankRole, debtorsRole].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
-    if (roleErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: roleErrors };
-    postingAccounts = { bankAccountNo: bankRole.accountNo, receivableAccountNo: debtorsRole.accountNo };
   }
 
   let fxRealisedApplied = false;
   try {
     const result = db.transaction(() => {
+      // The cap and account continuity checks must run after BEGIN IMMEDIATE.
+      // Otherwise two connections can both read the same open balance and the
+      // second one can commit a stale over-application after the first commits.
+      const lockedStatus = getInvoiceStatus(
+        db,
+        input.invoiceDocumentId,
+        undefined,
+        { skipEvidenceValidation: input.journalEntryId !== undefined },
+      );
+      if (!lockedStatus.ok) {
+        throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: lockedStatus.errors }));
+      }
+      const lockedOpenBalance = roundDkk(Number(lockedStatus.openBalance ?? 0));
+      if (compareDkk(amount, lockedOpenBalance) > 0) {
+        throw new Error(JSON.stringify({
+          appliedRules: [RULE_ID, CORRECTION_BALANCE_RULE_ID],
+          errors: [`payment amount ${amount} exceeds open invoice balance ${lockedOpenBalance}`],
+        }));
+      }
+
+      const receivable = resolveInvoiceReceivableAccount(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+      });
+      if (!receivable.ok) {
+        throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [receivable.error] }));
+      }
+      if (input.receivableAccountNo && input.receivableAccountNo !== receivable.accountNo) {
+        throw new Error(JSON.stringify({
+          appliedRules: [RULE_ID],
+          errors: [`invoice ${invoice.invoice_no} must settle its booked receivable account ${receivable.accountNo}, not ${input.receivableAccountNo}`],
+        }));
+      }
+      const carryingBalanceDkk = calculateInvoiceReceivableCarryingBalance(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        invoiceNumber: invoice.invoice_no,
+        receivableAccountNo: receivable.accountNo,
+      });
+      if (invoiceCurrency === "DKK" && compareDkk(carryingBalanceDkk, lockedOpenBalance) !== 0) {
+        throw new Error(JSON.stringify({
+          appliedRules: [RULE_ID],
+          errors: [`invoice ${invoice.invoice_no} domain balance ${lockedOpenBalance} DKK does not match receivable ${receivable.accountNo} carrying balance ${carryingBalanceDkk} DKK`],
+        }));
+      }
+
+      let bankAccountNo: string | undefined;
+      if (input.journalEntryId === undefined) {
+        if (bank) {
+          const resolvedBank = resolveSettlementBankAccount(db, {
+            bankTransactionId: bank.id,
+            requestedAccountNo: input.bankAccountNo,
+          });
+          if (!resolvedBank.ok) {
+            throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [resolvedBank.error] }));
+          }
+          bankAccountNo = resolvedBank.accountNo;
+        } else if (input.bankAccountNo) {
+          const compatible = accountRoleCompatibility(db, "bank", input.bankAccountNo);
+          if (!compatible.ok) {
+            throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [compatible.error] }));
+          }
+          bankAccountNo = input.bankAccountNo;
+        } else {
+          const bankRole = resolveAccountRole(db, "bank");
+          if (!bankRole.ok) {
+            throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [bankRole.error] }));
+          }
+          bankAccountNo = bankRole.accountNo;
+        }
+      }
+
       let journalEntryId = input.journalEntryId;
 
       if (journalEntryId === undefined) {
@@ -414,19 +482,29 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
         let lines: JournalLineInput[];
         if (invoiceCurrency === "DKK") {
           lines = [
-            { accountNo: postingAccounts!.bankAccountNo, debitAmount: paymentAmountDkk, text: `Payment receipt ${invoice.invoice_no}` },
-            { accountNo: postingAccounts!.receivableAccountNo, creditAmount: paymentAmountDkk, text: `Receivable settlement ${invoice.invoice_no}` },
+            { accountNo: bankAccountNo!, debitAmount: paymentAmountDkk, text: `Payment receipt ${invoice.invoice_no}` },
+            { accountNo: receivable.accountNo, creditAmount: paymentAmountDkk, text: `Receivable settlement ${invoice.invoice_no}` },
           ];
         } else {
+          const relief = calculateForeignReceivableRelief(db, {
+            invoiceDocumentId: input.invoiceDocumentId,
+            invoiceNumber: invoice.invoice_no,
+            receivableAccountNo: receivable.accountNo,
+            openForeignBefore: lockedOpenBalance,
+            paymentForeign: amount,
+          });
+          if (!relief.ok) {
+            throw new Error(JSON.stringify({
+              appliedRules: [RULE_ID, FX_REALISED_RULE_ID],
+              errors: [`foreign receivable relief cannot be reconstructed: ${relief.error}`],
+            }));
+          }
           const built = buildForeignPaymentLines({
-            payloadJson: invoice.payload_json,
             invoiceNo: invoice.invoice_no,
-            amountForeign: amount,
-            grossForeign: roundDkk(Number(invoice.amount_inc_vat ?? 0)),
-            openForeignBefore: openBalance,
             paymentAmountDkk,
-            bankAccountNo: postingAccounts!.bankAccountNo,
-            receivableAccountNo: postingAccounts!.receivableAccountNo,
+            receivableReliefDkk: relief.amountDkk,
+            bankAccountNo: bankAccountNo!,
+            receivableAccountNo: receivable.accountNo,
           });
           lines = built.lines;
           fxRealisedApplied = built.fxApplied;
@@ -459,6 +537,22 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
         if ((input.bankTransactionId ?? null) !== (journal.source_bank_transaction_id ?? null)) {
           throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [`journal entry ${journalEntryId} bank link does not match invoice payment bank transaction`] }));
         }
+      }
+
+      const evidence = validateInvoiceJournalEvidence(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        candidates: [{
+          kind: "payment",
+          invoiceDocumentId: input.invoiceDocumentId,
+          bankTransactionId: input.bankTransactionId ?? null,
+          journalEntryId: journalEntryId ?? null,
+          effectiveDate: input.paymentDate,
+          amount,
+          currency: invoiceCurrency,
+        }],
+      });
+      if (!evidence.ok) {
+        throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: evidence.errors }));
       }
 
       const paymentId = db.query(

@@ -2,8 +2,16 @@ import type { Database } from "bun:sqlite";
 import { applyInvoicePayment, getInvoiceStatus } from "./invoice-payments";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
-import { roundDkk } from "./money";
-import { resolveAccountRole } from "./account-roles";
+import { compareDkk, roundDkk } from "./money";
+import { validateInvoiceJournalEvidence } from "./invoice-journal-evidence";
+import type { JournalEntryId } from "./ids";
+import { allocateClaimReceipt, calculateClaimReceivableBalances } from "./invoice-claim-receivable";
+import {
+  calculateInvoiceReceivableCarryingBalance,
+  resolveInvoiceReceivableAccount,
+  resolveSettlementBankAccount,
+} from "./invoice-fx-receivable";
+import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 
 const RULE_ID = "DK-INVOICE-SETTLEMENT-001";
 const COMBINED_RULE_ID = "DK-INVOICE-COMBINED-SETTLEMENT-001";
@@ -61,28 +69,6 @@ function getIncomingBankTransaction(db: Database, input: SettleInvoiceFromBankIn
   return { bank };
 }
 
-function countUnpostedClaims(db: Database, invoiceDocumentId: number) {
-  const reminders = db.query(
-    `SELECT COUNT(*) AS n
-     FROM invoice_reminders r
-     LEFT JOIN invoice_reminder_postings p ON p.reminder_id = r.id
-     WHERE r.invoice_document_id = ? AND p.id IS NULL`
-  ).get(invoiceDocumentId) as { n: number };
-  const interestClaims = db.query(
-    `SELECT COUNT(*) AS n
-     FROM invoice_interest_claims c
-     LEFT JOIN invoice_interest_postings p ON p.interest_claim_id = c.id
-     WHERE c.invoice_document_id = ? AND p.id IS NULL`
-  ).get(invoiceDocumentId) as { n: number };
-  const compensationClaims = db.query(
-    `SELECT COUNT(*) AS n
-     FROM invoice_compensation_claims c
-     LEFT JOIN invoice_compensation_postings p ON p.compensation_claim_id = c.id
-     WHERE c.invoice_document_id = ? AND p.id IS NULL`
-  ).get(invoiceDocumentId) as { n: number };
-  return (reminders.n ?? 0) + (interestClaims.n ?? 0) + (compensationClaims.n ?? 0);
-}
-
 export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBankInput): SettleInvoiceFromBankResult {
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["invoiceDocumentId must be a positive integer"] };
@@ -90,11 +76,16 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
   if (input.bankTransactionId !== undefined && (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0)) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["bankTransactionId must be a positive integer when present"] };
   }
+  if (input.paymentDate !== undefined && !looksLikeIsoDate(input.paymentDate)) {
+    return { ok: false, appliedRules: [RULE_ID], errors: ["paymentDate must be YYYY-MM-DD when present"] };
+  }
 
   const selected = getIncomingBankTransaction(db, input);
   if (selected.error) return { ok: false, appliedRules: [RULE_ID], errors: [selected.error] };
   const bank = selected.bank!;
-  if (Number(bank.amount) <= 0) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${input.bankTransactionId} is not an incoming customer receipt`] };
+  const bankAmount = Number(bank.amount);
+  if (!Number.isFinite(bankAmount)) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} amount is not a finite number`] };
+  if (bankAmount <= 0) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} is not an incoming customer receipt`] };
 
   const invoice = db.query(
     `SELECT id, invoice_no, currency FROM documents WHERE id = ? AND document_type = 'issued_invoice'`
@@ -115,19 +106,27 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
     return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} is missing deterministic DKK conversion metadata`] };
   }
 
-  const amount = roundDkk(input.amount ?? Number(bank.amount));
+  const amount = roundDkk(input.amount ?? bankAmount);
+  if (!(amount > 0)) return { ok: false, appliedRules: [RULE_ID], errors: ["settlement amount must be positive"] };
+  if (compareDkk(amount, bankAmount) !== 0) {
+    return { ok: false, appliedRules: [RULE_ID], errors: [`settlement amount ${amount} must equal bank transaction ${bank.id} amount ${bankAmount}`] };
+  }
   const paymentDate = input.paymentDate ?? bank.transaction_date;
+  const claimEvidenceDate = paymentDate < bank.transaction_date ? paymentDate : bank.transaction_date;
   const before = getInvoiceStatus(db, input.invoiceDocumentId);
   if (!before.ok) return { ok: false, appliedRules: [RULE_ID], errors: before.errors };
-  const principalOpenBalance = roundDkk(Number(before.openBalance ?? 0));
-  const claimOpenBalance = roundDkk(Number(before.claimOpenBalance ?? 0));
-  const bankRole = input.bankAccountNo ? { ok: true as const, accountNo: input.bankAccountNo } : resolveAccountRole(db, "bank");
-  const debtorsRole = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
-  const roleErrors = [bankRole, debtorsRole].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
-  if (roleErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: roleErrors };
+  const preflightPrincipalOpenBalance = roundDkk(Number(before.openBalance ?? 0));
+  const preflightClaimOpenBalance = roundDkk(Number(before.claimOpenBalance ?? 0));
+  if (amount > preflightClaimOpenBalance) {
+    return { ok: false, appliedRules: [amount > preflightPrincipalOpenBalance && preflightPrincipalOpenBalance > 0 ? COMBINED_RULE_ID : RULE_ID], errors: [`settlement amount ${amount} exceeds invoice claim open balance ${preflightClaimOpenBalance}`] };
+  }
 
   try {
     const result = db.transaction(() => {
+      const lockedStatus = getInvoiceStatus(db, input.invoiceDocumentId);
+      if (!lockedStatus.ok) throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: lockedStatus.errors }));
+      const principalOpenBalance = roundDkk(Number(lockedStatus.openBalance ?? 0));
+      const claimOpenBalance = roundDkk(Number(lockedStatus.claimOpenBalance ?? 0));
       const isCombined = amount > principalOpenBalance && principalOpenBalance > 0;
       if (amount > claimOpenBalance) {
         throw new Error(JSON.stringify({ appliedRules: [isCombined ? COMBINED_RULE_ID : RULE_ID], errors: [`settlement amount ${amount} exceeds invoice claim open balance ${claimOpenBalance}`] }));
@@ -140,9 +139,6 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
       // separate receipts, each well-defined.
       if (isCombined && invoiceCurrency !== "DKK") {
         throw new Error(JSON.stringify({ appliedRules: [COMBINED_RULE_ID], errors: ["kombineret afregning af principal og krav i ét beløb understøttes ikke for fakturaer i fremmed valuta — afregn principal og krav hver for sig (combined principal + claim settlement is not supported for foreign-currency invoices)"] }));
-      }
-      if (isCombined && countUnpostedClaims(db, input.invoiceDocumentId) > 0) {
-        throw new Error(JSON.stringify({ appliedRules: [COMBINED_RULE_ID], errors: ["combined settlement requires all included claims to be ledger-posted first"] }));
       }
 
       let paymentId: number | undefined;
@@ -160,9 +156,67 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
         appliedRules.add(COMBINED_RULE_ID);
       }
 
-      let journalEntryId: number | undefined;
+      let journalEntryId: JournalEntryId | undefined;
 
       if (claimAmount > 0) {
+        const receivable = resolveInvoiceReceivableAccount(db, {
+          invoiceDocumentId: input.invoiceDocumentId,
+        });
+        if (!receivable.ok) throw new Error(JSON.stringify({ appliedRules: [COMBINED_RULE_ID], errors: [receivable.error] }));
+        if (input.receivableAccountNo && input.receivableAccountNo !== receivable.accountNo) {
+          throw new Error(JSON.stringify({
+            appliedRules: [COMBINED_RULE_ID],
+            errors: [`invoice ${invoice.invoice_no} must settle its booked receivable account ${receivable.accountNo}, not ${input.receivableAccountNo}`],
+          }));
+        }
+        const carryingBalance = calculateInvoiceReceivableCarryingBalance(db, {
+          invoiceDocumentId: input.invoiceDocumentId,
+          invoiceNumber: invoice.invoice_no,
+          receivableAccountNo: receivable.accountNo,
+        });
+        if (compareDkk(carryingBalance, principalOpenBalance) !== 0) {
+          throw new Error(JSON.stringify({
+            appliedRules: [COMBINED_RULE_ID],
+            errors: [`invoice ${invoice.invoice_no} domain principal ${principalOpenBalance} DKK does not match receivable ${receivable.accountNo} carrying balance ${carryingBalance} DKK`],
+          }));
+        }
+        const claimBalances = calculateClaimReceivableBalances(db, {
+          invoiceDocumentId: input.invoiceDocumentId,
+          asOfDate: claimEvidenceDate,
+        });
+        if (!claimBalances.ok) {
+          throw new Error(JSON.stringify({
+            appliedRules: [COMBINED_RULE_ID],
+            errors: [`combined settlement requires all included claims to be ledger-posted first: ${claimBalances.errors.join("; ")}`],
+          }));
+        }
+        const domainClaimOnly = roundDkk(claimOpenBalance - principalOpenBalance);
+        if (compareDkk(claimBalances.totalDkk, domainClaimOnly) !== 0) {
+          throw new Error(JSON.stringify({
+            appliedRules: [COMBINED_RULE_ID],
+            errors: [`invoice ${invoice.invoice_no} domain claim balance ${domainClaimOnly} DKK does not match ledger-backed claim receivables ${claimBalances.totalDkk} DKK`],
+          }));
+        }
+        const claimAllocation = allocateClaimReceipt(claimBalances.balances, claimAmount);
+        if (!claimAllocation.ok) {
+          throw new Error(JSON.stringify({ appliedRules: [COMBINED_RULE_ID], errors: [claimAllocation.error] }));
+        }
+        const bankAccount = resolveSettlementBankAccount(db, {
+          bankTransactionId: bank.id,
+          requestedAccountNo: input.bankAccountNo,
+        });
+        if (!bankAccount.ok) throw new Error(JSON.stringify({ appliedRules: [COMBINED_RULE_ID], errors: [bankAccount.error] }));
+        const receivableCredits = new Map<string, number>();
+        receivableCredits.set(receivable.accountNo, principalAmount);
+        for (const credit of claimAllocation.credits) {
+          receivableCredits.set(
+            credit.accountNo,
+            roundDkk((receivableCredits.get(credit.accountNo) ?? 0) + credit.amountDkk),
+          );
+        }
+        if (receivableCredits.has(bankAccount.accountNo)) {
+          throw new Error(JSON.stringify({ appliedRules: [COMBINED_RULE_ID], errors: [`bank ledger ${bankAccount.accountNo} cannot also be an invoice receivable account`] }));
+        }
         const journalAmountDkk = invoiceCurrency === "DKK" ? amount : roundDkk(Number(bank.amount_dkk ?? 0));
         const journal = postJournalEntry(db, {
           transactionDate: paymentDate,
@@ -176,38 +230,71 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
           createdBy: input.createdBy,
           createdByProgram: input.createdByProgram,
           lines: [
-            { accountNo: bankRole.accountNo, debitAmount: journalAmountDkk, text: `Bank receipt ${invoice.invoice_no}` },
-            { accountNo: debtorsRole.accountNo, creditAmount: journalAmountDkk, text: `Principal and claim settlement ${invoice.invoice_no}` },
+            { accountNo: bankAccount.accountNo, debitAmount: journalAmountDkk, text: `Bank receipt ${invoice.invoice_no}` },
+            ...[...receivableCredits.entries()].map(([accountNo, creditAmount]) => ({
+              accountNo,
+              creditAmount,
+              text: `Principal and claim settlement ${invoice.invoice_no}`,
+            })),
           ],
         });
         if (!journal.ok || journal.entryId == null) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));
         journalEntryId = journal.entryId;
         for (const rule of journal.appliedRules ?? []) appliedRules.add(rule);
-      }
 
-      const payment = applyInvoicePayment(db, {
-        invoiceDocumentId: input.invoiceDocumentId,
-        bankTransactionId: bank.id,
-        journalEntryId,
-        paymentDate,
-        amount: principalAmount,
-        bankAccountNo: bankRole.accountNo,
-        receivableAccountNo: debtorsRole.accountNo,
-        createdBy: input.createdBy,
-        createdByProgram: input.createdByProgram,
-        note: `Bank settlement from transaction ${bank.id}`,
-      });
-      if (!payment.ok) throw new Error(JSON.stringify({ appliedRules: payment.appliedRules, errors: payment.errors }));
-      paymentId = payment.paymentId;
-      journalEntryId = payment.journalEntryId;
-      for (const rule of payment.appliedRules ?? []) appliedRules.add(rule);
+        const evidence = validateInvoiceJournalEvidence(db, {
+          invoiceDocumentId: input.invoiceDocumentId,
+          candidates: [
+            {
+              kind: "payment",
+              invoiceDocumentId: input.invoiceDocumentId,
+              bankTransactionId: bank.id,
+              journalEntryId,
+              effectiveDate: paymentDate,
+              amount: principalAmount,
+              currency: invoiceCurrency,
+            },
+            {
+              kind: "claim",
+              invoiceDocumentId: input.invoiceDocumentId,
+              bankTransactionId: bank.id,
+              journalEntryId,
+              effectiveDate: paymentDate,
+              amount: claimAmount,
+              currency: invoiceCurrency,
+            },
+          ],
+        });
+        if (!evidence.ok) throw new Error(JSON.stringify({ appliedRules: [...appliedRules], errors: evidence.errors }));
 
-      if (claimAmount > 0) {
+        const payment = db.query(
+          `INSERT INTO invoice_payments (invoice_document_id, bank_transaction_id, journal_entry_id, payment_date, amount, currency, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           RETURNING id`,
+        ).get(
+          input.invoiceDocumentId,
+          bank.id,
+          journalEntryId,
+          paymentDate,
+          principalAmount,
+          invoiceCurrency,
+          `Bank settlement from transaction ${bank.id}`,
+        ) as { id: number };
+        paymentId = payment.id;
+        insertAuditLog(db, {
+          eventType: "invoice_payment_apply",
+          entityType: "invoice_payment",
+          entityId: payment.id,
+          message: `Applied payment ${principalAmount} to invoice ${invoice.invoice_no}`,
+          createdBy: input.createdBy,
+          createdByProgram: input.createdByProgram,
+        });
+
         const claimPayment = db.query(
-          `INSERT INTO invoice_claim_payments (invoice_document_id, bank_transaction_id, payment_date, amount, currency, note)
-           VALUES (?, ?, ?, ?, ?, ?)
+          `INSERT INTO invoice_claim_payments (invoice_document_id, bank_transaction_id, journal_entry_id, payment_date, amount, currency, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            RETURNING id`
-        ).get(input.invoiceDocumentId, bank.id, paymentDate, claimAmount, invoiceCurrency, `Combined settlement claim component from transaction ${bank.id}`) as { id: number };
+        ).get(input.invoiceDocumentId, bank.id, journalEntryId, paymentDate, claimAmount, invoiceCurrency, `Combined settlement claim component from transaction ${bank.id}`) as { id: number };
         claimPaymentId = claimPayment.id;
         insertAuditLog(db, {
           eventType: "invoice_claim_payment_apply",
@@ -217,6 +304,22 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
           createdBy: input.createdBy,
           createdByProgram: input.createdByProgram,
         });
+      } else {
+        const payment = applyInvoicePayment(db, {
+          invoiceDocumentId: input.invoiceDocumentId,
+          bankTransactionId: bank.id,
+          paymentDate,
+          amount: principalAmount,
+          bankAccountNo: input.bankAccountNo,
+          receivableAccountNo: input.receivableAccountNo,
+          createdBy: input.createdBy,
+          createdByProgram: input.createdByProgram,
+          note: `Bank settlement from transaction ${bank.id}`,
+        });
+        if (!payment.ok) throw new Error(JSON.stringify({ appliedRules: payment.appliedRules, errors: payment.errors }));
+        paymentId = payment.paymentId;
+        journalEntryId = payment.journalEntryId;
+        for (const rule of payment.appliedRules ?? []) appliedRules.add(rule);
       }
 
       const after = getInvoiceStatus(db, input.invoiceDocumentId);

@@ -7,6 +7,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { issueInvoice } from "../../src/core/issued-invoices";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 import { ingestDocument } from "../../src/core/documents";
 import { importBankCsv } from "../../src/core/bank";
 
@@ -69,6 +70,7 @@ describe("bank suggest-matches CLI", () => {
 
     const invoice = issueInvoice(db, root, invoicePayload());
     expect(invoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: invoice.documentId! }).ok).toBe(true);
 
     const sourceFile = join(inbox, "vendor.txt");
     writeFileSync(sourceFile, "Software invoice\n1250 DKK\n");
@@ -143,6 +145,7 @@ describe("bank suggest-matches CLI", () => {
 
     const invoice = issueInvoice(db, root, invoicePayload({ invoiceNumber: "2026-0001" }));
     expect(invoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: invoice.documentId! }).ok).toBe(true);
 
     // 1250.10 + 0.05 evaluates to 1250.1499999999999 in IEEE-754 — mathematically
     // equal to the 1250.15 invoice gross but float-distinct. Integer-øre
@@ -158,6 +161,7 @@ describe("bank suggest-matches CLI", () => {
       totals: { netAmount: 1000.12, vatRate: 0.25, vatAmount: 250.03, grossAmount: 1250.15 },
     }));
     expect(matchInvoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: matchInvoice.documentId! }).ok).toBe(true);
 
     const csv = join(root, "transactions.csv");
     writeFileSync(csv, [
@@ -188,6 +192,7 @@ describe("bank suggest-matches CLI", () => {
 
     const invoice = issueInvoice(db, root, invoicePayload({ invoiceNumber: "2026-0001" }));
     expect(invoice.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: invoice.documentId! }).ok).toBe(true);
 
     // A negative (outgoing) customer-refund row referencing the invoice number.
     // Reconciliation deliberately has no refund/credit-note matching path, so
@@ -224,11 +229,13 @@ describe("bank suggest-matches CLI", () => {
       buyer: { name: "Alfa Bogforing ApS", address: "Alfavej 1, 1000 Kobenhavn", vatOrCvr: "DK11111111" },
     }));
     expect(first.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: first.documentId! }).ok).toBe(true);
     const second = issueInvoice(db, root, invoicePayload({
       invoiceNumber: "2026-0002",
       buyer: { name: "Beta Revision ApS", address: "Betavej 2, 2000 Frederiksberg", vatOrCvr: "DK22222222" },
     }));
     expect(second.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: second.documentId! }).ok).toBe(true);
 
     // A deposit equal to both invoice balances, with no invoice number and
     // no customer-name overlap in the text/reference.

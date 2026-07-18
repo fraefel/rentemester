@@ -249,7 +249,12 @@ function restoreFiles(backupDir: string, files: ManifestFile[], targetDir: strin
   return files.length;
 }
 
-function validateRestoredDb(dbPath: string, manifest: BackupManifest, cleanupOnFailure?: string) {
+function validateRestoredDb(
+  dbPath: string,
+  manifest: BackupManifest,
+  restoredCompanyRoot: string,
+  cleanupOnFailure?: string,
+) {
   const db = openDb(dbPath);
   let result: { ok: true } | { ok: false; error: string } | undefined;
   try {
@@ -265,7 +270,7 @@ function validateRestoredDb(dbPath: string, manifest: BackupManifest, cleanupOnF
       return result;
     }
 
-    const audit = verifyAuditChain(db);
+    const audit = verifyAuditChain(db, { companyRoot: restoredCompanyRoot });
     if (!audit.ok) {
       result = { ok: false, error: `restored database has broken audit chain: ${audit.errors.join(", ")}` };
       return result;
@@ -497,7 +502,7 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       config: restoreFiles(input.backupDir, manifest.copiedFiles.config, stagingPaths.config),
     };
 
-    const validation = validateRestoredDb(stagingPaths.db, manifest, stagingRoot);
+    const validation = validateRestoredDb(stagingPaths.db, manifest, stagingRoot, stagingRoot);
     if (!validation.ok) {
       return { ok: false, appliedRules: [RULE_ID], errors: [validation.error] };
     }

@@ -94,6 +94,15 @@ describe("invoice reminders", () => {
     });
     expect(reminder.ok).toBe(true);
 
+    const rejectedLiability = postInvoiceReminderToLedger(db, {
+      invoiceDocumentId: issued.documentId!,
+      reminderIncomeAccountNo: "7000",
+    });
+    expect(rejectedLiability.ok).toBe(false);
+    expect(rejectedLiability.errors.join(" ")).toContain("credit-normal income account");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_reminder_postings").get()).toEqual({ n: 0 });
+
     const posted = postInvoiceReminderToLedger(db, { invoiceDocumentId: issued.documentId! });
     expect(posted.ok).toBe(true);
     expect(posted.feeAmount).toBe(100);

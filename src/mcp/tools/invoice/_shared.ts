@@ -10,6 +10,7 @@
 import { z } from "zod";
 import { errorEnvelope } from "../../envelope";
 import { invoiceNotFoundEnvelope } from "../../tool-runtime";
+import { resolveInvoiceReceivableAccount } from "../../../core/invoice-fx-receivable";
 
 // --------------------------------------------------------------- payload schemas
 // All monetary fields are in kroner — decimal DKK with 2 decimals (NOT øre).
@@ -269,16 +270,45 @@ function lookupIssuedInvoice(
   );
 }
 
-function isInvoicePostedToLedger(
+function invoicePostingState(
   db: import("bun:sqlite").Database,
   documentId: number,
-): boolean {
-  const row = db
+):
+  | { kind: "valid" }
+  | { kind: "missing" }
+  | { kind: "legacy"; journalEntryId: number }
+  | { kind: "invalid"; error: string } {
+  const link = db
     .query(
-      `SELECT id FROM journal_entries WHERE document_id = ? AND reversal_of_entry_id IS NULL LIMIT 1`,
+      `SELECT journal_entry_id
+         FROM issued_invoice_postings
+        WHERE invoice_document_id = ?`,
     )
-    .get(documentId) as { id: number } | null;
-  return row != null;
+    .get(documentId) as { journal_entry_id: number } | null;
+  if (!link) {
+    const active = db.query(
+      `SELECT j.id
+         FROM journal_entries j
+        WHERE j.document_id = ?
+          AND j.status = 'posted'
+          AND j.reversal_of_entry_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM journal_entries reversal
+             WHERE reversal.reversal_of_entry_id = j.id
+          )
+        ORDER BY j.id ASC`,
+    ).all(documentId) as Array<{ id: number }>;
+    if (active.length === 0) return { kind: "missing" };
+    if (active.length === 1) return { kind: "legacy", journalEntryId: active[0]!.id };
+    return {
+      kind: "invalid",
+      error: `fakturaen har ${active.length} aktive journaler uden et entydigt issued_invoice_postings-link`,
+    };
+  }
+  const evidence = resolveInvoiceReceivableAccount(db, { invoiceDocumentId: documentId });
+  return evidence.ok
+    ? { kind: "valid" }
+    : { kind: "invalid", error: evidence.error };
 }
 
 /**
@@ -310,10 +340,25 @@ export function requireInvoicePostedEnvelope(
       { code: "PRECONDITION_MISSING" },
     );
   }
-  if (!isInvoicePostedToLedger(db, documentId)) {
+  const posting = invoicePostingState(db, documentId);
+  if (posting.kind === "missing") {
     return errorEnvelope(
       `${POSTED_REQUIRED_PREFIX} faktura ${doc.invoice_no} (documentId=${documentId}) er udstedt men ikke bogført. ` +
         `Kald invoice_post på fakturaen før ${currentTool}.`,
+      { code: "PRECONDITION_MISSING" },
+    );
+  }
+  if (posting.kind === "legacy") {
+    return errorEnvelope(
+      `${POSTED_REQUIRED_PREFIX} faktura ${doc.invoice_no} (documentId=${documentId}) har aktiv uklassificeret journal ${posting.journalEntryId}, men mangler kanonisk bogføringsevidens. ` +
+        `Stop automatiseringen; efter menneskelig kontrol kan en administrator bruge CLI-kommandoen invoice repair-posting med det eksplicitte journal-id før ${currentTool}.`,
+      { code: "PRECONDITION_MISSING" },
+    );
+  }
+  if (posting.kind === "invalid") {
+    return errorEnvelope(
+      `${POSTED_REQUIRED_PREFIX} faktura ${doc.invoice_no} (documentId=${documentId}) har ugyldig eller beskadiget bogføringsevidens: ${posting.error}. ` +
+        `Stop automatiseringen og få bogføringen auditeret/repareret manuelt før ${currentTool}; gentag ikke invoice_post.`,
       { code: "PRECONDITION_MISSING" },
     );
   }

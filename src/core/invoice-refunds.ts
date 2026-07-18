@@ -2,8 +2,13 @@ import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { getInvoiceStatus } from "./invoice-payments";
 import { insertAuditLog } from "./actor";
-import { roundDkk } from "./money";
-import { resolveAccountRole } from "./account-roles";
+import { compareDkk, roundDkk } from "./money";
+import { validateInvoiceJournalEvidence } from "./invoice-journal-evidence";
+import {
+  calculateInvoiceReceivableCarryingBalance,
+  resolveInvoiceReceivableAccount,
+  resolveSettlementBankAccount,
+} from "./invoice-fx-receivable";
 
 const RULE_ID = "DK-INVOICE-REFUND-001";
 
@@ -50,7 +55,9 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
   const selected = getOutgoingRefundBankTransaction(db, input);
   if (selected.error) return { ok: false, appliedRules: [RULE_ID], errors: [selected.error] };
   const bank = selected.bank!;
-  if (Number(bank.amount) >= 0) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} is not an outgoing customer refund`] };
+  const bankAmount = Number(bank.amount);
+  if (!Number.isFinite(bankAmount)) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} amount is not a finite number`] };
+  if (bankAmount >= 0) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} is not an outgoing customer refund`] };
 
   const invoice = db.query(`SELECT id, invoice_no, document_type, currency FROM documents WHERE id = ?`).get(input.invoiceDocumentId) as { id: number; invoice_no: string; document_type: string; currency: string | null } | null;
   if (!invoice) return { ok: false, appliedRules: [RULE_ID], errors: [`invoice document ${input.invoiceDocumentId} does not exist`] };
@@ -76,21 +83,89 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
   const creditBalance = roundDkk(Math.max(0, -(status.openBalance ?? 0)));
   if (creditBalance <= 0) return { ok: false, appliedRules: [RULE_ID], errors: [`invoice ${invoice.invoice_no} has no refundable credit balance`] };
 
-  const amount = roundDkk(input.amount ?? Math.abs(Number(bank.amount)));
+  const amount = roundDkk(input.amount ?? Math.abs(bankAmount));
+  if (!(amount > 0)) return { ok: false, appliedRules: [RULE_ID], errors: ["refund amount must be positive"] };
+  if (compareDkk(amount, Math.abs(bankAmount)) !== 0) {
+    return { ok: false, appliedRules: [RULE_ID], errors: [`refund amount ${amount} must equal outgoing bank transaction ${bank.id} amount ${Math.abs(bankAmount)}`] };
+  }
   if (amount > creditBalance) return { ok: false, appliedRules: [RULE_ID], errors: [`refund amount ${amount} exceeds refundable credit balance ${creditBalance}`] };
   const refundDate = input.refundDate ?? bank.transaction_date;
-  const bankRole = input.bankAccountNo ? { ok: true as const, accountNo: input.bankAccountNo } : resolveAccountRole(db, "bank");
-  const debtorsRole = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
-  const roleErrors = [bankRole, debtorsRole].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
-  if (roleErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: roleErrors };
-
   try {
     const result = db.transaction(() => {
+      const lockedStatus = getInvoiceStatus(db, input.invoiceDocumentId);
+      if (!lockedStatus.ok) throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: lockedStatus.errors }));
+      const lockedCreditBalance = roundDkk(Math.max(0, -Number(lockedStatus.openBalance ?? 0)));
+      if (!(lockedCreditBalance > 0)) {
+        throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [`invoice ${invoice.invoice_no} has no refundable credit balance`] }));
+      }
+      if (compareDkk(amount, lockedCreditBalance) > 0) {
+        throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [`refund amount ${amount} exceeds refundable credit balance ${lockedCreditBalance}`] }));
+      }
+      const receivable = resolveInvoiceReceivableAccount(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+      });
+      if (!receivable.ok) throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [receivable.error] }));
+      if (input.receivableAccountNo && input.receivableAccountNo !== receivable.accountNo) {
+        throw new Error(JSON.stringify({
+          appliedRules: [RULE_ID],
+          errors: [`invoice ${invoice.invoice_no} must refund its booked receivable account ${receivable.accountNo}, not ${input.receivableAccountNo}`],
+        }));
+      }
+      const carryingBalance = calculateInvoiceReceivableCarryingBalance(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        invoiceNumber: invoice.invoice_no,
+        receivableAccountNo: receivable.accountNo,
+      });
+      if (compareDkk(carryingBalance, Number(lockedStatus.openBalance ?? 0)) !== 0) {
+        throw new Error(JSON.stringify({
+          appliedRules: [RULE_ID],
+          errors: [`invoice ${invoice.invoice_no} domain balance ${roundDkk(Number(lockedStatus.openBalance ?? 0))} DKK does not match receivable ${receivable.accountNo} carrying balance ${carryingBalance} DKK`],
+        }));
+      }
+      const bankAccount = resolveSettlementBankAccount(db, {
+        bankTransactionId: bank.id,
+        requestedAccountNo: input.bankAccountNo,
+      });
+      if (!bankAccount.ok) throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [bankAccount.error] }));
+      if (bankAccount.accountNo === receivable.accountNo) {
+        throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: [`bank ledger ${bankAccount.accountNo} cannot also be the invoice receivable account`] }));
+      }
+
+      const journal = postJournalEntry(db, {
+        transactionDate: refundDate,
+        text: `Customer refund for invoice ${invoice.invoice_no}`,
+        sourceBankTransactionId: bank.id,
+        documentId: input.invoiceDocumentId,
+        createdBy: input.createdBy,
+        createdByProgram: input.createdByProgram,
+        lines: [
+          { accountNo: receivable.accountNo, debitAmount: amount, text: `Refund clearing ${invoice.invoice_no}` },
+          { accountNo: bankAccount.accountNo, creditAmount: amount, text: `Bank refund ${invoice.invoice_no}` },
+        ],
+      });
+      if (!journal.ok || journal.entryId == null) {
+        throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors.length > 0 ? journal.errors : ["refund journal posting returned no entry id"] }));
+      }
+
+      const evidence = validateInvoiceJournalEvidence(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        candidates: [{
+          kind: "refund",
+          invoiceDocumentId: input.invoiceDocumentId,
+          bankTransactionId: bank.id,
+          journalEntryId: journal.entryId,
+          effectiveDate: refundDate,
+          amount,
+          currency: "DKK",
+        }],
+      });
+      if (!evidence.ok) throw new Error(JSON.stringify({ appliedRules: [RULE_ID], errors: evidence.errors }));
+
       const refund = db.query(
-        `INSERT INTO invoice_refunds (invoice_document_id, bank_transaction_id, refund_date, amount, currency, note)
-         VALUES (?, ?, ?, ?, 'DKK', ?)
+        `INSERT INTO invoice_refunds (invoice_document_id, bank_transaction_id, journal_entry_id, refund_date, amount, currency, note)
+         VALUES (?, ?, ?, ?, ?, 'DKK', ?)
          RETURNING id`
-      ).get(input.invoiceDocumentId, bank.id, refundDate, amount, `Customer refund from transaction ${bank.id}`) as { id: number };
+      ).get(input.invoiceDocumentId, bank.id, journal.entryId, refundDate, amount, `Customer refund from transaction ${bank.id}`) as { id: number };
 
       insertAuditLog(db, {
         eventType: "invoice_refund_apply",
@@ -101,20 +176,6 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
         createdByProgram: input.createdByProgram,
       });
 
-      const journal = postJournalEntry(db, {
-        transactionDate: refundDate,
-        text: `Customer refund for invoice ${invoice.invoice_no}`,
-        sourceBankTransactionId: bank.id,
-        documentId: input.invoiceDocumentId,
-        createdBy: input.createdBy,
-        createdByProgram: input.createdByProgram,
-        lines: [
-          { accountNo: debtorsRole.accountNo, debitAmount: amount, text: `Refund clearing ${invoice.invoice_no}` },
-          { accountNo: bankRole.accountNo, creditAmount: amount, text: `Bank refund ${invoice.invoice_no}` },
-        ],
-      });
-      if (!journal.ok) throw new Error(JSON.stringify({ appliedRules: journal.appliedRules, errors: journal.errors }));
-
       const after = getInvoiceStatus(db, input.invoiceDocumentId);
       if (!after.ok) throw new Error(JSON.stringify({ errors: after.errors }));
       return {
@@ -124,7 +185,7 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
         remainingCreditBalance: roundDkk(Math.max(0, -(after.openBalance ?? 0))),
         appliedRules: [...new Set([RULE_ID, ...(journal.appliedRules ?? [])])],
       };
-    })();
+    }, { immediate: true })();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

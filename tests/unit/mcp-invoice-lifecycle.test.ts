@@ -20,6 +20,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCompany } from "../../src/core/company";
 import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
+import { openDb } from "../../src/core/db";
+import { companyPaths } from "../../src/core/paths";
+import { postJournalEntry } from "../../src/core/ledger";
 
 const SERVER_PATH = new URL("../../src/mcp/server.ts", import.meta.url).pathname;
 
@@ -298,4 +301,49 @@ describe("#374 — calling a 'must be posted' write-tool on an unposted invoice 
       );
     });
   }
+});
+
+describe("#70 — arbitrary document journals cannot bypass the MCP posting gate", () => {
+  test("an active journal without issued_invoice_postings stays blocked and names the repair path", async () => {
+    const issued = await client.send("tools/call", {
+      name: "invoice_issue",
+      arguments: {
+        company: companyRoot,
+        payload: issuePayload(),
+        confirm: true,
+      },
+    });
+    const env = issued.result?.structuredContent;
+    expect(env?.ok, JSON.stringify(env)).toBe(true);
+    const documentId = Number(env?.data?.documentId);
+    const invoiceNumber = String(env?.data?.invoiceNumber);
+
+    const db = openDb(companyPaths(companyRoot).db);
+    const arbitrary = postJournalEntry(db, {
+      transactionDate: "2026-05-16",
+      text: "Unclassified migrated document journal",
+      documentId,
+      lines: [
+        { accountNo: "1100", debitAmount: 1250 },
+        { accountNo: "1010", creditAmount: 1250 },
+      ],
+    });
+    expect(arbitrary.ok).toBe(true);
+    db.close();
+
+    const response = await client.send("tools/call", {
+      name: "invoice_remind",
+      arguments: {
+        company: companyRoot,
+        invoiceNumber,
+        date: "2026-06-20",
+        confirm: true,
+      },
+    });
+    const blocked = response.result?.structuredContent;
+    expect(blocked?.ok).toBe(false);
+    const joined = (blocked?.errors ?? []).join(" | ");
+    expect(joined).toContain("repair-posting");
+    expect(joined).not.toContain("Kald invoice_post");
+  });
 });

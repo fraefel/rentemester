@@ -7,6 +7,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { issueInvoice } from "../../src/core/issued-invoices";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 import { importBankCsv } from "../../src/core/bank";
 import { suggestBankMatches } from "../../src/core/bank-suggest-matches";
 
@@ -60,10 +61,12 @@ describe("bank import extra columns (#188)", () => {
     seedAccounts(db);
 
     // Customer named "Hjørnegaard Tømrer ApS".
-    expect(issueInvoice(db, root, invoicePayload({
+    const issued = issueInvoice(db, root, invoicePayload({
       invoiceNumber: "2026-0001",
       buyer: { name: "Hjørnegaard Tømrer ApS", address: "Tømrervej 4, 5000 Odense", vatOrCvr: "DK55667788" },
-    })).ok).toBe(true);
+    }));
+    expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     // A Danske Bank row whose generic `text` is just "Overførsel" (no signal)
     // but whose Afsender (counterparty) and Besked (message) name the customer
@@ -98,14 +101,18 @@ describe("bank import extra columns (#188)", () => {
     migrate(db);
     seedAccounts(db);
 
-    expect(issueInvoice(db, root, invoicePayload({
+    const alfa = issueInvoice(db, root, invoicePayload({
       invoiceNumber: "2026-0001",
       buyer: { name: "Alfa Bogforing ApS", address: "Alfavej 1", vatOrCvr: "DK11111111" },
-    })).ok).toBe(true);
-    expect(issueInvoice(db, root, invoicePayload({
+    }));
+    expect(alfa.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: alfa.documentId! }).ok).toBe(true);
+    const beta = issueInvoice(db, root, invoicePayload({
       invoiceNumber: "2026-0002",
       buyer: { name: "Beta Revision ApS", address: "Betavej 2", vatOrCvr: "DK22222222" },
-    })).ok).toBe(true);
+    }));
+    expect(beta.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: beta.documentId! }).ok).toBe(true);
 
     // A Danske Bank deposit equal to both invoice balances, with no invoice
     // number and a counterparty/message that names neither customer.
@@ -118,6 +125,27 @@ describe("bank import extra columns (#188)", () => {
 
     const result = suggestBankMatches(db, {});
     expect(result.rows[0].suggestions).toHaveLength(0);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("an issued but unposted invoice is never suggested as payable", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bankcols-unposted-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    expect(issueInvoice(db, root, invoicePayload()).ok).toBe(true);
+
+    const csv = join(root, "unposted.csv");
+    writeFileSync(csv, [
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-20,2026-05-20,Betaling 2026-0001 Kunde A/S,1250,DKK,UNPOSTED-1",
+    ].join("\n"));
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+
+    const row = suggestBankMatches(db, {}).rows.find((candidate) => candidate.reference === "UNPOSTED-1")!;
+    expect(row.suggestions.some((suggestion) => suggestion.kind === "issued_invoice")).toBe(false);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

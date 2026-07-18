@@ -66,8 +66,8 @@ export function registerAccountsTools(server: McpServer): void {
         "Tilføjer én ny konto til kontoplanen efter init. Append-only — denne kommando kan ikke omdøbe, " +
         "ændre type eller arkivere en eksisterende konto. Kræver confirm:true. normalBalance udledes af type " +
         "hvis ikke angivet (asset/expense → debit, ellers credit). Audit-logges som event_type=accounts_add. " +
-        "write-irreversible: account creation is append-only and has no archive/undo operation. " +
-        "Creating an account never confirms an account-role proposal; use accounts_role_confirm separately.",
+        "Creating an account never confirms an account-role proposal; use accounts_role_confirm separately. " +
+        "Account creation is append-only and has no archive/undo operation. write-irreversible.",
       inputSchema: {
         company: z.string().min(1).describe("Absolute path to the company directory, or a workspace slug."),
         input: z

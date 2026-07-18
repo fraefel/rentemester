@@ -1,11 +1,12 @@
 // Tests: src/core/ledger.ts (audit-chain verification)
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { hashEntry, postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { ingestDocument } from "../../src/core/documents";
 
 type ManualLine = {
   account_no: string;
@@ -22,6 +23,11 @@ function insertManualEntry(db: ReturnType<typeof openDb>, input: {
   text: string;
   lines: ManualLine[];
   sourceBankTransactionId?: number | null;
+  documentId?: number | null;
+  currency?: string;
+  amountForeign?: number | null;
+  amountDkk?: number | null;
+  fxRateToDkk?: number | null;
   status?: "posted" | "reversed";
   reversalOfEntryId?: number | null;
 }) {
@@ -30,11 +36,11 @@ function insertManualEntry(db: ReturnType<typeof openDb>, input: {
     transaction_date: input.transactionDate,
     text: input.text,
     source_bank_transaction_id: input.sourceBankTransactionId ?? null,
-    document_id: null,
-    currency: "DKK",
-    amount_foreign: null,
-    amount_dkk: null,
-    fx_rate_to_dkk: null,
+    document_id: input.documentId ?? null,
+    currency: input.currency ?? "DKK",
+    amount_foreign: input.amountForeign ?? null,
+    amount_dkk: input.amountDkk ?? null,
+    fx_rate_to_dkk: input.fxRateToDkk ?? null,
     rule_version: "dk-v0.0.1",
     created_by: "system",
     created_by_program: "rentemester",
@@ -63,13 +69,17 @@ function insertManualEntry(db: ReturnType<typeof openDb>, input: {
       id, entry_no, transaction_date, text, source_bank_transaction_id, document_id,
       currency, amount_foreign, amount_dkk, fx_rate_to_dkk,
       rule_version, created_by, created_by_program, status, reversal_of_entry_id, previous_hash, entry_hash
-    ) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     predictedId,
     entry.entry_no,
     entry.transaction_date,
     entry.text,
     entry.source_bank_transaction_id,
+    entry.document_id,
     entry.currency,
+    entry.amount_foreign,
+    entry.amount_dkk,
+    entry.fx_rate_to_dkk,
     entry.rule_version,
     entry.created_by,
     entry.created_by_program,
@@ -98,6 +108,289 @@ function insertManualEntry(db: ReturnType<typeof openDb>, input: {
 }
 
 describe("audit verify", () => {
+  test("verifies referenced files inside the current company root and fails closed without leaking host paths", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-audit-document-evidence-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    const ingested = ingestDocument(
+      db,
+      root,
+      join(process.cwd(), "examples/vendor-invoice.txt"),
+      JSON.parse(readFileSync(join(process.cwd(), "examples/vendor-invoice.metadata.json"), "utf8")),
+    );
+    expect(ingested.ok).toBe(true);
+    const posted = postJournalEntry(
+      db,
+      JSON.parse(readFileSync(join(process.cwd(), "examples/journal-entry.expense.json"), "utf8")),
+    );
+    expect(posted.ok).toBe(true);
+    expect(verifyAuditChain(db).ok).toBe(true);
+
+    const documentId = ingested.documentId!;
+    const storedPath = ingested.storedPath!;
+    const originalHash = ingested.sha256!;
+    const originalBytes = readFileSync(storedPath);
+    const entryNo = posted.entryNo!;
+    db.run("DROP TRIGGER documents_no_update_when_linked");
+
+    const expectEvidenceFailure = (message: string) => {
+      const result = verifyAuditChain(db);
+      expect(result.ok, message).toBe(false);
+      const joined = result.errors.join(" | ");
+      expect(joined).toContain(entryNo);
+      expect(joined).toContain(`document_id ${documentId}`);
+      return joined;
+    };
+
+    db.run("UPDATE documents SET stored_path = NULL WHERE id = ?", documentId);
+    expect(expectEvidenceFailure("missing stored_path")).toContain("stored_path");
+    db.run("UPDATE documents SET stored_path = ? WHERE id = ?", storedPath, documentId);
+
+    db.run("UPDATE documents SET sha256_hash = 'not-a-sha256' WHERE id = ?", documentId);
+    expect(expectEvidenceFailure("invalid sha256")).toContain("invalid sha256_hash");
+    db.run("UPDATE documents SET sha256_hash = ? WHERE id = ?", originalHash, documentId);
+
+    const movedAside = join(root, "moved-aside-evidence");
+    renameSync(storedPath, movedAside);
+    expect(expectEvidenceFailure("missing file")).toContain("missing or inaccessible");
+    renameSync(movedAside, storedPath);
+
+    writeFileSync(storedPath, "tampered evidence");
+    expect(expectEvidenceFailure("hash mismatch")).toContain("sha256 does not match");
+    writeFileSync(storedPath, originalBytes);
+
+    const directoryEvidence = join(root, "documents", "originals", "directory-evidence");
+    mkdirSync(directoryEvidence);
+    db.run("UPDATE documents SET stored_path = ? WHERE id = ?", directoryEvidence, documentId);
+    expect(expectEvidenceFailure("directory evidence")).toContain("not a regular file");
+    db.run("UPDATE documents SET stored_path = ? WHERE id = ?", storedPath, documentId);
+    rmSync(directoryEvidence, { recursive: true, force: true });
+
+    const symlinkTarget = join(root, "symlink-target-evidence");
+    renameSync(storedPath, symlinkTarget);
+    symlinkSync(symlinkTarget, storedPath);
+    expect(expectEvidenceFailure("symlink evidence")).toContain("symbolic link");
+    unlinkSync(storedPath);
+    renameSync(symlinkTarget, storedPath);
+
+    const escapedHostPath = "/private/host/secret-evidence.txt";
+    db.run("UPDATE documents SET stored_path = ? WHERE id = ?", escapedHostPath, documentId);
+    const escapedError = expectEvidenceFailure("path escape");
+    expect(escapedError).toContain("outside the documents/originals evidence store");
+    expect(escapedError).not.toContain(escapedHostPath);
+    db.run("UPDATE documents SET stored_path = ? WHERE id = ?", storedPath, documentId);
+
+    // Old Windows and POSIX absolute roots are portable: only their canonical
+    // store suffix + basename is trusted, then rebased into THIS company root.
+    db.run(
+      "UPDATE documents SET stored_path = ? WHERE id = ?",
+      `C:\\old-company\\documents\\originals\\${basename(storedPath)}`,
+      documentId,
+    );
+    expect(verifyAuditChain(db).ok).toBe(true);
+    db.run(
+      "UPDATE documents SET stored_path = ? WHERE id = ?",
+      `/old-company/documents/originals/${basename(storedPath)}`,
+      documentId,
+    );
+    expect(verifyAuditChain(db).ok).toBe(true);
+    db.run("UPDATE documents SET stored_path = ? WHERE id = ?", storedPath, documentId);
+
+    if (typeof process.getuid !== "function" || process.getuid() !== 0) {
+      chmodSync(storedPath, 0o000);
+      expect(expectEvidenceFailure("unreadable evidence")).toMatch(/cannot be read|inaccessible/);
+      chmodSync(storedPath, 0o600);
+    }
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("verifies document evidence for balance-only postings and unposted register rows", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-audit-all-documents-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+
+    const balanceDocument = ingestDocument(
+      db,
+      root,
+      join(process.cwd(), "examples/vendor-invoice.txt"),
+      JSON.parse(readFileSync(join(process.cwd(), "examples/vendor-invoice.metadata.json"), "utf8")),
+    );
+    expect(balanceDocument.ok).toBe(true);
+    const balanceJournal = postJournalEntry(db, {
+      transactionDate: "2026-05-16",
+      text: "Balance-only evidence attachment",
+      documentId: balanceDocument.documentId!,
+      lines: [
+        { accountNo: "2000", debitAmount: 100 },
+        { accountNo: "5000", creditAmount: 100 },
+      ],
+    });
+    expect(balanceJournal.ok).toBe(true);
+    expect(verifyAuditChain(db).ok).toBe(true);
+
+    writeFileSync(balanceDocument.storedPath!, "tampered balance-only evidence");
+    const balanceAudit = verifyAuditChain(db);
+    expect(balanceAudit.ok).toBe(false);
+    expect(balanceAudit.errors.join(" ")).toContain("stored evidence sha256 does not match");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+
+    const unpostedRoot = mkdtempSync(join(tmpdir(), "rentemester-audit-unposted-document-"));
+    const unpostedDb = openDb(ensureCompanyDirs(unpostedRoot).db);
+    migrate(unpostedDb);
+    seedAccounts(unpostedDb);
+    const unposted = ingestDocument(
+      unpostedDb,
+      unpostedRoot,
+      join(process.cwd(), "examples/vendor-invoice.txt"),
+      JSON.parse(readFileSync(join(process.cwd(), "examples/vendor-invoice.metadata.json"), "utf8")),
+    );
+    expect(unposted.ok).toBe(true);
+    expect(verifyAuditChain(unpostedDb).ok).toBe(true);
+    writeFileSync(unposted.storedPath!, "tampered unposted evidence");
+    const unpostedAudit = verifyAuditChain(unpostedDb);
+    expect(unpostedAudit.ok).toBe(false);
+    expect(unpostedAudit.errors.join(" ")).toContain("stored evidence sha256 does not match");
+
+    unpostedDb.close();
+    rmSync(unpostedRoot, { recursive: true, force: true });
+  });
+
+  test("rejects malformed reversal status at write time and detects legacy rows during audit", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-audit-reversal-shape-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+
+    expect(() => db.run(
+      `INSERT INTO journal_entries
+         (entry_no, transaction_date, text, rule_version, status, previous_hash, entry_hash)
+       VALUES ('2026-00001', '2026-05-16', 'Invalid hidden posting',
+               'test', 'reversed', 'GENESIS', 'invalid-reversal-shape')`,
+    )).toThrow("journal reversal status requires one existing unreversed posted original");
+
+    db.exec("DROP TRIGGER journal_entries_reversal_shape_insert");
+    insertManualEntry(db, {
+      entryNo: "2026-00001",
+      previousHash: "GENESIS",
+      transactionDate: "2026-05-16",
+      text: "Legacy hidden posting",
+      status: "reversed",
+      lines: [
+        { account_no: "2000", debit_amount: 100, credit_amount: 0, vat_code: null, text: "Bank" },
+        { account_no: "5000", debit_amount: 0, credit_amount: 100, vat_code: null, text: "Equity" },
+      ],
+    });
+    const audit = verifyAuditChain(db);
+    expect(audit.ok).toBe(false);
+    expect(audit.errors.join(" ")).toContain("journal reversal status does not match reversal_of_entry_id");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("validates the complete reversal relation, metadata, and exact inverse lines", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-audit-reversal-relation-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+
+    const original = postJournalEntry(db, {
+      transactionDate: "2026-05-16",
+      text: "Foreign balance movement",
+      currency: "EUR",
+      amountForeign: 100,
+      amountDkk: 745,
+      fxRateToDkk: 7.45,
+      lines: [
+        { accountNo: "2000", debitAmount: 745 },
+        { accountNo: "5000", creditAmount: 745 },
+      ],
+    });
+    expect(original.ok).toBe(true);
+
+    expect(() => db.run(
+      `INSERT INTO journal_entries
+         (id, entry_no, transaction_date, text, rule_version, status,
+          reversal_of_entry_id, previous_hash, entry_hash)
+       VALUES (?, '2026-00002', '2026-05-17', 'Missing target', 'test',
+               'reversed', 999, ?, 'untrusted')`,
+      original.entryId! + 1,
+      original.entryHash!,
+    )).toThrow("one existing unreversed posted original");
+    expect(() => db.run(
+      `INSERT INTO journal_entries
+         (id, entry_no, transaction_date, text, rule_version, status,
+          reversal_of_entry_id, previous_hash, entry_hash)
+       VALUES (0, '2026-00000', '2026-05-17', 'Target does not precede row',
+               'test', 'reversed', ?, ?, 'untrusted')`,
+      original.entryId!,
+      original.entryHash!,
+    )).toThrow("one existing unreversed posted original");
+
+    db.exec("DROP TRIGGER journal_entries_reversal_shape_insert");
+    const fake = insertManualEntry(db, {
+      entryNo: "2026-00002",
+      previousHash: original.entryHash!,
+      transactionDate: "2026-05-17",
+      text: "Legacy fake reversal",
+      currency: "USD",
+      amountForeign: 100,
+      amountDkk: 745,
+      fxRateToDkk: 7.45,
+      status: "reversed",
+      reversalOfEntryId: original.entryId!,
+      lines: [
+        { account_no: "2000", debit_amount: 745, credit_amount: 0, vat_code: null, text: "Repeated debit" },
+        { account_no: "5000", debit_amount: 0, credit_amount: 745, vat_code: null, text: "Repeated credit" },
+      ],
+    });
+    const orphan = insertManualEntry(db, {
+      entryNo: "2026-00003",
+      previousHash: fake.entryHash,
+      transactionDate: "2026-05-18",
+      text: "Legacy orphan reversal",
+      status: "reversed",
+      reversalOfEntryId: 999,
+      lines: [
+        { account_no: "2000", debit_amount: 0, credit_amount: 50, vat_code: null, text: "Credit" },
+        { account_no: "5000", debit_amount: 50, credit_amount: 0, vat_code: null, text: "Debit" },
+      ],
+    });
+    insertManualEntry(db, {
+      entryNo: "2026-00004",
+      previousHash: orphan.entryHash,
+      transactionDate: "2026-05-19",
+      text: "Legacy duplicate reversal",
+      currency: "EUR",
+      amountForeign: 100,
+      amountDkk: 745,
+      fxRateToDkk: 7.45,
+      status: "reversed",
+      reversalOfEntryId: original.entryId!,
+      lines: [
+        { account_no: "2000", debit_amount: 0, credit_amount: 745, vat_code: null, text: "Inverse credit" },
+        { account_no: "5000", debit_amount: 745, credit_amount: 0, vat_code: null, text: "Inverse debit" },
+      ],
+    });
+
+    const audit = verifyAuditChain(db);
+    expect(audit.ok).toBe(false);
+    const joined = audit.errors.join(" | ");
+    expect(joined).toContain("reversal target journal entry 999 does not exist");
+    expect(joined).toContain("has 2 reversal rows; exactly one is allowed");
+    expect(joined).toContain("reversal metadata differs");
+    expect(joined).toContain("reversal lines do not exactly invert");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("flags an unbalanced journal entry even when the stored hash chain matches", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-audit-verify-"));
     const db = openDb(ensureCompanyDirs(root).db);
@@ -146,6 +439,7 @@ describe("audit verify", () => {
         { account_no: "1100", debit_amount: 0, credit_amount: 1250, vat_code: null, text: "Receivable" },
       ],
     });
+    db.exec("DROP TRIGGER journal_entries_reversal_shape_insert");
     insertManualEntry(db, {
       entryNo: "2026-00002",
       previousHash: first.entryHash,
@@ -162,6 +456,7 @@ describe("audit verify", () => {
     const audit = verifyAuditChain(db);
     expect(audit.ok).toBe(false);
     expect(audit.errors.some((error) => error.includes("duplicate source_bank_transaction_id"))).toBe(true);
+    expect(audit.errors.some((error) => error.includes("journal reversal status does not match"))).toBe(true);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

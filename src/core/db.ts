@@ -11,6 +11,12 @@ function hasColumn(db: Database, table: string, column: string) {
   return cols.some((col) => col.name === column);
 }
 
+function hasTable(db: Database, table: string) {
+  return db.query(
+    "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).get(table) != null;
+}
+
 /** Legacy `vat_quarter` rows are only safe to canonicalise when their bounds
  * match the company's stored cadence. Pre-fix monthly and half-yearly writers
  * also used the misleading kind, while still persisting their real bounds. */
@@ -245,22 +251,60 @@ export function openDb(path: string) {
 // append-only protection.
 function restoreSchemaTriggers(db: Database, schema: string) {
   const triggerStatements = schema.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
-  for (const statement of triggerStatements) {
-    const nameMatch = /CREATE TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement);
-    if (!nameMatch) continue;
-    const name = nameMatch[1];
-    const canonical = statement.replace(/CREATE TRIGGER\s+IF\s+NOT\s+EXISTS/i, "CREATE TRIGGER");
-    db.run(`DROP TRIGGER IF EXISTS ${name}`);
-    db.exec(canonical);
-  }
+  db.transaction(() => {
+    for (const statement of triggerStatements) {
+      const nameMatch = /CREATE TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement);
+      if (!nameMatch) continue;
+      const name = nameMatch[1];
+      const canonical = statement.replace(/CREATE TRIGGER\s+IF\s+NOT\s+EXISTS/i, "CREATE TRIGGER");
+      // SQLite DDL is transactional. Keeping every DROP+CREATE pair in one
+      // write transaction means a malformed/new trigger body cannot leave a
+      // live ledger with its previous guard missing, and concurrent migrate()
+      // calls never observe the half-restored interval.
+      db.run(`DROP TRIGGER IF EXISTS ${name}`);
+      db.exec(canonical);
+    }
+  }, { immediate: true })();
+}
+
+// Financial guards delegate deterministic money/shape checks to canonical SQL
+// views. CREATE VIEW IF NOT EXISTS would otherwise leave a stale or weakened
+// view in place forever, so migrations restore those definitions with the same
+// atomic drop+create discipline as protective triggers.
+function restoreSchemaViews(db: Database, schema: string) {
+  const viewStatements = schema.match(/CREATE VIEW[\s\S]*?;/gi) ?? [];
+  db.transaction(() => {
+    for (const statement of viewStatements) {
+      const nameMatch = /CREATE VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement);
+      if (!nameMatch) continue;
+      const name = nameMatch[1];
+      const canonical = statement.replace(/CREATE VIEW\s+IF\s+NOT\s+EXISTS/i, "CREATE VIEW");
+      db.run(`DROP VIEW IF EXISTS ${name}`);
+      db.exec(canonical);
+    }
+  }, { immediate: true })();
 }
 
 export function migrate(db: Database) {
+  // The canonical schema now defines INSERT triggers that reference the
+  // journal evidence columns. CREATE TABLE IF NOT EXISTS does not add those
+  // columns to a legacy table, so make the nullable, lossless upgrade before
+  // evaluating schema.sql. Fresh databases still get the stronger NOT NULL +
+  // FK table definitions below. Existing rows are never assigned guessed
+  // evidence; NULL remains an explicit unresolved legacy state.
+  if (hasTable(db, "invoice_payments") && !hasColumn(db, "invoice_payments", "journal_entry_id")) {
+    db.exec("ALTER TABLE invoice_payments ADD COLUMN journal_entry_id INTEGER REFERENCES journal_entries(id);");
+  }
+  if (hasTable(db, "invoice_refunds") && !hasColumn(db, "invoice_refunds", "journal_entry_id")) {
+    db.exec("ALTER TABLE invoice_refunds ADD COLUMN journal_entry_id INTEGER REFERENCES journal_entries(id);");
+  }
+  if (hasTable(db, "invoice_claim_payments") && !hasColumn(db, "invoice_claim_payments", "journal_entry_id")) {
+    db.exec("ALTER TABLE invoice_claim_payments ADD COLUMN journal_entry_id INTEGER REFERENCES journal_entries(id);");
+  }
   const schema = readFileSync(join(import.meta.dir, "../../src/core/schema.sql"), "utf8");
   db.exec(schema);
   migrateLegacyVatPeriodKind(db);
   migrateGdprErasureTable(db);
-  restoreSchemaTriggers(db, schema);
   if (!hasColumn(db, "companies", "cvr")) db.exec("ALTER TABLE companies ADD COLUMN cvr TEXT;");
   if (!hasColumn(db, "companies", "fiscal_year_start_month")) db.exec("ALTER TABLE companies ADD COLUMN fiscal_year_start_month INTEGER NOT NULL DEFAULT 1 CHECK(fiscal_year_start_month BETWEEN 1 AND 12);");
   if (!hasColumn(db, "companies", "fiscal_year_label_strategy")) db.exec("ALTER TABLE companies ADD COLUMN fiscal_year_label_strategy TEXT NOT NULL DEFAULT 'end-year' CHECK(fiscal_year_label_strategy IN ('end-year', 'start-year', 'span'));");
@@ -367,7 +411,9 @@ export function migrate(db: Database) {
   if (!hasColumn(db, "journal_entries", "amount_foreign")) db.exec("ALTER TABLE journal_entries ADD COLUMN amount_foreign NUMERIC;");
   if (!hasColumn(db, "journal_entries", "amount_dkk")) db.exec("ALTER TABLE journal_entries ADD COLUMN amount_dkk NUMERIC;");
   if (!hasColumn(db, "journal_entries", "fx_rate_to_dkk")) db.exec("ALTER TABLE journal_entries ADD COLUMN fx_rate_to_dkk NUMERIC;");
-  if (!hasColumn(db, "invoice_payments", "journal_entry_id")) db.exec("ALTER TABLE invoice_payments ADD COLUMN journal_entry_id INTEGER;");
+  if (!hasColumn(db, "invoice_payments", "journal_entry_id")) db.exec("ALTER TABLE invoice_payments ADD COLUMN journal_entry_id INTEGER REFERENCES journal_entries(id);");
+  if (!hasColumn(db, "invoice_refunds", "journal_entry_id")) db.exec("ALTER TABLE invoice_refunds ADD COLUMN journal_entry_id INTEGER REFERENCES journal_entries(id);");
+  if (!hasColumn(db, "invoice_claim_payments", "journal_entry_id")) db.exec("ALTER TABLE invoice_claim_payments ADD COLUMN journal_entry_id INTEGER REFERENCES journal_entries(id);");
   if (!hasColumn(db, "exceptions", "source_evidence")) db.exec("ALTER TABLE exceptions ADD COLUMN source_evidence TEXT;");
   if (!hasColumn(db, "exceptions", "posting_preview")) db.exec("ALTER TABLE exceptions ADD COLUMN posting_preview TEXT;");
   // ===== BANK CLUSTER (#186-189,#182) =====
@@ -395,7 +441,17 @@ export function migrate(db: Database) {
     );
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_payments_journal_entry ON invoice_payments(journal_entry_id) WHERE journal_entry_id IS NOT NULL;");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_refunds_journal_entry ON invoice_refunds(journal_entry_id) WHERE journal_entry_id IS NOT NULL;");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_claim_payments_journal_entry ON invoice_claim_payments(journal_entry_id) WHERE journal_entry_id IS NOT NULL;");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_invoice_payments_document ON invoice_payments(invoice_document_id);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_invoice_refunds_document ON invoice_refunds(invoice_document_id);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_invoice_claim_payments_document ON invoice_claim_payments(invoice_document_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_accounting_periods_covering_date ON accounting_periods(period_start, period_end, status);");
+  // Recreate canonical evidence views and guards only after every legacy table
+  // has the columns they reference. This also replaces stale definitions from
+  // earlier releases instead of leaving a latent runtime failure.
+  restoreSchemaViews(db, schema);
+  restoreSchemaTriggers(db, schema);
   // Existing native ledgers predate #544. Seed only mappings whose account
   // metadata is compatible; imported/non-native charts remain incomplete.
   seedNativeAccountRoles(db);

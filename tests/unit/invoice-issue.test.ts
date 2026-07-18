@@ -1,6 +1,6 @@
 // Tests: src/core/issued-invoices.ts
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs, companyPaths } from "../../src/core/paths";
@@ -10,6 +10,7 @@ import { issueCreditNote } from "../../src/core/credit-notes";
 import { seedAccounts } from "../../src/core/ledger";
 import { storeViesValidation } from "../../src/core/vies";
 import { readIssuedInvoicePdfText, renderIssuedInvoicePdf } from "../../src/core/invoice-pdf";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 
 function failingDocumentInsertDb(realDb: any) {
   return new Proxy(realDb, {
@@ -613,6 +614,50 @@ describe("invoice issue", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("rolls back invoice rows and the first artifact when the PDF destination cannot be published", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-issue-publish-rollback-"));
+    const paths = ensureCompanyDirs(root);
+    const db = openDb(paths.db);
+    migrate(db);
+    const blockedPdfPath = join(paths.invoicesIssued, "2026-0001.pdf");
+    mkdirSync(blockedPdfPath);
+
+    expect(() => issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    })).toThrow();
+
+    expect(existsSync(join(paths.invoicesIssued, "2026-0001.json"))).toBe(false);
+    expect(existsSync(blockedPdfPath)).toBe(true);
+    expect(db.query("SELECT COUNT(*) AS n FROM documents").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM audit_log").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT value FROM sequences WHERE kind = 'issued_invoice' AND scope = 'company-1:2026'").get()).toBeNull();
+    expect(readdirSync(paths.invoicesIssued).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+
+    rmSync(blockedPdfPath, { recursive: true, force: true });
+    const retried = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(retried.ok).toBe(true);
+    expect(retried.invoiceNumber).toBe("2026-0001");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("does not leave an orphan credit-note file when document insert fails", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-credit-fail-"));
     const realDb = openDb(ensureCompanyDirs(root).db);
@@ -631,6 +676,7 @@ describe("invoice issue", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(realDb, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     const failingDb = failingDocumentInsertDb(realDb);
     const result = issueCreditNote(failingDb, root, {

@@ -39,6 +39,7 @@ Hver række er én logisk mutation. **Kræves** betyder afvisning uden samtykke.
 |--------------------|-----------------------------------------|-----|---------|-----|
 | Udsted faktura (kladde) | `invoice_issue` / `POST /invoices/issue` / `invoice create` | `confirm: true` | **Ikke krævet** (modal er samtykket) | Ikke krævet (`--actor` er samtykket) |
 | Bogfør faktura | `invoice_post` / `POST /invoices/post` / `invoice post` | `confirm: true` | `confirm: true` | Ikke krævet |
+| Reparér legacy-fakturabogføring | *(ingen MCP-tool)* / *(N/A)* / `invoice repair-posting` | N/A | N/A | Ikke krævet (`--actor`, eksplicit journal-id og `--reason` kræves) |
 | Bogfør betaling fra bank | `invoice_settle_bank` / `POST /invoices/settle` / `invoice settle-bank` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Krediter faktura | `invoice_credit_note` / `POST /invoices/credit-note` / `invoice credit-note` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Afskriv tab på debitor | `invoice_write_off_bad_debt` / *(N/A)* / `invoice write-off-bad-debt` | `confirm: true` | N/A | Ikke krævet |

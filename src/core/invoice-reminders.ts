@@ -4,6 +4,8 @@ import { getInvoiceStatus } from "./invoice-payments";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate, diffDays } from "./dates";
 import { roundDkk } from "./money";
+import { accountRoleCompatibility, resolveAccountRole } from "./account-roles";
+import { resolveClaimIncomeAccount } from "./invoice-claim-receivable";
 
 const RULE_ID = "DK-INVOICE-REMINDER-FEE-001";
 const BOOKKEEPING_RULE_ID = "DK-INVOICE-REMINDER-FEE-BOOKKEEPING-001";
@@ -132,6 +134,9 @@ export function postInvoiceReminderToLedger(db: Database, input: PostInvoiceRemi
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) {
     return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: ["invoiceDocumentId must be a positive integer"] };
   }
+  if (input.transactionDate !== undefined && !looksLikeIsoDate(input.transactionDate)) {
+    return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: ["transactionDate must be YYYY-MM-DD when present"] };
+  }
 
   const reminder = db.query(
     `SELECT r.id, r.invoice_document_id, r.reminder_date, r.fee_amount, d.invoice_no
@@ -174,17 +179,33 @@ export function postInvoiceReminderToLedger(db: Database, input: PostInvoiceRemi
   }
 
   const amount = roundDkk(Number(reminder.fee_amount));
+  const receivable = input.receivableAccountNo
+    ? (accountRoleCompatibility(db, "debtors", input.receivableAccountNo).ok
+      ? { ok: true as const, accountNo: input.receivableAccountNo }
+      : { ok: false as const, error: `account ${input.receivableAccountNo} is not compatible with role 'debtors'` })
+    : resolveAccountRole(db, "debtors");
+  if (!receivable.ok) {
+    return { ok: false, reminderId: reminder.id, invoiceDocumentId: reminder.invoice_document_id, invoiceNumber: reminder.invoice_no, reminderDate: reminder.reminder_date, feeAmount: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [receivable.error] };
+  }
+  const income = resolveClaimIncomeAccount(db, input.reminderIncomeAccountNo ?? "1010");
+  if (!income.ok) {
+    return { ok: false, reminderId: reminder.id, invoiceDocumentId: reminder.invoice_document_id, invoiceNumber: reminder.invoice_no, reminderDate: reminder.reminder_date, feeAmount: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [income.error] };
+  }
+  const transactionDate = input.transactionDate ?? reminder.reminder_date;
+  if (transactionDate < reminder.reminder_date) {
+    return { ok: false, reminderId: reminder.id, invoiceDocumentId: reminder.invoice_document_id, invoiceNumber: reminder.invoice_no, reminderDate: reminder.reminder_date, feeAmount: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [`reminder posting date ${transactionDate} cannot predate reminder date ${reminder.reminder_date}`] };
+  }
   try {
     return db.transaction(() => {
       const journal = postJournalEntry(db, {
-        transactionDate: input.transactionDate ?? reminder.reminder_date,
+        transactionDate,
         text: `Reminder fee ${reminder.invoice_no}`,
         documentId: reminder.invoice_document_id,
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         lines: [
-          { accountNo: input.receivableAccountNo ?? "1100", debitAmount: amount, text: `Reminder receivable ${reminder.invoice_no}` },
-          { accountNo: input.reminderIncomeAccountNo ?? "1010", creditAmount: amount, text: `Reminder income ${reminder.invoice_no}` },
+          { accountNo: receivable.accountNo, debitAmount: amount, text: `Reminder receivable ${reminder.invoice_no}` },
+          { accountNo: income.accountNo, creditAmount: amount, text: `Reminder income ${reminder.invoice_no}` },
         ],
       });
       if (!journal.ok) {
@@ -206,7 +227,7 @@ export function postInvoiceReminderToLedger(db: Database, input: PostInvoiceRemi
         createdByProgram: input.createdByProgram,
       });
 
-      const statusAfter = getInvoiceStatus(db, reminder.invoice_document_id, input.transactionDate ?? reminder.reminder_date);
+      const statusAfter = getInvoiceStatus(db, reminder.invoice_document_id, transactionDate);
       return {
         ...journal,
         reminderId: reminder.id,

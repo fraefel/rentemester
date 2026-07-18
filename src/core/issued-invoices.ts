@@ -5,7 +5,7 @@ import type { Database } from "bun:sqlite";
 import { companyPaths } from "./paths";
 import { addDays } from "./dates";
 import { validateInvoice, type InvoicePayload } from "./invoice";
-import { promoteTempFile, removeIfExists, writeTempFileFor } from "./atomic-file";
+import { promoteTempFileExclusive, removeIfExists, writeTempFileFor } from "./atomic-file";
 import { insertAuditLog } from "./actor";
 import { companySequenceScope, fiscalYearLabelFromDate, reserveSequenceValue, nextSequenceValue } from "./sequences";
 import { retainUntilForDate } from "./retention";
@@ -117,6 +117,17 @@ function deliveryDescription(payload: InvoicePayload) {
 
 function sha256(text: string) {
   return createHash("sha256").update(text).digest("hex");
+}
+
+function hasCommittedDocumentAtPath(db: Database, storedPath: string): boolean | null {
+  try {
+    return db.query("SELECT 1 AS present FROM documents WHERE stored_path = ? LIMIT 1").get(storedPath) != null;
+  } catch {
+    // An ambiguous COMMIT/I/O failure must retain a possibly authoritative
+    // legal artifact. A recoverable orphan is safer than a committed row whose
+    // file was deleted merely because database state could not be re-read.
+    return null;
+  }
 }
 
 // #251: the single canonical issued-invoice-number format. The fortløbende
@@ -316,6 +327,13 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
   let storedPath: string | undefined;
   let pdfTempPath: string | undefined;
   let pdfStoredPath: string | undefined;
+  let storedPathPromoted = false;
+  let pdfStoredPathPromoted = false;
+
+  // Calculate advisory-only output before any irreversible publication. A
+  // warning lookup failure must never make a committed legal document look as
+  // though issuance failed to its caller.
+  const warnings = closedPeriodIssueWarnings(db, payload.issueDate);
 
   try {
     const result = db.transaction(() => {
@@ -435,16 +453,19 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
         message: `Rendered invoice PDF ${invoiceNumber}`,
       });
 
+      // Publish both immutable artifacts while the database transaction is
+      // still open. A publication failure throws and rolls every document,
+      // audit, and sequence row back. If COMMIT itself then fails, the outer
+      // catch removes the already-published paths.
+      promoteTempFileExclusive(tempPath!, storedPath!);
+      storedPathPromoted = true;
+      promoteTempFileExclusive(pdfTempPath!, pdfStoredPath!);
+      pdfStoredPathPromoted = true;
+
       return { ok: true as const, documentId: asDocumentId(inserted.id), invoiceNumber, sha256: hash, pdfDocumentId: asDocumentId(pdfInserted.id), pdfSha256: pdfHash };
     }, { immediate: true })();
 
     if (!result.ok) return { ok: false, appliedRules, errors: [result.error] };
-    promoteTempFile(tempPath!, storedPath!);
-    promoteTempFile(pdfTempPath!, pdfStoredPath!);
-    // EJER-6: surface (do not block) the advisory that this invoice's issue date
-    // falls in an already-closed/reported period — the document is fine, but the
-    // journal entry that books it will be rejected by the period lock.
-    const warnings = closedPeriodIssueWarnings(db, payload.issueDate);
     return {
       ok: true,
       documentId: result.documentId,
@@ -461,6 +482,16 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
   } catch (error) {
     if (tempPath) removeIfExists(tempPath);
     if (pdfTempPath) removeIfExists(pdfTempPath);
+    if (
+      pdfStoredPathPromoted &&
+      pdfStoredPath &&
+      hasCommittedDocumentAtPath(db, pdfStoredPath) === false
+    ) removeIfExists(pdfStoredPath);
+    if (
+      storedPathPromoted &&
+      storedPath &&
+      hasCommittedDocumentAtPath(db, storedPath) === false
+    ) removeIfExists(storedPath);
     throw error;
   }
 }

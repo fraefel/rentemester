@@ -1,13 +1,13 @@
 // Tests: src/core/credit-notes.ts
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { issueCreditNote } from "../../src/core/credit-notes";
-import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 import { storeViesValidation } from "../../src/core/vies";
 
@@ -77,6 +77,44 @@ describe("credit notes", () => {
       { account_no: "1201", debit_amount: 125, credit_amount: 0, vat_code: null },
     ]);
 
+    const journalCount = (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n;
+    const duplicate = postJournalEntry(db, {
+      transactionDate: "2026-05-17",
+      text: "Duplicate credit-note effect",
+      documentId: credit.documentId!,
+      lines: [
+        { accountNo: "1101", debitAmount: 10 },
+        { accountNo: "1001", creditAmount: 10, vatCode: "REVERSE_CHARGE_EXEMPT" },
+      ],
+    });
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.errors.join(" ")).toContain("already has accounting journal");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: journalCount });
+
+    expect(() => db.run(
+      `INSERT INTO journal_entries
+         (entry_no, transaction_date, text, document_id, rule_version,
+          status, previous_hash, entry_hash)
+       VALUES ('2026-9999', '2026-05-17', 'Direct duplicate credit journal',
+               ?, 'test', 'posted', 'GENESIS', 'direct-duplicate')`,
+      credit.documentId!,
+    )).toThrow("credit note documents can have only one accounting journal");
+    const originalJournal = db.query(
+      `SELECT journal_entry_id AS id
+         FROM issued_invoice_postings
+        WHERE invoice_document_id = ?`,
+    ).get(issued.documentId!) as { id: number };
+    expect(() => db.run(
+      `INSERT INTO journal_entries
+         (entry_no, transaction_date, text, document_id, rule_version,
+          status, reversal_of_entry_id, previous_hash, entry_hash)
+       VALUES ('2026-9998', '2026-05-17', 'Forged reversal duplicate credit journal',
+               ?, 'test', 'reversed', ?, 'GENESIS', 'forged-reversal-duplicate')`,
+      credit.documentId!,
+      originalJournal.id,
+    )).toThrow("credit note documents can have only one accounting journal");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: journalCount });
+
     const chain = verifyAuditChain(db);
     expect(chain.ok).toBe(true);
 
@@ -135,6 +173,7 @@ describe("credit notes", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(realDb, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     const failingDb = failingDocumentInsertDb(realDb);
     const failed = issueCreditNote(failingDb, root, {
@@ -162,7 +201,63 @@ describe("credit notes", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("uses reverse-charge fallback lines when crediting an unposted reverse-charge invoice", () => {
+  test("rolls back document, journal, link, audit, and sequence when the credit-note file cannot be published", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-credit-publish-rollback-"));
+    const paths = ensureCompanyDirs(root);
+    const db = openDb(paths.db);
+    migrate(db);
+    seedAccounts(db);
+
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
+
+    const documentCountBefore = (db.query("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n;
+    const journalCountBefore = (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n;
+    const auditCountBefore = (db.query("SELECT COUNT(*) AS n FROM audit_log").get() as { n: number }).n;
+    const blockedPath = join(paths.invoicesIssued, "CN-2026-0001.json");
+    mkdirSync(blockedPath);
+
+    const failed = issueCreditNote(db, root, {
+      originalInvoiceDocumentId: issued.documentId!,
+      issueDate: "2026-05-17",
+      reason: "Publication must be atomic",
+      grossAmount: 625,
+    });
+    expect(failed.ok).toBe(false);
+    expect((db.query("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n).toBe(documentCountBefore);
+    expect((db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n).toBe(journalCountBefore);
+    expect((db.query("SELECT COUNT(*) AS n FROM credit_note_postings").get() as { n: number }).n).toBe(0);
+    expect((db.query("SELECT COUNT(*) AS n FROM audit_log").get() as { n: number }).n).toBe(auditCountBefore);
+    expect(db.query("SELECT value FROM sequences WHERE kind = 'credit_note' AND scope = 'company-1:2026'").get()).toBeNull();
+    expect(readdirSync(paths.invoicesIssued).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    expect(existsSync(blockedPath)).toBe(true);
+
+    rmSync(blockedPath, { recursive: true, force: true });
+    const retried = issueCreditNote(db, root, {
+      originalInvoiceDocumentId: issued.documentId!,
+      issueDate: "2026-05-17",
+      reason: "Retry after destination is fixed",
+      grossAmount: 625,
+    });
+    expect(retried.ok).toBe(true);
+    expect(retried.creditNoteNumber).toBe("CN-2026-0001");
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("mirrors a posted reverse-charge invoice without output VAT", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-credit-reverse-fallback-"));
     const db = openDb(ensureCompanyDirs(root).db);
     migrate(db);
@@ -189,6 +284,7 @@ describe("credit notes", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     const credit = issueCreditNote(db, root, {
       originalInvoiceDocumentId: issued.documentId!,
@@ -204,8 +300,8 @@ describe("credit notes", () => {
        WHERE jl.journal_entry_id = ? ORDER BY jl.id ASC`
     ).all(credit.journalEntryId!) as any[];
     expect(lines).toEqual([
-      { account_no: "1000", debit_amount: 1000, credit_amount: 0, vat_code: "REVERSE_CHARGE_EXEMPT" },
       { account_no: "1100", debit_amount: 0, credit_amount: 1000, vat_code: null },
+      { account_no: "1000", debit_amount: 1000, credit_amount: 0, vat_code: "REVERSE_CHARGE_EXEMPT" },
     ]);
 
     const chain = verifyAuditChain(db);
@@ -233,6 +329,7 @@ describe("credit notes", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     const credit = issueCreditNote(db, root, {
       originalInvoiceDocumentId: issued.documentId!,
@@ -254,9 +351,9 @@ describe("credit notes", () => {
        WHERE jl.journal_entry_id = ? ORDER BY jl.id ASC`
     ).all(credit.journalEntryId!) as any[];
     expect(lines).toEqual([
+      { account_no: "1100", debit_amount: 0, credit_amount: 625, vat_code: null },
       { account_no: "1000", debit_amount: 500, credit_amount: 0, vat_code: "DK_SALE_25" },
       { account_no: "1200", debit_amount: 125, credit_amount: 0, vat_code: null },
-      { account_no: "1100", debit_amount: 0, credit_amount: 625, vat_code: null },
     ]);
 
     const second = issueCreditNote(db, root, {
@@ -277,6 +374,68 @@ describe("credit notes", () => {
 
     const chain = verifyAuditChain(db);
     expect(chain.ok).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("the append-only link trigger rejects a direct cumulative over-credit before it can poison audit state", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-credit-trigger-cap-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
+    expect(issueCreditNote(db, root, {
+      originalInvoiceDocumentId: issued.documentId!,
+      issueDate: "2026-05-17",
+      reason: "First half",
+      grossAmount: 625,
+    }).ok).toBe(true);
+
+    const injected = db.query(
+      `INSERT INTO documents
+         (source, sha256_hash, invoice_no, invoice_date, amount_inc_vat, vat_amount,
+          currency, status, document_type, payment_details)
+       VALUES ('test', 'direct-overcredit', 'CN-2026-X999', '2026-05-18', 700, 140,
+               'DKK', 'issued', 'credit_note', '2026-0001')
+       RETURNING id`,
+    ).get() as { id: number };
+    const journal = postJournalEntry(db, {
+      transactionDate: "2026-05-18",
+      text: "Direct over-credit attempt",
+      documentId: injected.id,
+      lines: [
+        { accountNo: "1100", creditAmount: 700 },
+        { accountNo: "1000", debitAmount: 560, vatCode: "DK_SALE_25" },
+        { accountNo: "1200", debitAmount: 140 },
+      ],
+    });
+    expect(journal.ok).toBe(true);
+    const receivable = db.query("SELECT id FROM accounts WHERE account_no = '1100'").get() as { id: number };
+    expect(() => db.run(
+      `INSERT INTO credit_note_postings
+         (credit_note_document_id, original_invoice_document_id, journal_entry_id,
+          receivable_account_id, booked_gross_dkk)
+       VALUES (?, ?, ?, ?, 700)`,
+      injected.id,
+      issued.documentId!,
+      journal.entryId!,
+      receivable.id,
+    )).toThrow("credit note postings exceed original invoice amount");
+    expect(db.query(
+      "SELECT credit_note_document_id FROM credit_note_postings WHERE credit_note_document_id = ?",
+    ).get(injected.id)).toBeNull();
 
     db.close();
     rmSync(root, { recursive: true, force: true });

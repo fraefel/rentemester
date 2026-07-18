@@ -79,6 +79,7 @@ describe("invoice list/find/overdue CLI", () => {
     await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
     await Bun.$`bun run src/cli.ts invoice issue --company ${company} --input ${invoice1}`.quiet();
     await Bun.$`bun run src/cli.ts invoice issue --company ${company} --input ${invoice2}`.quiet();
+    await Bun.$`bun run src/cli.ts invoice post --company ${company} --invoice-number 2026-0002`.quiet();
     await Bun.$`bun run src/cli.ts invoice apply-payment --company ${company} --input ${payment2}`.quiet();
 
     const listed = await runCli(["invoice", "list", "--company", company, "--status", "open", "--as-of", "2026-06-20"]);

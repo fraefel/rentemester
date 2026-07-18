@@ -623,6 +623,12 @@ og `tools/list`):
 >   tager en fuld `InvoicePayload` med færdigberegnede totaler. En agent over MCP
 >   bruger altså `invoice_issue` (typet payload) — `invoice create` er
 >   CLI-ergonomien for et menneske.
+> - **`invoice repair-posting` er CLI-only og administrativ.** Kommandoen
+>   erstatter atomisk ét eksplicit navngivet, uklassificeret legacy-journalbilag
+>   med en kanonisk fakturabogføring plus modpostering. Den afviser fakturaer med
+>   betalinger, krav, kreditnotaer eller anden følge-evidens og kræver åbne
+>   perioder, `--legacy-journal-entry-id`, `--reason` og actor-attribution. Den
+>   eksponeres bevidst ikke som et generelt MCP-reversal-tool.
 > - **`invoice export-public` og `invoice export-public-oioubl` er CLI-only.**
 >   De skriver deterministiske handoff-artefakter til offentlig e-faktura
 >   (henholdsvis et EAN/GLN-preview og et OIOUBL-handoff) uden PEPPOL-transport.
@@ -642,7 +648,7 @@ og `tools/list`):
 > `report *`, `vat momsangivelse`/`vat filing`, `period reopen`,
 > `gdpr erase`, `opening-balance post`, `bank-account add`/`list`,
 > `import run`/`systems`/`contacts`, `agent run`, `reg coverage`/`reg citations`,
-> `invoice create`, `invoice export-public`/`invoice export-public-oioubl` og
+> `invoice create`, `invoice repair-posting`, `invoice export-public`/`invoice export-public-oioubl` og
 > diverse `system export-*`/`verify-*`-kommandoer. Disse driver lokale
 > workflows eller hører til den indbyggede `agent run`-loop og er bevidst
 > holdt uden for den løse agent-surface.

@@ -103,6 +103,15 @@ describe("invoice refunds", () => {
     writeFileSync(refundCsv, "transaction_date,booking_date,text,amount,currency,reference\n2026-05-22,2026-05-22,Customer refund,-1250,DKK,RFND-0800\n");
     expect(importBankCsv(db, root, refundCsv).ok).toBe(true);
 
+    const mismatchedRefund = refundInvoiceToBank(db, {
+      invoiceDocumentId: issued.documentId!,
+      bankTransactionReference: "RFND-0800",
+      amount: 1200,
+    });
+    expect(mismatchedRefund.ok).toBe(false);
+    expect(mismatchedRefund.errors.join(" ")).toContain("must equal outgoing bank transaction");
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_refunds").get()).toEqual({ n: 0 });
+
     const refund = refundInvoiceToBank(db, {
       invoiceDocumentId: issued.documentId!,
       bankTransactionReference: "RFND-0800"
@@ -115,6 +124,8 @@ describe("invoice refunds", () => {
     expect(status.status).toBe("refunded");
     expect(status.openBalance).toBe(0);
     expect(status.refunds).toHaveLength(1);
+    expect(status.refunds?.[0]?.journalEntryId).toBe(refund.entryId);
+    expect(db.query("SELECT journal_entry_id FROM invoice_refunds WHERE id = ?").get(refund.refundId!)).toEqual({ journal_entry_id: refund.entryId });
 
     const chain = verifyAuditChain(db);
     expect(chain.ok).toBe(true);

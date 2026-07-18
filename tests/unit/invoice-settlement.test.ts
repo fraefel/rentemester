@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
-import { importBankCsv } from "../../src/core/bank";
+import { addBankAccount, importBankCsv } from "../../src/core/bank";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { getInvoiceStatus } from "../../src/core/invoice-payments";
 import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
@@ -14,8 +14,80 @@ import { registerInvoiceReminder, postInvoiceReminderToLedger } from "../../src/
 import { registerInvoiceLateCompensation, postInvoiceLateCompensationToLedger } from "../../src/core/invoice-compensation";
 import { registerInvoiceLateInterest, postInvoiceLateInterestToLedger } from "../../src/core/invoice-interest";
 import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { confirmAccountRole } from "../../src/core/account-roles";
 
 describe("invoice bank settlement", () => {
+  test("clears the invoice's booked receivable and the selected source-bank ledger after role changes", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-settle-account-continuity-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    seedAccounts(db);
+
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
+
+    db.run(
+      `INSERT INTO accounts (account_no, name, type, normal_balance)
+       VALUES ('1110', 'New debtors', 'asset', 'debit'),
+              ('2010', 'Dedicated bank ledger', 'asset', 'debit')`,
+    );
+    expect(confirmAccountRole(db, "debtors", "1110", "user:reviewer").ok).toBe(true);
+    const bankAccount = addBankAccount(db, {
+      slug: "customer-bank",
+      name: "Customer bank",
+      currency: "DKK",
+      ledgerAccountNo: "2010",
+    });
+    expect(bankAccount.ok).toBe(true);
+
+    const csvPath = join(root, "bank-account-continuity.csv");
+    writeFileSync(csvPath, "transaction_date,booking_date,text,amount,currency,reference\n2026-05-20,2026-05-20,Customer payment,1250,DKK,INV-CONTINUITY\n");
+    expect(importBankCsv(db, root, csvPath, { account: bankAccount.account!.id }).ok).toBe(true);
+    const bankTx = db.query("SELECT id FROM bank_transactions WHERE reference = 'INV-CONTINUITY'").get() as { id: number };
+
+    const settled = settleInvoiceFromBank(db, {
+      invoiceDocumentId: issued.documentId!,
+      bankTransactionId: bankTx.id,
+    });
+    expect(settled.ok).toBe(true);
+    const lines = db.query(
+      `SELECT a.account_no, jl.debit_amount, jl.credit_amount
+         FROM journal_lines jl
+         JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.journal_entry_id = ?
+        ORDER BY jl.id ASC`,
+    ).all(settled.entryId!) as any[];
+    expect(lines).toEqual([
+      { account_no: "2010", debit_amount: 1250, credit_amount: 0 },
+      { account_no: "1100", debit_amount: 0, credit_amount: 1250 },
+    ]);
+    expect(db.query(
+      `SELECT ROUND(COALESCE(SUM(jl.debit_amount - jl.credit_amount), 0), 2) AS net
+         FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+        WHERE a.account_no = '1100'`,
+    ).get()).toEqual({ net: 0 });
+    expect(db.query(
+      `SELECT ROUND(COALESCE(SUM(jl.debit_amount - jl.credit_amount), 0), 2) AS net
+         FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
+        WHERE a.account_no = '1110'`,
+    ).get()).toEqual({ net: 0 });
+    expect(verifyAuditChain(db).ok).toBe(true);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("settles an issued invoice from an imported bank receipt and clears receivables", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-settle-"));
     const db = openDb(ensureCompanyDirs(root).db);
@@ -43,6 +115,15 @@ describe("invoice bank settlement", () => {
     expect(bank.ok).toBe(true);
 
     const bankTx = db.query("SELECT id FROM bank_transactions LIMIT 1").get() as { id: number };
+    const mismatched = settleInvoiceFromBank(db, {
+      invoiceDocumentId: issued.documentId!,
+      bankTransactionId: bankTx.id,
+      amount: 1200,
+    });
+    expect(mismatched.ok).toBe(false);
+    expect(mismatched.errors.join(" ")).toContain("must equal bank transaction");
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_payments").get()).toEqual({ n: 0 });
+
     const settled = settleInvoiceFromBank(db, {
       invoiceDocumentId: issued.documentId!,
       bankTransactionId: bankTx.id,
@@ -212,6 +293,10 @@ describe("invoice bank settlement", () => {
     expect(status.openBalance).toBe(0);
     expect(status.claimOpenBalance).toBe(0);
     expect(status.totalClaimPayments).toBe(411.75);
+    expect(status.payments?.[0]?.journalEntryId).toBe(settled.entryId);
+    expect(status.claimPayments?.[0]?.journalEntryId).toBe(settled.entryId);
+    expect(db.query("SELECT journal_entry_id FROM invoice_payments WHERE id = ?").get(settled.paymentId!)).toEqual({ journal_entry_id: settled.entryId });
+    expect(db.query("SELECT journal_entry_id FROM invoice_claim_payments WHERE id = ?").get(settled.claimPaymentId!)).toEqual({ journal_entry_id: settled.entryId });
 
     const lines = db.query(
       `SELECT a.account_no, jl.debit_amount, jl.credit_amount
@@ -222,6 +307,8 @@ describe("invoice bank settlement", () => {
       { account_no: "2000", debit_amount: 1661.75, credit_amount: 0 },
       { account_no: "1100", debit_amount: 0, credit_amount: 1661.75 },
     ]);
+
+    expect(verifyAuditChain(db).ok).toBe(true);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

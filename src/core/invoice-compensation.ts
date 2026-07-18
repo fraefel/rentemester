@@ -5,6 +5,8 @@ import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { roundDkk } from "./money";
 import { normalizeEanNumber } from "./ean";
+import { accountRoleCompatibility, resolveAccountRole } from "./account-roles";
+import { resolveClaimIncomeAccount } from "./invoice-claim-receivable";
 
 const RULE_ID = "DK-INVOICE-LATE-COMPENSATION-001";
 const REGISTER_RULE_ID = "DK-INVOICE-LATE-COMPENSATION-REGISTER-001";
@@ -231,6 +233,9 @@ export function postInvoiceLateCompensationToLedger(db: Database, input: PostInv
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) {
     return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: ["invoiceDocumentId must be a positive integer"] };
   }
+  if (input.transactionDate !== undefined && !looksLikeIsoDate(input.transactionDate)) {
+    return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: ["transactionDate must be YYYY-MM-DD when present"] };
+  }
 
   const claim = db.query(
     `SELECT c.id, c.invoice_document_id, c.claim_date, c.amount_dkk, d.invoice_no
@@ -269,17 +274,33 @@ export function postInvoiceLateCompensationToLedger(db: Database, input: PostInv
   }
 
   const amount = roundDkk(Number(claim.amount_dkk));
+  const receivable = input.receivableAccountNo
+    ? (accountRoleCompatibility(db, "debtors", input.receivableAccountNo).ok
+      ? { ok: true as const, accountNo: input.receivableAccountNo }
+      : { ok: false as const, error: `account ${input.receivableAccountNo} is not compatible with role 'debtors'` })
+    : resolveAccountRole(db, "debtors");
+  if (!receivable.ok) {
+    return { ok: false, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, compensationAmountDkk: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [receivable.error] };
+  }
+  const income = resolveClaimIncomeAccount(db, input.compensationIncomeAccountNo ?? "1010");
+  if (!income.ok) {
+    return { ok: false, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, compensationAmountDkk: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [income.error] };
+  }
+  const transactionDate = input.transactionDate ?? claim.claim_date;
+  if (transactionDate < claim.claim_date) {
+    return { ok: false, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, compensationAmountDkk: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [`compensation posting date ${transactionDate} cannot predate claim date ${claim.claim_date}`] };
+  }
   try {
     return db.transaction(() => {
       const journal = postJournalEntry(db, {
-        transactionDate: input.transactionDate ?? claim.claim_date,
+        transactionDate,
         text: `Compensation claim ${claim.invoice_no}`,
         documentId: claim.invoice_document_id,
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         lines: [
-          { accountNo: input.receivableAccountNo ?? "1100", debitAmount: amount, text: `Compensation receivable ${claim.invoice_no}` },
-          { accountNo: input.compensationIncomeAccountNo ?? "1010", creditAmount: amount, text: `Compensation income ${claim.invoice_no}` },
+          { accountNo: receivable.accountNo, debitAmount: amount, text: `Compensation receivable ${claim.invoice_no}` },
+          { accountNo: income.accountNo, creditAmount: amount, text: `Compensation income ${claim.invoice_no}` },
         ],
       });
       if (!journal.ok) {
@@ -301,7 +322,7 @@ export function postInvoiceLateCompensationToLedger(db: Database, input: PostInv
         createdByProgram: input.createdByProgram,
       });
 
-      const statusAfter = getInvoiceStatus(db, claim.invoice_document_id, input.transactionDate ?? claim.claim_date);
+      const statusAfter = getInvoiceStatus(db, claim.invoice_document_id, transactionDate);
       return {
         ...journal,
         claimId: claim.id,

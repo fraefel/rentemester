@@ -3,7 +3,14 @@ import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { getInvoiceStatus } from "./invoice-payments";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate, diffDays } from "./dates";
-import { addDkk, cumulativeInterestDkk, roundDkk, subtractDkk } from "./money";
+import { addDkk, compareDkk, cumulativeInterestDkk, fromOre, roundDkk, subtractDkk, toOre } from "./money";
+import { accountRoleCompatibility, resolveAccountRole } from "./account-roles";
+import {
+  calculateClaimReceivableBalances,
+  calculateInterestIncomeBalances,
+  calculateInterestReceivableBalances,
+  resolveClaimIncomeAccount,
+} from "./invoice-claim-receivable";
 
 const RULE_ID = "DK-INVOICE-LATE-INTEREST-001";
 const REGISTER_RULE_ID = "DK-INVOICE-LATE-INTEREST-REGISTER-001";
@@ -577,6 +584,9 @@ export function postInvoiceLateInterestToLedger(db: Database, input: PostInvoice
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) {
     return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: ["invoiceDocumentId must be a positive integer"] };
   }
+  if (input.transactionDate !== undefined && !looksLikeIsoDate(input.transactionDate)) {
+    return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: ["transactionDate must be YYYY-MM-DD when present"] };
+  }
 
   // With no explicit claimId, post the OLDEST not-yet-posted claim (chronological
   // booking order). Now that staged multi-claim registration is allowed, the
@@ -640,17 +650,33 @@ export function postInvoiceLateInterestToLedger(db: Database, input: PostInvoice
   }
 
   const amount = roundDkk(Number(claim.amount_dkk));
+  const receivable = input.receivableAccountNo
+    ? (accountRoleCompatibility(db, "debtors", input.receivableAccountNo).ok
+      ? { ok: true as const, accountNo: input.receivableAccountNo }
+      : { ok: false as const, error: `account ${input.receivableAccountNo} is not compatible with role 'debtors'` })
+    : resolveAccountRole(db, "debtors");
+  if (!receivable.ok) {
+    return { ok: false, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, claimDate: claim.claim_date, accruedInterestAmount: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [receivable.error] };
+  }
+  const income = resolveClaimIncomeAccount(db, input.interestIncomeAccountNo ?? "1010");
+  if (!income.ok) {
+    return { ok: false, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, claimDate: claim.claim_date, accruedInterestAmount: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [income.error] };
+  }
+  const transactionDate = input.transactionDate ?? claim.claim_date;
+  if (transactionDate < claim.claim_date) {
+    return { ok: false, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, claimDate: claim.claim_date, accruedInterestAmount: amount, appliedRules: [BOOKKEEPING_RULE_ID], errors: [`interest posting date ${transactionDate} cannot predate claim date ${claim.claim_date}`] };
+  }
   try {
     return db.transaction(() => {
       const journal = postJournalEntry(db, {
-        transactionDate: input.transactionDate ?? claim.claim_date,
+        transactionDate,
         text: `Late interest ${claim.invoice_no}`,
         documentId: claim.invoice_document_id,
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         lines: [
-          { accountNo: input.receivableAccountNo ?? "1100", debitAmount: amount, text: `Late-interest receivable ${claim.invoice_no}` },
-          { accountNo: input.interestIncomeAccountNo ?? "1010", creditAmount: amount, text: `Late-interest income ${claim.invoice_no}` },
+          { accountNo: receivable.accountNo, debitAmount: amount, text: `Late-interest receivable ${claim.invoice_no}` },
+          { accountNo: income.accountNo, creditAmount: amount, text: `Late-interest income ${claim.invoice_no}` },
         ],
       });
       if (!journal.ok) {
@@ -672,7 +698,7 @@ export function postInvoiceLateInterestToLedger(db: Database, input: PostInvoice
         createdByProgram: input.createdByProgram,
       });
 
-      const statusAfter = getInvoiceStatus(db, claim.invoice_document_id, input.transactionDate ?? claim.claim_date);
+      const statusAfter = getInvoiceStatus(db, claim.invoice_document_id, transactionDate);
       return {
         ...journal,
         claimId: claim.id,
@@ -702,6 +728,8 @@ export function postInvoiceLateInterestToLedger(db: Database, input: PostInvoice
 
 export type ProposeInterestCorrectionInput = {
   invoiceDocumentId: number;
+  /** Internal recursion guard for the central evidence audit. */
+  skipEvidenceValidation?: boolean;
 };
 
 export type ProposeInterestCorrectionResult = {
@@ -716,6 +744,14 @@ export type ProposeInterestCorrectionResult = {
   // The invoice's outstanding claim balance. A correction credits the receivable,
   // so it can only be booked against an outstanding receivable.
   outstandingClaimBalance?: number;
+  possibleOutstandingInterestReceivable?: number;
+  ambiguousInterestReceivable?: number;
+  claimOverclaims?: Array<{
+    claimId: number;
+    claimDate: string;
+    journalEntryId: number;
+    overClaimedAmount: number;
+  }>;
   // True when overClaimedAmount exceeds the outstanding balance — the excess was
   // already collected in cash and needs a REFUND, not a receivable credit.
   // postInterestCorrection refuses these.
@@ -737,46 +773,56 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["invoiceDocumentId must be a positive integer"] };
   }
-  const status = getInvoiceStatus(db, input.invoiceDocumentId);
+  const status = getInvoiceStatus(
+    db,
+    input.invoiceDocumentId,
+    undefined,
+    { skipEvidenceValidation: input.skipEvidenceValidation },
+  );
   if (!status.ok) return { ok: false, appliedRules: [RULE_ID], errors: status.errors };
 
   // ALL claims, with a posted flag. We need every claim — posted or not — to
   // anchor each posted claim's incremental window: a claim's amount_dkk covers
   // [previous claim, its own date], whichever claim precedes it, posted or not.
   const claims = db.query(
-    `SELECT c.claim_date, c.reference_rate_percent, c.annual_interest_rate_percent,
+    `SELECT c.id, c.claim_date, c.reference_rate_percent, c.annual_interest_rate_percent,
             c.reference_rate_source, c.amount_dkk,
-            (p.id IS NOT NULL) AS posted
+            p.journal_entry_id, (p.id IS NOT NULL) AS posted
      FROM invoice_interest_claims c
      LEFT JOIN invoice_interest_postings p ON p.interest_claim_id = c.id
      WHERE c.invoice_document_id = ?
      ORDER BY c.claim_date ASC, c.id ASC`,
   ).all(input.invoiceDocumentId) as Array<{
+    id: number;
     claim_date: string;
     reference_rate_percent: number;
     annual_interest_rate_percent: number;
     reference_rate_source: "statutory-table" | "manual-override";
     amount_dkk: number;
+    journal_entry_id: number | null;
     posted: number;
   }>;
 
   const effectiveDueDate = status.effectiveDueDate;
-  // A correction credits the receivable, so it can only be booked against the
-  // POSTED (in-ledger) outstanding receivable. claimOpenBalance also counts
-  // registered-but-UNPOSTED reminder/compensation/interest claims, which are not
-  // in the ledger — subtract them, or an unposted claim could mask an already
-  // cash-settled posted claim and let the correction drive the receivable negative.
-  const unpostedClaims = addDkk(
-    (status.reminders ?? []).reduce((s, r) => (r.journalEntryId == null ? addDkk(s, Number(r.feeAmount)) : s), 0),
-    (status.compensationClaims ?? []).reduce((s, c) => (c.journalEntryId == null ? addDkk(s, Number(c.amountDkk)) : s), 0),
-    (status.interestClaims ?? []).reduce((s, c) => (c.journalEntryId == null ? addDkk(s, Number(c.amountDkk)) : s), 0),
-  );
-  const outstandingClaimBalance = roundDkk(subtractDkk(Number(status.claimOpenBalance ?? 0), unpostedClaims));
+  // A correction may only credit the portion that is provably still attributable
+  // to posted interest. Generic claim receipts can make a shared account
+  // ambiguous; the conservative helper excludes that amount instead of silently
+  // consuming an unrelated reminder or compensation receivable.
+  const interestReceivables = calculateInterestReceivableBalances(db, {
+    invoiceDocumentId: input.invoiceDocumentId,
+    allowUnpostedClaims: true,
+  });
+  if (!interestReceivables.ok) {
+    return { ok: false, appliedRules: [RULE_ID], errors: interestReceivables.errors };
+  }
+  const outstandingClaimBalance = interestReceivables.totalDkk;
   const base = {
     ok: true as const,
     invoiceDocumentId: input.invoiceDocumentId,
     invoiceNumber: status.invoiceNumber,
     outstandingClaimBalance,
+    possibleOutstandingInterestReceivable: interestReceivables.possibleTotalDkk,
+    ambiguousInterestReceivable: interestReceivables.ambiguousDkk,
     appliedRules: [RULE_ID],
     errors: [] as string[],
   };
@@ -791,11 +837,18 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
   // claims are NOT a contiguous run from the due date (a later claim may be posted
   // while an earlier one is left unposted).
   const postedSegments: InterestSegment[] = [];
+  const rawClaimOverclaims: Array<{
+    claimId: number;
+    claimDate: string;
+    journalEntryId: number;
+    overClaimedAmount: number;
+  }> = [];
   let postedInterest = 0;
   let throughDate: string | undefined;
   let prevDate = effectiveDueDate;
   for (const claim of claims) {
     if (claim.posted) {
+      const claimSegments: InterestSegment[] = [];
       // Reconstruct this claim's lawful interest the SAME way it was billed
       // (JUR-7): a statutory-table claim whose window [prevDate, claim_date]
       // crossed a half-yearly rate change was billed with each half-year's own
@@ -811,11 +864,22 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
           Number(claim.annual_interest_rate_percent),
           Number(claim.reference_rate_percent),
         )) {
-          postedSegments.push(...timeline.windowSegments(segStart, w.end, w.annualRatePercent));
+          claimSegments.push(...timeline.windowSegments(segStart, w.end, w.annualRatePercent));
           segStart = w.end;
         }
       } else {
-        postedSegments.push(...timeline.windowSegments(prevDate, claim.claim_date, Number(claim.annual_interest_rate_percent)));
+        claimSegments.push(...timeline.windowSegments(prevDate, claim.claim_date, Number(claim.annual_interest_rate_percent)));
+      }
+      postedSegments.push(...claimSegments);
+      const claimLawfulInterest = cumulativeInterestDkk(claimSegments);
+      const claimOverClaimed = Math.max(0, roundDkk(Number(claim.amount_dkk) - claimLawfulInterest));
+      if (claimOverClaimed > 0 && claim.journal_entry_id != null) {
+        rawClaimOverclaims.push({
+          claimId: claim.id,
+          claimDate: claim.claim_date,
+          journalEntryId: claim.journal_entry_id,
+          overClaimedAmount: claimOverClaimed,
+        });
       }
       postedInterest = addDkk(postedInterest, Number(claim.amount_dkk));
       throughDate = claim.claim_date;
@@ -824,7 +888,7 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
   }
 
   if (throughDate === undefined) {
-    return { ...base, hasProposal: false, postedInterest: 0, lawfulInterest: 0, alreadyCorrected: 0, overClaimedAmount: 0, requiresRefund: false };
+    return { ...base, hasProposal: false, postedInterest: 0, lawfulInterest: 0, alreadyCorrected: 0, overClaimedAmount: 0, requiresRefund: false, claimOverclaims: [] };
   }
 
   const lawfulInterest = cumulativeInterestDkk(postedSegments);
@@ -842,6 +906,30 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
     0,
     roundDkk(subtractDkk(subtractDkk(postedInterest, lawfulInterest), alreadyCorrected)),
   );
+  const grossCorrectionCeiling = Math.max(0, roundDkk(subtractDkk(postedInterest, lawfulInterest)));
+  let remainingCeilingOre = toOre(grossCorrectionCeiling);
+  const claimOverclaims: NonNullable<ProposeInterestCorrectionResult["claimOverclaims"]> = [];
+  for (const candidate of rawClaimOverclaims) {
+    if (remainingCeilingOre <= 0n) break;
+    const availableOre = toOre(candidate.overClaimedAmount);
+    const allocatedOre = availableOre < remainingCeilingOre ? availableOre : remainingCeilingOre;
+    if (allocatedOre > 0n) {
+      claimOverclaims.push({
+        claimId: candidate.claimId,
+        claimDate: candidate.claimDate,
+        journalEntryId: candidate.journalEntryId,
+        overClaimedAmount: fromOre(allocatedOre),
+      });
+      remainingCeilingOre -= allocatedOre;
+    }
+  }
+  if (remainingCeilingOre > 0n && rawClaimOverclaims.length > 0) {
+    const fallback = rawClaimOverclaims[rawClaimOverclaims.length - 1]!;
+    const existing = claimOverclaims.find((row) => row.claimId === fallback.claimId);
+    if (existing) existing.overClaimedAmount = fromOre(toOre(existing.overClaimedAmount) + remainingCeilingOre);
+    else claimOverclaims.push({ ...fallback, overClaimedAmount: fromOre(remainingCeilingOre) });
+    remainingCeilingOre = 0n;
+  }
   // A correcting credit reverses the receivable, so it can only be booked against
   // an OUTSTANDING receivable. If the over-claim exceeds the open claim balance the
   // excess was already paid in cash and needs a refund, not a receivable credit.
@@ -854,8 +942,295 @@ export function proposeInterestCorrection(db: Database, input: ProposeInterestCo
     lawfulInterest,
     alreadyCorrected,
     overClaimedAmount,
+    claimOverclaims,
     requiresRefund,
     throughDate,
+  };
+}
+
+export type InterestCorrectionEvidencePlanResult =
+  | {
+      ok: true;
+      receivableCredits: Array<{ accountNo: string; amountDkk: number }>;
+      incomeDebits: Array<{ accountNo: string; amountDkk: number }>;
+      causalClaims: Array<{
+        claimId: number;
+        claimDate: string;
+        amountDkk: number;
+        claimCeilingDkk: number;
+      }>;
+      earliestCorrectionDate: string | null;
+    }
+  | { ok: false; errors: string[] };
+
+type CorrectionAccountBucket = { accountNo: string; remainingOre: bigint };
+type CorrectionClaimBucket = {
+  claimId: number;
+  claimDate: string;
+  ceilingOre: bigint;
+  remainingOre: bigint;
+  receivables: CorrectionAccountBucket[];
+  incomes: CorrectionAccountBucket[];
+};
+
+function takeCorrectionAccounts(
+  accounts: CorrectionAccountBucket[],
+  amountOre: bigint,
+): Map<string, bigint> | null {
+  let remaining = amountOre;
+  const taken = new Map<string, bigint>();
+  for (const account of accounts) {
+    if (remaining <= 0n) break;
+    const amount = account.remainingOre < remaining ? account.remainingOre : remaining;
+    if (amount <= 0n) continue;
+    taken.set(account.accountNo, (taken.get(account.accountNo) ?? 0n) + amount);
+    account.remainingOre -= amount;
+    remaining -= amount;
+  }
+  return remaining === 0n ? taken : null;
+}
+
+function addCorrectionEffects(target: Map<string, bigint>, source: Map<string, bigint>) {
+  for (const [accountNo, ore] of source) {
+    target.set(accountNo, (target.get(accountNo) ?? 0n) + ore);
+  }
+}
+
+/**
+ * Validate every persisted interest correction against the lawful per-claim
+ * overcharge and the exact accounts used by that claim. With nextAmount, also
+ * return the only journal allocation that may be posted next.
+ */
+export function buildInterestCorrectionEvidencePlan(
+  db: Database,
+  input: { invoiceDocumentId: number; nextAmount?: number },
+): InterestCorrectionEvidencePlanResult {
+  const proposal = proposeInterestCorrection(db, {
+    invoiceDocumentId: input.invoiceDocumentId,
+    skipEvidenceValidation: true,
+  });
+  if (!proposal.ok) return { ok: false, errors: proposal.errors };
+
+  const errors: string[] = [];
+  const buckets: CorrectionClaimBucket[] = [];
+  for (const claim of proposal.claimOverclaims ?? []) {
+    const effects = db.query(
+      `SELECT a.account_no, a.type AS account_type, a.normal_balance,
+              SUM(jl.debit_amount) - SUM(jl.credit_amount) AS asset_effect,
+              SUM(jl.credit_amount) - SUM(jl.debit_amount) AS income_effect
+         FROM journal_lines jl
+         JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.journal_entry_id = ?
+        GROUP BY a.account_no, a.type, a.normal_balance
+        ORDER BY a.account_no ASC`,
+    ).all(claim.journalEntryId) as Array<{
+      account_no: string;
+      account_type: string;
+      normal_balance: string;
+      asset_effect: number;
+      income_effect: number;
+    }>;
+    const authorisedOre = toOre(claim.overClaimedAmount);
+    const receivableOrigins = effects
+      .filter((row) => row.account_type === "asset" && row.normal_balance === "debit" && compareDkk(Number(row.asset_effect), 0) > 0)
+      .map((row) => ({ accountNo: row.account_no, remainingOre: toOre(Number(row.asset_effect)) }));
+    const incomeOrigins = effects
+      .filter((row) => row.account_type === "income" && row.normal_balance === "credit" && compareDkk(Number(row.income_effect), 0) > 0)
+      .map((row) => ({ accountNo: row.account_no, remainingOre: toOre(Number(row.income_effect)) }));
+    const receivableAuthorised = takeCorrectionAccounts(receivableOrigins, authorisedOre);
+    const incomeAuthorised = takeCorrectionAccounts(incomeOrigins, authorisedOre);
+    if (!receivableAuthorised || !incomeAuthorised) {
+      errors.push(`interest claim ${claim.claimId} does not expose ${claim.overClaimedAmount} DKK on its original receivable and income accounts`);
+      continue;
+    }
+    buckets.push({
+      claimId: claim.claimId,
+      claimDate: claim.claimDate,
+      ceilingOre: authorisedOre,
+      remainingOre: authorisedOre,
+      receivables: [...receivableAuthorised.entries()].map(([accountNo, remainingOre]) => ({ accountNo, remainingOre })),
+      incomes: [...incomeAuthorised.entries()].map(([accountNo, remainingOre]) => ({ accountNo, remainingOre })),
+    });
+  }
+
+  const allocate = (amountDkk: number) => {
+    let remaining = toOre(amountDkk);
+    const receivables = new Map<string, bigint>();
+    const incomes = new Map<string, bigint>();
+    const causalClaims: Array<{
+      claimId: number;
+      claimDate: string;
+      amountOre: bigint;
+      claimCeilingOre: bigint;
+    }> = [];
+    for (const bucket of buckets) {
+      if (remaining <= 0n) break;
+      const amount = bucket.remainingOre < remaining ? bucket.remainingOre : remaining;
+      if (amount <= 0n) continue;
+      const receivable = takeCorrectionAccounts(bucket.receivables, amount);
+      const income = takeCorrectionAccounts(bucket.incomes, amount);
+      if (!receivable || !income) return null;
+      addCorrectionEffects(receivables, receivable);
+      addCorrectionEffects(incomes, income);
+      causalClaims.push({
+        claimId: bucket.claimId,
+        claimDate: bucket.claimDate,
+        amountOre: amount,
+        claimCeilingOre: bucket.ceilingOre,
+      });
+      bucket.remainingOre -= amount;
+      remaining -= amount;
+    }
+    return remaining === 0n ? { receivables, incomes, causalClaims } : null;
+  };
+
+  const corrections = db.query(
+    `SELECT c.id, c.correction_date, c.amount_dkk, c.journal_entry_id,
+            j.transaction_date, j.document_id, j.currency,
+            j.amount_foreign, j.amount_dkk AS journal_amount_dkk,
+            j.fx_rate_to_dkk, j.source_bank_transaction_id,
+            j.status, j.reversal_of_entry_id,
+            (SELECT reversal.id FROM journal_entries reversal
+              WHERE reversal.reversal_of_entry_id = j.id
+              ORDER BY reversal.id ASC LIMIT 1) AS reversed_by_entry_id
+       FROM invoice_interest_corrections c
+       LEFT JOIN journal_entries j ON j.id = c.journal_entry_id
+      WHERE c.invoice_document_id = ?
+      ORDER BY c.journal_entry_id ASC, c.id ASC`,
+  ).all(input.invoiceDocumentId) as Array<{
+    id: number;
+    correction_date: string;
+    amount_dkk: number;
+    journal_entry_id: number;
+    transaction_date: string | null;
+    document_id: number | null;
+    currency: string | null;
+    amount_foreign: number | null;
+    journal_amount_dkk: number | null;
+    fx_rate_to_dkk: number | null;
+    source_bank_transaction_id: number | null;
+    status: string | null;
+    reversal_of_entry_id: number | null;
+    reversed_by_entry_id: number | null;
+  }>;
+  for (const correction of corrections) {
+    const amount = roundDkk(Number(correction.amount_dkk));
+    const expected = allocate(amount);
+    const label = `interest correction ${correction.id}`;
+    if (!expected) {
+      errors.push(`${label} exceeds the lawful per-claim interest-correction ceiling`);
+      continue;
+    }
+    if (
+      correction.transaction_date !== correction.correction_date ||
+      correction.document_id !== input.invoiceDocumentId ||
+      correction.status !== "posted" ||
+      correction.reversal_of_entry_id != null ||
+      correction.reversed_by_entry_id != null ||
+      (correction.currency ?? "DKK").trim().toUpperCase() !== "DKK" ||
+      correction.amount_foreign != null ||
+      correction.journal_amount_dkk != null ||
+      correction.fx_rate_to_dkk != null ||
+      correction.source_bank_transaction_id != null
+    ) {
+      errors.push(`${label} journal ${correction.journal_entry_id} has invalid date, document, status, reversal, currency, FX, or bank context`);
+      continue;
+    }
+    const earliestCorrectionDate = expected.causalClaims
+      .map((claim) => claim.claimDate)
+      .sort()
+      .at(-1);
+    if (earliestCorrectionDate && correction.correction_date < earliestCorrectionDate) {
+      errors.push(`${label} predates its latest causal interest claim ${earliestCorrectionDate}`);
+      continue;
+    }
+    const lines = db.query(
+      `SELECT a.account_no, a.type AS account_type, a.normal_balance,
+              SUM(jl.debit_amount) AS debit_dkk,
+              SUM(jl.credit_amount) AS credit_dkk
+         FROM journal_lines jl
+         JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.journal_entry_id = ?
+        GROUP BY a.account_no, a.type, a.normal_balance
+        ORDER BY a.account_no ASC`,
+    ).all(correction.journal_entry_id) as Array<{
+      account_no: string;
+      account_type: string;
+      normal_balance: string;
+      debit_dkk: number;
+      credit_dkk: number;
+    }>;
+    const actualReceivables = new Map<string, bigint>();
+    const actualIncomes = new Map<string, bigint>();
+    let totalDebitOre = 0n;
+    let totalCreditOre = 0n;
+    let unsupported = false;
+    for (const line of lines) {
+      const debitOre = toOre(Number(line.debit_dkk));
+      const creditOre = toOre(Number(line.credit_dkk));
+      totalDebitOre += debitOre;
+      totalCreditOre += creditOre;
+      if (line.account_type === "income" && line.normal_balance === "credit" && debitOre > 0n && creditOre === 0n) {
+        actualIncomes.set(line.account_no, debitOre);
+      } else if (line.account_type === "asset" && line.normal_balance === "debit" && creditOre > 0n && debitOre === 0n) {
+        actualReceivables.set(line.account_no, creditOre);
+      } else {
+        unsupported = true;
+      }
+    }
+    const amountOre = toOre(amount);
+    const accountKeys = new Set([
+      ...expected.receivables.keys(),
+      ...expected.incomes.keys(),
+      ...actualReceivables.keys(),
+      ...actualIncomes.keys(),
+    ]);
+    const accountMismatch = [...accountKeys].some((accountNo) =>
+      (expected.receivables.get(accountNo) ?? 0n) !== (actualReceivables.get(accountNo) ?? 0n) ||
+      (expected.incomes.get(accountNo) ?? 0n) !== (actualIncomes.get(accountNo) ?? 0n)
+    );
+    if (unsupported || totalDebitOre !== amountOre || totalCreditOre !== amountOre || accountMismatch) {
+      errors.push(`${label} journal ${correction.journal_entry_id} does not exactly reverse its causal interest receivable and income accounts`);
+    }
+  }
+
+  if (errors.length > 0) return { ok: false, errors: [...new Set(errors)] };
+  if (input.nextAmount === undefined) {
+    return {
+      ok: true,
+      receivableCredits: [],
+      incomeDebits: [],
+      causalClaims: [],
+      earliestCorrectionDate: null,
+    };
+  }
+  const next = allocate(input.nextAmount);
+  if (!next) return { ok: false, errors: ["interest correction exceeds the lawful per-claim correction ceiling"] };
+  const certainReceivables = calculateInterestReceivableBalances(db, {
+    invoiceDocumentId: input.invoiceDocumentId,
+    allowUnpostedClaims: true,
+  });
+  if (!certainReceivables.ok) return certainReceivables;
+  const certainByAccount = new Map(certainReceivables.balances.map((row) => [row.accountNo, toOre(row.amountDkk)] as const));
+  for (const [accountNo, ore] of next.receivables) {
+    if (ore > (certainByAccount.get(accountNo) ?? 0n)) {
+      return {
+        ok: false,
+        errors: [`interest correction on receivable ${accountNo} is not provably outstanding; resolve ambiguous claim receipts or use a refund`],
+      };
+    }
+  }
+  return {
+    ok: true,
+    receivableCredits: [...next.receivables.entries()].map(([accountNo, ore]) => ({ accountNo, amountDkk: fromOre(ore) })),
+    incomeDebits: [...next.incomes.entries()].map(([accountNo, ore]) => ({ accountNo, amountDkk: fromOre(ore) })),
+    causalClaims: next.causalClaims.map((claim) => ({
+      claimId: claim.claimId,
+      claimDate: claim.claimDate,
+      amountDkk: fromOre(claim.amountOre),
+      claimCeilingDkk: fromOre(claim.claimCeilingOre),
+    })),
+    earliestCorrectionDate: next.causalClaims.map((claim) => claim.claimDate).sort().at(-1) ?? null,
   };
 }
 
@@ -887,38 +1262,95 @@ export function postInterestCorrection(db: Database, input: PostInterestCorrecti
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) {
     return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: ["invoiceDocumentId must be a positive integer"] };
   }
-  const proposal = proposeInterestCorrection(db, { invoiceDocumentId: input.invoiceDocumentId });
-  if (!proposal.ok) return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: proposal.errors };
-  if (!proposal.hasProposal || !(Number(proposal.overClaimedAmount ?? 0) > 0)) {
-    return {
-      ok: false,
-      invoiceDocumentId: input.invoiceDocumentId,
-      invoiceNumber: proposal.invoiceNumber,
-      appliedRules: [BOOKKEEPING_RULE_ID],
-      errors: ["no over-claimed late interest to correct on this invoice"],
-    };
-  }
-  // A correcting credit reverses the receivable. If the over-claim exceeds the
-  // outstanding claim balance the excess was already collected in cash — crediting
-  // the receivable again would drive it negative and reverse genuinely collected
-  // income with no refund booked. Refuse; a refund is the right instrument.
-  if (proposal.requiresRefund) {
-    return {
-      ok: false,
-      invoiceDocumentId: input.invoiceDocumentId,
-      invoiceNumber: proposal.invoiceNumber,
-      appliedRules: [BOOKKEEPING_RULE_ID],
-      errors: [
-        `the over-claimed late interest (${roundDkk(Number(proposal.overClaimedAmount))}) exceeds the invoice's outstanding balance (${roundDkk(Number(proposal.outstandingClaimBalance))}); it appears to have been settled in cash — reverse it with a refund instead of a correction`,
-      ],
-    };
-  }
-
-  const amount = roundDkk(Number(proposal.overClaimedAmount));
-  const transactionDate = input.transactionDate ?? proposal.throughDate!;
-  const invoiceNo = proposal.invoiceNumber;
   try {
     return db.transaction(() => {
+      // The proposal and both ledger allocations are mutable reads. Hold the
+      // write lock before computing them so two processes cannot post the same
+      // correction from one stale snapshot.
+      const proposal = proposeInterestCorrection(db, { invoiceDocumentId: input.invoiceDocumentId });
+      if (!proposal.ok) return { ok: false, appliedRules: [BOOKKEEPING_RULE_ID], errors: proposal.errors };
+      if (!proposal.hasProposal || !(Number(proposal.overClaimedAmount ?? 0) > 0)) {
+        return {
+          ok: false,
+          invoiceDocumentId: input.invoiceDocumentId,
+          invoiceNumber: proposal.invoiceNumber,
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: ["no over-claimed late interest to correct on this invoice"],
+        };
+      }
+      // A correcting credit reverses the receivable. If the over-claim exceeds
+      // the outstanding claim balance the excess was already collected in cash.
+      if (proposal.requiresRefund) {
+        return {
+          ok: false,
+          invoiceDocumentId: input.invoiceDocumentId,
+          invoiceNumber: proposal.invoiceNumber,
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: [
+            `the over-claimed late interest (${roundDkk(Number(proposal.overClaimedAmount))}) exceeds the provably outstanding interest receivable (${roundDkk(Number(proposal.outstandingClaimBalance))}); it was settled in cash or shares an ambiguously allocated claim account — resolve the allocation or use a refund instead of an automatic correction`,
+          ],
+        };
+      }
+
+      const amount = roundDkk(Number(proposal.overClaimedAmount));
+      const transactionDate = input.transactionDate ?? proposal.throughDate!;
+      const invoiceNo = proposal.invoiceNumber;
+      const allocationPlan = buildInterestCorrectionEvidencePlan(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        nextAmount: amount,
+      });
+      if (!allocationPlan.ok) {
+        return {
+          ok: false,
+          invoiceDocumentId: input.invoiceDocumentId,
+          invoiceNumber: invoiceNo,
+          correctedAmount: amount,
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: allocationPlan.errors,
+        };
+      }
+      if (
+        allocationPlan.earliestCorrectionDate &&
+        transactionDate < allocationPlan.earliestCorrectionDate
+      ) {
+        return {
+          ok: false,
+          invoiceDocumentId: input.invoiceDocumentId,
+          invoiceNumber: invoiceNo,
+          correctedAmount: amount,
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: [
+            `interest correction date ${transactionDate} cannot precede its latest causal interest claim ${allocationPlan.earliestCorrectionDate}`,
+          ],
+        };
+      }
+      if (
+        input.receivableAccountNo &&
+        (allocationPlan.receivableCredits.length !== 1 || allocationPlan.receivableCredits[0]!.accountNo !== input.receivableAccountNo)
+      ) {
+        return {
+          ok: false,
+          invoiceDocumentId: input.invoiceDocumentId,
+          invoiceNumber: invoiceNo,
+          correctedAmount: amount,
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: [`interest correction must credit the ledger-backed receivable allocation, not ${input.receivableAccountNo}`],
+        };
+      }
+      if (
+        input.interestIncomeAccountNo &&
+        (allocationPlan.incomeDebits.length !== 1 || allocationPlan.incomeDebits[0]!.accountNo !== input.interestIncomeAccountNo)
+      ) {
+        return {
+          ok: false,
+          invoiceDocumentId: input.invoiceDocumentId,
+          invoiceNumber: invoiceNo,
+          correctedAmount: amount,
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: [`interest correction must debit the ledger-backed income allocation, not ${input.interestIncomeAccountNo}`],
+        };
+      }
+
       const journal = postJournalEntry(db, {
         transactionDate,
         text: `Late-interest correction ${invoiceNo}`,
@@ -926,12 +1358,67 @@ export function postInterestCorrection(db: Database, input: PostInterestCorrecti
         createdBy: input.createdBy,
         createdByProgram: input.createdByProgram,
         lines: [
-          { accountNo: input.interestIncomeAccountNo ?? "1010", debitAmount: amount, text: `Late-interest income reversal ${invoiceNo}` },
-          { accountNo: input.receivableAccountNo ?? "1100", creditAmount: amount, text: `Late-interest receivable reversal ${invoiceNo}` },
+          ...allocationPlan.incomeDebits.map((allocation) => ({
+            accountNo: allocation.accountNo,
+            debitAmount: allocation.amountDkk,
+            text: `Late-interest income reversal ${invoiceNo}`,
+          })),
+          ...allocationPlan.receivableCredits.map((allocation) => ({
+            accountNo: allocation.accountNo,
+            creditAmount: allocation.amountDkk,
+            text: `Late-interest receivable reversal ${invoiceNo}`,
+          })),
         ],
       });
       if (!journal.ok) {
         return { ...journal, invoiceDocumentId: input.invoiceDocumentId, invoiceNumber: invoiceNo, correctedAmount: amount, appliedRules: [...new Set([...(journal.appliedRules ?? []), BOOKKEEPING_RULE_ID])] };
+      }
+
+      // The append-only correction row is accepted only when this exact,
+      // transaction-local causal plan exists. Direct INSERTs therefore cannot
+      // permanently poison the register before the TypeScript evidence audit
+      // gets a chance to run. Header, causal claims, account allocations and
+      // the correction itself commit or roll back together.
+      db.run(
+        `INSERT INTO invoice_interest_correction_plans
+           (journal_entry_id, invoice_document_id, correction_date, amount_dkk)
+         VALUES (?, ?, ?, ?)`,
+        journal.entryId,
+        input.invoiceDocumentId,
+        transactionDate,
+        amount,
+      );
+      for (const claim of allocationPlan.causalClaims) {
+        db.run(
+          `INSERT INTO invoice_interest_correction_plan_claims
+             (journal_entry_id, interest_claim_id, claim_date, amount_dkk, claim_ceiling_dkk)
+           VALUES (?, ?, ?, ?, ?)`,
+          journal.entryId,
+          claim.claimId,
+          claim.claimDate,
+          claim.amountDkk,
+          claim.claimCeilingDkk,
+        );
+      }
+      for (const allocation of allocationPlan.incomeDebits) {
+        db.run(
+          `INSERT INTO invoice_interest_correction_plan_lines
+             (journal_entry_id, account_no, debit_amount, credit_amount)
+           VALUES (?, ?, ?, 0)`,
+          journal.entryId,
+          allocation.accountNo,
+          allocation.amountDkk,
+        );
+      }
+      for (const allocation of allocationPlan.receivableCredits) {
+        db.run(
+          `INSERT INTO invoice_interest_correction_plan_lines
+             (journal_entry_id, account_no, debit_amount, credit_amount)
+           VALUES (?, ?, 0, ?)`,
+          journal.entryId,
+          allocation.accountNo,
+          allocation.amountDkk,
+        );
       }
 
       const inserted = db.query(
@@ -948,25 +1435,58 @@ export function postInterestCorrection(db: Database, input: PostInterestCorrecti
         createdByProgram: input.createdByProgram,
       });
 
+      const verifiedReceivables = calculateClaimReceivableBalances(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        allowUnpostedClaims: true,
+      });
+      const verifiedInterestReceivables = calculateInterestReceivableBalances(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        allowUnpostedClaims: true,
+      });
+      const verifiedIncomes = calculateInterestIncomeBalances(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+        allowUnpostedClaims: true,
+      });
+      const verifiedPlan = buildInterestCorrectionEvidencePlan(db, {
+        invoiceDocumentId: input.invoiceDocumentId,
+      });
+      if (!verifiedReceivables.ok || !verifiedInterestReceivables.ok || !verifiedIncomes.ok || !verifiedPlan.ok) {
+        throw new Error(JSON.stringify({
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: [
+            ...(!verifiedReceivables.ok ? verifiedReceivables.errors : []),
+            ...(!verifiedInterestReceivables.ok ? verifiedInterestReceivables.errors : []),
+            ...(!verifiedIncomes.ok ? verifiedIncomes.errors : []),
+            ...(!verifiedPlan.ok ? verifiedPlan.errors : []),
+          ],
+        }));
+      }
       const statusAfter = getInvoiceStatus(db, input.invoiceDocumentId, transactionDate);
+      if (!statusAfter.ok) {
+        throw new Error(JSON.stringify({
+          appliedRules: [BOOKKEEPING_RULE_ID],
+          errors: statusAfter.errors,
+        }));
+      }
       return {
         ...journal,
         invoiceDocumentId: input.invoiceDocumentId,
         invoiceNumber: invoiceNo,
         correctionId: inserted.id,
         correctedAmount: amount,
-        claimOpenBalance: statusAfter.ok ? statusAfter.claimOpenBalance : undefined,
+        claimOpenBalance: statusAfter.claimOpenBalance,
         appliedRules: [...new Set([...(journal.appliedRules ?? []), BOOKKEEPING_RULE_ID])],
       };
-    })();
+    }, { immediate: true })();
   } catch (error) {
+    const parsed = typeof error === "object" && error && "message" in error ? (() => {
+      try { return JSON.parse(String((error as any).message)); } catch { return null; }
+    })() : null;
     return {
       ok: false,
       invoiceDocumentId: input.invoiceDocumentId,
-      invoiceNumber: invoiceNo,
-      correctedAmount: amount,
       appliedRules: [BOOKKEEPING_RULE_ID],
-      errors: [String(error)],
+      errors: (parsed?.errors as string[] | undefined) ?? [String(error)],
     };
   }
 }

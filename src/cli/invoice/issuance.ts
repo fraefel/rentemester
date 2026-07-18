@@ -1,7 +1,7 @@
 /**
  * Issuance-side `invoice <subcommand>` CLI handlers:
  *   validate, issue, create, render, export-public, export-public-oioubl,
- *   submit-public-peppol, credit-note, post.
+ *   submit-public-peppol, credit-note, post, repair-posting.
  *
  * Split out of `../invoice.ts`. Registration order preserved.
  */
@@ -30,7 +30,10 @@ import {
   digisenseAccessPointIdentity,
 } from "../../core/efaktura/digisense-wiring";
 import { issueCreditNote } from "../../core/credit-notes";
-import { postIssuedInvoiceToLedger } from "../../core/invoice-booking";
+import {
+  postIssuedInvoiceToLedger,
+  repairUnlinkedIssuedInvoiceBooking,
+} from "../../core/invoice-booking";
 import { resolveInvoiceMasterData } from "../../core/master-data";
 import { openCommandDb } from "../../cli-dispatch";
 import type { CommandDispatch } from "../../cli-dispatch";
@@ -374,6 +377,30 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
     migrate(db);
     const documentId = resolveInvoiceDocumentId(db, ctx);
     const result = postIssuedInvoiceToLedger(db, { invoiceDocumentId: documentId });
+    ctx.emitResult(result as Record<string, unknown>);
+    db.close();
+  });
+
+  dispatch.on("invoice", "repair-posting", (ctx) => {
+    const legacyJournalEntryIdRaw = ctx.trimToNull(ctx.arg("--legacy-journal-entry-id"));
+    if (!legacyJournalEntryIdRaw) {
+      ctx.fatal("invoice repair-posting requires --legacy-journal-entry-id <n>");
+    }
+    const legacyJournalEntryId = Number(legacyJournalEntryIdRaw);
+    if (!Number.isInteger(legacyJournalEntryId) || legacyJournalEntryId <= 0) {
+      ctx.fatal("--legacy-journal-entry-id must be a positive integer");
+    }
+    const reason = ctx.trimToNull(ctx.arg("--reason"));
+    if (!reason) ctx.fatal("invoice repair-posting requires --reason <text>");
+
+    const db = openCommandDb(ctx);
+    migrate(db);
+    const documentId = resolveInvoiceDocumentId(db, ctx);
+    const result = repairUnlinkedIssuedInvoiceBooking(db, {
+      invoiceDocumentId: documentId,
+      legacyJournalEntryId,
+      reason,
+    });
     ctx.emitResult(result as Record<string, unknown>);
     db.close();
   });

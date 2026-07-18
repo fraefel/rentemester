@@ -9,6 +9,7 @@ import { issueInvoice } from "../../src/core/issued-invoices";
 import { applyInvoicePayment, getInvoiceStatus } from "../../src/core/invoice-payments";
 import { calculateInvoiceLateCompensation, postInvoiceLateCompensationToLedger, registerInvoiceLateCompensation } from "../../src/core/invoice-compensation";
 import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 
 function failingCompensationPostingDb(realDb: any) {
   let failed = false;
@@ -49,6 +50,7 @@ describe("invoice late compensation", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -89,6 +91,7 @@ describe("invoice late compensation", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -100,6 +103,16 @@ describe("invoice late compensation", () => {
       asOfDate: "2026-06-20",
       note: "Statutory fixed compensation"
     }).ok).toBe(true);
+
+    const journalCountBeforeRejectedAccount = (db.query("SELECT COUNT(*) AS n FROM journal_entries").get() as { n: number }).n;
+    const rejectedLiability = postInvoiceLateCompensationToLedger(db, {
+      invoiceDocumentId: issued.documentId!,
+      compensationIncomeAccountNo: "7000",
+    });
+    expect(rejectedLiability.ok).toBe(false);
+    expect(rejectedLiability.errors.join(" ")).toContain("credit-normal income account");
+    expect(db.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: journalCountBeforeRejectedAccount });
+    expect(db.query("SELECT COUNT(*) AS n FROM invoice_compensation_postings").get()).toEqual({ n: 0 });
 
     const posted = postInvoiceLateCompensationToLedger(db, { invoiceDocumentId: issued.documentId! });
     expect(posted.ok).toBe(true);
@@ -151,6 +164,7 @@ describe("invoice late compensation", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(realDb, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(realDb, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -166,12 +180,12 @@ describe("invoice late compensation", () => {
     const failed = postInvoiceLateCompensationToLedger(db, { invoiceDocumentId: issued.documentId! });
     expect(failed.ok).toBe(false);
     expect(failed.errors[0]).toContain("simulated compensation posting link failure");
-    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 1 });
+    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 2 });
     expect(realDb.query("SELECT COUNT(*) AS n FROM invoice_compensation_postings").get()).toEqual({ n: 0 });
 
     const retry = postInvoiceLateCompensationToLedger(realDb, { invoiceDocumentId: issued.documentId! });
     expect(retry.ok).toBe(true);
-    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 2 });
+    expect(realDb.query("SELECT COUNT(*) AS n FROM journal_entries").get()).toEqual({ n: 3 });
     expect(realDb.query("SELECT COUNT(*) AS n FROM invoice_compensation_postings").get()).toEqual({ n: 1 });
 
     realDb.close();
@@ -197,6 +211,7 @@ describe("invoice late compensation", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",
@@ -254,6 +269,7 @@ describe("invoice late compensation", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
     expect(applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
       paymentDate: "2026-05-20",

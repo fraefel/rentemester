@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { getInvoiceStatus } from "./invoice-payments";
 import { normalizeCurrency, roundDkk, equalsDkk } from "./money";
 import { daysBetween } from "./dates";
+import { validateInvoiceCreditNoteEvidence } from "./invoice-fx-receivable";
 
 export type BankMatchSuggestion = {
   // ===== BANK CLUSTER (#182) =====
@@ -125,10 +126,22 @@ function unmatchedBankTransactions(db: Database, bankTransactionId?: number) {
 
 function openIssuedInvoices(db: Database) {
   return db.query(
-    `SELECT id, invoice_no, invoice_date, payload_json
-     FROM documents
-     WHERE document_type = 'issued_invoice'
-     ORDER BY id ASC`
+    `SELECT d.id, d.invoice_no, d.invoice_date, d.payload_json
+       FROM documents d
+       JOIN issued_invoice_postings p
+         ON p.invoice_document_id = d.id
+       JOIN journal_entries j
+         ON j.id = p.journal_entry_id
+        AND j.document_id = d.id
+      WHERE d.document_type = 'issued_invoice'
+        AND j.status = 'posted'
+        AND j.reversal_of_entry_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+            FROM journal_entries reversal
+           WHERE reversal.reversal_of_entry_id = j.id
+        )
+      ORDER BY d.id ASC`
   ).all() as Array<{
     id: number;
     invoice_no: string;
@@ -164,11 +177,35 @@ function openPurchaseDocuments(db: Database) {
 // it credits (payment_details). An outgoing customer-refund bank row is matched
 // against these.
 function creditNoteDocuments(db: Database) {
-  return db.query(
-    `SELECT id, invoice_no, invoice_date, amount_inc_vat, recipient_name, payment_details, currency
-     FROM documents
-     WHERE document_type = 'credit_note'
-     ORDER BY id ASC`
+  const rows = db.query(
+    `SELECT c.id, c.invoice_no, c.invoice_date, c.amount_inc_vat,
+            c.recipient_name, c.payment_details, c.currency,
+            p.original_invoice_document_id
+       FROM documents c
+       JOIN credit_note_postings p
+         ON p.credit_note_document_id = c.id
+       JOIN journal_entries credit_journal
+         ON credit_journal.id = p.journal_entry_id
+        AND credit_journal.document_id = c.id
+       JOIN issued_invoice_postings original_posting
+         ON original_posting.invoice_document_id = p.original_invoice_document_id
+       JOIN journal_entries original_journal
+         ON original_journal.id = original_posting.journal_entry_id
+        AND original_journal.document_id = p.original_invoice_document_id
+      WHERE c.document_type = 'credit_note'
+        AND credit_journal.status = 'posted'
+        AND credit_journal.reversal_of_entry_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM journal_entries reversal
+           WHERE reversal.reversal_of_entry_id = credit_journal.id
+        )
+        AND original_journal.status = 'posted'
+        AND original_journal.reversal_of_entry_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM journal_entries reversal
+           WHERE reversal.reversal_of_entry_id = original_journal.id
+        )
+      ORDER BY c.id ASC`
   ).all() as Array<{
     id: number;
     invoice_no: string | null;
@@ -177,7 +214,19 @@ function creditNoteDocuments(db: Database) {
     recipient_name: string | null;
     payment_details: string | null;
     currency: string | null;
+    original_invoice_document_id: number;
   }>;
+  const validOriginals = new Map<number, boolean>();
+  return rows.filter((row) => {
+    let valid = validOriginals.get(row.original_invoice_document_id);
+    if (valid === undefined) {
+      valid = validateInvoiceCreditNoteEvidence(db, {
+        invoiceDocumentId: row.original_invoice_document_id,
+      }).ok;
+      validOriginals.set(row.original_invoice_document_id, valid);
+    }
+    return valid;
+  });
 }
 
 // All purchase documents, regardless of journal status. The refund direction
@@ -367,7 +416,11 @@ function purchaseSuggestion(bank: ReturnType<typeof unmatchedBankTransactions>[n
  * (>= 2 token) customer-name overlap — so an agent never auto-applies a wrong
  * refund. Amounts are compared in integer øre (equalsDkk).
  */
-function creditNoteRefundSuggestion(bank: ReturnType<typeof unmatchedBankTransactions>[number], doc: ReturnType<typeof creditNoteDocuments>[number]): BankMatchSuggestion | null {
+function creditNoteRefundSuggestion(
+  db: Database,
+  bank: ReturnType<typeof unmatchedBankTransactions>[number],
+  doc: ReturnType<typeof creditNoteDocuments>[number],
+): BankMatchSuggestion | null {
   if (!(Number(bank.amount) < 0)) return null;
   // Only match a refund row against a credit note of the same currency — the
   // gross is in the credit note's currency and equalsDkk is currency-blind.
@@ -376,6 +429,10 @@ function creditNoteRefundSuggestion(bank: ReturnType<typeof unmatchedBankTransac
   const grossAmount = roundDkk(Number(doc.amount_inc_vat ?? 0));
   if (!(grossAmount > 0)) return null;
   const refundAmount = Math.abs(Number(bank.amount));
+  const status = getInvoiceStatus(db, doc.original_invoice_document_id, bank.transaction_date);
+  if (!status.ok) return null;
+  const refundableCreditBalance = roundDkk(Math.max(0, -Number(status.openBalance ?? 0)));
+  if (!(refundableCreditBalance > 0) || refundAmount > refundableCreditBalance) return null;
   const bankText = combinedBankText(bank);
   let confidence = 0;
   const reasons: string[] = [];
@@ -587,7 +644,7 @@ export function suggestBankMatches(db: Database, input: SuggestBankMatchesInput 
       ...invoiceDocs.map((doc) => invoiceSuggestion(db, bank, doc)).filter((value): value is BankMatchSuggestion => Boolean(value)),
       ...purchaseDocs.map((doc) => purchaseSuggestion(bank, doc)).filter((value): value is BankMatchSuggestion => Boolean(value)),
       // ===== BANK CLUSTER (#182) =====
-      ...creditNoteDocs.map((doc) => creditNoteRefundSuggestion(bank, doc)).filter((value): value is BankMatchSuggestion => Boolean(value)),
+      ...creditNoteDocs.map((doc) => creditNoteRefundSuggestion(db, bank, doc)).filter((value): value is BankMatchSuggestion => Boolean(value)),
       ...allPurchaseDocs.map((doc) => supplierCreditRefundSuggestion(bank, doc)).filter((value): value is BankMatchSuggestion => Boolean(value)),
       // ===== END BANK CLUSTER (#182) =====
     ]

@@ -40,6 +40,7 @@ export const MUTATING_COMMANDS = new Set([
   "invoice render",
   "invoice credit-note",
   "invoice post",
+  "invoice repair-posting",
   "invoice settle-bank",
   "invoice settle-claim-bank",
   "invoice write-off-bad-debt",

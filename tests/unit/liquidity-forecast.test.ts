@@ -10,6 +10,8 @@ import { setBudget } from "../../src/core/budget";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { createRecurringInvoiceTemplate } from "../../src/core/recurring-invoices";
 import { buildLiquidityForecast } from "../../src/core/liquidity-forecast";
+import { applyInvoicePayment } from "../../src/core/invoice-payments";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 
 function freshDb() {
   const root = mkdtempSync(join(tmpdir(), "rentemester-liquidity-"));
@@ -167,38 +169,16 @@ describe("liquidity forecast projection", () => {
 
   test("a paid invoice contributes no inflow", () => {
     const { root, db } = freshDb();
-    const bank = bankAccountNo(db);
-    const income = (db.query("SELECT account_no FROM accounts WHERE type = 'income' ORDER BY account_no LIMIT 1").get() as {
-      account_no: string;
-    }).account_no;
     const issued = issueInvoice(db, root, invoicePayload({ issueDate: "2026-06-15", dueDate: "2026-07-15" }));
     expect(issued.ok).toBe(true);
-    // Settle the invoice fully via a payment so it is no longer open. The
-    // payment row needs a journal entry (NOT NULL, UNIQUE FK), so post one.
-    const accId = (no: string) =>
-      (db.query("SELECT id FROM accounts WHERE account_no = ?").get(no) as { id: number }).id;
-    const entry = db
-      .query(
-        `INSERT INTO journal_entries (entry_no, transaction_date, text, rule_version, entry_hash)
-         VALUES ('PAY-1', '2026-06-20', 'payment', 'test', 'h') RETURNING id`,
-      )
-      .get() as { id: number };
-    db.run(
-      "INSERT INTO journal_lines (journal_entry_id, account_id, debit_amount, credit_amount) VALUES (?, ?, 1250, 0)",
-      entry.id,
-      accId(bank),
-    );
-    db.run(
-      "INSERT INTO journal_lines (journal_entry_id, account_id, debit_amount, credit_amount) VALUES (?, ?, 0, 1250)",
-      entry.id,
-      accId(income),
-    );
-    db.run(
-      `INSERT INTO invoice_payments (invoice_document_id, journal_entry_id, payment_date, amount, currency)
-       VALUES (?, ?, '2026-06-20', 1250, 'DKK')`,
-      issued.documentId,
-      entry.id,
-    );
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
+    // Settle through the canonical write path so the payment application is
+    // backed by a matching invoice/date/amount journal entry.
+    expect(applyInvoicePayment(db, {
+      invoiceDocumentId: issued.documentId!,
+      paymentDate: "2026-06-20",
+      amount: 1250,
+    }).ok).toBe(true);
     const result = buildLiquidityForecast(db, { startDate: "2026-06-01", months: 3 });
     const july = result.periods.find((p) => p.period === "2026-07")!;
     expect(july.invoiceInflow).toBe(0);

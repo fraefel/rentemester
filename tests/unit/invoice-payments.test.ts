@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
-import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { applyInvoicePayment, getInvoiceStatus } from "../../src/core/invoice-payments";
 import { issueCreditNote } from "../../src/core/credit-notes";
@@ -36,6 +36,7 @@ describe("invoice payments", () => {
     db.run("INSERT INTO accounts (account_no, name, type, normal_balance) VALUES ('9910', 'Imported bank', 'asset', 'debit'), ('9920', 'Imported debtors', 'asset', 'debit')");
     expect(confirmAccountRole(db, "bank", "9910", "user:reviewer").ok).toBe(true);
     expect(confirmAccountRole(db, "debtors", "9920", "user:reviewer").ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     const first = applyInvoicePayment(db, {
       invoiceDocumentId: issued.documentId!,
@@ -149,7 +150,7 @@ describe("invoice payments", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("rejects direct invoice payment inserts without journal evidence and ignores orphaned rows in status", () => {
+  test("rejects direct invoice payment inserts without journal evidence and fails closed on orphaned rows", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-invoicepay-proof-"));
     const db = openDb(ensureCompanyDirs(root).db);
     migrate(db);
@@ -178,6 +179,7 @@ describe("invoice payments", () => {
       "Manual entry"
     )).toThrow("invoice payments must reference a journal entry");
 
+    db.exec("DROP TRIGGER invoice_payments_require_journal");
     db.exec("PRAGMA foreign_keys = OFF");
     db.run(
       `INSERT INTO invoice_payments (invoice_document_id, payment_date, amount, currency, journal_entry_id, note)
@@ -191,9 +193,10 @@ describe("invoice payments", () => {
     db.exec("PRAGMA foreign_keys = ON");
 
     const status = getInvoiceStatus(db, issued.documentId!);
-    expect(status.ok).toBe(true);
-    expect(status.paidAmount).toBe(0);
-    expect(status.openBalance).toBe(1250);
+    expect(status.ok).toBe(false);
+    expect(status.errors.some((error) => error.includes("invoice payment") && error.includes("missing journal evidence"))).toBe(true);
+    expect(status.paidAmount).toBeUndefined();
+    expect(status.openBalance).toBeUndefined();
 
     const chain = verifyAuditChain(db);
     expect(chain.ok).toBe(false);
@@ -221,6 +224,7 @@ describe("invoice payments", () => {
       currency: "DKK"
     });
     expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
 
     const firstCredit = issueCreditNote(db, root, {
       originalInvoiceDocumentId: issued.documentId!,
@@ -339,17 +343,39 @@ describe("invoice payments", () => {
     });
     expect(firstPayment.ok).toBe(true);
 
-    // Simulate an overpayment (no credit note involved): a second 250 DKK
-    // payment linked to the invoice booking entry, then a 250 DKK refund of it.
+    // Simulate an overpayment (no credit note involved) using two distinct,
+    // correctly matched journal entries. The append-only application rows must
+    // never reuse the invoice booking journal as synthetic evidence.
+    const overpaymentJournal = postJournalEntry(db, {
+      transactionDate: "2026-05-21",
+      text: "Customer overpayment",
+      documentId: issued.documentId!,
+      lines: [
+        { accountNo: "2000", debitAmount: 250 },
+        { accountNo: "1100", creditAmount: 250 },
+      ],
+    });
+    expect(overpaymentJournal.ok).toBe(true);
     db.run(
       `INSERT INTO invoice_payments (invoice_document_id, journal_entry_id, payment_date, amount, currency, note)
        VALUES (?, ?, '2026-05-21', 250, 'DKK', 'Overpayment')`,
-      issued.documentId!, booking.entryId!,
+      issued.documentId!, overpaymentJournal.entryId!,
     );
+
+    const refundJournal = postJournalEntry(db, {
+      transactionDate: "2026-05-22",
+      text: "Return customer overpayment",
+      documentId: issued.documentId!,
+      lines: [
+        { accountNo: "1100", debitAmount: 250 },
+        { accountNo: "2000", creditAmount: 250 },
+      ],
+    });
+    expect(refundJournal.ok).toBe(true);
     db.run(
-      `INSERT INTO invoice_refunds (invoice_document_id, refund_date, amount, currency, note)
-       VALUES (?, '2026-05-22', 250, 'DKK', 'Overpayment refund')`,
-      issued.documentId!,
+      `INSERT INTO invoice_refunds (invoice_document_id, journal_entry_id, refund_date, amount, currency, note)
+       VALUES (?, ?, '2026-05-22', 250, 'DKK', 'Overpayment refund')`,
+      issued.documentId!, refundJournal.entryId!,
     );
 
     const status = getInvoiceStatus(db, issued.documentId!, "2026-05-25");
@@ -357,6 +383,7 @@ describe("invoice payments", () => {
     expect(status.openBalance).toBe(0);
     expect(status.creditedAmount).toBe(0);
     expect(status.refunds).toHaveLength(1);
+    expect(status.refunds?.[0]?.journalEntryId).toBe(refundJournal.entryId);
     // Refund must label the invoice "refunded" even though creditedAmount is 0.
     expect(status.status).toBe("refunded");
 

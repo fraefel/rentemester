@@ -1,6 +1,6 @@
 // Cockpit data-import + accountant-export handlers.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importDineroContacts } from "../../core/import/dinero-contacts";
@@ -10,6 +10,7 @@ import { createTar, dirToTarEntries } from "../../core/tar";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
 import { withCompanyMutation } from "../mutations";
+import { removePathWithRetry } from "../../core/fs-cleanup";
 import {
   MAX_UPLOAD_BODY_BYTES,
   okResponse,
@@ -145,9 +146,7 @@ export async function handleAccountantExport(
           bankTransactionCount: exported.bankTransactionCount ?? 0,
         };
       } finally {
-        try {
-          rmSync(outputDir, { recursive: true, force: true });
-        } catch {}
+        removePathWithRetry(outputDir);
       }
     },
     { requireConfirm: true },

@@ -1,12 +1,13 @@
 // Bank import + bank-account write handlers (#213 slice 2, #345).
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncUnmatchedBankTransactionExceptions } from "../../core/exceptions";
 import { addBankAccount, importBankCsv } from "../../core/bank";
 import type { ServerConfig } from "../config";
 import { withCompanyMutation } from "../mutations";
+import { removePathWithRetry } from "../../core/fs-cleanup";
 import {
   MAX_UPLOAD_BODY_BYTES,
   okResponse,
@@ -70,7 +71,7 @@ export async function handleBankImport(
           exceptionsCreated: sync.created,
         };
       } finally {
-        rmSync(tmpDir, { recursive: true, force: true });
+        removePathWithRetry(tmpDir);
       }
     },
     { requireConfirm: true, maxBodyBytes: MAX_UPLOAD_BODY_BYTES },

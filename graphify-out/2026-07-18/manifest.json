@@ -1390,8 +1390,8 @@
     "semantic_hash": ""
   },
   "src/cli/dashboard.ts": {
-    "mtime": 1784335870.8411133,
-    "ast_hash": "ada7eab22f10bf8724c89886131a97be",
+    "mtime": 1784342886.8805082,
+    "ast_hash": "a50f15b3b87958c1175679d391fafb86",
     "semantic_hash": ""
   },
   "src/cli/documents.ts": {
@@ -1755,8 +1755,8 @@
     "semantic_hash": ""
   },
   "src/core/db.ts": {
-    "mtime": 1784342418.6120002,
-    "ast_hash": "fc8da7692f63138cd514518ec125a57e",
+    "mtime": 1784342788.1454353,
+    "ast_hash": "aa5503bcc919c24a9ca1407326043c1e",
     "semantic_hash": ""
   },
   "src/core/documents.ts": {
@@ -1830,8 +1830,8 @@
     "semantic_hash": ""
   },
   "src/core/import/dinero-postings.ts": {
-    "mtime": 1784335870.8669934,
-    "ast_hash": "030089da0eff6e6397d929df6d89a324",
+    "mtime": 1784342718.6018589,
+    "ast_hash": "7920b5224c9254acad7095899828335c",
     "semantic_hash": ""
   },
   "src/core/import/dinero.ts": {
@@ -1940,8 +1940,8 @@
     "semantic_hash": ""
   },
   "src/core/ledger.ts": {
-    "mtime": 1784341471.212619,
-    "ast_hash": "693a0095b023fa5fbe1c72193ac24104",
+    "mtime": 1784342718.6013916,
+    "ast_hash": "76c4f1cc2960f885337e058165f3ff73",
     "semantic_hash": ""
   },
   "src/core/legal-provisions.ts": {
@@ -1960,7 +1960,7 @@
     "semantic_hash": ""
   },
   "src/core/master-data.ts": {
-    "mtime": 1784342453.4210305,
+    "mtime": 1784342583.5685234,
     "ast_hash": "b81d365196189878198fe077a8825183",
     "semantic_hash": ""
   },
@@ -1995,8 +1995,8 @@
     "semantic_hash": ""
   },
   "src/core/periods.ts": {
-    "mtime": 1784335870.8764272,
-    "ast_hash": "665482891e0285bfb9f4b8f593f4c172",
+    "mtime": 1784342886.8800783,
+    "ast_hash": "1ec50cff94f386e50b6f6360f2130523",
     "semantic_hash": ""
   },
   "src/core/public-einvoice.ts": {
@@ -2035,8 +2035,8 @@
     "semantic_hash": ""
   },
   "src/core/schema.sql": {
-    "mtime": 1784342418.6116762,
-    "ast_hash": "a09b6e4e1c31cdf0b33517678affa5ba",
+    "mtime": 1784342788.1451507,
+    "ast_hash": "ef5a018b6cbb6e07eddfaf3a5c13a29d",
     "semantic_hash": ""
   },
   "src/core/sequences.ts": {
@@ -2065,8 +2065,8 @@
     "semantic_hash": ""
   },
   "src/core/vat-filing.ts": {
-    "mtime": 1784335870.8800414,
-    "ast_hash": "14100f4d8eee50465ac09cc96140bde2",
+    "mtime": 1784342997.2573442,
+    "ast_hash": "cb46b1ceaf7589e482939adead3ce956",
     "semantic_hash": ""
   },
   "src/core/vat-oss.ts": {
@@ -2080,8 +2080,8 @@
     "semantic_hash": ""
   },
   "src/core/vat.ts": {
-    "mtime": 1784341498.9869761,
-    "ast_hash": "76000843cf8521bb02da023b79691543",
+    "mtime": 1784342982.0213954,
+    "ast_hash": "a5bf2168615cf08b572143a9c69dfa3b",
     "semantic_hash": ""
   },
   "src/core/vies.ts": {
@@ -2275,8 +2275,8 @@
     "semantic_hash": ""
   },
   "src/mcp/tools/period.ts": {
-    "mtime": 1784335870.8910756,
-    "ast_hash": "26cbb211a35afcc8f61f69f6c8fb6820",
+    "mtime": 1784342886.8809726,
+    "ast_hash": "48b2831f44092183819461128763529f",
     "semantic_hash": ""
   },
   "src/mcp/tools/portfolio.ts": {
@@ -2495,8 +2495,8 @@
     "semantic_hash": ""
   },
   "src/server/write-handlers/company.ts": {
-    "mtime": 1784335870.9134488,
-    "ast_hash": "14569e1ed35ff4fecd328406b8387e8d",
+    "mtime": 1784342886.881218,
+    "ast_hash": "f7d829026c1d4500bd129f10aba073b4",
     "semantic_hash": ""
   },
   "src/server/write-handlers/documents.ts": {
@@ -4967,6 +4967,16 @@
   "tests/unit/invoice-vat-supplier-identity.test.ts": {
     "mtime": 1784342453.4213214,
     "ast_hash": "41e76d90e3ffcd62886bcd1499db8e61",
+    "semantic_hash": ""
+  },
+  "src/core/vat-rubric.ts": {
+    "mtime": 1784342718.602175,
+    "ast_hash": "3d20bbaae59331de2ed5d504f56343a4",
+    "semantic_hash": ""
+  },
+  "tests/unit/vat-critical-high-regression.test.ts": {
+    "mtime": 1784342988.213371,
+    "ast_hash": "75157e2bdd54e6c89c1e25aea6a6412f",
     "semantic_hash": ""
   }
 }

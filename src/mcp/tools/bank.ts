@@ -9,7 +9,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -25,6 +25,7 @@ import {
 import { suggestBankMatches } from "../../core/bank-suggest-matches";
 import { syncUnmatchedBankTransactionExceptions } from "../../core/exceptions";
 import { envelopeShape, successEnvelope, wrapCoreResult } from "../envelope";
+import { removePathWithRetry } from "../../core/fs-cleanup";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 import { applyPagination, paginationFields, paginationDescriptionSuffix } from "../pagination";
 
@@ -363,7 +364,7 @@ export function registerBankTools(server: McpServer): void {
             exceptionsCreated: sync.created,
           } as unknown as BankImportResult & { exceptionsCreated: number });
         } finally {
-          if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+          if (tmpDir) removePathWithRetry(tmpDir);
         }
       },
     ),

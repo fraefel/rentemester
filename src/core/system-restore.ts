@@ -1,6 +1,6 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, win32 } from "node:path";
 import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
 import { openDb } from "./db";
 import { verifyAuditChain } from "./ledger";
@@ -9,6 +9,7 @@ import { backupAsymmetricSignaturePath, backupManifestKeyPath, backupManifestSig
 import type { BackupManifest, ManifestFile } from "./system-backups";
 import { extractTar } from "./tar";
 import { insertAuditLog } from "./actor";
+import { closeThenRemovePath, removePathWithRetry } from "./fs-cleanup";
 
 const RULE_ID = "DK-BOOKKEEPING-RESTORE-001";
 
@@ -68,19 +69,36 @@ function readManifest(backupDir: string): BackupManifest | null {
   }
 }
 
-function resolveManifestPath(backupDir: string, manifestPath: string) {
-  const resolvedBackupDir = resolve(backupDir);
-  const candidate = isAbsolute(manifestPath) ? resolve(manifestPath) : resolve(resolvedBackupDir, manifestPath);
-  const normalizedRoot = `${resolvedBackupDir}${resolvedBackupDir.endsWith("/") ? "" : "/"}`;
-  const normalizedCandidate = normalize(candidate);
-  if (normalizedCandidate !== resolvedBackupDir && !normalizedCandidate.startsWith(normalizedRoot)) return null;
-  return normalizedCandidate;
+export function resolveManifestPath(backupDir: string, manifestPath: string) {
+  // A manifest can be created on Windows and restored elsewhere. Treat both
+  // separators as separators, and reject drive/UNC paths on every host.
+  const useWindowsPaths = /^[A-Za-z]:[\\/]|^\\\\/.test(backupDir);
+  const pathApi = useWindowsPaths ? win32 : { resolve, relative, isAbsolute };
+  if (isAbsolute(manifestPath) || win32.isAbsolute(manifestPath)) return null;
+  const normalizedManifestPath = useWindowsPaths
+    ? manifestPath.replace(/\//g, "\\")
+    : manifestPath.replace(/\\/g, "/");
+  const resolvedBackupDir = pathApi.resolve(backupDir);
+  const candidate = pathApi.resolve(resolvedBackupDir, normalizedManifestPath);
+  const fromRoot = pathApi.relative(resolvedBackupDir, candidate);
+  if (fromRoot === ".." || fromRoot.startsWith(`..${useWindowsPaths ? "\\" : "/"}`) || pathApi.isAbsolute(fromRoot)) return null;
+  return candidate;
+}
+
+function isSymlinkSafeManifestPath(backupDir: string, candidate: string) {
+  try {
+    const fromRoot = relative(realpathSync(backupDir), realpathSync(candidate));
+    return fromRoot !== ".." && !fromRoot.startsWith("../") && !isAbsolute(fromRoot) && !lstatSync(candidate).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 function ensureMatches(backupDir: string, file: ManifestFile) {
   const resolvedPath = resolveManifestPath(backupDir, file.path);
   if (!resolvedPath) return `manifest path escapes backup dir: ${file.path}`;
   if (!existsSync(resolvedPath)) return `missing backup file: ${file.path}`;
+  if (!isSymlinkSafeManifestPath(backupDir, resolvedPath)) return `manifest path escapes backup dir through symlink: ${file.path}`;
   const actualSize = statSync(resolvedPath).size;
   if (actualSize !== file.sizeBytes) return `size mismatch for ${file.path}`;
   const actualHash = sha256File(resolvedPath);
@@ -231,22 +249,26 @@ function restoreFiles(backupDir: string, files: ManifestFile[], targetDir: strin
   return files.length;
 }
 
-function validateRestoredDb(dbPath: string, manifest: BackupManifest) {
+function validateRestoredDb(dbPath: string, manifest: BackupManifest, cleanupOnFailure?: string) {
   const db = openDb(dbPath);
+  let result: { ok: true } | { ok: false; error: string } | undefined;
   try {
     const integrity = db.query("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
     if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
-      return { ok: false, error: `restored database failed integrity check: ${JSON.stringify(integrity)}` };
+      result = { ok: false, error: `restored database failed integrity check: ${JSON.stringify(integrity)}` };
+      return result;
     }
 
     const fkErrors = db.query("PRAGMA foreign_key_check").all() as any[];
     if (fkErrors.length > 0) {
-      return { ok: false, error: `restored database has FK violations: ${JSON.stringify(fkErrors)}` };
+      result = { ok: false, error: `restored database has FK violations: ${JSON.stringify(fkErrors)}` };
+      return result;
     }
 
     const audit = verifyAuditChain(db);
     if (!audit.ok) {
-      return { ok: false, error: `restored database has broken audit chain: ${audit.errors.join(", ")}` };
+      result = { ok: false, error: `restored database has broken audit chain: ${audit.errors.join(", ")}` };
+      return result;
     }
 
     const stats = {
@@ -255,12 +277,18 @@ function validateRestoredDb(dbPath: string, manifest: BackupManifest) {
       bankTransactions: (db.query("SELECT COUNT(*) AS n FROM bank_transactions").get() as { n: number }).n,
     };
     if (JSON.stringify(stats) !== JSON.stringify(manifest.ledgerStats)) {
-      return { ok: false, error: `restored stats ${JSON.stringify(stats)} differ from manifest ${JSON.stringify(manifest.ledgerStats)}` };
+      result = { ok: false, error: `restored stats ${JSON.stringify(stats)} differ from manifest ${JSON.stringify(manifest.ledgerStats)}` };
+      return result;
     }
 
-    return { ok: true as const };
+    result = { ok: true };
+    return result;
   } finally {
-    db.close();
+    if (result?.ok === false && cleanupOnFailure) {
+      closeThenRemovePath(db, cleanupOnFailure);
+    } else {
+      db.close();
+    }
   }
 }
 
@@ -402,13 +430,13 @@ export function restoreSystemBackup(input: RestoreSystemBackupInput): RestoreSys
     try {
       extractTar(readFileSync(source), extractDir);
     } catch (error) {
-      rmSync(extractDir, { recursive: true, force: true });
+      removePathWithRetry(extractDir);
       return { ok: false, appliedRules: [RULE_ID], errors: [`failed to extract backup archive: ${String(error)}`] };
     }
     try {
       return restoreFromBackupDir({ ...input, backupDir: extractDir });
     } finally {
-      rmSync(extractDir, { recursive: true, force: true });
+      removePathWithRetry(extractDir);
     }
   }
   return restoreFromBackupDir(input);
@@ -469,9 +497,8 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       config: restoreFiles(input.backupDir, manifest.copiedFiles.config, stagingPaths.config),
     };
 
-    const validation = validateRestoredDb(stagingPaths.db, manifest);
+    const validation = validateRestoredDb(stagingPaths.db, manifest, stagingRoot);
     if (!validation.ok) {
-      rmSync(stagingRoot, { recursive: true, force: true });
       return { ok: false, appliedRules: [RULE_ID], errors: [validation.error] };
     }
 
@@ -496,7 +523,7 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       // ledger could have been created in the target during that window. Never
       // recursively wipe a directory that now holds a ledger.
       if (targetHoldsLiveCompany(resolvedTarget)) {
-        rmSync(stagingRoot, { recursive: true, force: true });
+        removePathWithRetry(stagingRoot);
         return { ok: false, appliedRules: [RULE_ID], errors: [`targetCompanyRoot already contains a company ledger; refusing to overwrite: ${input.targetCompanyRoot}`] };
       }
       // KODE-8: refuse to recursively delete a NON-EMPTY ledger-less directory
@@ -504,7 +531,7 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       // own files pointed at by mistake; an empty placeholder is safe to drop.
       const entries = readdirSync(resolvedTarget);
       if (entries.length > 0 && !input.allowNonEmptyTarget) {
-        rmSync(stagingRoot, { recursive: true, force: true });
+        removePathWithRetry(stagingRoot);
         return {
           ok: false,
           appliedRules: [RULE_ID],
@@ -514,13 +541,13 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
           ],
         };
       }
-      rmSync(resolvedTarget, { recursive: true, force: true });
+      removePathWithRetry(resolvedTarget);
     } else {
       mkdirSync(dirname(resolvedTarget), { recursive: true });
     }
     renameSync(stagingRoot, resolvedTarget);
   } catch (error) {
-    rmSync(stagingRoot, { recursive: true, force: true });
+    removePathWithRetry(stagingRoot);
     return { ok: false, appliedRules: [RULE_ID], errors: [`restore failed: ${String(error)}`] };
   }
 

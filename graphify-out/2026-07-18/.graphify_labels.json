@@ -3606,9 +3606,16 @@
   "3604": "jsonLd",
   "3605": "steps",
   "3606": "sections",
+  "3607": "settlement.ts",
+  "3608": "envelopeShape",
+  "3609": "system.ts",
   "3610": "db-customers-migration.test.ts",
   "3611": "mcp-audit-log-list.test.ts",
+  "3612": "SuggestionsView.tsx",
+  "3613": "integrity.ts",
+  "3614": "rules.ts",
+  "3615": "liquidity-forecast.test.ts",
+  "3616": "human-output-cli.test.ts",
   "3617": "budget.test.ts",
-  "3620": "detectMimeType",
-  "3622": "registerVatTools"
+  "3618": "company-cli.test.ts"
 }

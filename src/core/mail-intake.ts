@@ -17,13 +17,14 @@
  * in sorted (filename, hash) order, and dedup is keyed on content hashes.
  */
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { ingestDocument, type DocumentMetadata, type IngestDocumentOptions } from "./documents";
 import { recordException } from "./exceptions";
+import { removePathWithRetry } from "./fs-cleanup";
 
 export const MAIL_INTAKE_RULES = {
   TRANSPORT: "DK-MAIL-INTAKE-TRANSPORT-001",
@@ -663,6 +664,6 @@ function ingestAttachment(
 
     return { ingested: true, exceptionCreated: false, documentNo: ingest.documentNo, sha256: ingest.sha256 };
   } finally {
-    rmSync(scratchDir, { recursive: true, force: true });
+    removePathWithRetry(scratchDir);
   }
 }

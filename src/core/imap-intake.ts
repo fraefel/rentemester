@@ -23,11 +23,12 @@
  * are NEVER written to the ledger DB.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { connect as netConnect, type Socket } from "node:net";
+import { removePathWithRetry } from "./fs-cleanup";
 import type { Database } from "bun:sqlite";
 import {
   ingestMailDrop,
@@ -165,7 +166,7 @@ export async function pollImapMailbox(
     const result = ingestMailDrop(db, companyRoot, dropDir, ingestOptions);
     return { ...result, messagesFetched: messages.length };
   } finally {
-    if (dropDir) rmSync(dropDir, { recursive: true, force: true });
+    if (dropDir) removePathWithRetry(dropDir);
     try {
       await client.close();
     } catch {

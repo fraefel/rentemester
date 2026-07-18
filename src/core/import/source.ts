@@ -11,10 +11,11 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArchiveIntegrityEvidence, ImportArtifact, MultiArtifactSource } from "./types";
+import { removePathWithRetry } from "../fs-cleanup";
 
 /** Strips a leading UTF-8 BOM (U+FEFF) from a decoded string. */
 function stripBom(text: string): string {
@@ -160,7 +161,7 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
       // below will fail clearly if dest is truly gone.
       try {
         for (const entry of readdirSync(dest)) {
-          rmSync(join(dest, entry), { recursive: true, force: true });
+          removePathWithRetry(join(dest, entry));
         }
       } catch (err) {
         const code = (err as NodeJS.ErrnoException | undefined)?.code;
@@ -228,13 +229,10 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
   } catch (err) {
     // Clean up the mkdtempSync directory on every failure path so a long-
     // running cockpit/bilagsmail server doesn't leak `/tmp/rentemester-import-*`
-    // trees full of partially-extracted Dinero receipts across days. The
-    // success path returns above without entering this catch.
-    try {
-      rmSync(dest, { recursive: true, force: true });
-    } catch {
-      // Swallow cleanup failures — we're already throwing the primary error.
-    }
+    // trees full of partially-extracted Dinero receipts across days. A
+    // permanent cleanup failure must remain visible; only known transient
+    // Windows locks are retried by removePathWithRetry.
+    removePathWithRetry(dest);
     throw err;
   }
 }

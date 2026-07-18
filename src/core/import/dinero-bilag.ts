@@ -30,7 +30,7 @@
 // SELF-CONTAINED — it touches only `documents`, `import_document_links` and
 // `exceptions`, never the hash-chained live journal.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -38,6 +38,7 @@ import type { Database } from "bun:sqlite";
 import { ingestDocument } from "../documents";
 import { recordException } from "../exceptions";
 import type { ImportArtifact, ImportResult, MultiArtifactSource } from "./types";
+import { removePathWithRetry } from "../fs-cleanup";
 
 const SYSTEM = "dinero";
 
@@ -327,7 +328,7 @@ export function ingestDineroBilag(
       );
     }
   } finally {
-    rmSync(spillDir, { recursive: true, force: true });
+    removePathWithRetry(spillDir);
   }
 
   auditTrail.push(

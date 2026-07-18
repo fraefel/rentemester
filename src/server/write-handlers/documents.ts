@@ -1,6 +1,6 @@
 // Document ingest + expense-from-bank booking handlers (#213 slice 3, #407).
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { ingestDocument, type DocumentMetadata } from "../../core/documents";
@@ -13,6 +13,7 @@ import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
 import { withCockpitActor } from "../actor";
 import { withCompanyMutation } from "../mutations";
+import { removePathWithRetry } from "../../core/fs-cleanup";
 import {
   MAX_UPLOAD_BODY_BYTES,
   okResponse,
@@ -182,7 +183,7 @@ export async function handleDocumentIngest(
           documentNo: ingested.documentNo,
         };
       } finally {
-        rmSync(tmpDir, { recursive: true, force: true });
+        removePathWithRetry(tmpDir);
       }
     },
     { requireConfirm: true, maxBodyBytes: MAX_UPLOAD_BODY_BYTES },

@@ -87,4 +87,5 @@ export const systemSpecs: CommandSpec[] = [
   { key: "system export-saft", usage: "system export-saft --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --out <dir> [--generated-at <ISO-8601>]", description: "Eksporterer første deterministiske SAF-T-slice (kontoplan, journal og salgsfakturaer).", allowedFlags: ["--company", "--from", "--to", "--out", "--generated-at"] },
   { key: "audit verify", usage: "audit verify --company <path>", description: "Verificerer audit-kæde og bogføringsintegritet.", allowedFlags: ["--company"] },
   { key: "accounts list", usage: "accounts list --company <path>", description: "Lister kontoplanen.", allowedFlags: ["--company"] },
+  { key: "accounts roles-status", usage: "accounts roles-status --company <path>", description: "Viser bekræftede konto-roller, mangler og tvetydige importforslag (read-only).", allowedFlags: ["--company"] },
 ];

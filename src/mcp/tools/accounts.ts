@@ -8,12 +8,18 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { envelopeShape, successEnvelope } from "../envelope";
 import { withCompanyDb } from "../tool-runtime";
+import { accountRoleStatus, resolveAccountRole, ACCOUNT_ROLES } from "../../core/account-roles";
 
 const inputSchema = {
   company: z.string().min(1, "company path is required"),
 };
 
 export function registerAccountsTools(server: McpServer): void {
+  server.registerTool(
+    "accounts_roles_status",
+    { title: "Account role status", description: "Read-only status and dry-run resolution for confirmed account roles; importer proposals never resolve postings.", inputSchema, outputSchema: envelopeShape, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    withCompanyDb<{ company: string }>(server, ({ db }) => successEnvelope({ ...accountRoleStatus(db), roles: ACCOUNT_ROLES.map((role) => resolveAccountRole(db, role)) })),
+  );
   server.registerTool(
     "accounts_list",
     {

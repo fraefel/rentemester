@@ -19,6 +19,7 @@ import { findWorkspaceCompany, companyRootForSlug } from "../../core/workspace";
 import { companyPaths } from "../../core/paths";
 import { openDb, migrate } from "../../core/db";
 import { getCompanySettings } from "../../core/company";
+import { accountRoleStatus, resolveAccountRole, ACCOUNT_ROLES } from "../../core/account-roles";
 
 export type AccountRow = {
   accountNo: string;
@@ -48,6 +49,7 @@ export type CompanyAccountsView = {
   accounts: AccountRow[];
   /** Sammentælling pr. type — så cockpittet kan vise et lille summary. */
   byType: Record<string, number>;
+  accountRoles: ReturnType<typeof accountRoleStatus> & { resolutions: ReturnType<typeof resolveAccountRole>[] };
 };
 
 export function buildCompanyAccounts(
@@ -110,6 +112,7 @@ export function buildCompanyAccounts(
       },
       accounts,
       byType,
+      accountRoles: { ...accountRoleStatus(db), resolutions: ACCOUNT_ROLES.map((role) => resolveAccountRole(db, role)) },
     };
   } finally {
     db.close();

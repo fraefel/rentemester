@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { addDkk, equalsDkk, roundDkk } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 const RULE_ID = "DK-INVOICE-BOOKKEEPING-001";
 const REVERSE_RULE_ID = "DK-INVOICE-BOOKKEEPING-REVERSE-002";
@@ -49,6 +50,9 @@ export function postIssuedInvoiceToLedger(db: Database, input: PostIssuedInvoice
   if (!Number.isInteger(input.invoiceDocumentId) || input.invoiceDocumentId <= 0) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["invoiceDocumentId must be a positive integer"] };
   }
+  const debtors = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
+  const outputVat = input.outputVatAccountNo ? { ok: true as const, accountNo: input.outputVatAccountNo } : resolveAccountRole(db, "output_vat");
+  if (!debtors.ok || !outputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [!debtors.ok ? debtors.error : outputVat.error] };
 
   const doc = db.query(
     `SELECT id, invoice_no, invoice_date, amount_inc_vat, currency, vat_amount, payload_json, document_type
@@ -116,7 +120,7 @@ export function postIssuedInvoiceToLedger(db: Database, input: PostIssuedInvoice
     return { ok: false, appliedRules: [RULE_ID], errors: [`invoice ${doc.invoice_no} DKK totals are inconsistent: netDkk + vatDkk (${addDkk(netAmountDkk, vatAmountDkk)}) does not equal grossDkk (${grossAmountDkk})`] };
   }
 
-  const posting = issuedInvoiceJournalLines(doc, payload, grossAmountDkk, netAmountDkk, vatAmountDkk, input);
+  const posting = issuedInvoiceJournalLines(doc, payload, grossAmountDkk, netAmountDkk, vatAmountDkk, { ...input, receivableAccountNo: debtors.accountNo, outputVatAccountNo: outputVat.accountNo });
   const journal = postJournalEntry(db, {
     transactionDate: input.transactionDate ?? doc.invoice_date ?? payload?.issueDate,
     text: `Faktura ${doc.invoice_no} udstedt`,

@@ -1,6 +1,7 @@
 import { migrate } from "../core/db";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandDispatch } from "../cli-dispatch";
+import { accountRoleStatus, resolveAccountRole, ACCOUNT_ROLES } from "../core/account-roles";
 
 export function register(dispatch: CommandDispatch): void {
   dispatch.on("accounts", "list", (ctx) => {
@@ -21,6 +22,14 @@ export function register(dispatch: CommandDispatch): void {
     // noise on an owner-facing list. Render the chart of accounts as an
     // aligned text table keyed on the account number instead. (#246)
     console.log(renderAccountsTable(rows));
+    db.close();
+  });
+  dispatch.on("accounts", "roles-status", (ctx) => {
+    const db = openCommandDb(ctx);
+    migrate(db);
+    const status = accountRoleStatus(db);
+    const roles = ACCOUNT_ROLES.map((role) => resolveAccountRole(db, role));
+    console.log(JSON.stringify({ ok: true, ...status, roles }, null, 2));
     db.close();
   });
 }

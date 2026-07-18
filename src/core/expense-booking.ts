@@ -3,6 +3,7 @@ import { getCompanySettings } from "./company";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { postEuServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
 import { absDkk, compareDkk, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 /**
  * `non_deductible` (DK-VAT-NON-DEDUCTIBLE-001 / Momsloven § 37) is the
@@ -250,7 +251,10 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     || (supplierName
       ? `Udgift fra ${supplierName} (banktransaktion ${bank.id})`
       : `Udgift (banktransaktion ${bank.id})`);
-  const paymentAccountNo = input.paymentAccountNo ?? "2000";
+  const payment = input.paymentAccountNo ? { ok: true as const, accountNo: input.paymentAccountNo } : resolveAccountRole(db, "bank");
+  const inputVat = resolveAccountRole(db, "input_vat");
+  if (!payment.ok || !inputVat.ok) return { ok: false, appliedRules: [], errors: [!payment.ok ? payment.error : inputVat.error] };
+  const paymentAccountNo = payment.accountNo;
   const fxBasis = resolveFxBookingBasis(document, bank);
   if (!fxBasis.ok) return { ok: false, appliedRules: [], errors: [fxBasis.error] };
 
@@ -301,7 +305,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       ...journalMetadata,
       lines: [
         { accountNo: account.account_no, debitAmount: netAmountDkk, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, grundbeløb" },
-        { accountNo: "4000", debitAmount: vatAmountDkk, text: "Købsmoms" },
+        { accountNo: inputVat.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" },
         { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text },
       ],
     });

@@ -40,6 +40,33 @@ CREATE TABLE IF NOT EXISTS accounts (
   allow_direct_posting INTEGER NOT NULL DEFAULT 1
 );
 
+-- #544: semantic roles are deliberately independent from account numbers.
+-- Imported charts often use different numbering, so a role can only be used
+-- after a human-confirmed mapping has passed the central compatibility check.
+CREATE TABLE IF NOT EXISTS account_role_mappings (
+  id INTEGER PRIMARY KEY,
+  role TEXT NOT NULL CHECK(role IN ('bank','debtors','creditors','output_vat','input_vat','reverse_charge_vat','vat_settlement','operational_default')),
+  account_no TEXT NOT NULL REFERENCES accounts(account_no),
+  status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','superseded','inactive')),
+  version INTEGER NOT NULL,
+  confirmed_by TEXT NOT NULL,
+  confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(role, version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_role_one_active_confirmed
+ON account_role_mappings(role) WHERE status = 'confirmed';
+
+-- Importers can suggest mappings, but suggestions never become posting input.
+CREATE TABLE IF NOT EXISTS account_role_proposals (
+  id INTEGER PRIMARY KEY,
+  role TEXT NOT NULL CHECK(role IN ('bank','debtors','creditors','output_vat','input_vat','reverse_charge_vat','vat_settlement','operational_default')),
+  account_no TEXT NOT NULL REFERENCES accounts(account_no),
+  source TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','rejected','accepted')),
+  proposed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(role, account_no, source)
+);
+
 CREATE TABLE IF NOT EXISTS sequences (
   kind TEXT NOT NULL,
   scope TEXT NOT NULL,

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { backfillRetentionDeadlines } from "./retention";
+import { seedNativeAccountRoles } from "./account-roles";
 
 function hasColumn(db: Database, table: string, column: string) {
   const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -167,6 +168,9 @@ export function migrate(db: Database) {
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_payments_journal_entry ON invoice_payments(journal_entry_id) WHERE journal_entry_id IS NOT NULL;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_accounting_periods_covering_date ON accounting_periods(period_start, period_end, status);");
+  // Existing native ledgers predate #544. Seed only mappings whose account
+  // metadata is compatible; imported/non-native charts remain incomplete.
+  seedNativeAccountRoles(db);
   backfillRetentionDeadlines(db);
 }
 

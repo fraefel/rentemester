@@ -4,6 +4,7 @@ import { getCompanySettings } from "./company";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { requireCachedViesValidation, normalizeEuVatNumber } from "./vies";
 import { addDkk, compareDkk, fromOre, percentOfDkk, roundDkk, subtractDkk, sumDkk, toOre } from "./money";
+import { resolveAccountRole } from "./account-roles";
 
 /** Absolute difference between two DKK amounts, expressed in whole øre. */
 function oreDifference(left: number, right: number): number {
@@ -218,6 +219,10 @@ export function postEuServiceReverseChargePurchase(db: Database, input: ReverseC
   if (!viesCheck.ok) return { ok: false, appliedRules: [...new Set([REVERSE_CHARGE_RULE_ID, ...viesCheck.appliedRules])], errors: viesCheck.errors };
 
   const vatAmount = percentOfDkk(input.netAmount, 25);
+  const inputVat = resolveAccountRole(db, "input_vat");
+  const outputVat = resolveAccountRole(db, "reverse_charge_vat");
+  const bank = input.paymentAccountNo ? { ok: true as const, accountNo: input.paymentAccountNo } : resolveAccountRole(db, "bank");
+  if (!inputVat.ok || !outputVat.ok || !bank.ok) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [!inputVat.ok ? inputVat.error : !outputVat.ok ? outputVat.error : bank.error] };
   const result = postJournalEntry(db, {
     transactionDate: input.transactionDate,
     text: input.text.trim(),
@@ -231,9 +236,9 @@ export function postEuServiceReverseChargePurchase(db: Database, input: ReverseC
     createdByProgram: input.createdByProgram,
     lines: [
       { accountNo: input.expenseAccountNo, debitAmount: roundDkk(input.netAmount), vatCode: "EU_SERVICE_REVERSE_CHARGE", text: "EU service purchase base" },
-      { accountNo: "4000", debitAmount: vatAmount, text: "Deductible reverse-charge input VAT" },
-      { accountNo: input.paymentAccountNo ?? "2000", creditAmount: roundDkk(input.netAmount), text: "Payment / liability" },
-      { accountNo: "1200", creditAmount: vatAmount, text: "Reverse-charge output VAT" },
+      { accountNo: inputVat.accountNo, debitAmount: vatAmount, text: "Deductible reverse-charge input VAT" },
+      { accountNo: bank.accountNo, creditAmount: roundDkk(input.netAmount), text: "Payment / liability" },
+      { accountNo: outputVat.accountNo, creditAmount: vatAmount, text: "Reverse-charge output VAT" },
     ],
   });
 

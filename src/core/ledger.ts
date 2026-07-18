@@ -11,6 +11,7 @@ import { retainUntilForDate } from "./retention";
 import { resolveOpenExceptionsForBankTransaction } from "./exceptions";
 import { compareDkk, fromOre, roundDkk, roundRate6, toOre } from "./money";
 import { asJournalEntryId, type JournalEntryId } from "./ids";
+import { seedNativeAccountRoles } from "./account-roles";
 
 export type JournalLineInput = {
   accountNo: string;
@@ -189,6 +190,7 @@ export function seedAccounts(db: Database) {
   ];
   const insert = db.prepare("INSERT OR IGNORE INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES (?,?,?,?,?)");
   db.transaction(() => rows.forEach((r) => insert.run(...r)), { immediate: true })();
+  seedNativeAccountRoles(db);
 }
 
 // Minimum entry-number suffix width. Numbers below 100 000 are zero-padded to

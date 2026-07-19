@@ -316,7 +316,7 @@ describe("invoice bad debt", () => {
       fixture.db.run(
         `INSERT INTO account_role_mappings
            (role, account_no, status, version, confirmed_by, confirmation_source, confirmed_at)
-         VALUES ('output_vat', '1201', 'confirmed', 2, 'user:test', 'explicit', ?)`,
+         VALUES ('output_vat', '1201', 'confirmed', 2, 'user:test', 'explicit', datetime(?, '+1 second'))`,
         registration,
       );
       fixture.db.run("UPDATE accounts SET active = 0 WHERE account_no IN ('1200', '3080')");

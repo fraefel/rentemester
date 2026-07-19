@@ -256,9 +256,9 @@ test("Dinero VAT accounts are recognised while account number 1200 is not inferr
   db.close(); rmSync(root, { recursive: true, force: true });
 });
 
-test("exact Dinero 64040/64060 reverse-charge controls classify one matching historical expense base", () => {
+test("exact Dinero 64040/64060 reverse-charge controls override one matching account default", () => {
   const { root, db } = freshDb();
-  db.run("INSERT INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES ('3090','Imported service','expense','debit',NULL),('64040','Dinero reverse','liability','credit',NULL),('64060','Dinero input','liability','debit',NULL)");
+  db.run("INSERT INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES ('3090','Imported service','expense','debit','DK_PURCHASE_25'),('64040','Dinero reverse','liability','credit',NULL),('64060','Dinero input','liability','debit',NULL)");
   const imported = postDineroPostings(db, [{
     transactionDate: "2026-05-06",
     text: "Dinero reverse charge without Momstype",
@@ -312,6 +312,82 @@ test("report infers an exact reverse-charge base in an already-imported Dinero l
   expect(report.rubrikker.rubrikA).toBe(100);
   expect(report.rubrikker.momsAfYdelseskobUdland).toBe(25);
   expect(report.rubrikker.salgsmoms).toBe(0);
+  db.close(); rmSync(root, { recursive: true, force: true });
+});
+
+test("sanitized pre-normalization Dinero 64060 liability credit is trusted only for the exact historical control pair", () => {
+  const { root, db } = freshDb();
+  expect(setCompanyVatPeriodType(db, "month").ok).toBe(true);
+  const fixture = JSON.parse(readFileSync(
+    join(import.meta.dir, "../fixtures/vat-legacy/dinero-64060-liability-credit.json"),
+    "utf8",
+  )) as {
+    entryNo: string;
+    transactionDate: string;
+    text: string;
+    lines: Array<{ accountNo: string; debitAmount: number; creditAmount: number }>;
+  };
+  db.run("INSERT INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES ('3090','Imported service','expense','debit','DK_PURCHASE_25'),('64040','Dinero reverse','liability','credit',NULL),('64060','Dinero input','liability','credit',NULL)");
+  const entry = db.query(
+    `INSERT INTO journal_entries
+       (entry_no, transaction_date, text, rule_version, created_by_program, entry_hash)
+     VALUES (?, ?, ?, 'legacy', ?, 'legacy-64060-liability-credit')
+     RETURNING id`,
+  ).get(fixture.entryNo, fixture.transactionDate, fixture.text, HISTORICAL_IMPORT_PROGRAM) as { id: number };
+  for (const line of fixture.lines) {
+    db.query(
+      `INSERT INTO journal_lines (journal_entry_id, account_id, debit_amount, credit_amount)
+       SELECT ?, id, ?, ? FROM accounts WHERE account_no = ?`,
+    ).run(entry.id, line.debitAmount, line.creditAmount, line.accountNo);
+  }
+
+  const report = buildVatReport(db, "2026-05-01", "2026-05-31");
+  expect(report.ok).toBe(true);
+  expect(report.inputVat).toBe(25);
+  expect(report.reverseChargePurchaseBase).toBe(100.03);
+  expect(report.rubrikker).toMatchObject({
+    rubrikA: 100.03,
+    momsAfYdelseskobUdland: 25,
+    kobsmoms: 25,
+  });
+  expect(closeAccountingPeriod(db, {
+    periodStart: "2026-05-01", periodEnd: "2026-05-31", kind: "vat_period", force: true,
+  }).ok).toBe(true);
+  const filing = buildVatFiling(db, "2026-05-01", "2026-05-31");
+  expect(filing.ok).toBe(true);
+  expect(filing.rubrikker).toEqual(report.rubrikker);
+
+  // The same chart shape without the immutable historical-import marker does
+  // not turn liability/credit 64060 into deductible input VAT.
+  const { root: untrustedRoot, db: untrustedDb } = freshDb();
+  untrustedDb.run("INSERT INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES ('3090','Imported service','expense','debit','DK_PURCHASE_25'),('64040','Dinero reverse','liability','credit',NULL),('64060','Dinero input','liability','credit',NULL)");
+  const untrustedEntry = untrustedDb.query(
+    `INSERT INTO journal_entries
+       (entry_no, transaction_date, text, rule_version, created_by_program, entry_hash)
+     VALUES (?, ?, ?, 'legacy', 'rentemester', 'untrusted-64060-liability-credit')
+     RETURNING id`,
+  ).get(fixture.entryNo, fixture.transactionDate, fixture.text) as { id: number };
+  for (const line of fixture.lines) {
+    untrustedDb.query(
+      `INSERT INTO journal_lines (journal_entry_id, account_id, debit_amount, credit_amount)
+       SELECT ?, id, ?, ? FROM accounts WHERE account_no = ?`,
+    ).run(untrustedEntry.id, line.debitAmount, line.creditAmount, line.accountNo);
+  }
+  const untrusted = buildVatReport(untrustedDb, "2026-05-01", "2026-05-31");
+  expect(untrusted.ok).toBe(false);
+  expect(untrusted.inputVat).toBe(0);
+  const manual = postJournalEntry(db, {
+    transactionDate: "2026-06-01", text: "new manual Dinero-shaped entry",
+    lines: [
+      { accountNo: "3090", debitAmount: 100 },
+      { accountNo: "64060", debitAmount: 25 },
+      { accountNo: "2000", creditAmount: 100 },
+      { accountNo: "64040", creditAmount: 25 },
+    ],
+  });
+  expect(manual.ok).toBe(false);
+  expect(manual.errors.join(" ")).toContain("require an explicit vatCode on the VAT base line");
+  untrustedDb.close(); rmSync(untrustedRoot, { recursive: true, force: true });
   db.close(); rmSync(root, { recursive: true, force: true });
 });
 

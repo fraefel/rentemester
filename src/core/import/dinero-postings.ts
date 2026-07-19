@@ -296,14 +296,19 @@ function classifyDineroReverseChargePatterns(
   entries: ImportHistoricalEntry[],
 ): { entries: ImportHistoricalEntry[]; errors: string[] } {
   const accountRows = db
-    .query("SELECT account_no, type, default_vat_code FROM accounts")
+    .query("SELECT account_no, type, normal_balance FROM accounts")
     .all() as Array<{
     account_no: string;
     type: string;
-    default_vat_code: string | null;
+    normal_balance: "debit" | "credit";
   }>;
   const accounts = new Map(accountRows.map((row) => [row.account_no, row]));
   const errors: string[] = [];
+  const legacyVatToleranceOre = 1n;
+  const withinLegacyVatTolerance = (actual: bigint, expected: bigint): boolean => {
+    const difference = actual - expected;
+    return (difference < 0n ? -difference : difference) <= legacyVatToleranceOre;
+  };
   const accountNoOf = (line: ImportHistoricalEntry["lines"][number]): string =>
     typeof line.accountNo === "string" ? line.accountNo.trim() : "";
 
@@ -312,6 +317,17 @@ function classifyDineroReverseChargePatterns(
     const outputControls = lines.filter((line) => accountNoOf(line) === "64040");
     const inputControls = lines.filter((line) => accountNoOf(line) === "64060");
     if (outputControls.length === 0 || inputControls.length === 0) return entry;
+
+    // Account numbers alone are never enough: retain the source chart shape
+    // so an unrelated manual/custom chart cannot acquire Dinero semantics.
+    const outputAccount = accounts.get("64040");
+    const inputAccount = accounts.get("64060");
+    if (
+      outputAccount?.type !== "liability" ||
+      outputAccount.normal_balance !== "credit" ||
+      inputAccount?.type !== "liability" ||
+      (inputAccount.normal_balance !== "debit" && inputAccount.normal_balance !== "credit")
+    ) return entry;
 
     const ref = refOf(entry, entryIndex);
     const outputOre = outputControls.reduce(
@@ -332,18 +348,21 @@ function classifyDineroReverseChargePatterns(
     const expenseIndexes = lines.flatMap((line, lineIndex) =>
       accounts.get(accountNoOf(line))?.type === "expense" ? [lineIndex] : [],
     );
-    const effectiveCode = (lineIndex: number): string => {
+    const explicitCode = (lineIndex: number): string => {
       const line = lines[lineIndex]!;
-      const explicit = typeof line.vatCode === "string" ? line.vatCode.trim() : "";
-      return explicit || accounts.get(accountNoOf(line))?.default_vat_code?.trim() || "";
+      return typeof line.vatCode === "string" ? line.vatCode.trim() : "";
     };
     const alreadyClassified = expenseIndexes.filter(
-      (lineIndex) => effectiveCode(lineIndex) === "EU_SERVICE_REVERSE_CHARGE",
+      (lineIndex) => explicitCode(lineIndex) === "EU_SERVICE_REVERSE_CHARGE",
     );
 
     let baseIndexes = alreadyClassified;
     if (baseIndexes.length === 0) {
-      const conflicting = expenseIndexes.filter((lineIndex) => effectiveCode(lineIndex).length > 0);
+      // A source line's explicit Momstype is authoritative. An account-level
+      // default is only a normalisation convenience and may be wrong for an
+      // old Dinero voucher, so the exact control pair may override that
+      // default but never an explicit line classification.
+      const conflicting = expenseIndexes.filter((lineIndex) => explicitCode(lineIndex).length > 0);
       if (conflicting.length > 0) {
         errors.push(
           `voucher ${ref} has Dinero reverse-charge controls but its expense base carries a conflicting VAT code; human resolution is required`,
@@ -353,7 +372,10 @@ function classifyDineroReverseChargePatterns(
       baseIndexes = expenseIndexes.filter((lineIndex) => {
         const line = lines[lineIndex]!;
         const netDebit = Number(line.debitAmount ?? 0) - Number(line.creditAmount ?? 0);
-        return netDebit > 0 && toOre(percentOfDkk(netDebit, 25)) === outputOre;
+        return netDebit > 0 && withinLegacyVatTolerance(
+          toOre(percentOfDkk(netDebit, 25)),
+          outputOre,
+        );
       });
       if (baseIndexes.length !== 1) {
         errors.push(
@@ -367,7 +389,7 @@ function classifyDineroReverseChargePatterns(
       const line = lines[lineIndex]!;
       return sum + toOre(Number(line.debitAmount ?? 0) - Number(line.creditAmount ?? 0));
     }, 0n);
-    if (toOre(percentOfDkk(Number(baseOre) / 100, 25)) !== outputOre) {
+    if (!withinLegacyVatTolerance(toOre(percentOfDkk(Number(baseOre) / 100, 25)), outputOre)) {
       errors.push(
         `voucher ${ref} has Dinero reverse-charge controls that do not reconcile to its classified expense base; human resolution is required`,
       );

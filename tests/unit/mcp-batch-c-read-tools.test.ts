@@ -40,6 +40,7 @@ let workspaceRoot: string;
 let companyRoot: string;
 let bankRegistered: Record<string, RegisteredTool>;
 let companyRegistered: Record<string, RegisteredTool>;
+let previousMcpAgent: string | undefined;
 
 beforeAll(() => {
   workspaceRoot = mkdtempSync(join(tmpdir(), "rentemester-batch-c-"));
@@ -52,6 +53,7 @@ beforeAll(() => {
     cvr: "12345678",
   });
   companyRoot = created.companyRoot;
+  previousMcpAgent = process.env.RENTEMESTER_MCP_AGENT;
   process.env.RENTEMESTER_MCP_AGENT = "bank-account-mcp-test";
   appendFileSync(
     join(companyRoot, "config", "policy.yaml"),
@@ -92,6 +94,11 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  if (previousMcpAgent === undefined) {
+    delete process.env.RENTEMESTER_MCP_AGENT;
+  } else {
+    process.env.RENTEMESTER_MCP_AGENT = previousMcpAgent;
+  }
   rmSync(workspaceRoot, { recursive: true, force: true });
 });
 

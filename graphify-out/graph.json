@@ -310,7 +310,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_app_test",
-      "community": 4,
+      "community": 341,
       "norm_label": "app.test.tsx"
     },
     {
@@ -320,7 +320,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "app_src_app_test_renderapp",
-      "community": 4,
+      "community": 341,
       "norm_label": "renderapp()"
     },
     {
@@ -330,7 +330,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_app",
-      "community": 4,
+      "community": 341,
       "norm_label": "app.tsx"
     },
     {
@@ -340,7 +340,7 @@
       "source_location": "L65",
       "_origin": "ast",
       "id": "app_src_app_app",
-      "community": 4,
+      "community": 341,
       "norm_label": "app()"
     },
     {
@@ -350,7 +350,7 @@
       "source_location": "L204",
       "_origin": "ast",
       "id": "app_src_app_notfound",
-      "community": 4,
+      "community": 341,
       "norm_label": "notfound()"
     },
     {
@@ -360,7 +360,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_accountantexportcard",
-      "community": 295,
+      "community": 103,
       "norm_label": "accountantexportcard.tsx"
     },
     {
@@ -370,7 +370,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "app_src_components_accountantexportcard_accountantexportcard",
-      "community": 295,
+      "community": 103,
       "norm_label": "accountantexportcard()"
     },
     {
@@ -500,7 +500,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_bankreconcilemodal_test",
-      "community": 295,
+      "community": 10,
       "norm_label": "bankreconcilemodal.test.tsx"
     },
     {
@@ -510,7 +510,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "app_src_components_bankreconcilemodal_test_noop",
-      "community": 295,
+      "community": 10,
       "norm_label": "noop()"
     },
     {
@@ -520,7 +520,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "app_src_components_bankreconcilemodal_test_tx",
-      "community": 295,
+      "community": 10,
       "norm_label": "tx"
     },
     {
@@ -530,7 +530,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "app_src_components_bankreconcilemodal_test_settleroute",
-      "community": 295,
+      "community": 10,
       "norm_label": "settleroute()"
     },
     {
@@ -620,7 +620,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_companycard",
-      "community": 295,
+      "community": 103,
       "norm_label": "companycard.tsx"
     },
     {
@@ -630,7 +630,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "app_src_components_companycard_companycard",
-      "community": 295,
+      "community": 103,
       "norm_label": "companycard()"
     },
     {
@@ -640,7 +640,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_companyform_test",
-      "community": 295,
+      "community": 341,
       "norm_label": "companyform.test.tsx"
     },
     {
@@ -650,7 +650,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_companyform",
-      "community": 295,
+      "community": 341,
       "norm_label": "companyform.tsx"
     },
     {
@@ -660,7 +660,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "app_src_components_companyform_vat_period_options",
-      "community": 295,
+      "community": 341,
       "norm_label": "vat_period_options"
     },
     {
@@ -670,7 +670,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "app_src_components_companyform_companyform",
-      "community": 295,
+      "community": 341,
       "norm_label": "companyform()"
     },
     {
@@ -680,7 +680,7 @@
       "source_location": "L202",
       "_origin": "ast",
       "id": "app_src_components_companyform_months",
-      "community": 295,
+      "community": 341,
       "norm_label": "months"
     },
     {
@@ -780,7 +780,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_confirmdialog_test",
-      "community": 295,
+      "community": 37,
       "norm_label": "confirmdialog.test.tsx"
     },
     {
@@ -790,7 +790,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_components_confirmdialog_test_noop",
-      "community": 295,
+      "community": 37,
       "norm_label": "noop()"
     },
     {
@@ -800,7 +800,7 @@
       "source_location": "L116",
       "_origin": "ast",
       "id": "app_src_components_confirmdialog_test_harness",
-      "community": 295,
+      "community": 37,
       "norm_label": "harness()"
     },
     {
@@ -840,7 +840,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "app_src_components_confirmdialog_confirmdialog",
-      "community": 295,
+      "community": 37,
       "norm_label": "confirmdialog()"
     },
     {
@@ -850,7 +850,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactformmodal.tsx"
     },
     {
@@ -860,7 +860,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_maybeapierror",
-      "community": 341,
+      "community": 295,
       "norm_label": "maybeapierror"
     },
     {
@@ -870,7 +870,7 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_contactkind",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactkind"
     },
     {
@@ -880,7 +880,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_contactformmodalprops",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactformmodalprops"
     },
     {
@@ -890,7 +890,7 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_formstate",
-      "community": 341,
+      "community": 295,
       "norm_label": "formstate"
     },
     {
@@ -900,7 +900,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_vat_treatment_options",
-      "community": 341,
+      "community": 295,
       "norm_label": "vat_treatment_options"
     },
     {
@@ -910,7 +910,7 @@
       "source_location": "L67",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_emptyform",
-      "community": 341,
+      "community": 295,
       "norm_label": "emptyform()"
     },
     {
@@ -920,7 +920,7 @@
       "source_location": "L86",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_customertoform",
-      "community": 341,
+      "community": 295,
       "norm_label": "customertoform()"
     },
     {
@@ -930,7 +930,7 @@
       "source_location": "L105",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_vendortoform",
-      "community": 341,
+      "community": 295,
       "norm_label": "vendortoform()"
     },
     {
@@ -940,7 +940,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_maybe",
-      "community": 341,
+      "community": 295,
       "norm_label": "maybe()"
     },
     {
@@ -950,7 +950,7 @@
       "source_location": "L130",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_lookslikedanishcvr",
-      "community": 341,
+      "community": 295,
       "norm_label": "lookslikedanishcvr()"
     },
     {
@@ -960,7 +960,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "app_src_components_contactformmodal_contactformmodal",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactformmodal()"
     },
     {
@@ -1030,7 +1030,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_documentingestmodal_test",
-      "community": 146,
+      "community": 295,
       "norm_label": "documentingestmodal.test.tsx"
     },
     {
@@ -1040,7 +1040,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "app_src_components_documentingestmodal_test_noop",
-      "community": 146,
+      "community": 295,
       "norm_label": "noop()"
     },
     {
@@ -1050,7 +1050,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "app_src_components_documentingestmodal_test_receiptfile",
-      "community": 146,
+      "community": 295,
       "norm_label": "receiptfile()"
     },
     {
@@ -1060,7 +1060,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "app_src_components_documentingestmodal_test_ingestroute",
-      "community": 146,
+      "community": 295,
       "norm_label": "ingestroute()"
     },
     {
@@ -1070,7 +1070,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "app_src_components_documentingestmodal_test_pickreceipttype",
-      "community": 146,
+      "community": 295,
       "norm_label": "pickreceipttype()"
     },
     {
@@ -1130,7 +1130,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "app_src_components_documentingestmodal_documentingestmodal",
-      "community": 146,
+      "community": 295,
       "norm_label": "documentingestmodal()"
     },
     {
@@ -1440,7 +1440,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_components_mileageregistermodal",
-      "community": 295,
+      "community": 103,
       "norm_label": "mileageregistermodal.tsx"
     },
     {
@@ -1450,7 +1450,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "app_src_components_mileageregistermodal_maybeapierror",
-      "community": 295,
+      "community": 103,
       "norm_label": "maybeapierror"
     },
     {
@@ -1460,7 +1460,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "app_src_components_mileageregistermodal_mileageregistermodalprops",
-      "community": 295,
+      "community": 103,
       "norm_label": "mileageregistermodalprops"
     },
     {
@@ -1470,7 +1470,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "app_src_components_mileageregistermodal_mileageregistermodal",
-      "community": 295,
+      "community": 103,
       "norm_label": "mileageregistermodal()"
     },
     {
@@ -1720,7 +1720,7 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "app_src_lib_api_api",
-      "community": 295,
+      "community": 103,
       "norm_label": "api"
     },
     {
@@ -1970,7 +1970,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_api_companies",
-      "community": 20,
+      "community": 357,
       "norm_label": "companies.ts"
     },
     {
@@ -1980,7 +1980,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "app_src_lib_api_companies_companiesapi",
-      "community": 20,
+      "community": 357,
       "norm_label": "companiesapi"
     },
     {
@@ -1990,7 +1990,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_api_contacts",
-      "community": 341,
+      "community": 295,
       "norm_label": "contacts.ts"
     },
     {
@@ -2000,7 +2000,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "app_src_lib_api_contacts_contactsapi",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactsapi"
     },
     {
@@ -2550,7 +2550,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_format_test",
-      "community": 295,
+      "community": 103,
       "norm_label": "format.test.ts"
     },
     {
@@ -2560,7 +2560,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_format",
-      "community": 295,
+      "community": 103,
       "norm_label": "format.ts"
     },
     {
@@ -2570,7 +2570,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "app_src_lib_format_formatkronerda",
-      "community": 295,
+      "community": 103,
       "norm_label": "formatkronerda()"
     },
     {
@@ -2580,7 +2580,7 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "app_src_lib_format_normalizecurrency",
-      "community": 295,
+      "community": 103,
       "norm_label": "normalizecurrency()"
     },
     {
@@ -2590,7 +2590,7 @@
       "source_location": "L69",
       "_origin": "ast",
       "id": "app_src_lib_format_formatcurrency",
-      "community": 295,
+      "community": 103,
       "norm_label": "formatcurrency()"
     },
     {
@@ -2610,7 +2610,7 @@
       "source_location": "L96",
       "_origin": "ast",
       "id": "app_src_lib_format_formatpercent",
-      "community": 103,
+      "community": 280,
       "norm_label": "formatpercent()"
     },
     {
@@ -2620,7 +2620,7 @@
       "source_location": "L105",
       "_origin": "ast",
       "id": "app_src_lib_format_todayiso",
-      "community": 295,
+      "community": 103,
       "norm_label": "todayiso()"
     },
     {
@@ -2630,7 +2630,7 @@
       "source_location": "L136",
       "_origin": "ast",
       "id": "app_src_lib_format_parsedanishamount",
-      "community": 295,
+      "community": 103,
       "norm_label": "parsedanishamount()"
     },
     {
@@ -2640,7 +2640,7 @@
       "source_location": "L190",
       "_origin": "ast",
       "id": "app_src_lib_format_stripdanishthousands",
-      "community": 295,
+      "community": 103,
       "norm_label": "stripdanishthousands()"
     },
     {
@@ -2650,7 +2650,7 @@
       "source_location": "L201",
       "_origin": "ast",
       "id": "app_src_lib_format_da_date_format",
-      "community": 295,
+      "community": 103,
       "norm_label": "da_date_format"
     },
     {
@@ -2660,7 +2660,7 @@
       "source_location": "L216",
       "_origin": "ast",
       "id": "app_src_lib_format_formatdateda",
-      "community": 295,
+      "community": 103,
       "norm_label": "formatdateda()"
     },
     {
@@ -2670,7 +2670,7 @@
       "source_location": "L237",
       "_origin": "ast",
       "id": "app_src_lib_format_tastselvnumber",
-      "community": 4,
+      "community": 103,
       "norm_label": "tastselvnumber()"
     },
     {
@@ -2680,7 +2680,7 @@
       "source_location": "L312",
       "_origin": "ast",
       "id": "app_src_lib_format_attentionlevel",
-      "community": 295,
+      "community": 103,
       "norm_label": "attentionlevel"
     },
     {
@@ -2690,7 +2690,7 @@
       "source_location": "L247",
       "_origin": "ast",
       "id": "app_src_lib_format_attentionflag",
-      "community": 295,
+      "community": 103,
       "norm_label": "attentionflag"
     },
     {
@@ -2700,7 +2700,7 @@
       "source_location": "L268",
       "_origin": "ast",
       "id": "app_src_lib_format_attentionflags",
-      "community": 295,
+      "community": 103,
       "norm_label": "attentionflags()"
     },
     {
@@ -2710,7 +2710,7 @@
       "source_location": "L319",
       "_origin": "ast",
       "id": "app_src_lib_format_rank",
-      "community": 295,
+      "community": 103,
       "norm_label": "rank"
     },
     {
@@ -2720,7 +2720,7 @@
       "source_location": "L325",
       "_origin": "ast",
       "id": "app_src_lib_format_sortbyattention",
-      "community": 295,
+      "community": 103,
       "norm_label": "sortbyattention()"
     },
     {
@@ -2730,7 +2730,7 @@
       "source_location": "L335",
       "_origin": "ast",
       "id": "app_src_lib_format_formatdeadline",
-      "community": 295,
+      "community": 103,
       "norm_label": "formatdeadline()"
     },
     {
@@ -2750,7 +2750,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_types_accounts",
-      "community": 380,
+      "community": 4,
       "norm_label": "accounts.ts"
     },
     {
@@ -2760,7 +2760,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "app_src_lib_types_accounts_accountrow",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountrow"
     },
     {
@@ -2770,7 +2770,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "app_src_lib_types_accounts_accountrole",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountrole"
     },
     {
@@ -2780,7 +2780,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "app_src_lib_types_accounts_accountroleresolution",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountroleresolution"
     },
     {
@@ -2790,7 +2790,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "app_src_lib_types_accounts_accountroles",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountroles"
     },
     {
@@ -2800,7 +2800,7 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "app_src_lib_types_accounts_companyaccounts",
-      "community": 380,
+      "community": 4,
       "norm_label": "companyaccounts"
     },
     {
@@ -2860,7 +2860,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_types_annual_report",
-      "community": 280,
+      "community": 341,
       "norm_label": "annual-report.ts"
     },
     {
@@ -2870,7 +2870,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "app_src_lib_types_annual_report_annualreportline",
-      "community": 280,
+      "community": 341,
       "norm_label": "annualreportline"
     },
     {
@@ -2880,7 +2880,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "app_src_lib_types_annual_report_annualreportsection",
-      "community": 280,
+      "community": 341,
       "norm_label": "annualreportsection"
     },
     {
@@ -2890,7 +2890,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "app_src_lib_types_annual_report_annualreport",
-      "community": 280,
+      "community": 341,
       "norm_label": "annualreport"
     },
     {
@@ -3070,7 +3070,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "app_src_lib_types_bank_companybank",
-      "community": 280,
+      "community": 10,
       "norm_label": "companybank"
     },
     {
@@ -3110,7 +3110,7 @@
       "source_location": "L80",
       "_origin": "ast",
       "id": "app_src_lib_types_bank_companycashflow",
-      "community": 280,
+      "community": 10,
       "norm_label": "companycashflow"
     },
     {
@@ -3380,7 +3380,7 @@
       "source_location": "L71",
       "_origin": "ast",
       "id": "app_src_lib_types_common_vatperiodtype",
-      "community": 295,
+      "community": 341,
       "norm_label": "vatperiodtype"
     },
     {
@@ -3390,7 +3390,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_types_companies",
-      "community": 20,
+      "community": 357,
       "norm_label": "companies.ts"
     },
     {
@@ -3400,7 +3400,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companyentry",
-      "community": 20,
+      "community": 357,
       "norm_label": "companyentry"
     },
     {
@@ -3410,7 +3410,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companylistresponse",
-      "community": 20,
+      "community": 357,
       "norm_label": "companylistresponse"
     },
     {
@@ -3420,7 +3420,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_exceptiongroup",
-      "community": 20,
+      "community": 357,
       "norm_label": "exceptiongroup"
     },
     {
@@ -3430,7 +3430,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companyvatsummary",
-      "community": 20,
+      "community": 357,
       "norm_label": "companyvatsummary"
     },
     {
@@ -3440,7 +3440,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companysummary",
-      "community": 20,
+      "community": 357,
       "norm_label": "companysummary"
     },
     {
@@ -3450,7 +3450,7 @@
       "source_location": "L65",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_portfoliooverview",
-      "community": 20,
+      "community": 357,
       "norm_label": "portfoliooverview"
     },
     {
@@ -3470,7 +3470,7 @@
       "source_location": "L92",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_createcompanyinput",
-      "community": 20,
+      "community": 357,
       "norm_label": "createcompanyinput"
     },
     {
@@ -3480,7 +3480,7 @@
       "source_location": "L107",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_updatecompanyinput",
-      "community": 20,
+      "community": 357,
       "norm_label": "updatecompanyinput"
     },
     {
@@ -3490,7 +3490,7 @@
       "source_location": "L113",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companypaymentinput",
-      "community": 20,
+      "community": 357,
       "norm_label": "companypaymentinput"
     },
     {
@@ -3500,7 +3500,7 @@
       "source_location": "L124",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companyprofileinput",
-      "community": 20,
+      "community": 357,
       "norm_label": "companyprofileinput"
     },
     {
@@ -3510,7 +3510,7 @@
       "source_location": "L146",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companypaymentdetails",
-      "community": 20,
+      "community": 357,
       "norm_label": "companypaymentdetails"
     },
     {
@@ -3520,7 +3520,7 @@
       "source_location": "L154",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companysettings",
-      "community": 20,
+      "community": 357,
       "norm_label": "companysettings"
     },
     {
@@ -3530,7 +3530,7 @@
       "source_location": "L183",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_companysettingsresponse",
-      "community": 20,
+      "community": 357,
       "norm_label": "companysettingsresponse"
     },
     {
@@ -3540,7 +3540,7 @@
       "source_location": "L188",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_cvrmanagementmember",
-      "community": 20,
+      "community": 357,
       "norm_label": "cvrmanagementmember"
     },
     {
@@ -3550,7 +3550,7 @@
       "source_location": "L191",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_cvrcompanyinfo",
-      "community": 20,
+      "community": 357,
       "norm_label": "cvrcompanyinfo"
     },
     {
@@ -3560,7 +3560,7 @@
       "source_location": "L220",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_synccvrresult",
-      "community": 20,
+      "community": 357,
       "norm_label": "synccvrresult"
     },
     {
@@ -3570,7 +3570,7 @@
       "source_location": "L232",
       "_origin": "ast",
       "id": "app_src_lib_types_companies_synccvrresponse",
-      "community": 20,
+      "community": 357,
       "norm_label": "synccvrresponse"
     },
     {
@@ -3580,7 +3580,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts",
-      "community": 341,
+      "community": 295,
       "norm_label": "contacts.ts"
     },
     {
@@ -3590,7 +3590,7 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts_contactcustomerrow",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactcustomerrow"
     },
     {
@@ -3600,7 +3600,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts_contactvendorrow",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactvendorrow"
     },
     {
@@ -3610,7 +3610,7 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts_customerinput",
-      "community": 341,
+      "community": 295,
       "norm_label": "customerinput"
     },
     {
@@ -3620,7 +3620,7 @@
       "source_location": "L66",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts_vendorinput",
-      "community": 341,
+      "community": 295,
       "norm_label": "vendorinput"
     },
     {
@@ -3630,7 +3630,7 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts_cvrlookupresult",
-      "community": 341,
+      "community": 295,
       "norm_label": "cvrlookupresult"
     },
     {
@@ -3640,7 +3640,7 @@
       "source_location": "L97",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts_companycontacts",
-      "community": 280,
+      "community": 10,
       "norm_label": "companycontacts"
     },
     {
@@ -3650,7 +3650,7 @@
       "source_location": "L105",
       "_origin": "ast",
       "id": "app_src_lib_types_contacts_contactsresponse",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactsresponse"
     },
     {
@@ -3840,7 +3840,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "app_src_lib_types_exceptions_companyagentsuggestions",
-      "community": 280,
+      "community": 10,
       "norm_label": "companyagentsuggestions"
     },
     {
@@ -4080,7 +4080,7 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "app_src_lib_types_invoices_companyinvoices",
-      "community": 280,
+      "community": 10,
       "norm_label": "companyinvoices"
     },
     {
@@ -4220,7 +4220,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "app_src_lib_types_journal_companyjournal",
-      "community": 103,
+      "community": 20,
       "norm_label": "companyjournal"
     },
     {
@@ -4270,7 +4270,7 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "app_src_lib_types_mileage_companymileage",
-      "community": 280,
+      "community": 10,
       "norm_label": "companymileage"
     },
     {
@@ -4340,7 +4340,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "app_src_lib_types_obligations_companyobligations",
-      "community": 280,
+      "community": 10,
       "norm_label": "companyobligations"
     },
     {
@@ -4740,7 +4740,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "app_src_lib_types_statements_companyincomestatement",
-      "community": 103,
+      "community": 20,
       "norm_label": "companyincomestatement"
     },
     {
@@ -4780,7 +4780,7 @@
       "source_location": "L63",
       "_origin": "ast",
       "id": "app_src_lib_types_statements_companybalance",
-      "community": 103,
+      "community": 20,
       "norm_label": "companybalance"
     },
     {
@@ -4810,7 +4810,7 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "app_src_lib_types_statements_companytrialbalance",
-      "community": 103,
+      "community": 20,
       "norm_label": "companytrialbalance"
     },
     {
@@ -4840,7 +4840,7 @@
       "source_location": "L141",
       "_origin": "ast",
       "id": "app_src_lib_types_statements_companyarchiveyear",
-      "community": 20,
+      "community": 357,
       "norm_label": "companyarchiveyear"
     },
     {
@@ -4870,7 +4870,7 @@
       "source_location": "L186",
       "_origin": "ast",
       "id": "app_src_lib_types_statements_companymultiyear",
-      "community": 20,
+      "community": 357,
       "norm_label": "companymultiyear"
     },
     {
@@ -4920,7 +4920,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "app_src_lib_types_vat_companyvatnotregistered",
-      "community": 280,
+      "community": 10,
       "norm_label": "companyvatnotregistered"
     },
     {
@@ -4930,7 +4930,7 @@
       "source_location": "L54",
       "_origin": "ast",
       "id": "app_src_lib_types_vat_companyvatregistered",
-      "community": 280,
+      "community": 10,
       "norm_label": "companyvatregistered"
     },
     {
@@ -4990,7 +4990,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_main",
-      "community": 4,
+      "community": 341,
       "norm_label": "main.tsx"
     },
     {
@@ -5000,7 +5000,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "app_src_main_root",
-      "community": 4,
+      "community": 341,
       "norm_label": "root"
     },
     {
@@ -5090,7 +5090,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "app_src_test_fixtures_shared_statement_company",
-      "community": 280,
+      "community": 10,
       "norm_label": "statement_company"
     },
     {
@@ -5100,7 +5100,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "app_src_test_fixtures_shared_statement_fiscal_years",
-      "community": 280,
+      "community": 10,
       "norm_label": "statement_fiscal_years"
     },
     {
@@ -5120,7 +5120,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "app_src_test_fixtures_shared_mileage_month_labels",
-      "community": 280,
+      "community": 10,
       "norm_label": "mileage_month_labels"
     },
     {
@@ -5130,7 +5130,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "app_src_test_fixtures_shared_cashflow_months",
-      "community": 280,
+      "community": 10,
       "norm_label": "cashflow_months"
     },
     {
@@ -5170,7 +5170,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_agent_suggestions",
-      "community": 280,
+      "community": 10,
       "norm_label": "agent-suggestions.ts"
     },
     {
@@ -5210,7 +5210,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_bank",
-      "community": 280,
+      "community": 10,
       "norm_label": "bank.ts"
     },
     {
@@ -5260,7 +5260,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_cashflow",
-      "community": 280,
+      "community": 10,
       "norm_label": "cashflow.ts"
     },
     {
@@ -5280,7 +5280,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_companies",
-      "community": 20,
+      "community": 357,
       "norm_label": "companies.ts"
     },
     {
@@ -5300,7 +5300,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "app_src_test_fixtures_companies_fiscalyears",
-      "community": 10,
+      "community": 4,
       "norm_label": "fiscalyears()"
     },
     {
@@ -5310,7 +5310,7 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "app_src_test_fixtures_companies_archive",
-      "community": 20,
+      "community": 357,
       "norm_label": "archive()"
     },
     {
@@ -5340,7 +5340,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_contacts",
-      "community": 280,
+      "community": 10,
       "norm_label": "contacts.ts"
     },
     {
@@ -5410,7 +5410,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_invoices",
-      "community": 280,
+      "community": 10,
       "norm_label": "invoices.ts"
     },
     {
@@ -5420,7 +5420,7 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "app_src_test_fixtures_invoices_invoices",
-      "community": 295,
+      "community": 10,
       "norm_label": "invoices()"
     },
     {
@@ -5430,7 +5430,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_mileage",
-      "community": 280,
+      "community": 10,
       "norm_label": "mileage.ts"
     },
     {
@@ -5440,7 +5440,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_test_fixtures_mileage_mileage",
-      "community": 103,
+      "community": 10,
       "norm_label": "mileage()"
     },
     {
@@ -5450,7 +5450,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_obligations",
-      "community": 280,
+      "community": 10,
       "norm_label": "obligations.ts"
     },
     {
@@ -5490,7 +5490,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_statements",
-      "community": 103,
+      "community": 20,
       "norm_label": "statements.ts"
     },
     {
@@ -5500,7 +5500,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "app_src_test_fixtures_statements_incomestatement",
-      "community": 103,
+      "community": 10,
       "norm_label": "incomestatement()"
     },
     {
@@ -5520,7 +5520,7 @@
       "source_location": "L97",
       "_origin": "ast",
       "id": "app_src_test_fixtures_statements_trialbalance",
-      "community": 103,
+      "community": 10,
       "norm_label": "trialbalance()"
     },
     {
@@ -5540,7 +5540,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_test_fixtures_vat",
-      "community": 280,
+      "community": 10,
       "norm_label": "vat.ts"
     },
     {
@@ -5550,7 +5550,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "app_src_test_fixtures_vat_vat",
-      "community": 10,
+      "community": 103,
       "norm_label": "vat()"
     },
     {
@@ -5560,7 +5560,7 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "app_src_test_fixtures_vat_vatnotregistered",
-      "community": 280,
+      "community": 10,
       "norm_label": "vatnotregistered()"
     },
     {
@@ -5650,7 +5650,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_accountsview",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountsview.tsx"
     },
     {
@@ -5660,7 +5660,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "app_src_views_accountsview_type_labels",
-      "community": 380,
+      "community": 4,
       "norm_label": "type_labels"
     },
     {
@@ -5670,7 +5670,7 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "app_src_views_accountsview_account_role_labels",
-      "community": 380,
+      "community": 4,
       "norm_label": "account_role_labels"
     },
     {
@@ -5680,7 +5680,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "app_src_views_accountsview_account_role_status_labels",
-      "community": 380,
+      "community": 4,
       "norm_label": "account_role_status_labels"
     },
     {
@@ -5700,7 +5700,7 @@
       "source_location": "L167",
       "_origin": "ast",
       "id": "app_src_views_accountsview_accountrolescard",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountrolescard()"
     },
     {
@@ -5710,7 +5710,7 @@
       "source_location": "L201",
       "_origin": "ast",
       "id": "app_src_views_accountsview_accountroleresolutionrow",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountroleresolutionrow()"
     },
     {
@@ -5720,7 +5720,7 @@
       "source_location": "L214",
       "_origin": "ast",
       "id": "app_src_views_accountsview_accountlistrow",
-      "community": 380,
+      "community": 4,
       "norm_label": "accountlistrow()"
     },
     {
@@ -5800,7 +5800,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_addcompanyview",
-      "community": 4,
+      "community": 341,
       "norm_label": "addcompanyview.tsx"
     },
     {
@@ -5810,7 +5810,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "app_src_views_addcompanyview_addcompanyview",
-      "community": 4,
+      "community": 341,
       "norm_label": "addcompanyview()"
     },
     {
@@ -5820,7 +5820,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_annualreportview_test",
-      "community": 10,
+      "community": 341,
       "norm_label": "annualreportview.test.tsx"
     },
     {
@@ -5830,7 +5830,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_views_annualreportview_test_payload",
-      "community": 10,
+      "community": 341,
       "norm_label": "payload()"
     },
     {
@@ -5840,7 +5840,7 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "app_src_views_annualreportview_test_renderview",
-      "community": 10,
+      "community": 341,
       "norm_label": "renderview()"
     },
     {
@@ -5850,7 +5850,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_annualreportview",
-      "community": 10,
+      "community": 341,
       "norm_label": "annualreportview.tsx"
     },
     {
@@ -5860,7 +5860,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "app_src_views_annualreportview_annualreportview",
-      "community": 10,
+      "community": 341,
       "norm_label": "annualreportview()"
     },
     {
@@ -5870,7 +5870,7 @@
       "source_location": "L99",
       "_origin": "ast",
       "id": "app_src_views_annualreportview_reportpanel",
-      "community": 10,
+      "community": 341,
       "norm_label": "reportpanel()"
     },
     {
@@ -5880,7 +5880,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_archiveview_test",
-      "community": 10,
+      "community": 4,
       "norm_label": "archiveview.test.tsx"
     },
     {
@@ -5890,7 +5890,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_views_archiveview_test_route",
-      "community": 10,
+      "community": 4,
       "norm_label": "route()"
     },
     {
@@ -5900,7 +5900,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "app_src_views_archiveview_test_renderview",
-      "community": 10,
+      "community": 4,
       "norm_label": "renderview()"
     },
     {
@@ -6320,7 +6320,7 @@
       "source_location": "L570",
       "_origin": "ast",
       "id": "app_src_views_bankview_archivedbankview",
-      "community": 295,
+      "community": 103,
       "norm_label": "archivedbankview()"
     },
     {
@@ -6580,7 +6580,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_contactsview",
-      "community": 341,
+      "community": 295,
       "norm_label": "contactsview.tsx"
     },
     {
@@ -6590,7 +6590,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "app_src_views_contactsview_vat_treatment_labels",
-      "community": 341,
+      "community": 295,
       "norm_label": "vat_treatment_labels"
     },
     {
@@ -6600,7 +6600,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "app_src_views_contactsview_modalstate",
-      "community": 341,
+      "community": 295,
       "norm_label": "modalstate"
     },
     {
@@ -6610,7 +6610,7 @@
       "source_location": "L54",
       "_origin": "ast",
       "id": "app_src_views_contactsview_deletestate",
-      "community": 341,
+      "community": 295,
       "norm_label": "deletestate"
     },
     {
@@ -6630,7 +6630,7 @@
       "source_location": "L272",
       "_origin": "ast",
       "id": "app_src_views_contactsview_customertable",
-      "community": 341,
+      "community": 295,
       "norm_label": "customertable()"
     },
     {
@@ -6640,7 +6640,7 @@
       "source_location": "L361",
       "_origin": "ast",
       "id": "app_src_views_contactsview_vendortable",
-      "community": 341,
+      "community": 295,
       "norm_label": "vendortable()"
     },
     {
@@ -6770,7 +6770,7 @@
       "source_location": "L272",
       "_origin": "ast",
       "id": "app_src_views_dashboardview_keyfigures",
-      "community": 103,
+      "community": 280,
       "norm_label": "keyfigures()"
     },
     {
@@ -7210,7 +7210,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_helpview",
-      "community": 4,
+      "community": 341,
       "norm_label": "helpview.tsx"
     },
     {
@@ -7220,7 +7220,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "app_src_views_helpview_externallinkprops",
-      "community": 4,
+      "community": 341,
       "norm_label": "externallinkprops"
     },
     {
@@ -7230,7 +7230,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "app_src_views_helpview_externallink",
-      "community": 4,
+      "community": 341,
       "norm_label": "externallink()"
     },
     {
@@ -7240,7 +7240,7 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "app_src_views_helpview_helpview",
-      "community": 4,
+      "community": 341,
       "norm_label": "helpview()"
     },
     {
@@ -7250,7 +7250,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_incomestatementview_test",
-      "community": 103,
+      "community": 10,
       "norm_label": "incomestatementview.test.tsx"
     },
     {
@@ -7260,7 +7260,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_views_incomestatementview_test_route",
-      "community": 103,
+      "community": 10,
       "norm_label": "route()"
     },
     {
@@ -7270,7 +7270,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "app_src_views_incomestatementview_test_renderview",
-      "community": 103,
+      "community": 10,
       "norm_label": "renderview()"
     },
     {
@@ -7290,7 +7290,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "app_src_views_incomestatementview_incomestatementview",
-      "community": 103,
+      "community": 10,
       "norm_label": "incomestatementview()"
     },
     {
@@ -7310,7 +7310,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_integrityview_test",
-      "community": 4,
+      "community": 10,
       "norm_label": "integrityview.test.tsx"
     },
     {
@@ -7320,7 +7320,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_views_integrityview_test_sample",
-      "community": 4,
+      "community": 10,
       "norm_label": "sample()"
     },
     {
@@ -7330,7 +7330,7 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "app_src_views_integrityview_test_renderview",
-      "community": 4,
+      "community": 10,
       "norm_label": "renderview()"
     },
     {
@@ -7360,7 +7360,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_invoicesview_test",
-      "community": 295,
+      "community": 103,
       "norm_label": "invoicesview.test.tsx"
     },
     {
@@ -7370,7 +7370,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_views_invoicesview_test_route",
-      "community": 295,
+      "community": 10,
       "norm_label": "route()"
     },
     {
@@ -7380,7 +7380,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "app_src_views_invoicesview_test_renderview",
-      "community": 295,
+      "community": 103,
       "norm_label": "renderview()"
     },
     {
@@ -7390,7 +7390,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_invoicesview",
-      "community": 295,
+      "community": 103,
       "norm_label": "invoicesview.tsx"
     },
     {
@@ -7400,7 +7400,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "app_src_views_invoicesview_status_meta",
-      "community": 295,
+      "community": 103,
       "norm_label": "status_meta"
     },
     {
@@ -7410,7 +7410,7 @@
       "source_location": "L58",
       "_origin": "ast",
       "id": "app_src_views_invoicesview_invoicesview",
-      "community": 295,
+      "community": 103,
       "norm_label": "invoicesview()"
     },
     {
@@ -7420,7 +7420,7 @@
       "source_location": "L689",
       "_origin": "ast",
       "id": "app_src_views_invoicesview_archivednotice",
-      "community": 295,
+      "community": 103,
       "norm_label": "archivednotice()"
     },
     {
@@ -7620,7 +7620,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview",
-      "community": 295,
+      "community": 103,
       "norm_label": "managecompanyview.tsx"
     },
     {
@@ -7630,7 +7630,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview_vat_period_options",
-      "community": 295,
+      "community": 103,
       "norm_label": "vat_period_options"
     },
     {
@@ -7650,7 +7650,7 @@
       "source_location": "L64",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview_manageform",
-      "community": 295,
+      "community": 103,
       "norm_label": "manageform()"
     },
     {
@@ -7660,7 +7660,7 @@
       "source_location": "L227",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview_profilecard",
-      "community": 295,
+      "community": 103,
       "norm_label": "profilecard()"
     },
     {
@@ -7670,7 +7670,7 @@
       "source_location": "L421",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview_cvrcard",
-      "community": 295,
+      "community": 103,
       "norm_label": "cvrcard()"
     },
     {
@@ -7680,7 +7680,7 @@
       "source_location": "L596",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview_translatecvrerror",
-      "community": 295,
+      "community": 103,
       "norm_label": "translatecvrerror()"
     },
     {
@@ -7690,7 +7690,7 @@
       "source_location": "L613",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview_fact",
-      "community": 295,
+      "community": 103,
       "norm_label": "fact()"
     },
     {
@@ -7700,7 +7700,7 @@
       "source_location": "L622",
       "_origin": "ast",
       "id": "app_src_views_managecompanyview_cvraddressline",
-      "community": 295,
+      "community": 103,
       "norm_label": "cvraddressline()"
     },
     {
@@ -7710,7 +7710,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_mileageview_test",
-      "community": 103,
+      "community": 10,
       "norm_label": "mileageview.test.tsx"
     },
     {
@@ -7720,7 +7720,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "app_src_views_mileageview_test_route",
-      "community": 103,
+      "community": 10,
       "norm_label": "route()"
     },
     {
@@ -7730,7 +7730,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "app_src_views_mileageview_test_renderview",
-      "community": 103,
+      "community": 10,
       "norm_label": "renderview()"
     },
     {
@@ -7750,7 +7750,7 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "app_src_views_mileageview_mileageview",
-      "community": 103,
+      "community": 10,
       "norm_label": "mileageview()"
     },
     {
@@ -7850,7 +7850,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "app_src_views_multiyearview_multiyearview",
-      "community": 103,
+      "community": 280,
       "norm_label": "multiyearview()"
     },
     {
@@ -7880,7 +7880,7 @@
       "source_location": "L450",
       "_origin": "ast",
       "id": "app_src_views_multiyearview_deltapct",
-      "community": 103,
+      "community": 280,
       "norm_label": "deltapct()"
     },
     {
@@ -7930,7 +7930,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_obligationsview",
-      "community": 4,
+      "community": 103,
       "norm_label": "obligationsview.tsx"
     },
     {
@@ -7950,7 +7950,7 @@
       "source_location": "L159",
       "_origin": "ast",
       "id": "app_src_views_obligationsview_deadlineflag",
-      "community": 4,
+      "community": 103,
       "norm_label": "deadlineflag()"
     },
     {
@@ -7960,7 +7960,7 @@
       "source_location": "L196",
       "_origin": "ast",
       "id": "app_src_views_obligationsview_external_link",
-      "community": 4,
+      "community": 103,
       "norm_label": "external_link"
     },
     {
@@ -7970,7 +7970,7 @@
       "source_location": "L211",
       "_origin": "ast",
       "id": "app_src_views_obligationsview_obligationactions",
-      "community": 4,
+      "community": 103,
       "norm_label": "obligationactions()"
     },
     {
@@ -7980,7 +7980,7 @@
       "source_location": "L263",
       "_origin": "ast",
       "id": "app_src_views_obligationsview_archivednotice",
-      "community": 4,
+      "community": 103,
       "norm_label": "archivednotice()"
     },
     {
@@ -7990,7 +7990,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_onboarding_test",
-      "community": 295,
+      "community": 341,
       "norm_label": "onboarding.test.tsx"
     },
     {
@@ -8000,7 +8000,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_onboarding",
-      "community": 295,
+      "community": 341,
       "norm_label": "onboarding.tsx"
     },
     {
@@ -8010,7 +8010,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "app_src_views_onboarding_onboarding",
-      "community": 295,
+      "community": 341,
       "norm_label": "onboarding()"
     },
     {
@@ -8200,7 +8200,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_portfolioview",
-      "community": 295,
+      "community": 103,
       "norm_label": "portfolioview.tsx"
     },
     {
@@ -8210,7 +8210,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "app_src_views_portfolioview_portfolioview",
-      "community": 295,
+      "community": 103,
       "norm_label": "portfolioview()"
     },
     {
@@ -8500,7 +8500,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_trialbalanceview_test",
-      "community": 103,
+      "community": 10,
       "norm_label": "trialbalanceview.test.tsx"
     },
     {
@@ -8510,7 +8510,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "app_src_views_trialbalanceview_test_route",
-      "community": 103,
+      "community": 10,
       "norm_label": "route()"
     },
     {
@@ -8520,7 +8520,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "app_src_views_trialbalanceview_test_renderview",
-      "community": 103,
+      "community": 10,
       "norm_label": "renderview()"
     },
     {
@@ -8540,7 +8540,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "app_src_views_trialbalanceview_trialbalanceview",
-      "community": 103,
+      "community": 10,
       "norm_label": "trialbalanceview()"
     },
     {
@@ -8550,7 +8550,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_vatview_test",
-      "community": 10,
+      "community": 103,
       "norm_label": "vatview.test.tsx"
     },
     {
@@ -8560,7 +8560,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "app_src_views_vatview_test_route",
-      "community": 10,
+      "community": 103,
       "norm_label": "route()"
     },
     {
@@ -8570,7 +8570,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "app_src_views_vatview_test_renderview",
-      "community": 10,
+      "community": 103,
       "norm_label": "renderview()"
     },
     {
@@ -8580,7 +8580,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "app_src_views_vatview",
-      "community": 4,
+      "community": 103,
       "norm_label": "vatview.tsx"
     },
     {
@@ -8590,7 +8590,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "app_src_views_vatview_vatview",
-      "community": 10,
+      "community": 103,
       "norm_label": "vatview()"
     },
     {
@@ -8600,7 +8600,7 @@
       "source_location": "L333",
       "_origin": "ast",
       "id": "app_src_views_vatview_rubrikkercsvrows",
-      "community": 4,
+      "community": 103,
       "norm_label": "rubrikkercsvrows()"
     },
     {
@@ -8610,7 +8610,7 @@
       "source_location": "L371",
       "_origin": "ast",
       "id": "app_src_views_vatview_copyrubrikbutton",
-      "community": 4,
+      "community": 103,
       "norm_label": "copyrubrikbutton()"
     },
     {
@@ -8620,7 +8620,7 @@
       "source_location": "L418",
       "_origin": "ast",
       "id": "app_src_views_vatview_rubrikkercard",
-      "community": 4,
+      "community": 103,
       "norm_label": "rubrikkercard()"
     },
     {
@@ -8630,7 +8630,7 @@
       "source_location": "L545",
       "_origin": "ast",
       "id": "app_src_views_vatview_reopendialog",
-      "community": 4,
+      "community": 103,
       "norm_label": "reopendialog()"
     },
     {
@@ -8640,7 +8640,7 @@
       "source_location": "L602",
       "_origin": "ast",
       "id": "app_src_views_vatview_deadlinecountdown",
-      "community": 4,
+      "community": 103,
       "norm_label": "deadlinecountdown()"
     },
     {
@@ -8650,7 +8650,7 @@
       "source_location": "L620",
       "_origin": "ast",
       "id": "app_src_views_vatview_archivednotice",
-      "community": 4,
+      "community": 103,
       "norm_label": "archivednotice()"
     },
     {
@@ -16647,7 +16647,7 @@
       "label": "slugify()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L77",
+      "source_location": "L74",
       "_origin": "ast",
       "id": "src_core_bank_slugify",
       "community": 240,
@@ -16657,7 +16657,7 @@
       "label": "mapBankAccountRow()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L87",
+      "source_location": "L84",
       "_origin": "ast",
       "id": "src_core_bank_mapbankaccountrow",
       "community": 3633,
@@ -16667,7 +16667,7 @@
       "label": "resolveBankAccount()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L107",
+      "source_location": "L104",
       "_origin": "ast",
       "id": "src_core_bank_resolvebankaccount",
       "community": 3633,
@@ -16677,7 +16677,7 @@
       "label": "listBankAccounts()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L118",
+      "source_location": "L115",
       "_origin": "ast",
       "id": "src_core_bank_listbankaccounts",
       "community": 3633,
@@ -16687,7 +16687,7 @@
       "label": "addBankAccount()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L125",
+      "source_location": "L122",
       "_origin": "ast",
       "id": "src_core_bank_addbankaccount",
       "community": 3633,
@@ -16697,7 +16697,7 @@
       "label": "UpdateBankAccountInput",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L167",
+      "source_location": "L164",
       "_origin": "ast",
       "id": "src_core_bank_updatebankaccountinput",
       "community": 240,
@@ -16707,7 +16707,7 @@
       "label": "nullableTrim()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L182",
+      "source_location": "L179",
       "_origin": "ast",
       "id": "src_core_bank_nullabletrim",
       "community": 240,
@@ -16717,7 +16717,7 @@
       "label": "validateBankLedgerAccount()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L187",
+      "source_location": "L184",
       "_origin": "ast",
       "id": "src_core_bank_validatebankledgeraccount",
       "community": 3633,
@@ -16727,7 +16727,7 @@
       "label": "updateBankAccount()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L199",
+      "source_location": "L196",
       "_origin": "ast",
       "id": "src_core_bank_updatebankaccount",
       "community": 3633,
@@ -16737,7 +16737,7 @@
       "label": "BankImportResult",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L234",
+      "source_location": "L231",
       "_origin": "ast",
       "id": "src_core_bank_bankimportresult",
       "community": 240,
@@ -16747,7 +16747,7 @@
       "label": "sha256Bytes()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L264",
+      "source_location": "L261",
       "_origin": "ast",
       "id": "src_core_bank_sha256bytes",
       "community": 240,
@@ -16757,7 +16757,7 @@
       "label": "normalizeAmount()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L269",
+      "source_location": "L266",
       "_origin": "ast",
       "id": "src_core_bank_normalizeamount",
       "community": 240,
@@ -16767,7 +16767,7 @@
       "label": "HEADER_ALIASES",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L273",
+      "source_location": "L270",
       "_origin": "ast",
       "id": "src_core_bank_header_aliases",
       "community": 240,
@@ -16777,7 +16777,7 @@
       "label": "REQUIRED_COLUMNS",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L284",
+      "source_location": "L281",
       "_origin": "ast",
       "id": "src_core_bank_required_columns",
       "community": 240,
@@ -16787,7 +16787,7 @@
       "label": "CsvParseResult",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L286",
+      "source_location": "L283",
       "_origin": "ast",
       "id": "src_core_bank_csvparseresult",
       "community": 240,
@@ -16797,7 +16797,7 @@
       "label": "normalizeHeader()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L291",
+      "source_location": "L288",
       "_origin": "ast",
       "id": "src_core_bank_normalizeheader",
       "community": 240,
@@ -16807,7 +16807,7 @@
       "label": "canonicalHeader()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L300",
+      "source_location": "L297",
       "_origin": "ast",
       "id": "src_core_bank_canonicalheader",
       "community": 240,
@@ -16817,7 +16817,7 @@
       "label": "countDelimiterOutsideQuotes()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L308",
+      "source_location": "L305",
       "_origin": "ast",
       "id": "src_core_bank_countdelimiteroutsidequotes",
       "community": 240,
@@ -16827,7 +16827,7 @@
       "label": "detectDelimiter()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L323",
+      "source_location": "L320",
       "_origin": "ast",
       "id": "src_core_bank_detectdelimiter",
       "community": 240,
@@ -16837,7 +16837,7 @@
       "label": "parseCsvLine()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L330",
+      "source_location": "L327",
       "_origin": "ast",
       "id": "src_core_bank_parsecsvline",
       "community": 240,
@@ -16847,7 +16847,7 @@
       "label": "LogicalCsvRecord",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L354",
+      "source_location": "L351",
       "_origin": "ast",
       "id": "src_core_bank_logicalcsvrecord",
       "community": 240,
@@ -16857,7 +16857,7 @@
       "label": "tokenizeLogicalCsvRecords()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L367",
+      "source_location": "L364",
       "_origin": "ast",
       "id": "src_core_bank_tokenizelogicalcsvrecords",
       "community": 240,
@@ -16867,7 +16867,7 @@
       "label": "parseCsv()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L400",
+      "source_location": "L397",
       "_origin": "ast",
       "id": "src_core_bank_parsecsv",
       "community": 240,
@@ -16877,7 +16877,7 @@
       "label": "parseLocalizedNumber()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L443",
+      "source_location": "L440",
       "_origin": "ast",
       "id": "src_core_bank_parselocalizednumber",
       "community": 240,
@@ -16887,7 +16887,7 @@
       "label": "normalizeDateText()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L490",
+      "source_location": "L487",
       "_origin": "ast",
       "id": "src_core_bank_normalizedatetext",
       "community": 240,
@@ -16897,7 +16897,7 @@
       "label": "normalizeAmountOrNull()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L506",
+      "source_location": "L503",
       "_origin": "ast",
       "id": "src_core_bank_normalizeamountornull",
       "community": 240,
@@ -16907,7 +16907,7 @@
       "label": "toRow()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L512",
+      "source_location": "L509",
       "_origin": "ast",
       "id": "src_core_bank_torow",
       "community": 240,
@@ -16917,7 +16917,7 @@
       "label": "normalizeDateWithOrder()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L533",
+      "source_location": "L530",
       "_origin": "ast",
       "id": "src_core_bank_normalizedatewithorder",
       "community": 240,
@@ -16927,7 +16927,7 @@
       "label": "decodeForProfile()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L558",
+      "source_location": "L555",
       "_origin": "ast",
       "id": "src_core_bank_decodeforprofile",
       "community": 240,
@@ -16937,7 +16937,7 @@
       "label": "ProfileParseResult",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L569",
+      "source_location": "L566",
       "_origin": "ast",
       "id": "src_core_bank_profileparseresult",
       "community": 240,
@@ -16947,7 +16947,7 @@
       "label": "parseCsvWithProfile()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L575",
+      "source_location": "L572",
       "_origin": "ast",
       "id": "src_core_bank_parsecsvwithprofile",
       "community": 240,
@@ -16957,7 +16957,7 @@
       "label": "validateBankImportRows()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L636",
+      "source_location": "L633",
       "_origin": "ast",
       "id": "src_core_bank_validatebankimportrows",
       "community": 240,
@@ -16967,7 +16967,7 @@
       "label": "transactionFingerprint()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L671",
+      "source_location": "L668",
       "_origin": "ast",
       "id": "src_core_bank_transactionfingerprint",
       "community": 240,
@@ -16977,7 +16977,7 @@
       "label": "BalanceContinuityResult",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L687",
+      "source_location": "L684",
       "_origin": "ast",
       "id": "src_core_bank_balancecontinuityresult",
       "community": 240,
@@ -16987,7 +16987,7 @@
       "label": "BalanceRow",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L693",
+      "source_location": "L690",
       "_origin": "ast",
       "id": "src_core_bank_balancerow",
       "community": 240,
@@ -16997,7 +16997,7 @@
       "label": "orderDayCluster()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L716",
+      "source_location": "L713",
       "_origin": "ast",
       "id": "src_core_bank_orderdaycluster",
       "community": 327,
@@ -17007,7 +17007,7 @@
       "label": "verifyBatchBalanceContinuity()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L766",
+      "source_location": "L763",
       "_origin": "ast",
       "id": "src_core_bank_verifybatchbalancecontinuity",
       "community": 327,
@@ -17017,7 +17017,7 @@
       "label": "ImportBankCsvOptions",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L846",
+      "source_location": "L843",
       "_origin": "ast",
       "id": "src_core_bank_importbankcsvoptions",
       "community": 240,
@@ -17027,7 +17027,7 @@
       "label": "importBankCsv()",
       "file_type": "code",
       "source_file": "src/core/bank.ts",
-      "source_location": "L854",
+      "source_location": "L851",
       "_origin": "ast",
       "id": "src_core_bank_importbankcsv",
       "community": 240,
@@ -41367,7 +41367,7 @@
       "label": "call()",
       "file_type": "code",
       "source_file": "tests/unit/mcp-batch-c-read-tools.test.ts",
-      "source_location": "L98",
+      "source_location": "L105",
       "_origin": "ast",
       "id": "tests_unit_mcp_batch_c_read_tools_test_call",
       "community": 11,
@@ -138814,7 +138814,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L158",
+      "source_location": "L155",
       "weight": 1.0,
       "source": "src_core_bank_addbankaccount",
       "target": "src_core_actor_insertauditlog"
@@ -138825,7 +138825,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L963",
+      "source_location": "L960",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_actor_insertauditlog"
@@ -138836,7 +138836,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L222",
+      "source_location": "L219",
       "weight": 1.0,
       "source": "src_core_bank_updatebankaccount",
       "target": "src_core_actor_insertauditlog"
@@ -145858,7 +145858,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L879",
+      "source_location": "L876",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_profiles_getbankprofile"
@@ -145880,7 +145880,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L881",
+      "source_location": "L878",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_profiles_listbankprofilenames"
@@ -146695,7 +146695,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L125",
+      "source_location": "L122",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_addbankaccount",
@@ -146715,7 +146715,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L687",
+      "source_location": "L684",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_balancecontinuityresult",
@@ -146725,7 +146725,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L693",
+      "source_location": "L690",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_balancerow",
@@ -146745,7 +146745,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L234",
+      "source_location": "L231",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_bankimportresult",
@@ -146765,7 +146765,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L300",
+      "source_location": "L297",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_canonicalheader",
@@ -146775,7 +146775,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L308",
+      "source_location": "L305",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_countdelimiteroutsidequotes",
@@ -146785,7 +146785,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L286",
+      "source_location": "L283",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_csvparseresult",
@@ -146795,7 +146795,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L558",
+      "source_location": "L555",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_decodeforprofile",
@@ -146805,7 +146805,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L323",
+      "source_location": "L320",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_detectdelimiter",
@@ -146815,7 +146815,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L273",
+      "source_location": "L270",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_header_aliases",
@@ -146825,7 +146825,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L854",
+      "source_location": "L851",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_importbankcsv",
@@ -146835,7 +146835,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L846",
+      "source_location": "L843",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_importbankcsvoptions",
@@ -146845,7 +146845,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L118",
+      "source_location": "L115",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_listbankaccounts",
@@ -146855,7 +146855,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L354",
+      "source_location": "L351",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_logicalcsvrecord",
@@ -146865,7 +146865,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L87",
+      "source_location": "L84",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_mapbankaccountrow",
@@ -146875,7 +146875,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L269",
+      "source_location": "L266",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_normalizeamount",
@@ -146885,7 +146885,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L506",
+      "source_location": "L503",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_normalizeamountornull",
@@ -146895,7 +146895,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L490",
+      "source_location": "L487",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_normalizedatetext",
@@ -146905,7 +146905,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L533",
+      "source_location": "L530",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_normalizedatewithorder",
@@ -146915,7 +146915,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L291",
+      "source_location": "L288",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_normalizeheader",
@@ -146925,7 +146925,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L182",
+      "source_location": "L179",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_nullabletrim",
@@ -146935,7 +146935,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L716",
+      "source_location": "L713",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_orderdaycluster",
@@ -146945,7 +146945,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L400",
+      "source_location": "L397",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_parsecsv",
@@ -146955,7 +146955,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L330",
+      "source_location": "L327",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_parsecsvline",
@@ -146965,7 +146965,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L575",
+      "source_location": "L572",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_parsecsvwithprofile",
@@ -146975,7 +146975,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L443",
+      "source_location": "L440",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_parselocalizednumber",
@@ -146985,7 +146985,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L569",
+      "source_location": "L566",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_profileparseresult",
@@ -146995,7 +146995,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L284",
+      "source_location": "L281",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_required_columns",
@@ -147005,7 +147005,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L107",
+      "source_location": "L104",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_resolvebankaccount",
@@ -147015,7 +147015,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L264",
+      "source_location": "L261",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_sha256bytes",
@@ -147025,7 +147025,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L77",
+      "source_location": "L74",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_slugify",
@@ -147035,7 +147035,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L367",
+      "source_location": "L364",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_tokenizelogicalcsvrecords",
@@ -147045,7 +147045,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L512",
+      "source_location": "L509",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_torow",
@@ -147055,7 +147055,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L671",
+      "source_location": "L668",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_transactionfingerprint",
@@ -147065,7 +147065,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L199",
+      "source_location": "L196",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_updatebankaccount",
@@ -147075,7 +147075,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L167",
+      "source_location": "L164",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_updatebankaccountinput",
@@ -147085,7 +147085,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L636",
+      "source_location": "L633",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_validatebankimportrows",
@@ -147095,7 +147095,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L187",
+      "source_location": "L184",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_validatebankledgeraccount",
@@ -147105,7 +147105,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L766",
+      "source_location": "L763",
       "weight": 1.0,
       "source": "src_core_bank",
       "target": "src_core_bank_verifybatchbalancecontinuity",
@@ -147666,7 +147666,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L129",
+      "source_location": "L126",
       "weight": 1.0,
       "source": "src_core_bank_addbankaccount",
       "target": "src_core_bank_slugify",
@@ -147677,7 +147677,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L164",
+      "source_location": "L161",
       "weight": 1.0,
       "source": "src_core_bank_addbankaccount",
       "target": "src_core_bank_mapbankaccountrow",
@@ -147688,7 +147688,7 @@
       "context": "argument",
       "confidence": "INFERRED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L122",
+      "source_location": "L119",
       "weight": 1.0,
       "source": "src_core_bank_listbankaccounts",
       "target": "src_core_bank_mapbankaccountrow",
@@ -147699,7 +147699,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L112",
+      "source_location": "L109",
       "weight": 1.0,
       "source": "src_core_bank_resolvebankaccount",
       "target": "src_core_bank_mapbankaccountrow",
@@ -147710,7 +147710,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L230",
+      "source_location": "L227",
       "weight": 1.0,
       "source": "src_core_bank_updatebankaccount",
       "target": "src_core_bank_mapbankaccountrow",
@@ -147721,7 +147721,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L865",
+      "source_location": "L862",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_resolvebankaccount",
@@ -147732,7 +147732,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L200",
+      "source_location": "L197",
       "weight": 1.0,
       "source": "src_core_bank_updatebankaccount",
       "target": "src_core_bank_resolvebankaccount",
@@ -147831,7 +147831,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L139",
+      "source_location": "L136",
       "weight": 1.0,
       "source": "src_core_bank_addbankaccount",
       "target": "src_core_bank_validatebankledgeraccount",
@@ -147843,7 +147843,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L131",
+      "source_location": "L128",
       "weight": 1.0,
       "source": "src_core_bank_addbankaccount",
       "target": "src_core_money_normalizecurrency"
@@ -147930,7 +147930,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L204",
+      "source_location": "L201",
       "weight": 1.0,
       "source": "src_core_bank_updatebankaccount",
       "target": "src_core_bank_nullabletrim",
@@ -147941,7 +147941,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L205",
+      "source_location": "L202",
       "weight": 1.0,
       "source": "src_core_bank_updatebankaccount",
       "target": "src_core_bank_validatebankledgeraccount",
@@ -147953,7 +147953,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L202",
+      "source_location": "L199",
       "weight": 1.0,
       "source": "src_core_bank_updatebankaccount",
       "target": "src_core_money_normalizecurrency"
@@ -148029,7 +148029,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L887",
+      "source_location": "L884",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_sha256bytes",
@@ -148040,7 +148040,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L672",
+      "source_location": "L669",
       "weight": 1.0,
       "source": "src_core_bank_transactionfingerprint",
       "target": "src_core_bank_sha256bytes",
@@ -148051,7 +148051,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L935",
+      "source_location": "L932",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_normalizeamount",
@@ -148062,7 +148062,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L270",
+      "source_location": "L267",
       "weight": 1.0,
       "source": "src_core_bank_normalizeamount",
       "target": "src_core_money_rounddkk",
@@ -148073,7 +148073,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L508",
+      "source_location": "L505",
       "weight": 1.0,
       "source": "src_core_bank_normalizeamountornull",
       "target": "src_core_bank_normalizeamount",
@@ -148084,7 +148084,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L677",
+      "source_location": "L674",
       "weight": 1.0,
       "source": "src_core_bank_transactionfingerprint",
       "target": "src_core_bank_normalizeamount",
@@ -148095,7 +148095,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L643",
+      "source_location": "L640",
       "weight": 1.0,
       "source": "src_core_bank_validatebankimportrows",
       "target": "src_core_bank_normalizeamount",
@@ -148106,7 +148106,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L301",
+      "source_location": "L298",
       "weight": 1.0,
       "source": "src_core_bank_canonicalheader",
       "target": "src_core_bank_normalizeheader",
@@ -148117,7 +148117,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L586",
+      "source_location": "L583",
       "weight": 1.0,
       "source": "src_core_bank_parsecsvwithprofile",
       "target": "src_core_bank_normalizeheader",
@@ -148128,7 +148128,7 @@
       "context": "argument",
       "confidence": "INFERRED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L406",
+      "source_location": "L403",
       "weight": 1.0,
       "source": "src_core_bank_parsecsv",
       "target": "src_core_bank_canonicalheader",
@@ -148139,7 +148139,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L326",
+      "source_location": "L323",
       "weight": 1.0,
       "source": "src_core_bank_detectdelimiter",
       "target": "src_core_bank_countdelimiteroutsidequotes",
@@ -148150,7 +148150,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L404",
+      "source_location": "L401",
       "weight": 1.0,
       "source": "src_core_bank_parsecsv",
       "target": "src_core_bank_detectdelimiter",
@@ -148161,32 +148161,10 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L405",
+      "source_location": "L402",
       "weight": 1.0,
       "source": "src_core_bank_parsecsv",
       "target": "src_core_bank_parsecsvline",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/core/bank.ts",
-      "source_location": "L580",
-      "weight": 1.0,
-      "source": "src_core_bank_parsecsvwithprofile",
-      "target": "src_core_bank_parsecsvline",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/core/bank.ts",
-      "source_location": "L401",
-      "weight": 1.0,
-      "source": "src_core_bank_parsecsv",
-      "target": "src_core_bank_tokenizelogicalcsvrecords",
       "confidence_score": 1.0
     },
     {
@@ -148197,6 +148175,17 @@
       "source_location": "L577",
       "weight": 1.0,
       "source": "src_core_bank_parsecsvwithprofile",
+      "target": "src_core_bank_parsecsvline",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/core/bank.ts",
+      "source_location": "L398",
+      "weight": 1.0,
+      "source": "src_core_bank_parsecsv",
       "target": "src_core_bank_tokenizelogicalcsvrecords",
       "confidence_score": 1.0
     },
@@ -148205,7 +148194,18 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L899",
+      "source_location": "L574",
+      "weight": 1.0,
+      "source": "src_core_bank_parsecsvwithprofile",
+      "target": "src_core_bank_tokenizelogicalcsvrecords",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/core/bank.ts",
+      "source_location": "L896",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_parsecsv",
@@ -148216,20 +148216,9 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L618",
+      "source_location": "L615",
       "weight": 1.0,
       "source": "src_core_bank_parsecsvwithprofile",
-      "target": "src_core_bank_parselocalizednumber",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/core/bank.ts",
-      "source_location": "L517",
-      "weight": 1.0,
-      "source": "src_core_bank_torow",
       "target": "src_core_bank_parselocalizednumber",
       "confidence_score": 1.0
     },
@@ -148241,6 +148230,17 @@
       "source_location": "L514",
       "weight": 1.0,
       "source": "src_core_bank_torow",
+      "target": "src_core_bank_parselocalizednumber",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/core/bank.ts",
+      "source_location": "L511",
+      "weight": 1.0,
+      "source": "src_core_bank_torow",
       "target": "src_core_bank_normalizedatetext",
       "confidence_score": 1.0
     },
@@ -148249,7 +148249,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L945",
+      "source_location": "L942",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_normalizeamountornull",
@@ -148260,7 +148260,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L680",
+      "source_location": "L677",
       "weight": 1.0,
       "source": "src_core_bank_transactionfingerprint",
       "target": "src_core_bank_normalizeamountornull",
@@ -148271,7 +148271,7 @@
       "context": "argument",
       "confidence": "INFERRED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L901",
+      "source_location": "L898",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_torow",
@@ -148282,7 +148282,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L518",
+      "source_location": "L515",
       "weight": 1.0,
       "source": "src_core_bank_torow",
       "target": "src_core_money_normalizecurrency",
@@ -148293,7 +148293,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L615",
+      "source_location": "L612",
       "weight": 1.0,
       "source": "src_core_bank_parsecsvwithprofile",
       "target": "src_core_bank_normalizedatewithorder",
@@ -148304,7 +148304,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L576",
+      "source_location": "L573",
       "weight": 1.0,
       "source": "src_core_bank_parsecsvwithprofile",
       "target": "src_core_bank_decodeforprofile",
@@ -148315,7 +148315,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L895",
+      "source_location": "L892",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_parsecsvwithprofile",
@@ -148327,7 +148327,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "src/core/bank.ts",
-      "source_location": "L586",
+      "source_location": "L583",
       "weight": 1.0,
       "source": "src_core_bank_parsecsvwithprofile",
       "target": "src_core_dashboard_header_header"
@@ -148338,7 +148338,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L619",
+      "source_location": "L616",
       "weight": 1.0,
       "source": "src_core_bank_parsecsvwithprofile",
       "target": "src_core_money_normalizecurrency"
@@ -148348,7 +148348,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L904",
+      "source_location": "L901",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_validatebankimportrows",
@@ -148360,7 +148360,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L653",
+      "source_location": "L650",
       "weight": 1.0,
       "source": "src_core_bank_validatebankimportrows",
       "target": "src_core_money_comparedkk"
@@ -148371,7 +148371,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L652",
+      "source_location": "L649",
       "weight": 1.0,
       "source": "src_core_bank_validatebankimportrows",
       "target": "src_core_money_multiplydkk"
@@ -148382,7 +148382,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L645",
+      "source_location": "L642",
       "weight": 1.0,
       "source": "src_core_bank_validatebankimportrows",
       "target": "src_core_money_normalizecurrency"
@@ -148393,7 +148393,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L650",
+      "source_location": "L647",
       "weight": 1.0,
       "source": "src_core_bank_validatebankimportrows",
       "target": "src_core_money_roundrate6"
@@ -148403,7 +148403,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L928",
+      "source_location": "L925",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_transactionfingerprint",
@@ -148414,7 +148414,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L678",
+      "source_location": "L675",
       "weight": 1.0,
       "source": "src_core_bank_transactionfingerprint",
       "target": "src_core_money_normalizecurrency",
@@ -148425,7 +148425,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L681",
+      "source_location": "L678",
       "weight": 1.0,
       "source": "src_core_bank_transactionfingerprint",
       "target": "src_core_money_roundrate6",
@@ -148436,7 +148436,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L728",
+      "source_location": "L725",
       "weight": 1.0,
       "source": "src_core_bank_orderdaycluster",
       "target": "src_core_money_equalsdkk",
@@ -148447,7 +148447,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L728",
+      "source_location": "L725",
       "weight": 1.0,
       "source": "src_core_bank_orderdaycluster",
       "target": "src_core_money_subtractdkk",
@@ -148458,7 +148458,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L801",
+      "source_location": "L798",
       "weight": 1.0,
       "source": "src_core_bank_verifybatchbalancecontinuity",
       "target": "src_core_bank_orderdaycluster",
@@ -148469,7 +148469,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L975",
+      "source_location": "L972",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_bank_verifybatchbalancecontinuity",
@@ -148480,7 +148480,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L817",
+      "source_location": "L814",
       "weight": 1.0,
       "source": "src_core_bank_verifybatchbalancecontinuity",
       "target": "src_core_exceptions_recordexception",
@@ -148491,7 +148491,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L809",
+      "source_location": "L806",
       "weight": 1.0,
       "source": "src_core_bank_verifybatchbalancecontinuity",
       "target": "src_core_money_adddkk",
@@ -148502,7 +148502,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L810",
+      "source_location": "L807",
       "weight": 1.0,
       "source": "src_core_bank_verifybatchbalancecontinuity",
       "target": "src_core_money_equalsdkk",
@@ -148513,7 +148513,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L780",
+      "source_location": "L777",
       "weight": 1.0,
       "source": "src_core_bank_verifybatchbalancecontinuity",
       "target": "src_core_money_rounddkk",
@@ -148524,7 +148524,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/core/bank.ts",
-      "source_location": "L811",
+      "source_location": "L808",
       "weight": 1.0,
       "source": "src_core_bank_verifybatchbalancecontinuity",
       "target": "src_core_money_subtractdkk",
@@ -148536,7 +148536,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L935",
+      "source_location": "L932",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_money_normalizecurrency"
@@ -148547,7 +148547,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L946",
+      "source_location": "L943",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_money_roundrate6"
@@ -148558,7 +148558,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L907",
+      "source_location": "L904",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_paths_companypaths"
@@ -148569,7 +148569,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/core/bank.ts",
-      "source_location": "L950",
+      "source_location": "L947",
       "weight": 1.0,
       "source": "src_core_bank_importbankcsv",
       "target": "src_core_retention_retainuntilfordate"
@@ -257335,7 +257335,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "tests/unit/mcp-batch-c-read-tools.test.ts",
-      "source_location": "L98",
+      "source_location": "L105",
       "weight": 1.0,
       "source": "tests_unit_mcp_batch_c_read_tools_test",
       "target": "tests_unit_mcp_batch_c_read_tools_test_call",
@@ -276623,5 +276623,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "ee935c12aeb7a4069510bb51f8f69e876f0251d9"
+  "built_at_commit": "08bf255a3240822792f947114e9eb2d734360060"
 }

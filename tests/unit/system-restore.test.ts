@@ -1,6 +1,7 @@
 // Tests: src/core/system-restore.ts
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, createHmac } from "node:crypto";
@@ -80,6 +81,73 @@ describe("system restore", () => {
     expect(restoreEvent?.actor).toBe("user:mikkel via restore-cli");
     expect(restoreEvent?.message).toContain("backup-20260517T023900Z");
 
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects a correctly re-signed v2 manifest whose release provenance is missing", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-restore-provenance-"));
+    const companyRoot = join(root, "company");
+    const restoredRoot = join(root, "restored-company");
+    const paths = ensureCompanyDirs(companyRoot);
+    const db = openDb(paths.db);
+    migrate(db);
+    const backup = createSystemBackup(db, companyRoot, {
+      createdAt: "2026-05-17T02:39:00.000Z",
+    });
+    db.close();
+    expect(backup.ok).toBe(true);
+
+    const manifestPath = join(backup.backupDir!, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    delete manifest.provenance;
+    rewriteSignedManifest(companyRoot, backup.backupDir!, manifest);
+
+    const restored = restoreSystemBackup({
+      backupDir: backup.backupDir!,
+      targetCompanyRoot: restoredRoot,
+    });
+    expect(restored.ok).toBe(false);
+    expect(restored.errors).toContain(
+      `invalid or missing backup manifest in ${backup.backupDir}`,
+    );
+    expect(existsSync(restoredRoot)).toBe(false);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects a correctly re-signed backup from a newer schema before target mutation", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-restore-future-schema-"));
+    const companyRoot = join(root, "company");
+    const restoredRoot = join(root, "restored-company");
+    const paths = ensureCompanyDirs(companyRoot);
+    const db = openDb(paths.db);
+    migrate(db);
+    const backup = createSystemBackup(db, companyRoot, {
+      createdAt: "2026-05-17T02:39:00.000Z",
+    });
+    db.close();
+    expect(backup.ok).toBe(true);
+
+    const manifestPath = join(backup.backupDir!, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const snapshotPath = join(backup.backupDir!, manifest.dbSnapshot.path);
+    const snapshot = new Database(snapshotPath);
+    snapshot.query(
+      `INSERT INTO schema_migrations
+         (id, name, checksum, applied_by_version)
+       VALUES (2, 'future', 'future-checksum', '0.2.0')`,
+    ).run();
+    snapshot.close();
+    manifest.dbSnapshot.sha256 = sha256File(snapshotPath);
+    manifest.dbSnapshot.sizeBytes = statSync(snapshotPath).size;
+    rewriteSignedManifest(companyRoot, backup.backupDir!, manifest);
+
+    const restored = restoreSystemBackup({
+      backupDir: backup.backupDir!,
+      targetCompanyRoot: restoredRoot,
+    });
+    expect(restored.ok).toBe(false);
+    expect(restored.errors[0]).toContain("newer than supported version 1");
+    expect(existsSync(restoredRoot)).toBe(false);
     rmSync(root, { recursive: true, force: true });
   });
 

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "approvalId": "DIGISENSE-RM-2026-001",
+  "decision": "approved",
+  "approvedAt": "2026-07-19T12:00:00.000Z",
+  "reviewer": {
+    "organization": "Digisense",
+    "name": "Navn på reviewer"
+  },
+  "releaseManifestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "imageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "version": "0.1.0",
+  "gitCommit": "cccccccccccccccccccccccccccccccccccccccc"
+}

@@ -140,6 +140,11 @@ export function loadWorkspaceManifest(workspaceRoot: string): WorkspaceManifest 
   if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as any).companies)) {
     throw new Error(`workspace manifest at ${path} is malformed`);
   }
+  if ((parsed as any).version !== MANIFEST_VERSION) {
+    throw new Error(
+      `workspace manifest at ${path} has unsupported version ${(parsed as any).version}; expected ${MANIFEST_VERSION}`,
+    );
+  }
   const companies: WorkspaceCompanyEntry[] = (parsed as any).companies.map((raw: any) => ({
     slug: String(raw.slug),
     name: String(raw.name),

@@ -67,7 +67,10 @@ export function App() {
     <div className="app-shell">
       <header className="topbar">
         <h1>
-          Rentemester <span className="brand-dot">Cockpit</span>
+          Rentemester <span className="brand-dot">Cockpit</span>{" "}
+          <span className="build-version" title="Installeret Rentemester-version">
+            v{__RENTEMESTER_VERSION__}
+          </span>
         </h1>
         <nav>
           <NavLink to="/" end>

@@ -1,0 +1,125 @@
+# Release og Digisense-godkendelse
+
+Releaseflowet sikrer, at Digisense vurderer de samme container-bytes, som senere
+får et offentligt versionstag. Ingen af workflows må skabe `latest`.
+
+## Engangsopsætning i GitHub
+
+Repository-ejeren skal oprette environmentet `digisense-approval` og:
+
+1. tilføje Digisenses udpegede GitHub-bruger/team som required reviewer;
+2. slå prevent self-review til;
+3. undlade administrator-bypass;
+4. begrænse deployment branches til `main`.
+
+Det er en ekstern, menneskelig gate og kan ikke håndhæves alene af filer i
+repoet. Før environmentet er konfigureret sådan, må promotion-workflowet ikke
+betragtes som en Digisense-godkendelse.
+
+## 1. Forbered versionen
+
+1. Vælg næste SemVer efter `docs/versioning.md`.
+2. Opdatér `package.json` og `app/package.json` til samme version.
+3. Flyt punkter fra `[Unreleased]` til en dateret sektion i `CHANGELOG.md`.
+4. Kør `bun run version:check`, alle tests, smoke og builds.
+5. Merge ændringen til `main`. Opret ikke Git-tag manuelt.
+
+## 2. Byg release candidate
+
+Start GitHub Actions-workflowet `release candidate` fra `main` med versionen
+uden `v` og det fulde 40-tegns commit-id for den aktuelle `main`-HEAD. Workflowet
+afviser et ældre commit, selv hvis det stadig kan nås fra `main`.
+
+Workflowet:
+
+- validerer version/commit og bruger commit-tidspunktet som reproducerbar
+  buildtid;
+- kører root-tests, smoke og cockpit-test/build; `www` har sit eget uafhængige
+  workflow og kan hverken blokere eller ændre produktimaget;
+- bygger ét `linux/amd64` Docker-image og pusher kun kandidat-tagget;
+- attesterer image-proveniens, før evidensartefaktet publiceres;
+- uploader `release-manifest.json`, dets SHA-256 og approval-schemaet.
+
+Manifestet binder version, commit, OCI-digest, schema-checksum og regelsæt-digest
+sammen med GitHub run-id og run-attempt. Digisense skal hente
+kandidat-artefaktet fra workflow-runnet og teste imaget ved
+`repository@sha256`, aldrig kun ved kandidat-tag.
+
+### Brug kandidaten før review
+
+En succesfuld kandidat er en færdig, anvendelig distribution. Den må installeres
+og testes, selv om Digisense endnu ikke har reviewet den. Workflow-summaryen
+viser både det entydige kandidat-tag og den autoritative digest:
+
+```bash
+docker pull ghcr.io/mikkelkrogsholm/rentemester@sha256:<candidate-digest>
+
+export RENTEMESTER_IMAGE='ghcr.io/mikkelkrogsholm/rentemester@sha256:<candidate-digest>'
+docker compose -f docker-compose.example.yml up -d
+```
+
+Denne deployment er fortsat **ikke reviewet af Digisense**. Der oprettes intet
+Git-tag, GitHub release eller `vX.Y.Z`-image-tag på kandidatstadiet. Når samme
+digest senere godkendes, promoveres de eksisterende bytes uden rebuild.
+
+Kør en ikke-reviewet kandidat mod et nyt, isoleret workspace eller en verificeret
+kopi af data. Peg den aldrig på den eneste live-ledger: åbning af en ledger kan
+udføre de schema-migrationer, som kandidaten indeholder. Før afprøvning mod en
+kopi af eksisterende data skal den aktuelle release derfor have produceret en
+signeret backup, som også er restore-testet.
+
+Compose-eksemplet bruger nye Docker-volumes og gør cockpittet tilgængeligt uden
+login på hostens loopback (`127.0.0.1`). Det må ikke eksponeres på et LAN eller
+internettet. Imaget selv starter fail-closed med token-auth; en
+netværksdeployment kræver en autentificerende reverse proxy eller en fremtidig
+cockpit-loginløsning. Indlæsning af eksisterende data i kandidatens volume skal
+være en bevidst operation efter backupkontrollen ovenfor.
+
+## 3. Indhent Digisense-godkendelse
+
+Digisense udfylder JSON efter `digisense-approval.schema.json`. Følgende fire
+felter skal være identiske med release-manifestet:
+
+- `releaseManifestDigest`
+- `imageDigest`
+- `version`
+- `gitCommit`
+
+Godkendelsen er således ubrugelig for et andet build. JSON-filen er evidens;
+GitHub-environmentets required reviewer er den autoritative identitetsgate.
+
+## 4. Promovér uden rebuild
+
+Start `promote approved release` med kandidatworkflowets run-id, run-attempt og
+den komplette approval-JSON. Jobbet venter først på
+`digisense-approval`-environmentet. Det
+kræver derefter et succesfuldt kandidat-run fra den præcise trusted workflow på
+`main`, henter kun det entydigt navngivne evidensartefakt og verificerer både
+artefaktets checksum og image-attesteringen. Først når alle Git-, GitHub- og
+GHCR-targets er preflightet, og attesteringens invocation-id er bundet til det
+samme run-attempt, sætter det `vX.Y.Z` på samme GHCR-digest og opretter GitHub
+release/tag på manifestets commit. Lookup-fejl behandles aldrig som "findes
+ikke"; en autentificeret GHCR manifest-forespørgsel accepterer kun HTTP 404 som
+fravær, og promotion stopper ved netværks-, auth- eller registry-usikkerhed.
+
+Release-manifest, checksum og Digisense-approval vedhæftes GitHub-releasen.
+Workflowet afviser et eksisterende Git-tag/GitHub release eller et versioneret
+image med en anden digest. Release-workflows bruger commit-pinnede actions; en
+opgradering af en action er derfor en eksplicit, reviewbar kodeændring.
+
+Git- og OCI-tags er navne, som en privilegeret administrator teknisk kan ændre
+eller slette. Releaseprocessens preflight og publisher-politik forbyder det, men
+driftsmæssig fastlåsning skal altid ske med `repository@sha256:<digest>`.
+
+## Drift og rollback
+
+Deploy altid den valgte digest fra release-manifestet. Versionstagget er læsbart
+for mennesker, men digest er den fastlåste identitet. Hvis kandidaten ikke er
+reviewet, skal den status følge deploymentet operationelt og må ikke omtales som
+Digisense-godkendt.
+
+Ved en applikationsfejl kan man vælge sidste godkendte digest, hvis dens runtime
+understøtter ledgerens schema-version. Ved schemaændringer skal operatøren først
+følge migrations-/backupplanen i `docs/versioning.md`; start aldrig blot et
+ældre image mod nyere data. Tag en signeret, verificerbar backup før enhver
+fremtidig schema-opgradering.

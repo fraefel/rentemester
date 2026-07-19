@@ -1,0 +1,17 @@
+.git
+.github
+.codex
+.agents
+node_modules
+app/node_modules
+app/dist
+www
+graphify-out
+tests
+coverage
+companies
+imports
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log

@@ -7,6 +7,7 @@ import { resolvePersistedSupplierIdentity } from "./supplier-identity";
 import { insertAuditLog } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { formatAmount, roundDkk, sumDkk } from "./money";
+import { getReleaseProvenance } from "./release-provenance";
 
 type CanonicalJson = null | boolean | number | string | CanonicalJson[] | { [key: string]: CanonicalJson };
 
@@ -772,6 +773,8 @@ export function exportSaftPackage(db: Database, companyRoot: string, input: Expo
   recordWrittenText(exportDir, readmePath, `${buildReadme({ periodStart: input.periodStart, periodEnd: input.periodEnd, generatedAt, generatedAtExplicit })}\n`, outputs);
 
   const manifest = {
+    manifestVersion: 2,
+    provenance: getReleaseProvenance(),
     packageType: "saft_export",
     profileId: PROFILE_ID,
     generatedAt,

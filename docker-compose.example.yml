@@ -1,10 +1,28 @@
 services:
-  rentemester-brokk:
-    build: .
-    image: rentemester:latest
+  rentemester:
+    # A candidate or approved release may be selected. Pin @sha256 for an
+    # immutable deployment; never use `latest`. Candidate use does not imply
+    # Digisense approval.
+    image: ${RENTEMESTER_IMAGE:?set RENTEMESTER_IMAGE to an exact ghcr.io digest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4319:4319"
     environment:
-      RENTEMESTER_COMPANY: /company
+      RENTEMESTER_WORKSPACE: /workspace
+      # The cockpit has no login screen yet. This is safe only because the
+      # published port is hard-bound to host loopback above.
+      RENTEMESTER_APP_AUTH: off
     volumes:
-      - ./companies/brokk:/company
-      - ./imports/brokk:/import
-    command: ["system", "healthcheck", "--company", "/company"]
+      - rentemester-workspace:/workspace
+      - rentemester-imports:/import
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  rentemester-workspace:
+  rentemester-imports:

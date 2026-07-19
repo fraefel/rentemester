@@ -21,6 +21,8 @@ import { SERVER_NAME, SERVER_VERSION } from "../server";
 import { currentRuleBundleVersion } from "../../core/rules-metadata";
 import { envelopeShape, successEnvelope } from "../envelope";
 import { envelopeToCallResult } from "../envelope";
+import { getBuildIdentity } from "../../core/build-identity";
+import { getReleaseProvenance } from "../../core/release-provenance";
 
 const CONTRACT_DOCS = [
   "docs/mcp-agent-contract.md",
@@ -71,6 +73,8 @@ export function registerMetaTools(server: McpServer): void {
       const envelope = successEnvelope({
         serverName: SERVER_NAME,
         serverVersion: SERVER_VERSION,
+        build: getBuildIdentity(),
+        provenance: getReleaseProvenance(),
         toolCount,
         ruleBundleVersion,
         contractDocs: Array.from(CONTRACT_DOCS),

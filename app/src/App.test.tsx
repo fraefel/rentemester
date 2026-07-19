@@ -22,6 +22,7 @@ function renderApp(route = "/help") {
 describe("App topbar", () => {
   test("topbar contains a help/support link reachable from any route", () => {
     renderApp("/");
+    expect(screen.getByText("v0.1.0")).toBeInTheDocument();
     const helpLink = screen.getByRole("link", { name: /^Hjælp$/i });
     expect(helpLink).toBeInTheDocument();
     expect(helpLink.getAttribute("href")).toBe("/help");

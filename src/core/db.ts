@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { backfillRetentionDeadlines } from "./retention";
 import { seedNativeAccountRoles } from "./account-roles";
+import { assertSchemaCompatibility, recordSchemaBaseline } from "./schema-version";
 
 function hasColumn(db: Database, table: string, column: string) {
   const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -242,6 +243,17 @@ export type OpenDbOptions = {
 };
 
 export function openDb(path: string, options: OpenDbOptions = {}) {
+  // Compatibility is a read-only preflight. In particular, do not change the
+  // persistent journal mode or create WAL sidecars before rejecting a database
+  // written by newer software.
+  if (existsSync(path)) {
+    const preflight = new Database(path, { readonly: true });
+    try {
+      assertSchemaCompatibility(preflight);
+    } finally {
+      preflight.close();
+    }
+  }
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   // busy_timeout must absorb transient contention when several short-lived
@@ -297,6 +309,8 @@ function restoreSchemaViews(db: Database, schema: string) {
 }
 
 export function migrate(db: Database) {
+  assertSchemaCompatibility(db);
+  // BASELINE_MIGRATION_V1_NORMALIZATION_START
   // The canonical schema now defines INSERT triggers that reference the
   // journal evidence columns. CREATE TABLE IF NOT EXISTS does not add those
   // columns to a legacy table, so make the nullable, lossless upgrade before
@@ -467,6 +481,8 @@ export function migrate(db: Database) {
   // metadata is compatible; imported/non-native charts remain incomplete.
   seedNativeAccountRoles(db);
   backfillRetentionDeadlines(db);
+  // BASELINE_MIGRATION_V1_NORMALIZATION_END
+  recordSchemaBaseline(db);
 }
 
 export function dbExists(path: string) {

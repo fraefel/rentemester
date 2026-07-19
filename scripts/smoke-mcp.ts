@@ -16,7 +16,7 @@
  * Exit non-zero hvis nogen step fejler.
  */
 
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,6 +26,9 @@ const INVOICE_FIXTURE = new URL("../examples/full-invoice.dk.json", import.meta.
 
 const TMP_ROOT = mkdtempSync(join(tmpdir(), "rentemester-smoke-mcp-"));
 const COMPANY = join(TMP_ROOT, "company");
+// This identity is intentionally scoped to the temporary smoke company by
+// passing it to `init`; no production policy is edited for the smoke test.
+const SMOKE_MCP_ACTOR = "agent:rentemester-smoke-mcp/0.0.1";
 
 const wall = Date.now();
 
@@ -42,7 +45,7 @@ function fail(message: string): never {
 // -------------------- step 1: init company via CLI ---------------------------
 
 logStep("Initialiserer fresh virksomhedsmappe via CLI");
-const init = Bun.spawn(["bun", CLI_PATH, "init", "--company", COMPANY], {
+const init = Bun.spawn(["bun", CLI_PATH, "init", "--company", COMPANY, "--actor", SMOKE_MCP_ACTOR], {
   stdout: "pipe",
   stderr: "pipe",
 });
@@ -50,21 +53,6 @@ await init.exited;
 if (init.exitCode !== 0) {
   const err = await new Response(init.stderr).text();
   fail(`CLI init exited ${init.exitCode}: ${err}`);
-}
-
-// The smoke client has a stable MCP-derived actor. Register that actor in the
-// freshly-created, temporary company's policy so this test exercises the
-// shared allowlist gate rather than relying on a developer's OS identity.
-// This is local fixture setup only; no credentials or external system is used.
-const SMOKE_MCP_ACTOR = "agent:rentemester-smoke-mcp/0.0.1";
-const policyPath = join(COMPANY, "config", "policy.yaml");
-const policy = readFileSync(policyPath, "utf8");
-const agentLine = `    - ${SMOKE_MCP_ACTOR}\n`;
-if (!policy.includes(agentLine)) {
-  const marker = "  systems:\n";
-  const markerIndex = policy.indexOf(marker);
-  if (markerIndex < 0) fail("fresh company policy has no actor_allowlist.systems section");
-  writeFileSync(policyPath, policy.slice(0, markerIndex) + agentLine + policy.slice(markerIndex));
 }
 
 // -------------------- step 2: spawn MCP server -------------------------------

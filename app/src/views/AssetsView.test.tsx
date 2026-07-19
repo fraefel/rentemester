@@ -7,6 +7,7 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { screen, within, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { AssetsView } from "./AssetsView";
 import { renderAt } from "../test/render";
 import { assets, documents, mockFetch } from "../test/fixtures";
@@ -135,7 +136,7 @@ describe("AssetsView — Anlægskartotek (#336)", () => {
     const rowBtn = within(row as HTMLElement).getByRole("button", {
       name: /Beregn afskrivning for MacBook Pro/,
     });
-    fireEvent.click(rowBtn);
+    await userEvent.click(rowBtn);
 
     // The cockpit now opens a ConfirmDialog instead of using window.confirm.
     // The dialog's primary action is "Bogfør afskrivning".
@@ -145,7 +146,7 @@ describe("AssetsView — Anlægskartotek (#336)", () => {
     const confirmBtn = within(dialog as HTMLElement).getByRole("button", {
       name: /Bogfør afskrivning/,
     });
-    fireEvent.click(confirmBtn);
+    await userEvent.click(confirmBtn);
 
     await vi.waitFor(() => {
       const calls = fetchMock.mock.calls;

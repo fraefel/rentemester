@@ -244,8 +244,8 @@ Branch on that case before reading `errors[]`.
   earlier attempt verifiably did not land.
 - Several tools *are* idempotent **by nature** (`annotations.idempotentHint`)
   — they de-dupe on content or period, not on a client key: intake polls
-  (`mail_intake_ingest`, `imap_intake_poll`), `bank_import` (de-dupes on the
-  CSV's `sourceFileHash`), `recurring_invoice_generate` (per
+  (`mail_intake_ingest`, `imap_intake_poll`), `bank_import` (row-fingerprint
+  de-duplication; see [`bank-import-idempotency.md`](bank-import-idempotency.md)), `recurring_invoice_generate` (per
   template/period), `invoice_render` (deterministic PDF),
   `invoice_send_email` (reuses the send log) and
   `peppol_submit_public_invoice` (idempotent submission envelope).

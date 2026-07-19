@@ -10,10 +10,14 @@ import { describe, expect, test } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "./App";
+import { mockFetch } from "./test/fixtures";
 
 function renderApp(route = "/help") {
   return render(
-    <MemoryRouter initialEntries={[route]}>
+    <MemoryRouter
+      initialEntries={[route]}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <App />
     </MemoryRouter>,
   );
@@ -21,6 +25,7 @@ function renderApp(route = "/help") {
 
 describe("App topbar", () => {
   test("topbar contains a help/support link reachable from any route", () => {
+    mockFetch({ "GET /api/companies": { workspace: "/ws", count: 0, companies: [] } });
     renderApp("/");
     expect(screen.getByText("v0.1.0")).toBeInTheDocument();
     const helpLink = screen.getByRole("link", { name: /^Hjælp$/i });

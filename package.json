@@ -4,8 +4,8 @@
   "type": "module",
   "private": true,
   "bin": {
-    "rentemester": "./src/cli.ts",
-    "rentemester-mcp": "./src/mcp/server.ts"
+    "rentemester": "./bin/rentemester",
+    "rentemester-mcp": "./bin/rentemester-mcp"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",

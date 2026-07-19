@@ -100,7 +100,7 @@ describe("ManageCompanyView", () => {
     expect(
       screen.getByRole("dialog", { name: /Arkivér virksomhed/i }),
     ).toBeInTheDocument();
-    // Confirming inside the dialog runs the archive write.
+    // Confirming inside the dialog runs the archive write and redirects home.
     const confirm = screen
       .getByRole("dialog")
       .querySelector("button.btn.danger") as HTMLButtonElement;

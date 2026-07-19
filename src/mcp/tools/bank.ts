@@ -273,11 +273,11 @@ export function registerBankTools(server: McpServer): void {
         "`transaction_date` (eller `date` / `dato`) — YYYY-MM-DD eller dd-mm-yyyy; " +
         "`text` (eller `description` / `tekst` / `narrative`) — fri tekst der vises i Bank-listen; " +
         "`amount` (eller `beløb`) — DKK med punktum eller komma som decimaltegn, negativ = debit (træk). " +
-        "Valgfri kolonner: `reference` (entydig nøgle for dedup), `currency` (default DKK), " +
+        "Valgfri kolonner: `reference`, `currency` (default DKK), `amount_dkk`, `fx_rate_to_dkk`, " +
         "`counterparty` / `modpart`, `message` / `besked`. " +
-        "Dedup: rækker matches på (transaction_date + amount + reference + counterparty) og " +
-        "genimporteres ikke — agenten kan retry'e samme CSV uden duplikater " +
-        "(idempotentHint: true).\n\n" +
+        "For det kanoniske idempotens- og overlap-kontrakt, se docs/bank-import-idempotency.md " +
+        "(fingerprintet omfatter konto, datoer, tekst, beløb, valuta, reference, DKK-beløb, FX-kurs og occurrence). " +
+        "Den samme CSV kan retry'es uden dubletter (idempotentHint: true).\n\n" +
         "Find tilgængelige `account`-slugs med `bank_account_list` før kaldet. " +
         "Den slug du sender skal matche `slug`-feltet returneret derfra; et ukendt " +
         "navn afvises før parsing. " +
@@ -322,10 +322,9 @@ export function registerBankTools(server: McpServer): void {
         confirm: confirmField,
       },
       outputSchema: envelopeShape,
-      // `bank_import` is idempotent by design: each row is deduplicated by
-      // (date + amount + reference) so re-running the same import never
-      // double-creates transactions. The annotation reflects that contract so
-      // an agent retrying after a network hiccup knows it's safe.
+      // `bank_import` is idempotent by design; see the complete fingerprint
+      // contract in docs/bank-import-idempotency.md. The annotation tells an
+      // agent a retry after a network hiccup is safe.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     withCompanyDbConfirmed<{ company: string; csvPath?: string; csvContent?: string; account?: string; profile?: string; confirm?: boolean }>(

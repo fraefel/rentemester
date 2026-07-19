@@ -22,8 +22,8 @@ Forudsætning: [Bun](https://bun.sh) >= 1.2.
 git clone https://github.com/mikkelkrogsholm/rentemester.git
 cd rentemester
 bun install
-bun link            # registrerer både `rentemester` og `rentemester-mcp`
-                    # som globale shims
+bun link            # registrerer de stabile, eksekverbare bin-wrappere
+                    # `rentemester` og `rentemester-mcp` som globale shims
 ```
 
 Verificér at MCP-binaryen kan findes:
@@ -60,14 +60,15 @@ kaldbare.
 
 ### Hvis `rentemester-mcp` ikke ligger i PATH
 
-Brug en absolut sti og `bun` direkte:
+ Brug en absolut sti til den installerede wrapper. Den er stabil ved pakke-
+ installationer; undgå at pege klientkonfigurationer på interne `src/*.ts`-filer:
 
 ```json
 {
   "mcpServers": {
     "rentemester": {
-      "command": "/Users/mikkel/.bun/bin/bun",
-      "args": ["/Users/mikkel/code/rentemester/src/mcp/server.ts"],
+      "command": "/Users/mikkel/.bun/bin/rentemester-mcp",
+      "args": [],
       "env": {
         "RENTEMESTER_MCP_USER": "mikkel@56n.dk"
       }

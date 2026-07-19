@@ -72,6 +72,7 @@ describe("#345 — GET /api/companies/:slug/bank-accounts", () => {
       const patterns = body.routes.map((r) => `${r.method} ${r.pattern}`);
       expect(patterns).toContain("GET /api/companies/:slug/bank-accounts");
       expect(patterns).toContain("POST /api/companies/:slug/bank-accounts");
+      expect(patterns).toContain("PATCH /api/companies/:slug/bank-accounts/:account");
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

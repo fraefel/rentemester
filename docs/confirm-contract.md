@@ -62,7 +62,7 @@ Hver række er én logisk mutation. **Kræves** betyder afvisning uden samtykke.
 | GDPR-slet persondata | *(ingen MCP-slette-tool — bevidst CLI/Cockpit-only)* / `POST /gdpr/erase` / `gdpr forget` (legacy alias: `gdpr erase`) | N/A | `confirm: true` | Ikke `--confirm yes`, men **`--after-retention-expiry`** (eksplicit flag; exit `2` uden) + actor — retention vurderes altid mod dags dato |
 | Slet kontakt fra cockpittet | *(N/A)* / `DELETE /contacts/:id` / *(N/A)* | N/A | `confirm: true` | N/A |
 
-(Tabellen er ikke udtømmende for alle 112 MCP-tools — heraf er 63
+(Tabellen er ikke udtømmende for alle 113 MCP-tools — heraf er 63
 confirm-gatede (62 writes + 1 destructive); den dækker de
 business-operationer der har en konflikt eller en afvigelse mellem stakke.
 For den fulde liste pr. tool, se `annotations` i `docs/mcp-tool-surface.md`.)

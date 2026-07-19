@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
-import { addBankAccount, listBankAccounts, importBankCsv, resolveBankAccount } from "../../src/core/bank";
+import { addBankAccount, listBankAccounts, importBankCsv, resolveBankAccount, updateBankAccount } from "../../src/core/bank";
 import { listBankTransactions, buildBankReconciliationReport } from "../../src/core/reconciliation";
 
 function setup() {
@@ -47,6 +47,18 @@ describe("bank accounts (#187)", () => {
     expect(dup.errors.some((e) => e.includes("already exists"))).toBe(true);
     db.close();
     rmSync(root, { recursive: true, force: true });
+  });
+
+  test("migrates and round-trips the non-secret payment profile losslessly", () => {
+    const { root, db } = setup();
+    const created = addBankAccount(db, { name: "Drift", iban: "DK5000400440116243", bic: "DABADKKK", accountOwner: "Acme ApS", customerNo: "C-42" });
+    expect(created.ok).toBe(true);
+    const updated = updateBankAccount(db, { idOrSlug: created.account!.slug, bic: "DABADKKKXXX", accountOwner: "Acme Holding ApS", customerNo: "C-43" });
+    expect(updated.ok).toBe(true);
+    expect(resolveBankAccount(db, created.account!.id)).toMatchObject({ bic: "DABADKKKXXX", accountOwner: "Acme Holding ApS", customerNo: "C-43", iban: "DK5000400440116243" });
+    migrate(db); // guarded ALTERs and replacement trigger remain idempotent.
+    expect(resolveBankAccount(db, created.account!.id)?.customerNo).toBe("C-43");
+    db.close(); rmSync(root, { recursive: true, force: true });
   });
 
   test("importing into two accounts keeps rows separated", () => {

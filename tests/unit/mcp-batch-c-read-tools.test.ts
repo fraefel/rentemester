@@ -102,6 +102,14 @@ async function call(
 }
 
 describe("#batch-c — bank_account_list", () => {
+  test("bank_account_update is registered and actor/confirm gated", async () => {
+    expect(bankRegistered["bank_account_update"]).toBeDefined();
+    const missingConfirm = await call(bankRegistered, "bank_account_update", { company: companyRoot, account: "drift" });
+    expect(missingConfirm.ok).toBe(false);
+    const confirmed = await call(bankRegistered, "bank_account_update", { company: companyRoot, account: "drift", bic: "DABADKKK", confirm: true });
+    expect(confirmed.ok).toBe(false);
+    expect(confirmed.errors.join(" ")).toContain("actor");
+  });
   test("the tool is registered alongside the other bank tools", () => {
     expect(bankRegistered["bank_account_list"]).toBeDefined();
   });

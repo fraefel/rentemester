@@ -16,6 +16,7 @@ import {
   importBankCsv,
   listBankAccounts,
   resolveBankAccount,
+  updateBankAccount,
   type BankImportResult,
 } from "../../core/bank";
 import {
@@ -32,6 +33,25 @@ import { applyPagination, paginationFields, paginationDescriptionSuffix } from "
 const statusSchema = z.enum(["all", "matched", "unmatched"]).optional();
 
 export function registerBankTools(server: McpServer): void {
+  server.registerTool(
+    "bank_account_update",
+    {
+      title: "Update registered bank account",
+      description: "Opdaterer en registreret bankkontos ikke-hemmelige betalingsprofil eller aktive status. Kræver confirm:true og bevarer alle transaktioner; mapping til en ledger-konto valideres som aktiv aktivkonto og afvises når historiske transaktioner gør remapping usikker. write-reversible.",
+      inputSchema: {
+        company: z.string().min(1).describe("Absolute path to the company directory, or a workspace slug."),
+        account: z.string().min(1).describe("Bank account id or slug."),
+        name: z.string().min(1).optional(), bankName: z.string().optional(), registrationNo: z.string().optional(),
+        accountNo: z.string().optional(), iban: z.string().optional(), bic: z.string().optional(),
+        accountOwner: z.string().optional(), customerNo: z.string().optional(), currency: z.string().optional(),
+        ledgerAccountNo: z.string().optional(), active: z.boolean().optional(), confirm: confirmField,
+      },
+      outputSchema: envelopeShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    withCompanyDbConfirmed<{ company: string; account: string; name?: string; bankName?: string; registrationNo?: string; accountNo?: string; iban?: string; bic?: string; accountOwner?: string; customerNo?: string; currency?: string; ledgerAccountNo?: string; active?: boolean; confirm?: boolean }>(server, "bank_account_update", ({ db, args }) => wrapCoreResult(updateBankAccount(db, { idOrSlug: args.account, name: args.name, bankName: args.bankName, registrationNo: args.registrationNo, accountNo: args.accountNo, iban: args.iban, bic: args.bic, accountOwner: args.accountOwner, customerNo: args.customerNo, currency: args.currency, ledgerAccountNo: args.ledgerAccountNo, active: args.active }))),
+  );
+
   server.registerTool(
     "bank_list",
     {

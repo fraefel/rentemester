@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncUnmatchedBankTransactionExceptions } from "../../core/exceptions";
-import { addBankAccount, importBankCsv } from "../../core/bank";
+import { addBankAccount, importBankCsv, updateBankAccount } from "../../core/bank";
 import type { ServerConfig } from "../config";
 import { withCompanyMutation } from "../mutations";
 import { removePathWithRetry } from "../../core/fs-cleanup";
@@ -116,6 +116,9 @@ export async function handleCreateBankAccount(
       const registrationNo = optionalBodyString(body, "registrationNo");
       const accountNo = optionalBodyString(body, "accountNo");
       const iban = optionalBodyString(body, "iban");
+      const bic = optionalBodyString(body, "bic");
+      const accountOwner = optionalBodyString(body, "accountOwner");
+      const customerNo = optionalBodyString(body, "customerNo");
       const currency = optionalBodyString(body, "currency");
       const ledgerAccountNo = optionalBodyString(body, "ledgerAccountNo");
       const created = addBankAccount(ctx.db, {
@@ -125,6 +128,9 @@ export async function handleCreateBankAccount(
         ...(registrationNo ? { registrationNo } : {}),
         ...(accountNo ? { accountNo } : {}),
         ...(iban ? { iban } : {}),
+        ...(bic ? { bic } : {}),
+        ...(accountOwner ? { accountOwner } : {}),
+        ...(customerNo ? { customerNo } : {}),
         ...(currency ? { currency } : {}),
         ...(ledgerAccountNo ? { ledgerAccountNo } : {}),
       });
@@ -137,5 +143,21 @@ export async function handleCreateBankAccount(
       return { ok: true, account: created.account, errors: [] as string[] };
     },
   );
+  return okResponse({ bankAccount: result.account });
+}
+
+/** Audited payment-profile update; confirmation is required by the cockpit
+ * mutation contract just like every other ledger write. */
+export async function handleUpdateBankAccount(config: ServerConfig, request: Request, slug: string, account: string): Promise<Response> {
+  const result = await withCompanyMutation(request, config, slug, (ctx, body) => {
+    const optional = (key: string) => Object.prototype.hasOwnProperty.call(body, key) ? optionalBodyString(body, key) ?? "" : undefined;
+    const updated = updateBankAccount(ctx.db, {
+      idOrSlug: account, name: optional("name"), bankName: optional("bankName"), registrationNo: optional("registrationNo"),
+      accountNo: optional("accountNo"), iban: optional("iban"), bic: optional("bic"), accountOwner: optional("accountOwner"),
+      customerNo: optional("customerNo"), currency: optional("currency"), ledgerAccountNo: optional("ledgerAccountNo"),
+      active: typeof body.active === "boolean" ? body.active : undefined,
+    });
+    return { ok: updated.ok, account: updated.account ?? null, errors: updated.errors };
+  }, { requireConfirm: true });
   return okResponse({ bankAccount: result.account });
 }

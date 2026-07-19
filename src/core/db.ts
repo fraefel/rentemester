@@ -483,6 +483,16 @@ export function migrate(db: Database) {
   backfillRetentionDeadlines(db);
   // BASELINE_MIGRATION_V1_NORMALIZATION_END
   recordSchemaBaseline(db);
+  // #539 follows the immutable v1 normalisation. These guards apply equally
+  // to freshly-created and legacy ledgers and are lossless on repeated opens.
+  if (!hasColumn(db, "bank_accounts", "bic")) db.exec("ALTER TABLE bank_accounts ADD COLUMN bic TEXT;");
+  if (!hasColumn(db, "bank_accounts", "account_owner")) db.exec("ALTER TABLE bank_accounts ADD COLUMN account_owner TEXT;");
+  if (!hasColumn(db, "bank_accounts", "customer_no")) db.exec("ALTER TABLE bank_accounts ADD COLUMN customer_no TEXT;");
+  db.exec("DROP TRIGGER IF EXISTS bank_accounts_guard_update;");
+  db.exec(`CREATE TRIGGER bank_accounts_guard_update
+    BEFORE UPDATE ON bank_accounts
+    WHEN OLD.slug != NEW.slug OR OLD.created_at != NEW.created_at
+    BEGIN SELECT RAISE(ABORT, 'bank account identity is immutable; use the audited update operation for its payment profile'); END;`);
 }
 
 export function dbExists(path: string) {

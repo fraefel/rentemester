@@ -48,6 +48,9 @@ export type BankAccount = {
   registrationNo: string | null;
   accountNo: string | null;
   iban: string | null;
+  bic: string | null;
+  accountOwner: string | null;
+  customerNo: string | null;
   currency: string;
   ledgerAccountNo: string | null;
   active: boolean;
@@ -61,6 +64,9 @@ export type AddBankAccountInput = {
   registrationNo?: string;
   accountNo?: string;
   iban?: string;
+  bic?: string;
+  accountOwner?: string;
+  customerNo?: string;
   currency?: string;
   ledgerAccountNo?: string;
 };
@@ -84,6 +90,9 @@ function mapBankAccountRow(row: any): BankAccount {
     registrationNo: row.registration_no ?? null,
     accountNo: row.account_no ?? null,
     iban: row.iban ?? null,
+    bic: row.bic ?? null,
+    accountOwner: row.account_owner ?? null,
+    customerNo: row.customer_no ?? null,
     currency: row.currency,
     ledgerAccountNo: row.ledger_account_no ?? null,
     active: Number(row.active) === 1,
@@ -124,13 +133,12 @@ export function addBankAccount(db: Database, input: AddBankAccountInput) {
     return { ok: false as const, account: undefined, errors: [`a bank account with slug '${slug}' already exists`] };
   }
   const ledgerAccountNo = input.ledgerAccountNo?.trim() || null;
-  if (ledgerAccountNo && !db.query("SELECT account_no FROM accounts WHERE account_no = ?").get(ledgerAccountNo)) {
-    return { ok: false as const, account: undefined, errors: [`ledger account ${ledgerAccountNo} does not exist`] };
-  }
+  const ledgerError = validateBankLedgerAccount(db, ledgerAccountNo);
+  if (ledgerError) return { ok: false as const, account: undefined, errors: [ledgerError] };
 
   const row = db.query(
-    `INSERT INTO bank_accounts (slug, name, bank_name, registration_no, account_no, iban, currency, ledger_account_no)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO bank_accounts (slug, name, bank_name, registration_no, account_no, iban, bic, account_owner, customer_no, currency, ledger_account_no)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   ).get(
     slug,
     name,
@@ -138,6 +146,9 @@ export function addBankAccount(db: Database, input: AddBankAccountInput) {
     input.registrationNo?.trim() || null,
     input.accountNo?.trim() || null,
     input.iban?.trim() || null,
+    input.bic?.trim() || null,
+    input.accountOwner?.trim() || null,
+    input.customerNo?.trim() || null,
     currency,
     ledgerAccountNo,
   );
@@ -147,6 +158,65 @@ export function addBankAccount(db: Database, input: AddBankAccountInput) {
     entityId: String((row as any).id),
     message: `Added bank account '${slug}' (${name})`,
   });
+  return { ok: true as const, account: mapBankAccountRow(row), errors: [] as string[] };
+}
+
+export type UpdateBankAccountInput = {
+  idOrSlug: string | number;
+  name?: string;
+  bankName?: string | null;
+  registrationNo?: string | null;
+  accountNo?: string | null;
+  iban?: string | null;
+  bic?: string | null;
+  accountOwner?: string | null;
+  customerNo?: string | null;
+  currency?: string;
+  ledgerAccountNo?: string | null;
+  active?: boolean;
+};
+
+function nullableTrim(value: string | null | undefined) {
+  if (value === undefined) return undefined;
+  return value?.trim() || null;
+}
+
+function validateBankLedgerAccount(db: Database, ledgerAccountNo: string | null): string | null {
+  if (!ledgerAccountNo) return null;
+  const account = db.query("SELECT type, active FROM accounts WHERE account_no = ?").get(ledgerAccountNo) as { type: string; active: number } | null;
+  if (!account) return `ledger account ${ledgerAccountNo} does not exist`;
+  if (Number(account.active) !== 1) return `ledger account ${ledgerAccountNo} must be active`;
+  if (account.type !== "asset") return `ledger account ${ledgerAccountNo} must be an asset account`;
+  return null;
+}
+
+/** Audited, non-destructive payment-profile update. Existing imports keep their
+ * bank_account_id. A ledger remap is refused once any transaction uses the
+ * account, because changing the accounting meaning of historical rows is unsafe. */
+export function updateBankAccount(db: Database, input: UpdateBankAccountInput) {
+  const existing = resolveBankAccount(db, input.idOrSlug);
+  if (!existing) return { ok: false as const, account: undefined, errors: [`bank account '${input.idOrSlug}' does not exist`] };
+  const nextCurrency = input.currency === undefined ? existing.currency : normalizeCurrency(input.currency);
+  if (nextCurrency.length !== 3) return { ok: false as const, account: undefined, errors: ["currency must be a 3-letter ISO currency code"] };
+  const nextLedger = input.ledgerAccountNo === undefined ? existing.ledgerAccountNo : nullableTrim(input.ledgerAccountNo);
+  const ledgerError = validateBankLedgerAccount(db, nextLedger);
+  if (ledgerError) return { ok: false as const, account: undefined, errors: [ledgerError] };
+  const used = (db.query("SELECT COUNT(*) AS n FROM bank_transactions WHERE bank_account_id = ?").get(existing.id) as { n: number }).n;
+  if (nextLedger !== existing.ledgerAccountNo && used > 0) {
+    return { ok: false as const, account: undefined, errors: [`unsafe ledger remapping refused: bank account '${existing.slug}' has ${used} preserved transaction(s); create a new bank account instead`] };
+  }
+  const incompatible = db.query("SELECT currency FROM bank_transactions WHERE bank_account_id = ? AND UPPER(currency) != ? LIMIT 1").get(existing.id, nextCurrency) as { currency: string } | null;
+  if (incompatible) return { ok: false as const, account: undefined, errors: [`currency ${nextCurrency} is incompatible with preserved bank transaction currency ${incompatible.currency}`] };
+  const name = input.name === undefined ? existing.name : input.name.trim();
+  if (!name) return { ok: false as const, account: undefined, errors: ["name must not be empty"] };
+  const next = <T>(value: T | undefined, current: T) => value === undefined ? current : value;
+  const row = db.query(`UPDATE bank_accounts SET name=?, bank_name=?, registration_no=?, account_no=?, iban=?, bic=?, account_owner=?, customer_no=?, currency=?, ledger_account_no=?, active=? WHERE id=? RETURNING *`).get(
+    name, next(nullableTrim(input.bankName), existing.bankName), next(nullableTrim(input.registrationNo), existing.registrationNo),
+    next(nullableTrim(input.accountNo), existing.accountNo), next(nullableTrim(input.iban), existing.iban),
+    next(nullableTrim(input.bic), existing.bic), next(nullableTrim(input.accountOwner), existing.accountOwner),
+    next(nullableTrim(input.customerNo), existing.customerNo), nextCurrency, nextLedger, input.active === undefined ? (existing.active ? 1 : 0) : (input.active ? 1 : 0), existing.id,
+  );
+  insertAuditLog(db, { eventType: "bank_account_update", entityType: "bank_account", entityId: String(existing.id), message: `Updated bank account '${existing.slug}': payment profile fields and active status; ledger mapping ${existing.ledgerAccountNo ?? "none"} -> ${nextLedger ?? "none"}` });
   return { ok: true as const, account: mapBankAccountRow(row), errors: [] as string[] };
 }
 // ===== END BANK CLUSTER (#187) =====

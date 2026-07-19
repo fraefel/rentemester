@@ -13,6 +13,9 @@ import { backupManifestKeyPath, createSystemBackup } from "../../src/core/system
 import { restoreSystemBackup } from "../../src/core/system-restore";
 import { validateInvoiceJournalEvidence } from "../../src/core/invoice-journal-evidence";
 import { BASELINE_MIGRATION_CHECKSUM, BASELINE_MIGRATION_NAME, readSchemaMigrations } from "../../src/core/schema-version";
+import { buildBankReconciliationReport } from "../../src/core/reconciliation";
+import { buildTrialBalance } from "../../src/core/financial-statements";
+import { buildVatReport } from "../../src/core/vat";
 
 function sha256File(path: string) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -38,6 +41,7 @@ function rewriteSnapshotAsPreV1(snapshotPath: string) {
   try {
     snapshot.exec("PRAGMA foreign_keys = OFF;");
     snapshot.exec("DROP TABLE invoice_payments; DROP TABLE invoice_refunds; DROP TABLE invoice_claim_payments;");
+    snapshot.exec("DROP TABLE schema_migrations;");
     snapshot.exec(preV1InvoiceApplicationsFixture);
   } finally {
     snapshot.close();
@@ -72,11 +76,14 @@ describe("system restore", () => {
 
     const snapshotPath = join(backup.backupDir!, "ledger.sqlite");
     rewriteSnapshotAsPreV1(snapshotPath);
+    const unstamped = new Database(snapshotPath, { readonly: true });
+    expect(readSchemaMigrations(unstamped)).toEqual([]);
+    unstamped.close();
     const { manifest } = signChangedSnapshot(companyRoot, backup.backupDir!);
     const sourceBytes = readFileSync(snapshotPath);
 
     const restored = restoreSystemBackup({ backupDir: backup.backupDir!, targetCompanyRoot: restoredRoot });
-    expect(restored.ok).toBe(true);
+    expect(restored.ok, restored.errors.join("; ")).toBe(true);
     expect(readFileSync(snapshotPath)).toEqual(sourceBytes);
 
     const restoredDb = new Database(restored.restoredDbPath!);
@@ -99,6 +106,9 @@ describe("system restore", () => {
     }
     expect(validateInvoiceJournalEvidence(restoredDb).ok).toBe(true);
     expect(verifyAuditChain(restoredDb, { companyRoot: restoredRoot }).ok).toBe(true);
+    expect(buildBankReconciliationReport(restoredDb, "2026-01-01", "2026-12-31").ok).toBe(true);
+    expect(buildTrialBalance(restoredDb, "2026-01-01", "2026-12-31").ok).toBe(true);
+    expect(buildVatReport(restoredDb, "2026-01-01", "2026-12-31").ok).toBe(true);
     restoredDb.close();
     expect(restoreStagingEntries(root)).toEqual([]);
     rmSync(root, { recursive: true, force: true });

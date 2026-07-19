@@ -322,12 +322,17 @@ function classifyDineroReverseChargePatterns(
     // so an unrelated manual/custom chart cannot acquire Dinero semantics.
     const outputAccount = accounts.get("64040");
     const inputAccount = accounts.get("64060");
-    if (
-      outputAccount?.type !== "liability" ||
-      outputAccount.normal_balance !== "credit" ||
-      inputAccount?.type !== "liability" ||
-      (inputAccount.normal_balance !== "debit" && inputAccount.normal_balance !== "credit")
-    ) return entry;
+    const canonicalPair =
+      outputAccount?.type === "vat" &&
+      outputAccount.normal_balance === "credit" &&
+      inputAccount?.type === "vat" &&
+      inputAccount.normal_balance === "debit";
+    const legacyPair =
+      outputAccount?.type === "liability" &&
+      outputAccount.normal_balance === "credit" &&
+      inputAccount?.type === "liability" &&
+      (inputAccount.normal_balance === "debit" || inputAccount.normal_balance === "credit");
+    if (!canonicalPair && !legacyPair) return entry;
 
     const ref = refOf(entry, entryIndex);
     const outputOre = outputControls.reduce(

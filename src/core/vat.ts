@@ -614,16 +614,23 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       (row) => row.account_no === "64060",
     );
     if (outputControls.length === 0 || inputControls.length === 0) continue;
-    if (
-      outputControls.some(
-        (row) => row.account_type !== "liability" || row.normal_balance !== "credit",
-      ) ||
-      inputControls.some(
+    const canonicalPair =
+      outputControls.every(
+        (row) => row.account_type === "vat" && row.normal_balance === "credit",
+      ) &&
+      inputControls.every(
+        (row) => row.account_type === "vat" && row.normal_balance === "debit",
+      );
+    const legacyPair =
+      outputControls.every(
+        (row) => row.account_type === "liability" && row.normal_balance === "credit",
+      ) &&
+      inputControls.every(
         (row) =>
-          row.account_type !== "liability" ||
-          (row.normal_balance !== "debit" && row.normal_balance !== "credit"),
-      )
-    ) continue;
+          row.account_type === "liability" &&
+          (row.normal_balance === "debit" || row.normal_balance === "credit"),
+      );
+    if (!canonicalPair && !legacyPair) continue;
 
     const outputControl = roundDkk(
       outputControls.reduce(

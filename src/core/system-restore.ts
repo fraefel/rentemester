@@ -7,10 +7,12 @@ import { verifyAuditChain } from "./ledger";
 import { companyPaths, ensureCompanyDirs } from "./paths";
 import { backupAsymmetricSignaturePath, backupManifestKeyPath, backupManifestSignaturePath } from "./system-backups";
 import type { BackupManifest, ManifestFile } from "./system-backups";
+import { isReleaseProvenance } from "./release-provenance";
 import { extractTar } from "./tar";
 import { insertAuditLog } from "./actor";
 import { removePathWithRetry, renamePathWithRetry } from "./fs-cleanup";
 import { writeFileAtomic } from "./atomic-file";
+import { assertSchemaCompatibility } from "./schema-version";
 
 const RULE_ID = "DK-BOOKKEEPING-RESTORE-001";
 
@@ -60,14 +62,75 @@ function readManifestText(backupDir: string) {
   }
 }
 
-function readManifest(backupDir: string): BackupManifest | null {
-  const manifestText = readManifestText(backupDir);
-  if (!manifestText) return null;
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isManifestFile(value: unknown): value is ManifestFile {
+  if (!isObject(value)) return false;
+  return (
+    typeof value.path === "string" &&
+    typeof value.sha256 === "string" &&
+    /^[0-9a-f]{64}$/i.test(value.sha256) &&
+    typeof value.sizeBytes === "number" &&
+    Number.isSafeInteger(value.sizeBytes) &&
+    value.sizeBytes >= 0
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Parse and validate the versioned contract before signature/file handling. */
+export function parseBackupManifestText(manifestText: string): BackupManifest | null {
   try {
-    return JSON.parse(manifestText) as BackupManifest;
+    const value = JSON.parse(manifestText) as unknown;
+    if (!isObject(value)) return null;
+    const version = value.manifestVersion;
+    if (version !== undefined && version !== 1 && version !== 2) return null;
+    if (version === 2 && !isReleaseProvenance(value.provenance)) return null;
+    if (
+      typeof value.backupId !== "string" ||
+      typeof value.createdAt !== "string" ||
+      !Array.isArray(value.ruleIds) ||
+      !value.ruleIds.every((rule) => typeof rule === "string") ||
+      !isObject(value.manifestSignature) ||
+      value.manifestSignature.algorithm !== "hmac-sha256" ||
+      typeof value.manifestSignature.keyHint !== "string" ||
+      typeof value.manifestSignature.signaturePath !== "string" ||
+      !isManifestFile(value.dbSnapshot) ||
+      !isObject(value.copiedFiles) ||
+      !Array.isArray(value.copiedFiles.documentsOriginals) ||
+      !value.copiedFiles.documentsOriginals.every(isManifestFile) ||
+      !Array.isArray(value.copiedFiles.invoicesIssued) ||
+      !value.copiedFiles.invoicesIssued.every(isManifestFile) ||
+      !Array.isArray(value.copiedFiles.config) ||
+      !value.copiedFiles.config.every(isManifestFile) ||
+      !isObject(value.ledgerStats) ||
+      !isNonNegativeInteger(value.ledgerStats.journalEntries) ||
+      !isNonNegativeInteger(value.ledgerStats.documents) ||
+      !isNonNegativeInteger(value.ledgerStats.bankTransactions)
+    ) return null;
+    if (value.asymmetricSignature !== undefined) {
+      const signature = value.asymmetricSignature;
+      if (
+        !isObject(signature) ||
+        signature.algorithm !== "ed25519" ||
+        typeof signature.publicKeyHint !== "string" ||
+        typeof signature.publicKeyPath !== "string" ||
+        typeof signature.signaturePath !== "string"
+      ) return null;
+    }
+    return value as BackupManifest;
   } catch {
     return null;
   }
+}
+
+function readManifest(backupDir: string): BackupManifest | null {
+  const manifestText = readManifestText(backupDir);
+  return manifestText ? parseBackupManifestText(manifestText) : null;
 }
 
 export function resolveManifestPath(backupDir: string, manifestPath: string) {
@@ -255,6 +318,14 @@ function validateRestoredDb(
   manifest: BackupManifest,
   restoredCompanyRoot: string,
 ) {
+  try {
+    assertSchemaCompatibility(db);
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: `restored database schema is incompatible: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
   const integrity = db.query("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
   if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
     return { ok: false as const, error: `restored database failed integrity check: ${JSON.stringify(integrity)}` };

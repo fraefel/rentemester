@@ -191,6 +191,12 @@ td.num,
 .topbar .brand-dot {
   color: var(--accent);
 }
+.topbar .build-version {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
 .topbar nav {
   display: flex;
   gap: var(--space-md);

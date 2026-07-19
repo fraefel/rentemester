@@ -1,0 +1,280 @@
+name: promote approved release
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: "GitHub Actions run id from release candidate workflow"
+        required: true
+        type: string
+      candidate_run_attempt:
+        description: "GitHub Actions run attempt from the candidate evidence"
+        required: true
+        type: string
+      approval_json:
+        description: "Digisense approval JSON matching docs/release/digisense-approval.schema.json"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  attestations: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-promotion
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: 1.3.14
+  REGISTRY_IMAGE: ghcr.io/mikkelkrogsholm/rentemester
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    name: promote Digisense-approved digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Configure this environment with Digisense as required reviewer, prevent
+    # self-review, and do not allow administrator bypass.
+    environment: digisense-approval
+    steps:
+      - name: Checkout trusted promotion controls
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Freeze the scripts to the same reviewed commit as the workflow
+          # invocation; `main` may advance while the environment gate waits.
+          ref: ${{ github.sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Verify successful candidate run from main
+        id: candidate_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ inputs.candidate_run_id }}
+          RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "candidate_run_id must be numeric" >&2
+            exit 1
+          fi
+          if [[ ! "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "candidate_run_attempt must be a positive integer" >&2
+            exit 1
+          fi
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
+          [ "$(jq -r .path <<<"$run_json")" = ".github/workflows/release-candidate.yml" ] || {
+            echo "run is not the trusted candidate workflow" >&2
+            exit 1
+          }
+          [ "$(jq -r .event <<<"$run_json")" = "workflow_dispatch" ] || {
+            echo "candidate run was not manually dispatched" >&2
+            exit 1
+          }
+          [ "$(jq -r .head_branch <<<"$run_json")" = "main" ] || {
+            echo "candidate run did not execute from main" >&2
+            exit 1
+          }
+          [ "$(jq -r .conclusion <<<"$run_json")" = "success" ] || {
+            echo "candidate run did not complete successfully" >&2
+            exit 1
+          }
+          [ "$(jq -r .run_attempt <<<"$run_json")" = "$RUN_ATTEMPT" ] || {
+            echo "candidate run attempt does not match the selected attempt" >&2
+            exit 1
+          }
+          echo "head_sha=$(jq -r .head_sha <<<"$run_json")" >> "$GITHUB_OUTPUT"
+
+      - name: Download candidate evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-candidate-evidence
+          path: candidate
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify candidate evidence checksum
+        working-directory: candidate
+        run: sha256sum --check release-manifest.json.sha256
+
+      - name: Materialize supplied Digisense approval
+        env:
+          APPROVAL_JSON: ${{ inputs.approval_json }}
+        run: |
+          bun -e 'const raw=process.env.APPROVAL_JSON; if(!raw) throw new Error("approval missing"); JSON.parse(raw); await Bun.write("candidate/digisense-approval.json", raw.endsWith("\n") ? raw : raw + "\n")'
+
+      - name: Verify approval is bound to candidate evidence
+        run: bun run scripts/release/verify-approval.ts candidate/release-manifest.json candidate/digisense-approval.json
+
+      - name: Read approved identity
+        id: identity
+        env:
+          RUN_HEAD_SHA: ${{ steps.candidate_run.outputs.head_sha }}
+          RUN_ID: ${{ inputs.candidate_run_id }}
+          RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+        run: |
+          bun -e '
+            const m = await Bun.file("candidate/release-manifest.json").json();
+            if (m.release.gitCommit !== process.env.RUN_HEAD_SHA) {
+              throw new Error("release manifest commit does not match candidate run head");
+            }
+            if (m.workflow.runId !== process.env.RUN_ID || String(m.workflow.runAttempt) !== process.env.RUN_ATTEMPT) {
+              throw new Error("release manifest does not match candidate run attempt");
+            }
+            console.log(`version=${m.release.version}`);
+            console.log(`commit=${m.release.gitCommit}`);
+            console.log(`digest=${m.image.digest}`);
+          ' >> "$GITHUB_OUTPUT"
+
+      - name: Checkout approved source commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ steps.identity.outputs.commit }}
+          fetch-depth: 0
+          path: source
+
+      - name: Confirm source version
+        working-directory: source
+        run: bun run scripts/release/check-version.ts "${{ steps.identity.outputs.version }}"
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Preflight every release target
+        id: preflight
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          DIGEST: ${{ steps.identity.outputs.digest }}
+          COMMIT: ${{ steps.identity.outputs.commit }}
+          RUN_ID: ${{ inputs.candidate_run_id }}
+          RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          target="$REGISTRY_IMAGE:v$VERSION"
+          set +e
+          git -C source ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1
+          tag_status=$?
+          set -e
+          case "$tag_status" in
+            0)
+              echo "Git tag v$VERSION already exists" >&2
+              exit 1
+              ;;
+            2) ;;
+            *)
+              echo "Git tag lookup failed; refusing promotion" >&2
+              exit 1
+              ;;
+          esac
+          set +e
+          release_output="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" 2>&1)"
+          release_status=$?
+          set -e
+          if [ "$release_status" -eq 0 ]; then
+            echo "GitHub release v$VERSION already exists" >&2
+            exit 1
+          fi
+          if ! grep -q 'HTTP 404' <<<"$release_output"; then
+            echo "GitHub release lookup failed closed: $release_output" >&2
+            exit 1
+          fi
+          candidate_status="$(bun run scripts/release/registry-manifest-status.ts "$REGISTRY_IMAGE" "$DIGEST")"
+          if [ "$candidate_status" != 200 ]; then
+            echo "approved candidate digest does not exist in GHCR (HTTP $candidate_status)" >&2
+            exit 1
+          fi
+          candidate_actual="sha256:$(docker buildx imagetools inspect "$REGISTRY_IMAGE@$DIGEST" --raw | sha256sum | cut -d ' ' -f 1)"
+          if [ "$candidate_actual" != "$DIGEST" ]; then
+            echo "candidate registry bytes do not match approved digest: $candidate_actual" >&2
+            exit 1
+          fi
+          attestation_json="$(gh attestation verify "oci://$REGISTRY_IMAGE@$DIGEST" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-candidate.yml" \
+            --source-digest "$COMMIT" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners \
+            --format json)"
+          invocation="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT"
+          jq -e --arg invocation "$invocation" \
+            'any(.[]; .verificationResult.statement.predicate.runDetails.metadata.invocationId == $invocation)' \
+            <<<"$attestation_json" >/dev/null || {
+              echo "attestation is not bound to candidate run attempt $RUN_ID/$RUN_ATTEMPT" >&2
+              exit 1
+            }
+          target_exists=false
+          target_status="$(bun run scripts/release/registry-manifest-status.ts "$REGISTRY_IMAGE" "v$VERSION")"
+          if [ "$target_status" = 200 ]; then
+            actual="sha256:$(docker buildx imagetools inspect "$target" --raw | sha256sum | cut -d ' ' -f 1)"
+            if [ "$actual" != "$DIGEST" ]; then
+              echo "$target already exists at a different digest: $actual" >&2
+              exit 1
+            fi
+            target_exists=true
+          elif [ "$target_status" != 404 ]; then
+            echo "unexpected GHCR status: $target_status" >&2
+            exit 1
+          fi
+          echo "target_exists=$target_exists" >> "$GITHUB_OUTPUT"
+
+      - name: Promote the existing digest without rebuilding
+        if: steps.preflight.outputs.target_exists != 'true'
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          DIGEST: ${{ steps.identity.outputs.digest }}
+        run: |
+          set -euo pipefail
+          target="$REGISTRY_IMAGE:v$VERSION"
+          docker buildx imagetools create --tag "$target" "$REGISTRY_IMAGE@$DIGEST"
+          actual="sha256:$(docker buildx imagetools inspect "$target" --raw | sha256sum | cut -d ' ' -f 1)"
+          if [ "$actual" != "$DIGEST" ]; then
+            echo "promotion changed the approved digest: expected $DIGEST, got $actual" >&2
+            exit 1
+          fi
+
+      - name: Create version Git tag and GitHub release
+        working-directory: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          COMMIT: ${{ steps.identity.outputs.commit }}
+        run: |
+          release_flags=()
+          if [[ "$VERSION" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$COMMIT" \
+            --title "Rentemester v$VERSION" \
+            --generate-notes \
+            "${release_flags[@]}" \
+            ../candidate/release-manifest.json \
+            ../candidate/release-manifest.json.sha256 \
+            ../candidate/digisense-approval.json
+
+      - name: Promotion summary
+        run: |
+          {
+            echo "## Approved Rentemester release"
+            echo
+            echo "- Git tag: \`v${{ steps.identity.outputs.version }}\`"
+            echo "- Image: \`$REGISTRY_IMAGE@${{ steps.identity.outputs.digest }}\`"
+            echo "- Version tag: \`$REGISTRY_IMAGE:v${{ steps.identity.outputs.version }}\`"
+            echo "- Approval: attached to the GitHub release"
+          } >> "$GITHUB_STEP_SUMMARY"

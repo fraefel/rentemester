@@ -7,6 +7,8 @@ import {
   readRuleMetadata,
 } from "../../core/rules-metadata";
 import { okResponse } from "./_shared";
+import { getBuildIdentity } from "../../core/build-identity";
+import { getReleaseProvenance } from "../../core/release-provenance";
 
 export function handleHealth(
   config: ServerConfig,
@@ -14,6 +16,8 @@ export function handleHealth(
 ): Response {
   return okResponse({
     service: "rentemester-cockpit",
+    build: getBuildIdentity(),
+    provenance: getReleaseProvenance(),
     workspace: config.workspaceRoot,
     authRequired: config.authRequired,
     routes,

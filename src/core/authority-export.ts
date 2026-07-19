@@ -10,6 +10,7 @@ import { buildTrialBalance } from "./financial-statements";
 import { formatAmount } from "./money";
 import { parsePurchaseVatLinesPayload } from "./documents";
 import { buildVatReport } from "./vat";
+import { getReleaseProvenance } from "./release-provenance";
 
 const RULE_ID = "DK-BOOKKEEPING-AUTHORITY-EXPORT-001";
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
@@ -164,7 +165,10 @@ type CompanyRecord = {
 type SchemaMigrationRecord = {
   id: number;
   name: string;
+  checksum: string;
   appliedAt: string;
+  appliedByVersion: string;
+  appliedByCommit: string | null;
 };
 
 type ExportProfile = {
@@ -602,11 +606,15 @@ function fetchCompanies(db: Database): CompanyRecord[] {
 
 function fetchSchemaMigrations(db: Database): SchemaMigrationRecord[] {
   return (db.query(
-    `SELECT id, name, applied_at FROM schema_migrations ORDER BY id ASC`
+    `SELECT id, name, checksum, applied_at, applied_by_version, applied_by_commit
+       FROM schema_migrations ORDER BY id ASC`
   ).all() as any[]).map((row) => ({
     id: row.id,
     name: row.name,
+    checksum: row.checksum,
     appliedAt: row.applied_at,
+    appliedByVersion: row.applied_by_version,
+    appliedByCommit: row.applied_by_commit ?? null,
   }));
 }
 
@@ -786,6 +794,8 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   copiedDocuments.sort((a, b) => a.exportedPath.localeCompare(b.exportedPath));
 
   const manifest = {
+    manifestVersion: 2,
+    provenance: getReleaseProvenance(),
     packageType: profile.packageType,
     generatedAt,
     // false => generatedAt is a deterministic stamp derived from the period end,

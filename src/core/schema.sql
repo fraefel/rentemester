@@ -1,7 +1,10 @@
 CREATE TABLE IF NOT EXISTS schema_migrations (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
-  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  checksum TEXT NOT NULL,
+  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  applied_by_version TEXT NOT NULL,
+  applied_by_commit TEXT
 );
 
 CREATE TABLE IF NOT EXISTS companies (

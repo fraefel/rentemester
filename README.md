@@ -187,6 +187,31 @@ cd app && bun install && bun run dev
 
 > Alt cockpittet kan, kan CLI'en også — og omvendt. Samme regler, samme audit-trail, samme append-only historik. Cockpittet er en blødere indgang; CLI'en er en hårdere én.
 
+### Fastlåst Docker-distribution
+
+Ikke-reviewede kandidater og godkendte releases udgives på GHCR. Begge kan
+fastlåses på den eksakte digest fra `release-manifest.json`; kandidatens digest
+kan bruges før Digisense-review, men er ikke dermed compliance-godkendt:
+
+```bash
+export RENTEMESTER_IMAGE='ghcr.io/mikkelkrogsholm/rentemester@sha256:<valgt-digest>'
+docker compose -f docker-compose.example.yml up -d
+```
+
+Afprøv en ikke-reviewet kandidat mod et nyt workspace eller en verificeret
+datakopi, aldrig den eneste live-ledger. Selve imaget kræver autentifikation som
+standard. Compose-eksemplet slår den eksplicit fra, fordi cockpit endnu ikke har
+en login-skærm, og binder derfor porten strengt til `127.0.0.1`. Eksponér ikke
+den konfiguration på netværket. Eksemplet bruger Docker-volumes, som initialiseres
+med den korrekte non-root-ejer; eksisterende data skal importeres som en bevidst,
+separat operation.
+
+Image og cockpit versioneres samlet. Det offentlige `www/`-site har derimod
+egen CI og deploy-livscyklus og er ikke en del af containeren. Se
+[`docs/versioning.md`](docs/versioning.md), [`CHANGELOG.md`](CHANGELOG.md) og
+[`docs/release/README.md`](docs/release/README.md) for versions- og
+Digisense-godkendelsesflowet.
+
 ---
 
 ## Se det virke

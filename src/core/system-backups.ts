@@ -6,6 +6,7 @@ import { companyPaths } from "./paths";
 import { insertAuditLog } from "./actor";
 import { promoteTempFile, writeFileAtomic, writeTempFileFor } from "./atomic-file";
 import { createTar, dirToTarEntries } from "./tar";
+import { getReleaseProvenance, type ReleaseProvenance } from "./release-provenance";
 
 const BACKUP_RULE_ID = "DK-BOOKKEEPING-BACKUP-001";
 const BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -54,7 +55,7 @@ export type BackupAsymmetricSignature = {
   signaturePath: string;
 };
 
-export type BackupManifest = {
+type BackupManifestBody = {
   backupId: string;
   createdAt: string;
   ruleIds: string[];
@@ -76,6 +77,18 @@ export type BackupManifest = {
     bankTransactions: number;
   };
 };
+
+export type BackupManifestV1 = BackupManifestBody & {
+  manifestVersion?: 1;
+  provenance?: never;
+};
+
+export type BackupManifestV2 = BackupManifestBody & {
+  manifestVersion: 2;
+  provenance: ReleaseProvenance;
+};
+
+export type BackupManifest = BackupManifestV1 | BackupManifestV2;
 
 function sha256File(path: string) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -352,7 +365,9 @@ export function createSystemBackup(db: Database, companyRoot: string, input: Cre
       }
     : undefined;
 
-  const manifest: BackupManifest = {
+  const manifest: BackupManifestV2 = {
+    manifestVersion: 2,
+    provenance: getReleaseProvenance(),
     backupId,
     createdAt,
     ruleIds: [BACKUP_RULE_ID],

@@ -1,5 +1,6 @@
 import { MUTATING_COMMANDS } from "../cli-actor";
 import { SIDE_EFFECTING_COMMANDS, flagsForSpec, type CommandSpec } from "./_shared";
+import { PRODUCT_VERSION } from "../core/build-identity";
 
 /**
  * The helpers operate on the assembled `COMMAND_SPECS` array. The barrel
@@ -27,9 +28,10 @@ export function getCommandSpec(cmd?: string, sub?: string) {
 
 export function renderGlobalUsage() {
   const lines = [
-    "Rentemester v0.0.1 — agent-først dansk bogholderi",
+    `Rentemester v${PRODUCT_VERSION} — agent-først dansk bogholderi`,
     "",
     "Brug:  rentemester <kommando> [underkommando] [flags]",
+    "       rentemester --version             # produktversion + build-identitet",
     "       rentemester <kommando> --help     # detaljeret hjælp + inputnoter for én kommando",
     "",
     "Læsekommandoer (read-only — ingen sideeffekter, kræver ingen actor):",
@@ -59,6 +61,7 @@ export function renderGlobalUsage() {
   lines.push(
     "",
     "Globale flags:",
+    "  --version              Viser produktversion og evt. commit/buildtid (kun alene).",
     "  --help                 Viser hjælp for kommandoen (eller denne oversigt).",
     "  --example              Skriver et eksempel-input til stdout (kun kommandoer med eksempel).",
     "  --format json|human    Vælger outputformat (standard: human i terminal, json ellers).",

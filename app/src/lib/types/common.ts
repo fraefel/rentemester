@@ -13,9 +13,21 @@ export type ApiErrorBody = {
   code: string;
 };
 
+export type BuildIdentity = {
+  version: string;
+  gitCommit: string | null;
+  builtAt: string | null;
+};
+
 export type HealthResponse = {
   ok: true;
   service: string;
+  build: BuildIdentity;
+  provenance: {
+    product: BuildIdentity;
+    schema: { version: number; baselineChecksum: string };
+    rules: { digest: string };
+  };
   workspace: string;
   authRequired: boolean;
 };

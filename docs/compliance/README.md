@@ -12,6 +12,10 @@ retninger:
 Plus konkrete, kildehenviste opskrifter for de dele som *ikke* kan
 løses i kode (fx attestering af en backup-destination i EU/EØS).
 
+Software-releases har et separat, digest-bundet evidensflow. Se
+[`docs/release/README.md`](../release/README.md) for kandidatmanifest,
+Digisense-godkendelse og promotion af præcis samme GHCR-image.
+
 ## Indhold
 
 ### Reference

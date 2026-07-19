@@ -103,6 +103,21 @@ import {
 import { migrate, openDb } from "./core/db";
 import { companyPaths } from "./core/paths";
 import { evaluateBackupLock } from "./core/backup-governance";
+import { getBuildIdentity } from "./core/build-identity";
+
+if (Bun.argv.length === 3 && Bun.argv[2] === "--version") {
+  const build = getBuildIdentity();
+  console.log(
+    [
+      `rentemester ${build.version}`,
+      build.gitCommit ? `commit ${build.gitCommit}` : null,
+      build.builtAt ? `built ${build.builtAt}` : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  process.exit(0);
+}
 
 function fatal(message: string): never {
   console.error(message);

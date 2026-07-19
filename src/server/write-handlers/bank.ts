@@ -156,6 +156,8 @@ export async function handleUpdateBankAccount(config: ServerConfig, request: Req
       accountNo: optional("accountNo"), iban: optional("iban"), bic: optional("bic"), accountOwner: optional("accountOwner"),
       customerNo: optional("customerNo"), currency: optional("currency"), ledgerAccountNo: optional("ledgerAccountNo"),
       active: typeof body.active === "boolean" ? body.active : undefined,
+      createdBy: ctx.actor.createdBy,
+      createdByProgram: ctx.actor.createdByProgram,
     });
     return { ok: updated.ok, account: updated.account ?? null, errors: updated.errors };
   }, { requireConfirm: true });

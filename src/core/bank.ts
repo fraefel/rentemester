@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import { companyPaths } from "./paths";
-import { insertAuditLog } from "./actor";
+import { insertAuditLog, type ResolveActorInput } from "./actor";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { retainUntilForDate } from "./retention";
 import { addDkk, compareDkk, equalsDkk, multiplyDkk, normalizeCurrency, roundDkk, roundRate6, subtractDkk } from "./money";
@@ -161,7 +161,7 @@ export function addBankAccount(db: Database, input: AddBankAccountInput) {
   return { ok: true as const, account: mapBankAccountRow(row), errors: [] as string[] };
 }
 
-export type UpdateBankAccountInput = {
+export type UpdateBankAccountInput = ResolveActorInput & {
   idOrSlug: string | number;
   name?: string;
   bankName?: string | null;
@@ -216,7 +216,14 @@ export function updateBankAccount(db: Database, input: UpdateBankAccountInput) {
     next(nullableTrim(input.bic), existing.bic), next(nullableTrim(input.accountOwner), existing.accountOwner),
     next(nullableTrim(input.customerNo), existing.customerNo), nextCurrency, nextLedger, input.active === undefined ? (existing.active ? 1 : 0) : (input.active ? 1 : 0), existing.id,
   );
-  insertAuditLog(db, { eventType: "bank_account_update", entityType: "bank_account", entityId: String(existing.id), message: `Updated bank account '${existing.slug}': payment profile fields and active status; ledger mapping ${existing.ledgerAccountNo ?? "none"} -> ${nextLedger ?? "none"}` });
+  insertAuditLog(db, {
+    eventType: "bank_account_update",
+    entityType: "bank_account",
+    entityId: String(existing.id),
+    message: `Updated bank account '${existing.slug}': payment profile fields and active status; ledger mapping ${existing.ledgerAccountNo ?? "none"} -> ${nextLedger ?? "none"}`,
+    createdBy: input.createdBy,
+    createdByProgram: input.createdByProgram,
+  });
   return { ok: true as const, account: mapBankAccountRow(row), errors: [] as string[] };
 }
 // ===== END BANK CLUSTER (#187) =====
@@ -847,8 +854,6 @@ export function importBankCsv(
   csvPath: string,
   options: ImportBankCsvOptions = {},
 ): BankImportResult {
-  if (!existsSync(csvPath)) return { ok: false, errors: [`file does not exist: ${csvPath}`] };
-
   // ===== BANK CLUSTER (#187) =====
   // Resolve the target account up front: new imports couple their rows to a
   // bank account. A given-but-unknown account aborts before any parsing.
@@ -856,9 +861,12 @@ export function importBankCsv(
   if (options.account !== undefined && String(options.account).trim() !== "") {
     bankAccount = resolveBankAccount(db, options.account);
     if (!bankAccount) return { ok: false, errors: [`bank account '${options.account}' does not exist`] };
+    if (!bankAccount.active) return { ok: false, errors: [`bank account '${bankAccount.slug}' is inactive and cannot receive imports`] };
   }
   const bankAccountId = bankAccount?.id ?? null;
   // ===== END BANK CLUSTER (#187) =====
+
+  if (!existsSync(csvPath)) return { ok: false, errors: [`file does not exist: ${csvPath}`] };
 
   // ===== BANK CLUSTER (#186) =====
   // A named profile pins delimiter / encoding / date order and an explicit

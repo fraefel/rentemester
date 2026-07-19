@@ -34,6 +34,12 @@ den nøgle, der afgør om en bankrække er en dublet.
   dato) får occurrence `0` og `1` og importeres begge. En senere re-import af
   den samme fil springer begge over.
 
+Begrænsning: `occurrence` tælles kun inden for den senere importfil. Hvis en
+senere fil kun indeholder den anden af to ellers identiske rækker fra en
+tidligere fil, får den igen occurrence `0`; den matcher derfor den tidligere
+første række og springes over. Importér den komplette, sammenhængende eksport
+for at bevare rækkefølgen af identiske transaktioner.
+
 Ændres et fingerprint-felt — også bankkonto, bookingdato, reference,
 `amount_dkk` eller FX-kurs — er det en anden række for importens dedup-regel.
 Kontrollér derfor bankeksporten før du ændrer data og re-importerer.

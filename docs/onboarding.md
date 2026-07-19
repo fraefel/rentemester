@@ -97,11 +97,18 @@ ledgerreglerne.
 ## 4. Bankkonto og konto-mapping
 
 Hvis betalingsoplysninger blev angivet ved `init`, oprettes den primære
-bankkonto med sluggen `primaer`. Se den først, og sæt dens finansielle mapping
-før nogen bankimporter:
+bankkonto med sluggen `primaer`. I en ren clone uden betalingsoplysninger skal
+den oprettes eksplicit, før den kan opdateres. Se den først, opret den om
+nødvendigt, og sæt derefter dens finansielle mapping før nogen bankimporter:
 
 ```bash
 rentemester bank-account list --company "$COMPANY"
+rentemester bank-account add \
+  --company "$COMPANY" \
+  --name "Primær driftskonto" \
+  --slug primaer \
+  --currency DKK \
+  --actor "$ACTOR"
 rentemester bank-account update \
   --company "$COMPANY" \
   --account primaer \
@@ -110,9 +117,8 @@ rentemester bank-account update \
 rentemester bank-account list --company "$COMPANY"
 ```
 
-Er der ingen konto endnu, opret en med `bank-account add` og en bevidst slug,
-valuta og `--ledger-account`; se `rentemester bank-account add --help` for alle
-ikke-hemmelige betalingsfelter. Angiv kun `--account primaer` på
+Hvis `primaer` allerede fandtes efter `init`, springes `bank-account add` over.
+Angiv kun `--account primaer` på
 `bank import`, når CSV-rækkerne faktisk hører til den konto.
 
 `bank-account update` auditerer ændringer i betalingsprofil og aktiv-status.

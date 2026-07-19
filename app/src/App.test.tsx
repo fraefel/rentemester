@@ -24,9 +24,19 @@ function renderApp(route = "/help") {
 }
 
 describe("App topbar", () => {
-  test("topbar contains a help/support link reachable from any route", () => {
-    mockFetch({ "GET /api/companies": { workspace: "/ws", count: 0, companies: [] } });
+  test("topbar contains a help/support link reachable from any route", async () => {
+    mockFetch({
+      "GET /api/companies": { workspace: "/ws", count: 0, companies: [] },
+      "GET /api/portfolio": {
+        portfolio: {
+          workspace: "/ws", asOf: "2026-05-20", companyCount: 0,
+          rollup: { resultat: 0, liquidity: 0, vatPayable: 0, openTaskCount: 0 },
+          totals: {}, companies: [],
+        },
+      },
+    });
     renderApp("/");
+    await screen.findByRole("form", { name: /Opret virksomhed/i });
     expect(screen.getByText("v0.1.0")).toBeInTheDocument();
     const helpLink = screen.getByRole("link", { name: /^Hjælp$/i });
     expect(helpLink).toBeInTheDocument();

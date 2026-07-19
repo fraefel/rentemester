@@ -37,7 +37,7 @@ export function registerBankTools(server: McpServer): void {
     "bank_account_update",
     {
       title: "Update registered bank account",
-      description: "Opdaterer en registreret bankkontos ikke-hemmelige betalingsprofil eller aktive status. Kræver confirm:true og bevarer alle transaktioner; mapping til en ledger-konto valideres som aktiv aktivkonto og afvises når historiske transaktioner gør remapping usikker. write-reversible.",
+      description: "Opdaterer en registreret bankkontos ikke-hemmelige betalingsprofil eller aktive status. Kræver confirm:true og bevarer alle transaktioner; inaktive konti kan ikke modtage nye bankimporter. Mapping til en ledger-konto valideres som aktiv aktivkonto og afvises når historiske transaktioner gør remapping usikker. write-reversible.",
       inputSchema: {
         company: z.string().min(1).describe("Absolute path to the company directory, or a workspace slug."),
         account: z.string().min(1).describe("Bank account id or slug."),
@@ -49,7 +49,7 @@ export function registerBankTools(server: McpServer): void {
       outputSchema: envelopeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    withCompanyDbConfirmed<{ company: string; account: string; name?: string; bankName?: string; registrationNo?: string; accountNo?: string; iban?: string; bic?: string; accountOwner?: string; customerNo?: string; currency?: string; ledgerAccountNo?: string; active?: boolean; confirm?: boolean }>(server, "bank_account_update", ({ db, args }) => wrapCoreResult(updateBankAccount(db, { idOrSlug: args.account, name: args.name, bankName: args.bankName, registrationNo: args.registrationNo, accountNo: args.accountNo, iban: args.iban, bic: args.bic, accountOwner: args.accountOwner, customerNo: args.customerNo, currency: args.currency, ledgerAccountNo: args.ledgerAccountNo, active: args.active }))),
+    withCompanyDbConfirmed<{ company: string; account: string; name?: string; bankName?: string; registrationNo?: string; accountNo?: string; iban?: string; bic?: string; accountOwner?: string; customerNo?: string; currency?: string; ledgerAccountNo?: string; active?: boolean; confirm?: boolean }>(server, "bank_account_update", ({ db, actor, args }) => wrapCoreResult(updateBankAccount(db, { idOrSlug: args.account, name: args.name, bankName: args.bankName, registrationNo: args.registrationNo, accountNo: args.accountNo, iban: args.iban, bic: args.bic, accountOwner: args.accountOwner, customerNo: args.customerNo, currency: args.currency, ledgerAccountNo: args.ledgerAccountNo, active: args.active, createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }))),
   );
 
   server.registerTool(

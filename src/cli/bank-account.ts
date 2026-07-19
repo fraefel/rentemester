@@ -43,6 +43,8 @@ export function register(dispatch: CommandDispatch): void {
     migrate(db);
     const result = updateBankAccount(db, {
       idOrSlug: account,
+      createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? undefined,
+      createdByProgram: ctx.cliActorVia ?? undefined,
       ...(ctx.arg("--name") !== undefined ? { name: ctx.arg("--name")! } : {}),
       ...(ctx.arg("--bank-name") !== undefined ? { bankName: ctx.arg("--bank-name")! } : {}),
       ...(ctx.arg("--registration-no") !== undefined ? { registrationNo: ctx.arg("--registration-no")! } : {}),

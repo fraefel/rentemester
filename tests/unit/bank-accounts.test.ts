@@ -61,6 +61,29 @@ describe("bank accounts (#187)", () => {
     db.close(); rmSync(root, { recursive: true, force: true });
   });
 
+  test("migrate upgrades a pre-payment-profile bank_accounts fixture without changing immutable schema.sql", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bankacct-legacy-"));
+    const db = openDb(join(root, "legacy.db"));
+    db.exec(`CREATE TABLE bank_accounts (
+      id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+      bank_name TEXT, registration_no TEXT, account_no TEXT, iban TEXT,
+      currency TEXT NOT NULL DEFAULT 'DKK', ledger_account_no TEXT,
+      active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`);
+    db.run("INSERT INTO bank_accounts (slug, name, iban) VALUES (?, ?, ?)", "legacy", "Legacy account", "DK5000400440116243");
+
+    migrate(db);
+    const updated = updateBankAccount(db, {
+      idOrSlug: "legacy", bic: "DABADKKK", accountOwner: "Legacy ApS", customerNo: "C-99",
+    });
+    expect(updated.ok).toBe(true);
+    migrate(db);
+    expect(resolveBankAccount(db, "legacy")).toMatchObject({
+      iban: "DK5000400440116243", bic: "DABADKKK", accountOwner: "Legacy ApS", customerNo: "C-99",
+    });
+    db.close(); rmSync(root, { recursive: true, force: true });
+  });
+
   test("importing into two accounts keeps rows separated", () => {
     const { root, db } = setup();
     const drift = addBankAccount(db, { name: "Drift" }).account!;
@@ -103,6 +126,16 @@ describe("bank accounts (#187)", () => {
     expect(second.skippedDuplicates).toBe(1);
     db.close();
     rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects imports into an inactive bank account before reading the CSV", () => {
+    const { root, db } = setup();
+    const account = addBankAccount(db, { name: "Closed account" }).account!;
+    expect(updateBankAccount(db, { idOrSlug: account.id, active: false }).ok).toBe(true);
+    const result = importBankCsv(db, root, join(root, "missing.csv"), { account: account.slug });
+    expect(result).toMatchObject({ ok: false });
+    expect(result.errors.join(" ")).toContain("inactive and cannot receive imports");
+    db.close(); rmSync(root, { recursive: true, force: true });
   });
 
   test("--account filter scopes list and reconcile bank", () => {

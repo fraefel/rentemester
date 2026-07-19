@@ -13,6 +13,9 @@ import { handleRequest } from "../../src/server/router";
 import { type ServerConfig } from "../../src/server/config";
 import { createCompany } from "../../src/core/company";
 import { initWorkspace } from "../../src/core/workspace";
+import { companyPaths } from "../../src/core/paths";
+import { openDb } from "../../src/core/db";
+import { addBankAccount } from "../../src/core/bank";
 
 function makeWorkspace(label: string, companyNames: string[] = []) {
   const root = mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -86,6 +89,31 @@ describe("#345 — GET /api/companies/:slug/bank-accounts", () => {
         config(ws),
       );
       expect(res.status).toBe(404);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("PATCH updates with the Cockpit actor in the audit log", async () => {
+    const ws = makeWorkspace("bank-accounts-update", ["Acme ApS"]);
+    try {
+      const companyRoot = join(ws, "acme-aps");
+      const db = openDb(companyPaths(companyRoot).db);
+      addBankAccount(db, { name: "Drift", slug: "drift" });
+      db.close();
+
+      const response = await handleRequest(new Request(
+        "http://localhost/api/companies/acme-aps/bank-accounts/drift",
+        { method: "PATCH", headers: { host: "localhost", "content-type": "application/json" }, body: JSON.stringify({ bic: "DABADKKK", confirm: true }) },
+      ), config(ws));
+      expect(response.status).toBe(200);
+      const verify = openDb(companyPaths(companyRoot).db);
+      try {
+        const audit = verify.query("SELECT actor FROM audit_log WHERE event_type = 'bank_account_update' ORDER BY id DESC LIMIT 1").get() as { actor: string };
+        expect(audit.actor).toBe("system:cockpit via rentemester-cockpit");
+      } finally {
+        verify.close();
+      }
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

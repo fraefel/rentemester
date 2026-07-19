@@ -76,7 +76,11 @@ describe("PortfolioView", () => {
   });
 
   test("surfaces an API error with a retry affordance", async () => {
-    mockFetch({});
+    mockFetch({
+      "GET /api/portfolio": {
+        __error: { code: "not_found", message: "Portfolio unavailable" },
+      },
+    });
     renderAt(<PortfolioView />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Prøv igen/i })).toBeInTheDocument();

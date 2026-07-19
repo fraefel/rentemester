@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 describe("invoice payment CLI", () => {
-  test("applies payment to issued invoice from input json", async () => {
+  test("applies payment to issued invoice from invoice-number input json", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-invoicepay-cli-"));
     const company = join(root, "company");
     const paymentJson = join(root, "payment.json");
@@ -14,7 +14,7 @@ describe("invoice payment CLI", () => {
     await Bun.$`bun run src/cli.ts invoice issue --company ${company} --input examples/full-invoice.dk.json`.quiet();
     await Bun.$`bun run src/cli.ts invoice post --company ${company} --invoice-number 2026-0001`.quiet();
     writeFileSync(paymentJson, JSON.stringify({
-      invoiceDocumentId: 1,
+      invoiceNumber: "2026-0001",
       paymentDate: "2026-05-20",
       amount: 1250,
       note: "Paid in full"
@@ -33,6 +33,7 @@ describe("invoice payment CLI", () => {
     expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
+    expect(parsed.invoiceNumber).toBe("2026-0001");
     expect(parsed.openBalance).toBe(0);
   });
 });

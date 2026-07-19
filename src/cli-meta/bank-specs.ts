@@ -2,7 +2,8 @@ import type { CommandSpec } from "./_shared";
 
 // ===== BANK CLUSTER (#186-189) =====
 export const bankSpecs: CommandSpec[] = [
-  { key: "bank-account add", usage: "bank-account add --company <path> --name <text> [--slug <slug>] [--bank-name <text>] [--registration-no <regnr>] [--account-no <kontonr>] [--iban <iban>] [--currency <ISO>] [--ledger-account <konto>]", description: "Opretter en bankkonto i virksomhedens ledger.", allowedFlags: ["--company", "--name", "--slug", "--bank-name", "--registration-no", "--account-no", "--iban", "--currency", "--ledger-account"] },
+  { key: "bank-account add", usage: "bank-account add --company <path> --name <text> [--slug <slug>] [--bank-name <text>] [--registration-no <regnr>] [--account-no <kontonr>] [--iban <iban>] [--bic <swift>] [--account-owner <name>] [--customer-no <number>] [--currency <ISO>] [--ledger-account <konto>]", description: "Opretter en bankkonto i virksomhedens ledger.", allowedFlags: ["--company", "--name", "--slug", "--bank-name", "--registration-no", "--account-no", "--iban", "--bic", "--account-owner", "--customer-no", "--currency", "--ledger-account"] },
+  { key: "bank-account update", usage: "bank-account update --company <path> --account <id|slug> [--name <text>] [--bank-name <text>] [--registration-no <regnr>] [--account-no <kontonr>] [--iban <iban>] [--bic <swift>] [--account-owner <name>] [--customer-no <number>] [--currency <ISO>] [--ledger-account <konto>] [--active true|false]", description: "Auditeret opdatering af en bankkontos ikke-hemmelige betalingsprofil. Ledger-remapping afvises når kontoen allerede har transaktioner.", allowedFlags: ["--company", "--account", "--name", "--bank-name", "--registration-no", "--account-no", "--iban", "--bic", "--account-owner", "--customer-no", "--currency", "--ledger-account", "--active"] },
   { key: "bank-account list", usage: "bank-account list --company <path>", description: "Lister registrerede bankkonti.", allowedFlags: ["--company"] },
   {
     key: "bank import",
@@ -11,13 +12,13 @@ export const bankSpecs: CommandSpec[] = [
     allowedFlags: ["--company", "--file", "--account", "--profile"],
     examplePath: "examples/bank-transactions.csv",
     inputNotes: [
-      "CSV-headeren skal indeholde mindst kolonnerne: transaction_date, text, amount (valgfri: booking_date, currency, reference, amount_dkk).",
+      "CSV-headeren skal indeholde mindst kolonnerne: transaction_date, text, amount (valgfri: booking_date, currency, reference, amount_dkk, fx_rate_to_dkk).",
       "Danske header-aliasser accepteres uden --profile: dato/date → transaction_date, tekst/beskrivelse → text, beløb/belob → amount, valuta → currency, ref/bilagsnummer → reference.",
       "Datoer er YYYY-MM-DD. Delimiter (komma eller semikolon) detekteres automatisk fra headeren.",
       "amount er i KRONER (decimal): POSITIVT beløb = penge IND på kontoen (indbetaling), NEGATIVT = penge UD (betaling/gebyr).",
       "--profile <navn> bruges når en banks CSV ikke matcher standardformatet (fx 'danske-bank': semikolon, dd.mm.yyyy-datoer, dansk talformat). Uden --profile antages standardformatet.",
       "--account <id|slug> knytter posterne til en bankkonto oprettet med 'bank-account add'.",
-      "Import er idempotent: en allerede importeret post (samme dato/tekst/beløb/valuta) springes over.",
+      "Import-idempotens, fingerprint-felter og overlap-reimport er dokumenteret kanonisk i docs/bank-import-idempotency.md.",
     ],
   },
   { key: "bank list", usage: "bank list --company <path> [--status all|matched|unmatched] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--text-match <text>] [--amount <n>] [--account <id|slug>]", description: "Lister importerede banktransaktioner med filtre for afstemningsstatus.", allowedFlags: ["--company", "--status", "--from", "--to", "--text-match", "--amount", "--account"] },

@@ -57,11 +57,7 @@ export function mockFetch(routes: RouteMap) {
         }) ?? `${method} ${path}`;
       const payload = routes[key];
       if (payload === undefined) {
-        // #368: unified `{ ok:false, errors:[...], code }` envelope.
-        return jsonResponse(
-          { ok: false, errors: ["no route"], code: "not_found" },
-          404,
-        );
+        throw new Error(`Unexpected fetch request: ${method} ${path}`);
       }
       if (
         payload &&

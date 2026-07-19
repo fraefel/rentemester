@@ -7,10 +7,15 @@ import { tmpdir } from "node:os";
 import { createHash, createHmac } from "node:crypto";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
-import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
+import { seedAccounts, postJournalEntry, verifyAuditChain } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
 import { backupManifestKeyPath, createSystemBackup } from "../../src/core/system-backups";
 import { restoreSystemBackup } from "../../src/core/system-restore";
+import { validateInvoiceJournalEvidence } from "../../src/core/invoice-journal-evidence";
+import { BASELINE_MIGRATION_CHECKSUM, BASELINE_MIGRATION_NAME, readSchemaMigrations } from "../../src/core/schema-version";
+import { buildBankReconciliationReport } from "../../src/core/reconciliation";
+import { buildTrialBalance } from "../../src/core/financial-statements";
+import { buildVatReport } from "../../src/core/vat";
 
 function sha256File(path: string) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -26,7 +31,118 @@ function rewriteSignedManifest(companyRoot: string, backupDir: string, manifest:
   writeFileSync(signaturePath, `${signature}\n`);
 }
 
+const preV1InvoiceApplicationsFixture = readFileSync(
+  join(process.cwd(), "tests", "fixtures", "legacy-pre-v1", "invoice-application-tables.sql"),
+  "utf8",
+);
+
+function rewriteSnapshotAsPreV1(snapshotPath: string) {
+  const snapshot = new Database(snapshotPath);
+  try {
+    snapshot.exec("PRAGMA foreign_keys = OFF;");
+    snapshot.exec("DROP TABLE invoice_payments; DROP TABLE invoice_refunds; DROP TABLE invoice_claim_payments;");
+    snapshot.exec("DROP TABLE schema_migrations;");
+    snapshot.exec(preV1InvoiceApplicationsFixture);
+  } finally {
+    snapshot.close();
+  }
+}
+
+function signChangedSnapshot(companyRoot: string, backupDir: string) {
+  const manifestPath = join(backupDir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const snapshotPath = join(backupDir, manifest.dbSnapshot.path);
+  manifest.dbSnapshot.sha256 = sha256File(snapshotPath);
+  manifest.dbSnapshot.sizeBytes = statSync(snapshotPath).size;
+  rewriteSignedManifest(companyRoot, backupDir, manifest);
+  return { manifest, snapshotPath };
+}
+
+function restoreStagingEntries(root: string) {
+  return readdirSync(root).filter((entry) => entry.startsWith(".restore-"));
+}
+
 describe("system restore", () => {
+  test("migrates a signed genuine pre-v1 snapshot in staging before validation and stamping", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-restore-pre-v1-"));
+    const companyRoot = join(root, "company");
+    const restoredRoot = join(root, "restored-company");
+    const paths = ensureCompanyDirs(companyRoot);
+    const db = openDb(paths.db);
+    migrate(db);
+    const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:39:00.000Z" });
+    db.close();
+    expect(backup.ok).toBe(true);
+
+    const snapshotPath = join(backup.backupDir!, "ledger.sqlite");
+    rewriteSnapshotAsPreV1(snapshotPath);
+    const unstamped = new Database(snapshotPath, { readonly: true });
+    expect(readSchemaMigrations(unstamped)).toEqual([]);
+    unstamped.close();
+    const { manifest } = signChangedSnapshot(companyRoot, backup.backupDir!);
+    const sourceBytes = readFileSync(snapshotPath);
+
+    const restored = restoreSystemBackup({ backupDir: backup.backupDir!, targetCompanyRoot: restoredRoot });
+    expect(restored.ok, restored.errors.join("; ")).toBe(true);
+    expect(readFileSync(snapshotPath)).toEqual(sourceBytes);
+
+    const restoredDb = new Database(restored.restoredDbPath!);
+    const migrations = readSchemaMigrations(restoredDb);
+    expect(migrations).toEqual([
+      expect.objectContaining({
+        id: 1,
+        name: BASELINE_MIGRATION_NAME,
+        checksum: BASELINE_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
+    ]);
+    expect(manifest.provenance).toEqual(expect.objectContaining({
+      product: expect.objectContaining({ version: expect.any(String) }),
+      schema: { version: 1, baselineChecksum: BASELINE_MIGRATION_CHECKSUM },
+    }));
+    for (const table of ["invoice_payments", "invoice_refunds", "invoice_claim_payments"]) {
+      const columns = restoredDb.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      expect(columns.some((column) => column.name === "journal_entry_id")).toBe(true);
+    }
+    expect(validateInvoiceJournalEvidence(restoredDb).ok).toBe(true);
+    expect(verifyAuditChain(restoredDb, { companyRoot: restoredRoot }).ok).toBe(true);
+    expect(buildBankReconciliationReport(restoredDb, "2026-01-01", "2026-12-31").ok).toBe(true);
+    expect(buildTrialBalance(restoredDb, "2026-01-01", "2026-12-31").ok).toBe(true);
+    expect(buildVatReport(restoredDb, "2026-01-01", "2026-12-31").ok).toBe(true);
+    restoredDb.close();
+    expect(restoreStagingEntries(root)).toEqual([]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects invalid authentication before staging or migrating a pre-v1 snapshot", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-restore-pre-v1-auth-"));
+    const companyRoot = join(root, "company");
+    const restoredRoot = join(root, "restored-company");
+    const db = openDb(ensureCompanyDirs(companyRoot).db);
+    migrate(db);
+    const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:39:00.000Z" });
+    db.close();
+    expect(backup.ok).toBe(true);
+
+    const snapshotPath = join(backup.backupDir!, "ledger.sqlite");
+    rewriteSnapshotAsPreV1(snapshotPath);
+    signChangedSnapshot(companyRoot, backup.backupDir!);
+    writeFileSync(join(backup.backupDir!, "manifest.json.hmac"), "0".repeat(64));
+
+    const restored = restoreSystemBackup({ backupDir: backup.backupDir!, targetCompanyRoot: restoredRoot });
+    expect(restored.ok).toBe(false);
+    expect(restored.errors[0]).toContain("authenticity");
+    const legacy = new Database(snapshotPath, { readonly: true });
+    for (const table of ["invoice_payments", "invoice_refunds", "invoice_claim_payments"]) {
+      const columns = legacy.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      expect(columns.some((column) => column.name === "journal_entry_id")).toBe(false);
+    }
+    legacy.close();
+    expect(existsSync(restoredRoot)).toBe(false);
+    expect(restoreStagingEntries(root)).toEqual([]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("restores a moved backup into a fresh company root and records a restore audit event", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-restore-"));
     const companyRoot = join(root, "company");
@@ -140,14 +256,22 @@ describe("system restore", () => {
     manifest.dbSnapshot.sha256 = sha256File(snapshotPath);
     manifest.dbSnapshot.sizeBytes = statSync(snapshotPath).size;
     rewriteSignedManifest(companyRoot, backup.backupDir!, manifest);
+    const sourceBytes = readFileSync(snapshotPath);
+    mkdirSync(restoredRoot, { recursive: true });
+    const sentinel = join(restoredRoot, "keep-me.txt");
+    writeFileSync(sentinel, "existing target content");
 
     const restored = restoreSystemBackup({
       backupDir: backup.backupDir!,
       targetCompanyRoot: restoredRoot,
+      allowNonEmptyTarget: true,
     });
     expect(restored.ok).toBe(false);
     expect(restored.errors[0]).toContain("newer than supported version 1");
-    expect(existsSync(restoredRoot)).toBe(false);
+    expect(readFileSync(sentinel, "utf8")).toBe("existing target content");
+    expect(existsSync(join(restoredRoot, "data", "ledger.sqlite"))).toBe(false);
+    expect(readFileSync(snapshotPath)).toEqual(sourceBytes);
+    expect(restoreStagingEntries(root)).toEqual([]);
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -346,6 +470,7 @@ describe("system restore", () => {
     const docsDir = join(restoredRoot, "documents", "originals");
     const leakedDocs = existsSync(docsDir) ? readdirSync(docsDir) : [];
     expect(leakedDocs).toEqual([]);
+    expect(restoreStagingEntries(root)).toEqual([]);
 
     rmSync(root, { recursive: true, force: true });
   });

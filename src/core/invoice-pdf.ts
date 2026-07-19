@@ -40,6 +40,8 @@ export type InvoicePaymentDetails = {
   iban?: string | null;
   /** Optional SWIFT/BIC for foreign transfers. */
   bic?: string | null;
+  accountOwner?: string | null;
+  customerNo?: string | null;
 };
 
 /**
@@ -322,13 +324,17 @@ function paymentLines(payment: InvoicePaymentDetails | undefined): string[] {
   if (bank) lines.push(bank);
   const reg = compact(payment.registrationNo);
   const acct = compact(payment.accountNo);
-  if (reg && acct) lines.push(`Reg.nr. ${reg}  Kontonr. ${acct}`);
+  if (reg && acct) lines.push(`Indenlandsk: Reg.nr. ${reg}  Kontonr. ${acct}`);
   else if (acct) lines.push(`Kontonr. ${acct}`);
   else if (reg) lines.push(`Reg.nr. ${reg}`);
   const iban = compact(payment.iban);
-  if (iban) lines.push(`IBAN: ${iban}`);
+  if (iban) lines.push(`International: IBAN: ${iban}`);
   const bic = compact(payment.bic);
   if (bic) lines.push(`SWIFT/BIC: ${bic}`);
+  const owner = compact(payment.accountOwner);
+  if (owner) lines.push(`Kontoejer: ${owner}`);
+  const customerNo = compact(payment.customerNo);
+  if (customerNo) lines.push(`Bank-kundenr.: ${customerNo}`);
   return lines;
 }
 
@@ -698,12 +704,15 @@ function resolvePaymentDetails(db: Database, currency: string): InvoicePaymentDe
     registration_no: string | null;
     account_no: string | null;
     iban: string | null;
+    bic: string | null;
+    account_owner: string | null;
+    customer_no: string | null;
     currency: string | null;
   }> = [];
   try {
     rows = db
       .query(
-        `SELECT bank_name, registration_no, account_no, iban, currency
+        `SELECT bank_name, registration_no, account_no, iban, bic, account_owner, customer_no, currency
            FROM bank_accounts
           WHERE active = 1
           ORDER BY id ASC`,
@@ -722,9 +731,12 @@ function resolvePaymentDetails(db: Database, currency: string): InvoicePaymentDe
     registrationNo: match.registration_no,
     accountNo: match.account_no,
     iban: match.iban,
+    bic: match.bic,
+    accountOwner: match.account_owner,
+    customerNo: match.customer_no,
   };
   // Only return a block if at least one field carries real payment information.
-  if (!compact(details.bankName) && !compact(details.registrationNo) && !compact(details.accountNo) && !compact(details.iban)) {
+  if (!compact(details.bankName) && !compact(details.registrationNo) && !compact(details.accountNo) && !compact(details.iban) && !compact(details.bic) && !compact(details.accountOwner) && !compact(details.customerNo)) {
     return undefined;
   }
   return details;

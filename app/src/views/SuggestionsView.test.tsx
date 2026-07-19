@@ -7,7 +7,7 @@
 // covered by the server-side tests; the frontend never re-implements it.
 
 import { describe, expect, test, vi } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SuggestionsView } from "./SuggestionsView";
 import { renderAt } from "../test/render";
@@ -140,13 +140,13 @@ describe("SuggestionsView — Agent-forslag (#346)", () => {
     const approveBtn = await screen.findByRole("button", {
       name: /Godkend Overforfalden kreditorpost/,
     });
-    fireEvent.click(approveBtn);
+    await userEvent.click(approveBtn);
 
     // The cockpit now opens a ConfirmDialog instead of using window.confirm.
     const dialog = await screen.findByRole("dialog", {
       name: /Godkend forslag: Overforfalden kreditorpost/,
     });
-    fireEvent.click(
+    await userEvent.click(
       within(dialog as HTMLElement).getByRole("button", { name: /^Godkend$/ }),
     );
 
@@ -222,7 +222,7 @@ describe("SuggestionsView — Agent-forslag (#346)", () => {
     const rejectBtn = await screen.findByRole("button", {
       name: /Afvis Periodeafgrænsning klar til bogføring/,
     });
-    fireEvent.click(rejectBtn);
+    await userEvent.click(rejectBtn);
 
     // The cockpit now opens a ConfirmDialog with a note textarea instead of
     // using window.prompt.
@@ -231,7 +231,7 @@ describe("SuggestionsView — Agent-forslag (#346)", () => {
     });
     const noteField = within(dialog as HTMLElement).getByRole("textbox");
     await userEvent.type(noteField, "ikke forfalden — bilaget er fejldatoet");
-    fireEvent.click(
+    await userEvent.click(
       within(dialog as HTMLElement).getByRole("button", { name: /Afvis forslag/ }),
     );
 

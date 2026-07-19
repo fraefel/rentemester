@@ -73,7 +73,7 @@ async function fillMinimal() {
 }
 
 describe("InvoiceIssueModal", () => {
-  test("renders the dialog with date, VAT and line-item fields", () => {
+  test("renders the dialog with date, VAT and line-item fields", async () => {
     mockFetch(companyRoute());
     render(
       <InvoiceIssueModal slug="acme-aps" onIssued={noop} onClose={noop} />,
@@ -81,7 +81,7 @@ describe("InvoiceIssueModal", () => {
     expect(
       screen.getByRole("dialog", { name: "Udsted faktura" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Fakturadato")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Fakturadato")).toBeInTheDocument();
     expect(screen.getByLabelText("Momssats (%)")).toBeInTheDocument();
     expect(
       screen.getByLabelText("Linje 1 beskrivelse"),
@@ -432,13 +432,13 @@ describe("InvoiceIssueModal", () => {
       );
     }
 
-    test("renders the Forhåndsvis button next to Udsted faktura", () => {
+    test("renders the Forhåndsvis button next to Udsted faktura", async () => {
       mockFetch(companyRoute());
       render(
         <InvoiceIssueModal slug="acme-aps" onIssued={noop} onClose={noop} />,
       );
       expect(
-        screen.getByRole("button", { name: "Forhåndsvis" }),
+        await screen.findByRole("button", { name: "Forhåndsvis" }),
       ).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Udsted faktura" }),

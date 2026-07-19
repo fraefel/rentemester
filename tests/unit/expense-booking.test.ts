@@ -577,7 +577,7 @@ describe("expense booking", () => {
     });
 
     expect(booked.ok).toBe(false);
-    expect(booked.errors).toContain("foreign-currency expense booking requires bank fx_rate_to_dkk for DKK-settled payments");
+    expect(booked.errors).toContain("foreign-currency expense booking requires bank amount_dkk and fx_rate_to_dkk for DKK-settled payments; re-import the bank CSV with amount_dkk and fx_rate_to_dkk columns");
 
     db.close();
     rmSync(root, { recursive: true, force: true });

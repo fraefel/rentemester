@@ -10,18 +10,33 @@ import { describe, expect, test } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "./App";
+import { mockFetch } from "./test/fixtures";
 
 function renderApp(route = "/help") {
   return render(
-    <MemoryRouter initialEntries={[route]}>
+    <MemoryRouter
+      initialEntries={[route]}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <App />
     </MemoryRouter>,
   );
 }
 
 describe("App topbar", () => {
-  test("topbar contains a help/support link reachable from any route", () => {
+  test("topbar contains a help/support link reachable from any route", async () => {
+    mockFetch({
+      "GET /api/companies": { workspace: "/ws", count: 0, companies: [] },
+      "GET /api/portfolio": {
+        portfolio: {
+          workspace: "/ws", asOf: "2026-05-20", companyCount: 0,
+          rollup: { resultat: 0, liquidity: 0, vatPayable: 0, openTaskCount: 0 },
+          totals: {}, companies: [],
+        },
+      },
+    });
     renderApp("/");
+    await screen.findByRole("form", { name: /Opret virksomhed/i });
     expect(screen.getByText("v0.1.0")).toBeInTheDocument();
     const helpLink = screen.getByRole("link", { name: /^Hjælp$/i });
     expect(helpLink).toBeInTheDocument();

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { RulesView } from "./RulesView";
 import { renderAt } from "../test/render";
 import { mockFetch } from "../test/fixtures";
@@ -115,8 +116,7 @@ describe("RulesView (#347)", () => {
     await screen.findByText(/Regler \(2 af 2\)/);
     // Filtrér til dk-vat — der findes kun én regel i fixture'n.
     const select = screen.getByRole("combobox");
-    (select as HTMLSelectElement).value = "dk-vat";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await userEvent.selectOptions(select, "dk-vat");
     expect(await screen.findByText(/Regler \(1 af 2\)/)).toBeInTheDocument();
   });
 

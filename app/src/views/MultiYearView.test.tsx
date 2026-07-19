@@ -1,8 +1,15 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import { MultiYearView } from "./MultiYearView";
 import { renderAt } from "../test/render";
 import { multiYear, mockFetch } from "../test/fixtures";
+
+vi.mock("../components/MultiYearChart", () => ({
+  MultiYearChart: () => <canvas data-testid="multi-year-pnl-chart" />,
+}));
+vi.mock("../components/MultiYearBalanceChart", () => ({
+  MultiYearBalanceChart: () => <canvas data-testid="multi-year-balance-chart" />,
+}));
 
 function route(over = {}) {
   return {
@@ -90,7 +97,7 @@ describe("MultiYearView — Flerårsoversigt", () => {
     mockFetch(route());
     const { container } = renderView();
     await screen.findByRole("heading", { name: "Acme ApS" });
-    expect(container.querySelectorAll(".pnl-chart canvas")).toHaveLength(2);
+    expect(container.querySelectorAll("canvas")).toHaveLength(2);
   });
 
   test("marks the live/current year as '(år til dato)'", async () => {

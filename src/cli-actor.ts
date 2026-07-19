@@ -57,6 +57,7 @@ export const MUTATING_COMMANDS = new Set([
   "bank import",
   // ===== BANK CLUSTER (#187) =====
   "bank-account add",
+  "bank-account update",
   // ===== END BANK CLUSTER (#187) =====
   "expense book",
   "vat post-eu-service-purchase",

@@ -105,6 +105,23 @@ describe("invoice PDF rendering", () => {
     expect(strings).toContain("IBAN: DK5000400440116243");
   });
 
+  test("labels domestic and international payment instructions with BIC, owner, and customer number", () => {
+    const pdf = buildIssuedInvoicePdf({
+      invoiceNumber: "2026-0013", issueDate: "2026-05-16", currency: "DKK",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9", vatOrCvr: "DK87654321" },
+      lines: [{ description: "Ydelse", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      payment: { registrationNo: "1234", accountNo: "0001234567", iban: "DK5000400440116243", bic: "DABADKKK", accountOwner: "Rentemester ApS", customerNo: "C-42" },
+    } as any);
+    const strings = pdfStrings(pdf).join("\n");
+    expect(strings).toContain("Indenlandsk: Reg.nr. 1234  Kontonr. 0001234567");
+    expect(strings).toContain("International: IBAN: DK5000400440116243");
+    expect(strings).toContain("SWIFT/BIC: DABADKKK");
+    expect(strings).toContain("Kontoejer: Rentemester ApS");
+    expect(strings).toContain("Bank-kundenr.: C-42");
+  });
+
   test("omits the payment block when no payment details are supplied", () => {
     const pdf = buildIssuedInvoicePdf({
       invoiceNumber: "2026-0009",
@@ -187,6 +204,9 @@ describe("renderIssuedInvoicePdf — ledger payment details", () => {
       registrationNo: "1234",
       accountNo: "0001234567",
       iban: "DK5000400440116243",
+      bic: "DABADKKK",
+      accountOwner: "Rentemester ApS",
+      customerNo: "C-42",
       currency: "DKK",
     });
 

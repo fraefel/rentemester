@@ -597,6 +597,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   // remain authoritative; ambiguous or inconsistent source patterns block the
   // report instead of becoming amount-only corrections with missing rubrik A.
   const inferredVatCodeByLineId = new Map<number, string>();
+  const trustedDineroInputLineIds = new Set<number>();
+  const legacyReverseChargeToleranceByEntry = new Map<number, number>();
   const historicalRowsByEntry = new Map<number, typeof rows>();
   for (const row of rows) {
     if (!isPersistedHistoricalImportProgram(row.created_by_program)) continue;
@@ -612,6 +614,23 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
       (row) => row.account_no === "64060",
     );
     if (outputControls.length === 0 || inputControls.length === 0) continue;
+    const canonicalPair =
+      outputControls.every(
+        (row) => row.account_type === "vat" && row.normal_balance === "credit",
+      ) &&
+      inputControls.every(
+        (row) => row.account_type === "vat" && row.normal_balance === "debit",
+      );
+    const legacyPair =
+      outputControls.every(
+        (row) => row.account_type === "liability" && row.normal_balance === "credit",
+      ) &&
+      inputControls.every(
+        (row) =>
+          row.account_type === "liability" &&
+          (row.normal_balance === "debit" || row.normal_balance === "credit"),
+      );
+    if (!canonicalPair && !legacyPair) continue;
 
     const outputControl = roundDkk(
       outputControls.reduce(
@@ -639,13 +658,15 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     }
 
     const expenseRows = entryRows.filter((row) => row.account_type === "expense");
-    const effectiveCode = (row: (typeof rows)[number]): string =>
-      row.vat_code?.trim() || row.default_vat_code?.trim() || "";
+    const explicitCode = (row: (typeof rows)[number]): string => row.vat_code?.trim() || "";
     let baseRows = expenseRows.filter(
-      (row) => effectiveCode(row) === "EU_SERVICE_REVERSE_CHARGE",
+      (row) => explicitCode(row) === "EU_SERVICE_REVERSE_CHARGE",
     );
     if (baseRows.length === 0) {
-      if (expenseRows.some((row) => effectiveCode(row).length > 0)) {
+      // An explicit historical line code wins. Account defaults are not
+      // source-line evidence and may be overridden only by this exact,
+      // verified Dinero control pair.
+      if (expenseRows.some((row) => explicitCode(row).length > 0)) {
         errors.push(
           `journal entry ${entryId} has Dinero reverse-charge controls but its expense base carries a conflicting VAT code; human resolution is required`,
         );
@@ -658,7 +679,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
         return (
           netDebit !== 0 &&
           Math.sign(netDebit) === Math.sign(outputControl) &&
-          toOre(percentOfDkk(netDebit, 25)) === toOre(outputControl)
+          oreDifference(percentOfDkk(netDebit, 25), outputControl) <= 1
         );
       });
       if (baseRows.length !== 1) {
@@ -680,11 +701,21 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
         0,
       ),
     );
-    if (toOre(percentOfDkk(classifiedBase, 25)) !== toOre(outputControl)) {
+    if (oreDifference(percentOfDkk(classifiedBase, 25), outputControl) > 1) {
       errors.push(
         `journal entry ${entryId} has Dinero reverse-charge controls that do not reconcile to its classified expense base; human resolution is required`,
       );
+      continue;
     }
+
+    // 64060 may occur as a liability/credit account in pre-normalisation
+    // Dinero charts. Count it as input VAT only after the trusted provenance,
+    // exact equal 64040/64060 controls and single base have all been proven.
+    for (const row of inputControls) trustedDineroInputLineIds.add(row.line_id);
+    legacyReverseChargeToleranceByEntry.set(
+      entryId,
+      oreDifference(percentOfDkk(classifiedBase, 25), outputControl),
+    );
   }
 
   // A pure transfer between VAT amount accounts and a confirmed settlement
@@ -793,7 +824,9 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
 
     const debit = roundDkk(Number(row.debit_amount ?? 0));
     const credit = roundDkk(Number(row.credit_amount ?? 0));
-    const amountSide = vatAmountSideByAccountNo.get(row.account_no);
+    const amountSide =
+      vatAmountSideByAccountNo.get(row.account_no) ??
+      (trustedDineroInputLineIds.has(row.line_id) ? "input" : undefined);
     const trustedHistoricalImport = isPersistedHistoricalImportProgram(
       row.created_by_program,
     );
@@ -1026,8 +1059,10 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   // Foreign-currency entries round the stated VAT and its net base into DKK
   // independently before balancing. That conversion can add one further øre
   // of legitimate drift per foreign base line.
-  const outputVatTolerance = Math.max(0, outputVatBaseLines - 1) + foreignOutputVatBaseLines;
-  const inputVatTolerance = Math.max(0, inputVatBaseLines - 1) + foreignInputVatBaseLines;
+  const legacyReverseChargeTolerance = [...legacyReverseChargeToleranceByEntry.values()]
+    .reduce((sum, tolerance) => sum + tolerance, 0);
+  const outputVatTolerance = Math.max(0, outputVatBaseLines - 1) + foreignOutputVatBaseLines + legacyReverseChargeTolerance;
+  const inputVatTolerance = Math.max(0, inputVatBaseLines - 1) + foreignInputVatBaseLines + legacyReverseChargeTolerance;
   const explainedOutputVat = addDkk(expectedOutputVat, historicalOutputCorrection);
   const explainedInputVat = addDkk(expectedInputVat, historicalInputCorrection);
   if (historicalOutputCorrection !== 0 || historicalInputCorrection !== 0) {
@@ -1071,7 +1106,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     reverseChargePurchaseOutputVat,
   );
   const reverseChargeOutputVatTolerance =
-    foreignReverseChargeOutputVatBaseLines;
+    foreignReverseChargeOutputVatBaseLines + legacyReverseChargeTolerance;
   const ordinaryOutputVatTolerance =
     Math.max(0, ordinaryOutputVatBaseLines - 1) +
     foreignOrdinaryOutputVatBaseLines;

@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 112 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 113 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-112 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+113 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -223,7 +223,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Write-reversible**: 13
 - **Write-irreversible**: 49
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **112**
+- **Total**: **113**
 
 ## Read-tools
 
@@ -333,7 +333,7 @@ append-only finanskæde.
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
 | `accounts_role_confirm` | `accounts role-confirm` | `{ company, role, accountNo, confirm }` | Bekræfter eksplicit ét kompatibelt kontorolle-forslag med actor- og versionsspor; senere confirmation kan ændre mappingen. |
-| `bank_import` | `bank import` | `{ company, csvPath \| csvContent, account?, profile?, confirm }` | Importerer banktransaktioner fra CSV. Deterministisk via `sourceFileHash`. |
+| `bank_import` | `bank import` | `{ company, csvPath \| csvContent, account?, profile?, confirm }` | Importerer banktransaktioner fra CSV. Se den kanoniske [idempotenskontrakt](bank-import-idempotency.md). |
 | `budget_set` | `budget set` | `{ company, accountNo, period, amount, notes?, confirm }` | Sætter et budget for én konto i én kalendermåned. Append-only revisioner — seneste vinder. |
 | `company_sync_cvr` | `company sync-cvr` | `{ company, confirm }` | Henter virksomhedens stamdata fra CVR og opdaterer companies-rækken. Regnskabsåret røres ikke. |
 | `customer_create` | `customer create` | `{ company, input: CreateCustomerInput, fromCvr?, confirm }` | Opretter append-only kundepost. Kan arkiveres. |
@@ -567,7 +567,9 @@ regnskabsperiode (`period reopen`) er fx CLI-only — se også underafsnittet
 - `src/cli/serve.ts` — `serve` (starter cockpit HTTP-API'en). Det er en
   proces-host og giver ikke mening som MCP-tool.
 - `src/cli/bank-account.ts` — `bank-account add`/`bank-account list`
-  (registrér/lis bankkonti for FX-bogføring). Ingen `bank_account_*`-MCP-tools.
+  (registrér/lis/opdatér bankkonti for FX-bogføring). MCP-surface'en eksponerer
+  `bank_account_list` og confirm-gatede `bank_account_update`; oprettelse er
+  fortsat CLI/cockpit-only.
 - `src/cli/init.ts` — `init` (initialisér en virksomhed). MCP eksponerer
   `company_add` (`src/mcp/tools/system.ts`) i stedet, ikke `init` direkte.
 - `src/cli/gdpr.ts` — kun slettevejen `gdpr forget` (legacy alias:

@@ -117,6 +117,9 @@ export type BankAccount = {
   registrationNo: string | null;
   accountNo: string | null;
   iban: string | null;
+  bic: string | null;
+  accountOwner: string | null;
+  customerNo: string | null;
   currency: string;
   ledgerAccountNo: string | null;
   active: boolean;

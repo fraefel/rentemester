@@ -79,6 +79,8 @@ export function BankAccountsView() {
                 <th>Reg.nr.</th>
                 <th>Konto-nr.</th>
                 <th>IBAN</th>
+                <th>SWIFT/BIC</th>
+                <th>Kontoejer / kundenr.</th>
                 <th>Valuta</th>
                 <th>Ledger-konto</th>
                 <th>Status</th>
@@ -151,6 +153,8 @@ function BankAccountRow({ account }: { account: BankAccount }) {
       <td>{account.registrationNo ?? "—"}</td>
       <td>{account.accountNo ?? "—"}</td>
       <td>{account.iban ?? "—"}</td>
+      <td>{account.bic ?? "—"}</td>
+      <td>{[account.accountOwner, account.customerNo].filter(Boolean).join(" / ") || "—"}</td>
       <td>{account.currency}</td>
       <td>{account.ledgerAccountNo ?? "—"}</td>
       <td>
@@ -178,6 +182,9 @@ function CreateBankAccountModal({
   const [registrationNo, setRegistrationNo] = useState("");
   const [accountNo, setAccountNo] = useState("");
   const [iban, setIban] = useState("");
+  const [bic, setBic] = useState("");
+  const [accountOwner, setAccountOwner] = useState("");
+  const [customerNo, setCustomerNo] = useState("");
   const [currency, setCurrency] = useState("DKK");
   const [ledgerAccountNo, setLedgerAccountNo] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -192,6 +199,9 @@ function CreateBankAccountModal({
         ...(registrationNo ? { registrationNo } : {}),
         ...(accountNo ? { accountNo } : {}),
         ...(iban ? { iban } : {}),
+        ...(bic ? { bic } : {}),
+        ...(accountOwner ? { accountOwner } : {}),
+        ...(customerNo ? { customerNo } : {}),
         ...(currency ? { currency } : {}),
         ...(ledgerAccountNo ? { ledgerAccountNo } : {}),
       });
@@ -254,6 +264,9 @@ function CreateBankAccountModal({
               placeholder="DK…"
             />
           </label>
+          <label>SWIFT/BIC<input type="text" value={bic} onChange={(e) => setBic(e.target.value)} /></label>
+          <label>Kontoejer<input type="text" value={accountOwner} onChange={(e) => setAccountOwner(e.target.value)} /></label>
+          <label>Bank-kundenr.<input type="text" value={customerNo} onChange={(e) => setCustomerNo(e.target.value)} /></label>
           <label>
             Valuta
             <input

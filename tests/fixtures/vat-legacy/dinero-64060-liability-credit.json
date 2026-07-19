@@ -1,0 +1,11 @@
+{
+  "entryNo": "DINERO-LEGACY-64060",
+  "transactionDate": "2026-05-06",
+  "text": "Sanitized pre-normalization Dinero EU service voucher",
+  "lines": [
+    { "accountNo": "3090", "debitAmount": 100.03, "creditAmount": 0 },
+    { "accountNo": "64060", "debitAmount": 25, "creditAmount": 0 },
+    { "accountNo": "2000", "debitAmount": 0, "creditAmount": 100.03 },
+    { "accountNo": "64040", "debitAmount": 0, "creditAmount": 25 }
+  ]
+}

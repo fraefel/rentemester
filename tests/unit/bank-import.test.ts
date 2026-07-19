@@ -65,6 +65,33 @@ describe("bank import", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("keeps partial overlap re-imports idempotent while preserving identical legitimate rows (#542)", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-bank-overlap-"));
+    const firstCsv = join(root, "first.csv");
+    const overlapCsv = join(root, "overlap.csv");
+    writeFileSync(firstCsv, [
+      "transaction_date,text,amount,currency,reference",
+      "2026-05-16,Card fee,-50,DKK,FEE-1",
+      "2026-05-16,Card fee,-50,DKK,FEE-1",
+      "2026-05-17,Payment,-100,DKK,PAY-1",
+    ].join("\n"));
+    writeFileSync(overlapCsv, [
+      "transaction_date,text,amount,currency,reference",
+      "2026-05-17,Payment,-100,DKK,PAY-1",
+      "2026-05-18,Payment,-200,DKK,PAY-2",
+    ].join("\n"));
+
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    expect(importBankCsv(db, root, firstCsv)).toMatchObject({ ok: true, imported: 3, skippedDuplicates: 0 });
+    expect(importBankCsv(db, root, firstCsv)).toMatchObject({ ok: true, imported: 0, skippedDuplicates: 3 });
+    expect(importBankCsv(db, root, overlapCsv)).toMatchObject({ ok: true, imported: 1, skippedDuplicates: 1 });
+    expect(db.query("SELECT id FROM bank_transactions").all()).toHaveLength(4);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("rejects impossible calendar dates in bank rows", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-bank-baddate-"));
     const csv = join(root, "bad-date.csv");

@@ -25,8 +25,11 @@ export const VAT_LINE_CODES: ReadonlySet<string> = new Set([
  *
  * These exact identifiers are evidence from the Dinero chart format, not a
  * general account-number range.  A legacy import may have persisted them as
- * liabilities; newer imports normalise them to `type = 'vat'`.  Both shapes
- * are accepted when the normal balance matches the source definition.
+ * liabilities; newer imports normalise them to `type = 'vat'`.  The output
+ * controls can be recognised from that chart evidence. A legacy 64060 is
+ * intentionally not recognised here: its liability/credit representation is
+ * accepted as input VAT only for the verified historical Dinero pair in the
+ * VAT report, never merely because a manual journal used that account number.
  */
 export const DINERO_VAT_CONTROL_ACCOUNTS = {
   "64000": { role: "output_vat", normalBalance: "credit", side: "output" },
@@ -53,8 +56,8 @@ export type VatAccountSemantics = {
  *
  * - every active native/imported account explicitly typed `vat` is classified
  *   from its normal balance;
- * - the three exact, source-validated Dinero control accounts are accepted in
- *   their legacy liability shape, never an arbitrary `64000..64099` range;
+ * - the exact source-validated Dinero output controls are accepted in their
+ *   legacy liability shape, never an arbitrary `64000..64099` range;
  * - explicitly confirmed account roles are authoritative and included; and
  * - the confirmed VAT-settlement role is kept separate from VAT amounts.
  */
@@ -84,6 +87,10 @@ export function loadVatAccountSemantics(db: Database): VatAccountSemantics {
       ];
     if (
       dinero &&
+      // A 64060 liability is too ambiguous outside a verified historical
+      // Dinero voucher. `buildVatReport` admits it only after checking the
+      // matching 64040/64060 control pair and provenance.
+      row.account_no !== "64060" &&
       row.type === "liability" &&
       row.normal_balance === dinero.normalBalance
     ) {

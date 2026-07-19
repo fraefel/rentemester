@@ -141,7 +141,12 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
   const bankCurrency = normalizeCurrency(bank.currency);
   const fxRateToDkk = bank.fx_rate_to_dkk == null ? NaN : Number(bank.fx_rate_to_dkk);
   if (!(fxRateToDkk > 0)) {
-    if (bankCurrency === "DKK") return { ok: false, error: "foreign-currency expense booking requires bank fx_rate_to_dkk for DKK-settled payments" };
+    if (bankCurrency === "DKK") {
+      return {
+        ok: false,
+        error: "foreign-currency expense booking requires bank amount_dkk and fx_rate_to_dkk for DKK-settled payments; re-import the bank CSV with amount_dkk and fx_rate_to_dkk columns",
+      };
+    }
     return { ok: false, error: "foreign-currency expense booking requires bank fx_rate_to_dkk" };
   }
 

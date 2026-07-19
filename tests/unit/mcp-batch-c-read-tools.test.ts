@@ -12,7 +12,7 @@
 // Both are read-only; both reuse existing core helpers.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -40,6 +40,7 @@ let workspaceRoot: string;
 let companyRoot: string;
 let bankRegistered: Record<string, RegisteredTool>;
 let companyRegistered: Record<string, RegisteredTool>;
+let previousMcpAgent: string | undefined;
 
 beforeAll(() => {
   workspaceRoot = mkdtempSync(join(tmpdir(), "rentemester-batch-c-"));
@@ -52,6 +53,12 @@ beforeAll(() => {
     cvr: "12345678",
   });
   companyRoot = created.companyRoot;
+  previousMcpAgent = process.env.RENTEMESTER_MCP_AGENT;
+  process.env.RENTEMESTER_MCP_AGENT = "bank-account-mcp-test";
+  appendFileSync(
+    join(companyRoot, "config", "policy.yaml"),
+    "  agents:\n    - agent:bank-account-mcp-test\n",
+  );
   const db = openDb(companyPaths(companyRoot).db);
   try {
     // Seed a bank account so bank_account_list has something to return.
@@ -87,6 +94,11 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  if (previousMcpAgent === undefined) {
+    delete process.env.RENTEMESTER_MCP_AGENT;
+  } else {
+    process.env.RENTEMESTER_MCP_AGENT = previousMcpAgent;
+  }
   rmSync(workspaceRoot, { recursive: true, force: true });
 });
 
@@ -102,6 +114,25 @@ async function call(
 }
 
 describe("#batch-c — bank_account_list", () => {
+  test("bank_account_update is registered and confirm gated", async () => {
+    expect(bankRegistered["bank_account_update"]).toBeDefined();
+    const missingConfirm = await call(bankRegistered, "bank_account_update", { company: companyRoot, account: "drift" });
+    expect(missingConfirm.ok).toBe(false);
+  });
+
+  test("updates with the resolved MCP actor in the audit log", async () => {
+    const confirmed = await call(bankRegistered, "bank_account_update", {
+      company: companyRoot, account: "drift", bic: "DABADKKK", confirm: true,
+    });
+    expect(confirmed.ok).toBe(true);
+    const db = openDb(companyPaths(companyRoot).db);
+    try {
+      const audit = db.query("SELECT actor FROM audit_log WHERE event_type = 'bank_account_update' ORDER BY id DESC LIMIT 1").get() as { actor: string };
+      expect(audit.actor).toBe("agent:bank-account-mcp-test via rentemester-mcp");
+    } finally {
+      db.close();
+    }
+  });
   test("the tool is registered alongside the other bank tools", () => {
     expect(bankRegistered["bank_account_list"]).toBeDefined();
   });

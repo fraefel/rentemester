@@ -3,7 +3,7 @@
 Rentemester eksponerer sin CLI som en MCP-server, så agenter (Claude
 Desktop, Cursor, Claude Code, Codex m.fl.) kan kalde
 bogføringskommandoer direkte. Serveren eksponerer hele tool-surface'en —
-**112 tools** — fordelt på domænerne `invoice_*`, `bank_*`, `journal_*`,
+**113 tools** — fordelt på domænerne `invoice_*`, `bank_*`, `journal_*`,
 `vat_*`, `system_backup_*`, `asset_*`, `mileage_*`, `recurring_invoice_*`
 m.fl. Den autoritative liste med klassifikation og inputs står i
 [`docs/mcp-tool-surface.md`](mcp-tool-surface.md); kør `tools/list` mod en
@@ -14,25 +14,23 @@ orienterer agenten om rækkefølge og confirm/destructive-konventioner. Den
 fulde kontrakt for den løse tool-surface står i
 [`docs/mcp-agent-contract.md`](mcp-agent-contract.md).
 
-## Installer Rentemester globalt
+## Installer den fælles runtime
 
-Forudsætning: [Bun](https://bun.sh) >= 1.2.
-
-```bash
-git clone https://github.com/mikkelkrogsholm/rentemester.git
-cd rentemester
-bun install
-bun link            # registrerer både `rentemester` og `rentemester-mcp`
-                    # som globale shims
-```
-
-Verificér at MCP-binaryen kan findes:
+Følg først den kanoniske [første-virksomhed-guide](onboarding.md): den
+installerer både root- og cockpit-afhængigheder, registrerer de stabile
+`rentemester` og `rentemester-mcp` shims og kører de relevante grønne gates.
+For MCP er de nødvendige shim-kontroller:
 
 ```bash
-which rentemester-mcp
-rentemester-mcp --help    # (serveren accepterer alle args men kører
-                           # stdio-server uanset)
+rentemester --version
+command -v rentemester
+command -v rentemester-mcp
 ```
+
+`rentemester-mcp` er altid en stdio-server; den giver derfor ikke meningsfuld
+interaktiv `--help`-output. Brug `bun run smoke-mcp` fra repository-roden til
+at verificere handshake, tool-katalog og write/confirm-kontrakt. Peg altid en
+MCP-klient på shim'en, aldrig på interne `src/*.ts`-filer.
 
 ## Claude Desktop
 
@@ -60,14 +58,15 @@ kaldbare.
 
 ### Hvis `rentemester-mcp` ikke ligger i PATH
 
-Brug en absolut sti og `bun` direkte:
+ Brug en absolut sti til den installerede wrapper. Den er stabil ved pakke-
+ installationer; undgå at pege klientkonfigurationer på interne `src/*.ts`-filer:
 
 ```json
 {
   "mcpServers": {
     "rentemester": {
-      "command": "/Users/mikkel/.bun/bin/bun",
-      "args": ["/Users/mikkel/code/rentemester/src/mcp/server.ts"],
+      "command": "/Users/mikkel/.bun/bin/rentemester-mcp",
+      "args": [],
       "env": {
         "RENTEMESTER_MCP_USER": "mikkel@56n.dk"
       }

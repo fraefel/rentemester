@@ -98,6 +98,7 @@ import {
   handleBankImport,
   handleClosePeriod,
   handleCreateBankAccount,
+  handleUpdateBankAccount,
   handleDeleteBilagsmailImapConfig,
   handleGdprExport,
   handleGdprErase,
@@ -210,6 +211,7 @@ export const ROUTE_CATALOG: ReadonlyArray<{
   { method: "GET", pattern: "/api/companies/:slug/periods", summary: "Periodelås-liste med effective status (#342)." },
   { method: "GET", pattern: "/api/companies/:slug/bank-accounts", summary: "Registrerede bankkonti + CSV-mapping-profiler (#345)." },
   { method: "POST", pattern: "/api/companies/:slug/bank-accounts", summary: "Opretter en bankkonto (#345)." },
+  { method: "PATCH", pattern: "/api/companies/:slug/bank-accounts/:account", summary: "Auditeret opdatering af bankkontoens betalingsprofil (#539)." },
   { method: "POST", pattern: "/api/companies/:slug/gdpr/export", summary: "GDPR-indsigt — actor-attribueret og confirm-gatet (#334)." },
   { method: "POST", pattern: "/api/companies/:slug/gdpr/erase", summary: "GDPR-anonymisering — append-only tombstones (#334)." },
   { method: "GET", pattern: "/api/companies/:slug/bilagsmail", summary: "Bilagsmail-status: IMAP-config, alias, inbox (#348/#350/#351)." },
@@ -692,6 +694,11 @@ export async function handleRequest(
       return handleCompanyPeriods(config, slug);
     }
 
+    const bankAccountUpdateMatch = /^\/api\/companies\/([^/]+)\/bank-accounts\/([^/]+)$/.exec(path);
+    if (bankAccountUpdateMatch) {
+      if (method !== "PATCH") throw ApiError.methodNotAllowed("kun PATCH er understøttet på denne rute");
+      return await handleUpdateBankAccount(config, request, decodeURIComponent(bankAccountUpdateMatch[1]!), decodeURIComponent(bankAccountUpdateMatch[2]!));
+    }
     // Bank-accounts list + create (#345).
     const bankAccountsMatch = /^\/api\/companies\/([^/]+)\/bank-accounts$/.exec(path);
     if (bankAccountsMatch) {

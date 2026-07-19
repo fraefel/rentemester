@@ -15,6 +15,32 @@ Rentemester er stadig under udvikling, men retningen er klar: **agent-first bogh
 
 ---
 
+## Kom i gang med én virksomhed
+
+Den kanoniske vej fra en ren clone til første verificerede postering er
+[`docs/onboarding.md`](docs/onboarding.md). Den adskiller udviklerinstallation,
+driftsinstallation, oprettelse af en ny virksomhed og migration fra et andet
+system, og inkluderer de grønne kontrolporte for CLI, cockpit og MCP.
+
+Kort for en lokal udviklerinstallation:
+
+```bash
+git clone https://github.com/mikkelkrogsholm/rentemester.git
+cd rentemester
+bun install
+(cd app && bun install)
+bun link
+rentemester --version
+command -v rentemester
+command -v rentemester-mcp
+```
+
+`rentemester-mcp` er en stdio-server, ikke en interaktiv hjælpekommando; brug
+`bun run smoke-mcp` til at verificere den. Brug aldrig CLI-argumenter eller
+repo-filer til adgangskoder, API-nøgler eller andre hemmeligheder.
+
+---
+
 ## Hvem er Rentemester til?
 
 Rentemester er tænkt til dig, der driver en mindre dansk virksomhed med relativt simple forhold:

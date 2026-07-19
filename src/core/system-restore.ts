@@ -13,6 +13,7 @@ import { insertAuditLog } from "./actor";
 import { removePathWithRetry, renamePathWithRetry } from "./fs-cleanup";
 import { writeFileAtomic } from "./atomic-file";
 import { assertSchemaCompatibility } from "./schema-version";
+import { migrate } from "./db";
 
 const RULE_ID = "DK-BOOKKEEPING-RESTORE-001";
 
@@ -353,7 +354,7 @@ function validateRestoredDb(
   return { ok: true as const };
 }
 
-function validateAndStampRestoredDb(
+function migrateValidateAndStampRestoredDb(
   dbPath: string,
   manifest: BackupManifest,
   restoredCompanyRoot: string,
@@ -361,11 +362,16 @@ function validateAndStampRestoredDb(
 ) {
   // Bun can keep file-backed SQLite handles alive on Windows after close(),
   // especially when cached statements were used. Deserialize into an in-memory
-  // database so validation and the restore audit write never open the staging
-  // file itself; serialize the verified image back before the atomic swap.
+  // database so migration, validation, and the restore audit write never open
+  // the staging file itself; serialize the verified image back before the
+  // atomic swap. This deliberately happens only after authenticity and every
+  // declared file hash has been verified and the snapshot was copied into the
+  // isolated staging company. Thus a failed legacy upgrade can never mutate
+  // either the signed source snapshot or the requested restore target.
   const db = Database.deserialize(readFileSync(dbPath));
   try {
     db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 30000;");
+    migrate(db);
     const validation = validateRestoredDb(db, manifest, restoredCompanyRoot);
     if (!validation.ok) return validation;
 
@@ -598,7 +604,7 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       config: restoreFiles(input.backupDir, manifest.copiedFiles.config, stagingPaths.config),
     };
 
-    const preparedDb = validateAndStampRestoredDb(stagingPaths.db, manifest, stagingRoot, restoredAt);
+    const preparedDb = migrateValidateAndStampRestoredDb(stagingPaths.db, manifest, stagingRoot, restoredAt);
     if (!preparedDb.ok) {
       return {
         ok: false,

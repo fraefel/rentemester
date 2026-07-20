@@ -13,6 +13,7 @@ import { closeAccountingPeriod, effectivePeriodState, reopenAccountingPeriod, se
 import { vatRubrikkerForPeriod } from "../../src/server/data/vat";
 import { vatPositionForPeriod } from "../../src/server/data/vat";
 import { resolveAccountRole } from "../../src/core/account-roles";
+import { exportAuthorityPackage } from "../../src/core/authority-export";
 
 function freshDb() {
   const root = mkdtempSync(join(tmpdir(), "rentemester-vat-critical-"));
@@ -496,6 +497,194 @@ test("sanitized pre-normalization Dinero 64060 liability credit is trusted only 
   expect(manual.errors.join(" ")).toContain("require an explicit vatCode on the VAT base line");
   untrustedDb.close(); rmSync(untrustedRoot, { recursive: true, force: true });
   db.close(); rmSync(root, { recursive: true, force: true });
+});
+
+test("legacy VAT roles are recovered from voucher evidence without depending on account numbers", () => {
+  const { root, db } = freshDb();
+  expect(setCompanyVatPeriodType(db, "month").ok).toBe(true);
+  const fixture = JSON.parse(readFileSync(
+    join(import.meta.dir, "../fixtures/vat-legacy/custom-vat-controls.json"),
+    "utf8",
+  )) as {
+    accounts: Array<{
+      accountNo: string;
+      name: string;
+      type: string;
+      normalBalance: string;
+      defaultVatCode: string | null;
+    }>;
+    entries: Array<{
+      entryNo: string;
+      transactionDate: string;
+      program: string;
+      lines: Array<{
+        accountNo: string;
+        debitAmount: number;
+        creditAmount: number;
+        vatCode: string | null;
+      }>;
+    }>;
+  };
+
+  for (const account of fixture.accounts) {
+    db.query(
+      `INSERT INTO accounts
+         (account_no, name, type, normal_balance, default_vat_code)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      account.accountNo,
+      account.name,
+      account.type,
+      account.normalBalance,
+      account.defaultVatCode,
+    );
+  }
+  for (const fixtureEntry of fixture.entries) {
+    const entry = db.query(
+      `INSERT INTO journal_entries
+         (entry_no, transaction_date, text, rule_version, created_by_program, entry_hash)
+       VALUES (?, ?, ?, 'legacy-fixture', ?, ?)
+       RETURNING id`,
+    ).get(
+      fixtureEntry.entryNo,
+      fixtureEntry.transactionDate,
+      fixtureEntry.entryNo,
+      fixtureEntry.program,
+      `hash-${fixtureEntry.entryNo}`,
+    ) as { id: number };
+    for (const line of fixtureEntry.lines) {
+      db.query(
+        `INSERT INTO journal_lines
+           (journal_entry_id, account_id, debit_amount, credit_amount, vat_code)
+         SELECT ?, id, ?, ?, ? FROM accounts WHERE account_no = ?`,
+      ).run(
+        entry.id,
+        line.debitAmount,
+        line.creditAmount,
+        line.vatCode,
+        line.accountNo,
+      );
+    }
+  }
+
+  const report = buildVatReport(db, "2026-05-01", "2026-05-31");
+  expect(report.ok, report.errors.join("\n")).toBe(true);
+  expect(report).toMatchObject({
+    outputVat: 4519.75,
+    inputVat: 1123.55,
+    salesBase25: 17829.02,
+    purchaseBase25: 4244.2,
+    reverseChargePurchaseBase: 250,
+    netVatPayable: 3396.2,
+  });
+  expect(report.rubrikker).toMatchObject({
+    salgsmoms: 4457.25,
+    momsAfYdelseskobUdland: 62.5,
+    kobsmoms: 1123.55,
+    momstilsvar: 3396.2,
+    rubrikA: 250,
+  });
+
+  expect(closeAccountingPeriod(db, {
+    periodStart: "2026-05-01",
+    periodEnd: "2026-05-31",
+    kind: "vat_period",
+    force: true,
+  }).ok).toBe(true);
+  const filing = buildVatFiling(db, "2026-05-01", "2026-05-31");
+  expect(filing.ok, filing.errors.join("\n")).toBe(true);
+  expect(filing.rubrikker).toEqual(report.rubrikker);
+  expect(vatRubrikkerForPeriod(db, "2026-05-01", "2026-05-31")).toEqual(
+    report.rubrikker,
+  );
+
+  const exported = exportAuthorityPackage(db, root, {
+    periodStart: "2026-05-01",
+    periodEnd: "2026-05-31",
+    outputDir: join(root, "authority-export"),
+  });
+  expect(exported.ok, exported.errors.join("\n")).toBe(true);
+  const exportedReport = JSON.parse(readFileSync(
+    join(exported.exportDir!, "machine-readable", "vat-report.json"),
+    "utf8",
+  ));
+  expect(exportedReport).toEqual(report);
+
+  db.close(); rmSync(root, { recursive: true, force: true });
+});
+
+test("a trusted historical voucher can establish a custom VAT role for later periods, but an untrusted one cannot", () => {
+  const prepareLedger = (
+    db: ReturnType<typeof openDb>,
+    historicalProgram: string,
+  ) => {
+    db.run(
+      `INSERT INTO accounts
+         (account_no, name, type, normal_balance, default_vat_code)
+       VALUES
+         ('78199', 'Custom purchase base', 'expense', 'debit', 'DK_PURCHASE_25'),
+         ('91999', 'Custom input control', 'liability', 'credit', NULL)`,
+    );
+    for (const entry of [
+      {
+        no: "ROLE-EVIDENCE",
+        date: "2026-04-30",
+        program: historicalProgram,
+        base: 100,
+        vat: 25,
+      },
+      {
+        no: "LATER-PURCHASE",
+        date: "2026-05-01",
+        program: "bookkeeping-2026",
+        base: 200,
+        vat: 50,
+      },
+    ]) {
+      const journal = db.query(
+        `INSERT INTO journal_entries
+           (entry_no, transaction_date, text, rule_version, created_by_program, entry_hash)
+         VALUES (?, ?, ?, 'legacy-fixture', ?, ?)
+         RETURNING id`,
+      ).get(entry.no, entry.date, entry.no, entry.program, `hash-${entry.no}`) as { id: number };
+      for (const [accountNo, debit, credit, vatCode] of [
+        ["78199", entry.base, 0, entry.no === "LATER-PURCHASE" ? "DK_PURCHASE_25" : null],
+        ["91999", entry.vat, 0, null],
+        ["2000", 0, entry.base + entry.vat, null],
+      ] as const) {
+        db.query(
+          `INSERT INTO journal_lines
+             (journal_entry_id, account_id, debit_amount, credit_amount, vat_code)
+           SELECT ?, id, ?, ?, ? FROM accounts WHERE account_no = ?`,
+        ).run(journal.id, debit, credit, vatCode, accountNo);
+      }
+    }
+  };
+
+  const trusted = freshDb();
+  prepareLedger(trusted.db, HISTORICAL_IMPORT_PROGRAM);
+  const trustedReport = buildVatReport(
+    trusted.db,
+    "2026-05-01",
+    "2026-05-31",
+  );
+  expect(trustedReport.ok, trustedReport.errors.join("\n")).toBe(true);
+  expect(trustedReport.purchaseBase25).toBe(200);
+  expect(trustedReport.inputVat).toBe(50);
+  trusted.db.close(); rmSync(trusted.root, { recursive: true, force: true });
+
+  const untrusted = freshDb();
+  prepareLedger(untrusted.db, "rentemester");
+  const untrustedReport = buildVatReport(
+    untrusted.db,
+    "2026-05-01",
+    "2026-05-31",
+  );
+  expect(untrustedReport.ok).toBe(false);
+  expect(untrustedReport.purchaseBase25).toBe(200);
+  expect(untrustedReport.inputVat).toBe(0);
+  expect(untrustedReport.errors.join(" ")).toContain("input VAT mismatch");
+  untrusted.db.close(); rmSync(untrusted.root, { recursive: true, force: true });
 });
 
 test("report blocks ambiguous legacy Dinero reverse-charge bases", () => {

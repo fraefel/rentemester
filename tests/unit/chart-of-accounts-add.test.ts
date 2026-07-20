@@ -166,6 +166,10 @@ describe("createAccount() — sanctioned post-init chart of accounts write", () 
     expect(loadVatAccountSemantics(db).amountSideByAccountNo.get("1290")).toBe(
       "output",
     );
+    db.run("UPDATE accounts SET active = 0 WHERE account_no = '1290'");
+    expect(loadVatAccountSemantics(db).amountSideByAccountNo.get("1290")).toBe(
+      "output",
+    );
     cleanup(root, db);
   });
 

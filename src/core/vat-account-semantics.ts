@@ -54,8 +54,8 @@ export type VatAccountSemantics = {
  *
  * Recognition is deliberately narrow and chart-aware:
  *
- * - every active native/imported account explicitly typed `vat` is classified
- *   from its normal balance;
+ * - every native/imported account explicitly typed `vat` is classified from
+ *   its normal balance, including inactive accounts needed by old periods;
  * - the exact source-validated Dinero output controls are accepted in their
  *   legacy liability shape, never an arbitrary `64000..64099` range;
  * - explicitly confirmed account roles are authoritative and included; and
@@ -73,7 +73,6 @@ export function loadVatAccountSemantics(db: Database): VatAccountSemantics {
 
   const amountSideByAccountNo = new Map<string, VatAmountSide>();
   for (const row of rows) {
-    if (row.active !== 1) continue;
     if (row.type === "vat") {
       amountSideByAccountNo.set(
         row.account_no,
@@ -81,6 +80,10 @@ export function loadVatAccountSemantics(db: Database): VatAccountSemantics {
       );
       continue;
     }
+    // `active` gates future posting, not historical interpretation. Explicit
+    // type=vat above therefore remains meaningful after an account is retired;
+    // number-based legacy compatibility below stays limited to active charts.
+    if (row.active !== 1) continue;
     const dinero =
       DINERO_VAT_CONTROL_ACCOUNTS[
         row.account_no as keyof typeof DINERO_VAT_CONTROL_ACCOUNTS

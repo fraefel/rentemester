@@ -10,7 +10,14 @@ import {
   loadVatAccountSemantics,
   VAT_LINE_CODES,
 } from "./vat-account-semantics";
-import { isPersistedHistoricalImportProgram } from "./import-provenance";
+import {
+  HISTORICAL_IMPORT_PROGRAM,
+  isPersistedHistoricalImportProgram,
+} from "./import-provenance";
+import {
+  inferLegacyVatEvidence,
+  type LegacyVatEvidenceRow,
+} from "./vat-legacy-evidence";
 import { deductibleDanishPurchaseSupplierErrors, resolvePersistedSupplierIdentity, type SupplierIdentityResolution } from "./supplier-identity";
 import { parsePurchaseVatLinesPayload } from "./documents";
 import { vatPeriodWindowFor, type VatPeriodType } from "./periods";
@@ -583,11 +590,41 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     vat_code: string | null;
   }>;
   const vatAccountSemantics = loadVatAccountSemantics(db);
-  const vatAmountSideByAccountNo =
-    vatAccountSemantics.amountSideByAccountNo;
-  const reverseChargeOutputAccountNos =
-    vatAccountSemantics.reverseChargeOutputAccountNos;
+  const vatAmountSideByAccountNo = new Map(
+    vatAccountSemantics.amountSideByAccountNo,
+  );
+  const reverseChargeOutputAccountNos = new Set(
+    vatAccountSemantics.reverseChargeOutputAccountNos,
+  );
   const vatSettlementAccountNos = vatAccountSemantics.settlementAccountNos;
+
+  // Account numbers are chart-local identifiers, not accounting semantics.
+  // Current charts express VAT meaning through type=vat or confirmed roles.
+  // Immutable pre-normalisation imports cannot be rewritten, so recover their
+  // roles from exact, source-proven voucher evidence across the whole ledger.
+  // Loading all trusted import rows makes later reporting periods independent
+  // of whether the original role-establishing voucher falls inside the period.
+  const historicalEvidenceRows = db.query(
+    `SELECT je.id as entry_id, jl.id as line_id, je.status,
+            a.account_no, a.type as account_type, a.default_vat_code,
+            jl.debit_amount, jl.credit_amount, jl.vat_code
+       FROM journal_entries je
+       JOIN journal_lines jl ON jl.journal_entry_id = je.id
+       JOIN accounts a ON a.id = jl.account_id
+      WHERE je.created_by_program = ?
+      ORDER BY je.id ASC, jl.id ASC`,
+  ).all(HISTORICAL_IMPORT_PROGRAM) as LegacyVatEvidenceRow[];
+  const legacyEvidence = inferLegacyVatEvidence(
+    historicalEvidenceRows,
+    vatAmountSideByAccountNo,
+  );
+  errors.push(...legacyEvidence.errors);
+  for (const [accountNo, side] of legacyEvidence.amountSideByAccountNo) {
+    vatAmountSideByAccountNo.set(accountNo, side);
+  }
+  for (const accountNo of legacyEvidence.reverseChargeOutputAccountNos) {
+    reverseChargeOutputAccountNos.add(accountNo);
+  }
 
   // Older Dinero ledgers can contain the source-native 64040/64060
   // reverse-charge control pair while Momstype was left blank on the expense
@@ -596,9 +633,13 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   // 25%-matching, otherwise unclassified expense line. Explicit/default codes
   // remain authoritative; ambiguous or inconsistent source patterns block the
   // report instead of becoming amount-only corrections with missing rubrik A.
-  const inferredVatCodeByLineId = new Map<number, string>();
+  const inferredVatCodeByLineId = new Map(
+    legacyEvidence.inferredVatCodeByLineId,
+  );
   const trustedDineroInputLineIds = new Set<number>();
-  const legacyReverseChargeToleranceByEntry = new Map<number, number>();
+  const legacyReverseChargeToleranceByEntry = new Map(
+    legacyEvidence.reverseChargeToleranceByEntry,
+  );
   const historicalRowsByEntry = new Map<number, typeof rows>();
   for (const row of rows) {
     if (!isPersistedHistoricalImportProgram(row.created_by_program)) continue;
@@ -711,7 +752,14 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     // 64060 may occur as a liability/credit account in pre-normalisation
     // Dinero charts. Count it as input VAT only after the trusted provenance,
     // exact equal 64040/64060 controls and single base have all been proven.
-    for (const row of inputControls) trustedDineroInputLineIds.add(row.line_id);
+    for (const row of inputControls) {
+      trustedDineroInputLineIds.add(row.line_id);
+      vatAmountSideByAccountNo.set(row.account_no, "input");
+    }
+    for (const row of outputControls) {
+      vatAmountSideByAccountNo.set(row.account_no, "output");
+      reverseChargeOutputAccountNos.add(row.account_no);
+    }
     legacyReverseChargeToleranceByEntry.set(
       entryId,
       oreDifference(percentOfDkk(classifiedBase, 25), outputControl),
@@ -1059,10 +1107,18 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
   // Foreign-currency entries round the stated VAT and its net base into DKK
   // independently before balancing. That conversion can add one further øre
   // of legitimate drift per foreign base line.
-  const legacyReverseChargeTolerance = [...legacyReverseChargeToleranceByEntry.values()]
-    .reduce((sum, tolerance) => sum + tolerance, 0);
-  const outputVatTolerance = Math.max(0, outputVatBaseLines - 1) + foreignOutputVatBaseLines + legacyReverseChargeTolerance;
-  const inputVatTolerance = Math.max(0, inputVatBaseLines - 1) + foreignInputVatBaseLines + legacyReverseChargeTolerance;
+  const periodEntryIds = new Set(rows.map((row) => row.entry_id));
+  const legacyReverseChargeTolerance = [...legacyReverseChargeToleranceByEntry]
+    .filter(([entryId]) => periodEntryIds.has(entryId))
+    .reduce((sum, [, tolerance]) => sum + tolerance, 0);
+  const legacyOrdinaryInputTolerance = [...legacyEvidence.ordinaryInputToleranceByEntry]
+    .filter(([entryId]) => periodEntryIds.has(entryId))
+    .reduce((sum, [, tolerance]) => sum + tolerance, 0);
+  const legacyOrdinaryOutputTolerance = [...legacyEvidence.ordinaryOutputToleranceByEntry]
+    .filter(([entryId]) => periodEntryIds.has(entryId))
+    .reduce((sum, [, tolerance]) => sum + tolerance, 0);
+  const outputVatTolerance = Math.max(0, outputVatBaseLines - 1) + foreignOutputVatBaseLines + legacyReverseChargeTolerance + legacyOrdinaryOutputTolerance;
+  const inputVatTolerance = Math.max(0, inputVatBaseLines - 1) + foreignInputVatBaseLines + legacyReverseChargeTolerance + legacyOrdinaryInputTolerance;
   const explainedOutputVat = addDkk(expectedOutputVat, historicalOutputCorrection);
   const explainedInputVat = addDkk(expectedInputVat, historicalInputCorrection);
   if (historicalOutputCorrection !== 0 || historicalInputCorrection !== 0) {
@@ -1109,7 +1165,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     foreignReverseChargeOutputVatBaseLines + legacyReverseChargeTolerance;
   const ordinaryOutputVatTolerance =
     Math.max(0, ordinaryOutputVatBaseLines - 1) +
-    foreignOrdinaryOutputVatBaseLines;
+    foreignOrdinaryOutputVatBaseLines +
+    legacyOrdinaryOutputTolerance;
   if (
     oreDifference(
       reverseChargePurchaseOutputVat,

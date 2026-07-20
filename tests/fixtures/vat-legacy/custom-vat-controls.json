@@ -1,0 +1,92 @@
+{
+  "accounts": [
+    { "accountNo": "38123", "name": "Imported sales", "type": "income", "normalBalance": "credit", "defaultVatCode": "DK_SALE_25" },
+    { "accountNo": "78123", "name": "Imported purchases", "type": "expense", "normalBalance": "debit", "defaultVatCode": "DK_PURCHASE_25" },
+    { "accountNo": "91011", "name": "Imported output VAT", "type": "liability", "normalBalance": "credit", "defaultVatCode": null },
+    { "accountNo": "91012", "name": "Imported reverse-charge output VAT", "type": "liability", "normalBalance": "credit", "defaultVatCode": null },
+    { "accountNo": "91013", "name": "Imported input VAT", "type": "liability", "normalBalance": "credit", "defaultVatCode": null }
+  ],
+  "entries": [
+    {
+      "entryNo": "LEGACY-CUSTOM-RC",
+      "transactionDate": "2026-05-01",
+      "program": "rentemester-import-postings",
+      "lines": [
+        { "accountNo": "78123", "debitAmount": 250, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "91013", "debitAmount": 62.5, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "2000", "debitAmount": 0, "creditAmount": 250, "vatCode": null },
+        { "accountNo": "91012", "debitAmount": 0, "creditAmount": 62.5, "vatCode": null }
+      ]
+    },
+    {
+      "entryNo": "LEGACY-CUSTOM-PURCHASE-1",
+      "transactionDate": "2026-05-02",
+      "program": "rentemester-import-postings",
+      "lines": [
+        { "accountNo": "78123", "debitAmount": 3947, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "91013", "debitAmount": 986.75, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "2000", "debitAmount": 0, "creditAmount": 4933.75, "vatCode": null }
+      ]
+    },
+    {
+      "entryNo": "LEGACY-CUSTOM-PURCHASE-2",
+      "transactionDate": "2026-05-03",
+      "program": "rentemester-import-postings",
+      "lines": [
+        { "accountNo": "78123", "debitAmount": 166.04, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "91013", "debitAmount": 41.51, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "2000", "debitAmount": 0, "creditAmount": 207.55, "vatCode": null }
+      ]
+    },
+    {
+      "entryNo": "LEGACY-CUSTOM-PURCHASE-3",
+      "transactionDate": "2026-05-04",
+      "program": "rentemester-import-postings",
+      "lines": [
+        { "accountNo": "78123", "debitAmount": 200, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "91013", "debitAmount": 50, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "2000", "debitAmount": 0, "creditAmount": 250, "vatCode": null }
+      ]
+    },
+    {
+      "entryNo": "LEGACY-CUSTOM-PURCHASE-4",
+      "transactionDate": "2026-05-05",
+      "program": "rentemester-import-postings",
+      "lines": [
+        { "accountNo": "78123", "debitAmount": 31.16, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "91013", "debitAmount": 7.79, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "2000", "debitAmount": 0, "creditAmount": 38.95, "vatCode": null }
+      ]
+    },
+    {
+      "entryNo": "LEGACY-CUSTOM-SALE",
+      "transactionDate": "2026-05-06",
+      "program": "rentemester-import-postings",
+      "lines": [
+        { "accountNo": "2000", "debitAmount": 22286.27, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "38123", "debitAmount": 0, "creditAmount": 17829.02, "vatCode": null },
+        { "accountNo": "91011", "debitAmount": 0, "creditAmount": 4457.25, "vatCode": null }
+      ]
+    },
+    {
+      "entryNo": "CURRENT-CUSTOM-PURCHASE",
+      "transactionDate": "2026-05-20",
+      "program": "bookkeeping-2026",
+      "lines": [
+        { "accountNo": "78123", "debitAmount": 100, "creditAmount": 0, "vatCode": "DK_PURCHASE_25" },
+        { "accountNo": "91013", "debitAmount": 25, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "2000", "debitAmount": 0, "creditAmount": 125, "vatCode": null }
+      ]
+    },
+    {
+      "entryNo": "CURRENT-CUSTOM-CORRECTION",
+      "transactionDate": "2026-05-21",
+      "program": "bookkeeping-2026",
+      "lines": [
+        { "accountNo": "2000", "debitAmount": 250, "creditAmount": 0, "vatCode": null },
+        { "accountNo": "78123", "debitAmount": 0, "creditAmount": 200, "vatCode": "DK_PURCHASE_25" },
+        { "accountNo": "91013", "debitAmount": 0, "creditAmount": 50, "vatCode": null }
+      ]
+    }
+  ]
+}

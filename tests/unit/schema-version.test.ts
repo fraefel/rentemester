@@ -10,6 +10,8 @@ import {
   BASELINE_MIGRATION_NAME,
   BASELINE_SCHEMA_VERSION,
   CURRENT_SCHEMA_VERSION,
+  PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM,
+  PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -39,19 +41,31 @@ describe("schema version compatibility", () => {
     );
   });
 
-  test("records one checksummed baseline idempotently", () => {
+  test("records the contiguous checksummed migration catalog idempotently", () => {
     const db = new Database(":memory:");
     migrate(db);
     migrate(db);
 
     expect(readSchemaMigrations(db)).toEqual([
       expect.objectContaining({
-        id: CURRENT_SCHEMA_VERSION,
+        id: BASELINE_SCHEMA_VERSION,
         name: BASELINE_MIGRATION_NAME,
         checksum: BASELINE_MIGRATION_CHECKSUM,
         applied_by_version: "0.1.0",
       }),
+      expect.objectContaining({ id: CURRENT_SCHEMA_VERSION, name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME, checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM }),
     ]);
+    db.close();
+  });
+
+  test("opens a pre-change v1 ledger and applies the append-only v2 events migration", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    db.exec("DROP TABLE peppol_submission_events; DELETE FROM schema_migrations WHERE id = 2;");
+    expect(readSchemaMigrations(db)).toHaveLength(1);
+    migrate(db);
+    expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'peppol_submission_events'").get()).not.toBeNull();
+    expect(readSchemaMigrations(db)).toHaveLength(2);
     db.close();
   });
 
@@ -92,10 +106,10 @@ describe("schema version compatibility", () => {
       );
       INSERT INTO schema_migrations
         (id, name, checksum, applied_by_version)
-      VALUES (2, 'future', 'abc', '0.2.0');
+      VALUES (3, 'future', 'abc', '0.2.0');
     `);
 
-    expect(() => migrate(db)).toThrow("newer than supported version 1");
+    expect(() => migrate(db)).toThrow("newer than supported version 2");
     expect(
       db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'companies'").get(),
     ).toBeNull();
@@ -170,13 +184,13 @@ describe("schema version compatibility", () => {
         );
         INSERT INTO schema_migrations
           (id, name, checksum, applied_by_version)
-        VALUES (2, 'future', 'abc', '0.2.0');
+        VALUES (3, 'future', 'abc', '0.2.0');
       `);
       db.close();
       const beforeBytes = readFileSync(path);
       const beforeFiles = readdirSync(directory).sort();
 
-      expect(() => openDb(path)).toThrow("newer than supported version 1");
+      expect(() => openDb(path)).toThrow("newer than supported version 2");
       expect(readFileSync(path)).toEqual(beforeBytes);
       expect(readdirSync(directory).sort()).toEqual(beforeFiles);
     } finally {

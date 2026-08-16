@@ -95,7 +95,7 @@ describe("digisense client — register-participant", () => {
       webhookUrl: null,
       documentProfiles: "default-nemhandel",
     });
-    expect(requests[0]!.url).toBe("https://test-api.digisense.dk/ap/api/rest/register-participant/nemhandel");
+    expect(requests[0]!.url).toBe("https://test-api.digisense.dk/ap/api/rest/v2/register-participant/nemhandel");
     expect(JSON.parse(requests[0]!.body!).webhookUrl).toBeNull();
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -148,6 +148,13 @@ describe("digisense client — lookup-participant", () => {
 });
 
 describe("digisense client — deliver-document", () => {
+  test("uses the official KSeF values PROD, TEST and DEMO", async () => {
+    for (const environment of ["PROD", "TEST", "DEMO"] as const) {
+      const { client, requests } = clientWith(200, JSON.stringify({ statusCode: 200, documentStatus: "delivered", documentId: "doc", message: "ok", publicUrl: "" }));
+      await client.deliverDocument("<Invoice/>", { companyKey: "ck", ksefEnvironment: environment });
+      expect(requests[0]!.url).toContain(`ksefEnvironment=${environment}`);
+    }
+  });
   test("POSTs XML with companyKey + ksefEnvironment in the query", async () => {
     const xml = "<Invoice>payload</Invoice>";
     const { client, requests } = clientWith(202, JSON.stringify({

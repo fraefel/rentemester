@@ -9,12 +9,13 @@ import type { CommandSpec } from "./_shared";
 export const efakturaSpecs: CommandSpec[] = [
   {
     key: "efaktura konfigurer",
-    usage: "efaktura konfigurer --company <path> --api-license-key <secret> [--environment test|production]",
+    usage: "efaktura konfigurer --company <path> --api-license-key <secret> --confirm yes [--environment test|production]",
     description:
       "Gemmer Digisense API license-key i secret-laget (config/digisense.json, 0600). PRECONDITION for efaktura registrer/modtag og invoice transmit-digisense — uden en gemt key fejler de med 'Digisense er ikke konfigureret'. license-key er et SECRET og rammer aldrig bogføringstilstanden.",
-    allowedFlags: ["--company", "--api-license-key", "--environment"],
+    allowedFlags: ["--company", "--api-license-key", "--confirm", "--environment"],
     inputNotes: [
       "--api-license-key: én nøgle for hele Digisense-licensen (påkrævet). Gemmes kun i config/digisense.json.",
+      "--confirm yes: påkrævet bekræftelse; kommandoen kræver også en actor.",
       "--environment: 'test' (standard) eller 'production' — vælger Digisense' base-URL.",
     ],
   },
@@ -46,6 +47,16 @@ export const efakturaSpecs: CommandSpec[] = [
       "--metadata <file.json>: valgfri DocumentMetadata (uden 'source') der flettes FELT-FOR-FELT oven på de UBL-/listning-afledte felter på hvert bilag; 'source' kan ikke overstyres (pipelinen sætter den til 'digisense_modtag').",
       "--force: tillad ingest af en logisk dublet (samme afsender + fakturanr.).",
       "Forudsætter en gemt license-key — kør `efaktura konfigurer` først.",
+    ],
+  },
+  {
+    key: "efaktura status",
+    usage: "efaktura status --company <path> --document-id <n> --confirm yes [--digisense-company-key <key>]",
+    description: "Genoptager en tidligere køsat Digisense-afsendelse ved kun at kalde document-status. Skriver append-only statusevidens og kalder aldrig document-delivery igen. Kræver '--confirm yes' og en actor.",
+    allowedFlags: ["--company", "--document-id", "--confirm", "--digisense-company-key"],
+    inputNotes: [
+      "--document-id: det lokale faktura-dokument-id for en allerede køsat afsendelse.",
+      "Operationen er sikker at gentage: delivered bliver det effektive acknowledged-resultat ved senere send, uden ny levering.",
     ],
   },
 ];

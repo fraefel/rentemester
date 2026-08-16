@@ -48,8 +48,4 @@ export const SIDE_EFFECTING_COMMANDS = new Set([
   "company add",
   "company set-profile",
   "import contacts",
-  // `efaktura konfigurer` skriver en hemmelig config-fil (config/digisense.json)
-  // men IKKE ledgeren — den er PRECONDITION'en før der findes en actor-policy at
-  // gate imod, så den kræver ingen actor men er emfatisk ikke read-only.
-  "efaktura konfigurer",
 ]);

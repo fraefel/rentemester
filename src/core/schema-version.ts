@@ -16,6 +16,13 @@ const BASELINE_MIGRATION_ARTIFACT = readFileSync(
 export const BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(BASELINE_MIGRATION_ARTIFACT)
   .digest("hex");
+const PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0002-peppol-submission-events.json"),
+);
+export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME = "rentemester-peppol-submission-events-v2";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -34,6 +41,11 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
     id: BASELINE_SCHEMA_VERSION,
     name: BASELINE_MIGRATION_NAME,
     checksum: BASELINE_MIGRATION_CHECKSUM,
+  },
+  {
+    id: 2,
+    name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME,
+    checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM,
   },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
@@ -220,4 +232,21 @@ export function readSchemaMigrations(db: Database): MigrationRow[] {
         ORDER BY id`,
     )
     .all() as MigrationRow[];
+}
+
+/** Apply migrations after the immutable v1 normalization has completed. */
+export function applySchemaMigrations(db: Database): void {
+  const build = getBuildIdentity();
+  const eventsMigration = JSON.parse(PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT.toString("utf8")) as {
+    sql: string;
+  };
+  const existing = db.query("SELECT id FROM schema_migrations WHERE id = 2").get();
+  if (existing) return;
+  db.transaction(() => {
+    db.exec(eventsMigration.sql);
+    db.query(
+      `INSERT INTO schema_migrations (id, name, checksum, applied_by_version, applied_by_commit)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(2, PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME, PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM, build.version, build.gitCommit);
+  }, { immediate: true })();
 }

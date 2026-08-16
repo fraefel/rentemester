@@ -142,7 +142,9 @@ export const MUTATING_COMMANDS = new Set([
   // netværket. Begge er skrivende handlinger og skal — som alle andre — kræve en
   // actor og listes under "Skrivekommandoer", ikke under "read-only".
   "efaktura registrer",
+  "efaktura konfigurer",
   "efaktura modtag",
+  "efaktura status",
   // ===== END DIGISENSE E-FAKTURA (#efaktura) =====
 ]);
 

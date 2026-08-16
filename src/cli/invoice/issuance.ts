@@ -323,6 +323,10 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
   // hentes fra secret-laget (config/digisense.json), ALDRIG fra kald-args;
   // companyKey resolves fra digisense_companies (eller --digisense-company-key).
   dispatch.on("invoice", "transmit-digisense", async (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim().toLowerCase() !== "yes") {
+      ctx.emitResult({ ok: false, errors: ["--confirm yes required to transmit an e-invoice via Digisense"] });
+      process.exit(1);
+    }
     const root = ctx.companyRoot();
     const db = openDb(companyPaths(root).db);
     migrate(db);

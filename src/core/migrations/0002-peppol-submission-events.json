@@ -1,0 +1,5 @@
+{
+  "id": 2,
+  "name": "rentemester-peppol-submission-events-v2",
+  "sql": "CREATE TABLE IF NOT EXISTS peppol_submission_events (\n  id INTEGER PRIMARY KEY,\n  submission_id INTEGER NOT NULL REFERENCES peppol_submissions(id),\n  event_type TEXT NOT NULL CHECK(event_type IN ('delivery_reserved','delivery_failed','queued','status_observed','delivered')),\n  document_id TEXT,\n  status TEXT,\n  observed_at TEXT NOT NULL,\n  message TEXT NOT NULL DEFAULT '',\n  public_url TEXT,\n  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_peppol_submission_events_submission\n  ON peppol_submission_events(submission_id, id DESC);\nCREATE TRIGGER IF NOT EXISTS peppol_submission_events_no_update\nBEFORE UPDATE ON peppol_submission_events\nBEGIN\n  SELECT RAISE(ABORT, 'peppol submission events are append-only');\nEND;\nCREATE TRIGGER IF NOT EXISTS peppol_submission_events_no_delete\nBEFORE DELETE ON peppol_submission_events\nBEGIN\n  SELECT RAISE(ABORT, 'peppol submission events are append-only');\nEND;\n"
+}

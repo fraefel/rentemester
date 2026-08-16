@@ -69,6 +69,7 @@ og rammer **aldrig** ledger'en.
 rentemester efaktura konfigurer \
   --company <sti-eller-slug> \
   --api-license-key <din-license-key> \
+  --actor user:<dig> --confirm yes \
   --environment test
 ```
 
@@ -118,7 +119,7 @@ rentemester invoice issue --company <…> --input faktura.json
 # Send den via Digisense:
 rentemester invoice transmit-digisense \
   --company <sti-eller-slug> \
-  --invoice-number 2026-0001
+  --invoice-number 2026-0001 --actor user:<dig> --confirm yes
 ```
 
 - Brug enten `--invoice-number <no>` eller `--document-id <n>`.
@@ -179,7 +180,15 @@ igen med din produktions-nøgle.
 ## For agenter (MCP)
 
 Hele overfladen findes også som MCP-tools, så en agent kan drive forløbet:
-`efaktura_konfigurer`, `efaktura_registrer`, `efaktura_send`, `efaktura_modtag`.
+`efaktura_konfigurer`, `efaktura_registrer`, `efaktura_send`, `efaktura_status`, `efaktura_modtag`.
+
+Hvis en afsendelse ender som `prepared` med et Digisense documentId, brug
+`efaktura status --document-id <lokalt-id> --confirm yes` (eller
+`efaktura_status`). Den kalder kun `document-status`, gemmer append-only
+statusevidens og kalder aldrig `document-delivery` igen. Når status er
+`delivered`, bliver resultatet effektivt `acknowledged` for senere send.
+
+KSeF-værdierne følger Digisense-kontrakten: `PROD`, `TEST` og `DEMO`.
 De følger samme forudsætninger og confirm/actor-gates som CLI'en. Se de
 autoritative input/output-shapes i [mcp-tool-surface.md](mcp-tool-surface.md).
 

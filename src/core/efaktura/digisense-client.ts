@@ -181,7 +181,8 @@ export type LookupParticipantResponse = {
 };
 
 // --- deliver-document ------------------------------------------------------
-export type KsefEnvironment = "PRODUCTION" | "TEST";
+/** KSeF's documented environment values (not our config labels). */
+export type KsefEnvironment = "PROD" | "TEST" | "DEMO";
 
 export type DeliverDocumentQuery = {
   companyKey: string;
@@ -390,7 +391,8 @@ export function createDigisenseClient(
     registerParticipant(network, body) {
       return requestJson<RegisterParticipantResponse>({
         method: "POST",
-        url: `${baseUrl}/register-participant/${network}`,
+        // v1 is deprecated. v2 remains under the configured REST base URL.
+        url: `${baseUrl}/v2/register-participant/${network}`,
         headers: authHeaders("application/json"),
         body: JSON.stringify(body),
       });

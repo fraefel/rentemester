@@ -33,12 +33,13 @@ import {
   resolveDigisenseReceiver,
   resolveDigisenseRegistrar,
   resolveDigisenseTransmitter,
+  resolveDigisenseStatusChecker,
   digisenseAccessPointIdentity,
 } from "../../core/efaktura/digisense-wiring";
 import { saveDigisenseSecretConfig } from "../../core/efaktura/digisense-config";
 import {
   transmitPublicEInvoicePeppol,
-  type PeppolAccessPointConfig,
+  resumePublicEInvoicePeppolSubmission,
 } from "../../core/public-einvoice";
 import type {
   DigisenseCompanyType,
@@ -74,15 +75,6 @@ const metadataSchema = z
  * (se transmitPublicEInvoicePeppol-kaldet nedenfor). De påvirker kun
  * idempotency-nøglen, ikke routingen.
  */
-const digisenseAccessPointSchema = z
-  .object({
-    accessPointId: z.string().min(1).optional(),
-    endpointUrl: z.string().min(1).optional(),
-    senderEndpointId: z.string().min(1).optional(),
-  })
-  .optional()
-  .describe("Valgfri access-point-felter; for Digisense udfyldes de deterministisk hvis udeladt. Credentials hører ikke til her.");
-
 export function registerEfakturaTools(server: McpServer): void {
   server.registerTool(
     "efaktura_registrer",
@@ -268,7 +260,10 @@ export function registerEfakturaTools(server: McpServer): void {
           .min(1)
           .optional()
           .describe("Digisense companyKey at sende fra; standard den ENE registrerede virksomhed."),
-        accessPoint: digisenseAccessPointSchema,
+        accessPoint: z
+          .unknown()
+          .optional()
+          .describe("Ikke tilladt: Digisense-identiteten afledes fra companyKey."),
         confirm: confirmField,
       },
       outputSchema: envelopeShape,
@@ -279,9 +274,12 @@ export function registerEfakturaTools(server: McpServer): void {
       documentId?: number;
       invoiceNumber?: string;
       digisenseCompanyKey?: string;
-      accessPoint?: { accessPointId?: string; endpointUrl?: string; senderEndpointId?: string };
+      accessPoint?: unknown;
       confirm?: boolean;
     }>(server, "efaktura_send", async ({ db, args }) => {
+      if (args.accessPoint !== undefined) {
+        return errorEnvelope(["accessPoint is not allowed; Digisense identity is derived from companyKey"]);
+      }
       const documentId = resolveIssuedInvoiceDocumentId(db, args);
       if (!documentId) return invoiceNotFoundEnvelope(args);
 
@@ -290,22 +288,38 @@ export function registerEfakturaTools(server: McpServer): void {
       });
       if (!resolved.ok) return errorEnvelope(resolved.errors);
 
-      // Deterministisk Digisense-access-point-identitet keyed på companyKey
-      // (transmitteren ignorerer accessPoint og router på companyKey + key).
-      // En eksplicit accessPoint kan overstyre — men da idempotency-nøglen
-      // afhænger af felterne, anbefales det at udelade dem for ren idempotens.
-      const identity = digisenseAccessPointIdentity(resolved.companyKey);
-      const accessPoint: PeppolAccessPointConfig = {
-        accessPointId: args.accessPoint?.accessPointId ?? identity.accessPointId,
-        endpointUrl: args.accessPoint?.endpointUrl ?? identity.endpointUrl,
-        senderEndpointId: args.accessPoint?.senderEndpointId ?? identity.senderEndpointId,
-      };
+      const accessPoint = digisenseAccessPointIdentity(resolved.companyKey);
 
       const result = await transmitPublicEInvoicePeppol(
         db,
         { invoiceDocumentId: documentId, accessPoint },
         resolved.transmitter,
       );
+      return wrapCoreResult(result);
+    }),
+  );
+
+  server.registerTool(
+    "efaktura_status",
+    {
+      title: "Genoptag status for køsat Digisense e-faktura",
+      description: "Observerer kun document-status for en tidligere køsat Digisense-afsendelse. Kalder aldrig document-delivery igen og gemmer append-only statusevidens. Kræver confirm:true. write-irreversible.",
+      inputSchema: {
+        company: z.string().min(1),
+        documentId: z.number().int().positive().describe("Faktura-dokument-id for den allerede køsatte afsendelse."),
+        digisenseCompanyKey: z.string().min(1).optional(),
+        confirm: confirmField,
+      },
+      outputSchema: envelopeShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    withCompanyDbConfirmed<{ company: string; documentId: number; digisenseCompanyKey?: string; confirm?: boolean }>(server, "efaktura_status", async ({ db, args }) => {
+      const resolved = resolveDigisenseStatusChecker(db, args.company, { companyKey: args.digisenseCompanyKey });
+      if (!resolved.ok) return errorEnvelope(resolved.errors);
+      const result = await resumePublicEInvoicePeppolSubmission(db, { invoiceDocumentId: args.documentId, accessPoint: digisenseAccessPointIdentity(resolved.companyKey) }, async (queuedDocumentId) => {
+        const status = await resolved.client.documentStatus(queuedDocumentId, resolved.companyKey);
+        return status.ok ? { ok: true, status: status.data.documentStatus, message: status.data.message, publicUrl: status.data.publicUrl } : { ok: false, error: `digisense document-status failed: ${status.error.message}` };
+      });
       return wrapCoreResult(result);
     }),
   );

@@ -62,8 +62,8 @@ Hver række er én logisk mutation. **Kræves** betyder afvisning uden samtykke.
 | GDPR-slet persondata | *(ingen MCP-slette-tool — bevidst CLI/Cockpit-only)* / `POST /gdpr/erase` / `gdpr forget` (legacy alias: `gdpr erase`) | N/A | `confirm: true` | Ikke `--confirm yes`, men **`--after-retention-expiry`** (eksplicit flag; exit `2` uden) + actor — retention vurderes altid mod dags dato |
 | Slet kontakt fra cockpittet | *(N/A)* / `DELETE /contacts/:id` / *(N/A)* | N/A | `confirm: true` | N/A |
 
-(Tabellen er ikke udtømmende for alle 113 MCP-tools — heraf er 63
-confirm-gatede (62 writes + 1 destructive); den dækker de
+(Tabellen er ikke udtømmende for alle 114 MCP-tools — 49 read, 64 ordinary
+writes og 1 destructive; alle 65 ikke-read tools er confirm-gatede. Den dækker de
 business-operationer der har en konflikt eller en afvigelse mellem stakke.
 For den fulde liste pr. tool, se `annotations` i `docs/mcp-tool-surface.md`.)
 
@@ -107,8 +107,8 @@ Samme business-operation, modsat regel — og det er **med vilje**:
   shell-prompt; en eksplicit `confirm` er det eneste signal en agent kan
   give om at den ikke kalder ved et uheld. Selv om `invoice_issue` kun
   producerer en kladde (intet journal-entry endnu), kræver kontrakten
-  alligevel `confirm` — det er ensartet på tværs af alle 63 confirm-gatede
-  tools (62 writes + det destruktive restore), så agenten ikke skal huske
+  alligevel `confirm` — det er ensartet på tværs af alle 65 confirm-gatede
+  tools (64 writes + det destruktive restore), så agenten ikke skal huske
   undtagelser.
 - **Cockpittets `POST /invoices/issue` kræver det IKKE.** Den multi-linje
   faktura-modal i SPA'en *er* samtykket — at trykke "Udsted faktura"-knappen

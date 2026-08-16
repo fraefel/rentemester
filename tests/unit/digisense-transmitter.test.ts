@@ -302,6 +302,16 @@ describe("digisense transmitter — 202 queued triggers polling", () => {
     expect(calls.status).toHaveLength(3);
     expect(time.slept).toHaveLength(3);
   });
+
+  test("preserves the queued document id when a later status HTTP error occurs", async () => {
+    const { client } = fakeClient({
+      deliver: ok<DeliverDocumentResponse>({ statusCode: 202, documentStatus: "queued-for-delivery", documentId: "doc-guard", message: "queued", publicUrl: "" }, 202),
+      statuses: [{ ok: false, error: { status: 503, message: "upstream unavailable" } }],
+    });
+    const transmit = createDigisenseTransmitter(client, { companyKey: "ck", sleep: async () => {} });
+    const outcome = await transmit(TRANSMITTER_INPUT);
+    expect(outcome).toMatchObject({ ok: false, queuedDocumentId: "doc-guard" });
+  });
 });
 
 describe("digisense transmitter — deliver-level errors", () => {

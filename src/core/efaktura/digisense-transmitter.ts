@@ -148,26 +148,35 @@ export function createDigisenseTransmitter(
       return {
         ok: false,
         error: `digisense delivery returned an unexpected status (${documentStatus}, code ${statusCode}) for document ${documentId}`,
+        queuedDocumentId: documentId,
       };
     }
 
-    for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
-      await sleep(pollIntervalMs);
-      const status = await client.documentStatus(documentId, companyKey);
-      if (!status.ok) {
-        return { ok: false, error: `digisense document-status failed: ${status.error.message}` };
+    try {
+      for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
+        await sleep(pollIntervalMs);
+        const status = await client.documentStatus(documentId, companyKey);
+        if (!status.ok) {
+          return { ok: false, error: `digisense document-status failed: ${status.error.message}`, queuedDocumentId: documentId };
+        }
+        const current = status.data.documentStatus;
+        if (current === "delivered") {
+          return { ok: true, transmissionId: documentId, transmittedAt: clock() };
+        }
+        if (TERMINAL_FAILURE_STATUSES.has(current)) {
+          return {
+            ok: false,
+            error: `digisense delivery failed (${current}) for document ${documentId}: ${status.data.message}`,
+          };
+        }
+        // queued-for-delivery / temporary-upstream-error => prøv igen.
       }
-      const current = status.data.documentStatus;
-      if (current === "delivered") {
-        return { ok: true, transmissionId: documentId, transmittedAt: clock() };
-      }
-      if (TERMINAL_FAILURE_STATUSES.has(current)) {
-        return {
-          ok: false,
-          error: `digisense delivery failed (${current}) for document ${documentId}: ${status.data.message}`,
-        };
-      }
-      // queued-for-delivery / temporary-upstream-error => prøv igen.
+    } catch (error) {
+      return {
+        ok: false,
+        error: `digisense document-status failed: ${error instanceof Error ? error.message : String(error)}`,
+        queuedDocumentId: documentId,
+      };
     }
 
     // Budget brugt op uden terminal status. Dokumentet er ACCEPTERET af

@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 113 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 114 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-113 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+114 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -205,7 +205,8 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `efaktura_konfigurer` | `{ configPath, environment }` — `configPath` er stien til den skrevne secret-fil (config/digisense.json); `environment` er `"production" \| "test"`. license-key returneres ALDRIG. |
 | `efaktura_registrer` | `{ companyKey, directionsRegistered, network, participantType, participantId }` — `companyKey` er Digisense' nøgle for virksomheden; `directionsRegistered` er de registrerede retninger (fx `["inbound","outbound"]`); `network` er `"nemhandel" \| "peppol"`; `participantType` er `"DK:CVR" \| "GLN"`. |
 | `efaktura_modtag` | `{ pagesFetched, documentsListed, documentsIngested, documentsSkipped, documentsQuarantined, documents[], errors[] }` — tællere over pollen; `documentsQuarantined` er TERMINALT uingesterbare bilag (validering/dublet) der er sat i karantæne så de ikke down­loades igen. `documents[]` er `ReceivedDocumentOutcome`: `{ internalId, status, documentNo?, errors? }`, hvor `status` er `"ingested" \| "skipped-duplicate" \| "quarantined" \| "error"`. **Partiel succes:** konvoluttens `ok` er kun `false` ved en BATCH-fejl (list-received-documents fejlede); en enkelt dårlig faktura giver `ok:true` med tællerne intakte og fejlen i `documents[]`/`errors[]`. |
-| `efaktura_send` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — samme `SubmitPublicEInvoicePeppolResult`-shape som `peppol_submit_public_invoice`. `status` er `"acknowledged"` ved levering. En queued-men-endnu-ikke-leveret timeout giver `ok:false` + `status:"prepared"` + `transmissionId` (det kø-satte documentId); et efterfølgende send AFVISES (double-send-guard) — poll leverings-status på documentId i stedet for at retry'e transmit. |
+| `efaktura_send` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — samme `SubmitPublicEInvoicePeppolResult`-shape som `peppol_submit_public_invoice`. `status` er `"acknowledged"` ved levering. En queued-men-endnu-ikke-leveret timeout giver `ok:false` + `status:"prepared"` + `transmissionId`; senere send returnerer den effektive acknowledgement, når den er observeret. |
+| `efaktura_status` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — observerer kun `document-status` for en allerede køsat afsendelse og gemmer append-only statusevidens; kalder aldrig `document-delivery`. |
 
 > **Discovery-kontrakten:** Konvolut-formen er maskin-kendt via `outputSchema`
 > i `tools/list`. Den præcise `data`-feltliste står her og i kildens
@@ -220,10 +221,9 @@ Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
 - **Read-tools**: 49
-- **Write-reversible**: 13
-- **Write-irreversible**: 49
+- **Ordinary write-tools**: 64
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **113**
+- **Total**: **114** (49 read, 64 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -348,7 +348,7 @@ append-only finanskæde.
 
 ### write-irreversible
 
-49 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
+50 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
 revisionsklare/eksterne artefakter; kan kun "rulles tilbage" via en
 modpostering.
 
@@ -360,7 +360,8 @@ modpostering.
 | `accrual_recognize` | `accrual recognize` | `{ company, accrualId, period, date?, settlementAccountNo?, confirm }` | Indtægts-/omkostningsfører én periode af en periodeafgrænsningspost. |
 | `efaktura_konfigurer` | `efaktura konfigurer` | `{ company, apiLicenseKey, environment?, confirm }` | Gemmer Digisense API license-key i secret-laget (config/digisense.json, 0600). PRECONDITION for efaktura_registrer/efaktura_modtag/efaktura_send. license-key rammer aldrig ledger'en. |
 | `efaktura_registrer` | `efaktura registrer` | `{ company, cvr, companyName, network?, confirm }` | Registrerer en virksomhed i NemHandel via Digisense: register-company ⇒ gemmer companyKey ⇒ register-participant for BÅDE outbound OG inbound. webhookUrl=null (vi poller selv). Idempotent: re-run med samme CVR duplikerer ikke state. |
-| `efaktura_send` | `invoice transmit-digisense` | `{ company, documentId? \| invoiceNumber?, digisenseCompanyKey?, accessPoint?, confirm }` | Sender en udstedt offentlig e-faktura gennem Digisense: validate-document ⇒ deliver-document ⇒ poll til delivered; bogfører succes som acknowledged PEPPOL-submission. Access-point-identiteten udledes deterministisk af companyKey (Digisense ER access point'et), så gentaget send er idempotent og leverer aldrig dobbelt. |
+| `efaktura_send` | `invoice transmit-digisense` | `{ company, documentId? \| invoiceNumber?, digisenseCompanyKey?, confirm }` | Sender en udstedt offentlig e-faktura gennem Digisense: validate-document ⇒ deliver-document ⇒ poll til delivered; bogfører succes som acknowledged PEPPOL-submission. Kun den konfigurerede Digisense-identitet indgår i idempotens. |
+| `efaktura_status` | `efaktura status` | `{ company, documentId, digisenseCompanyKey?, confirm }` | Genoptager en allerede køsat afsendelse med document-status alene; append-only status-evidens betyder, at en senere send ikke redeliverer. |
 | `accrual_register` | `accrual register` | `{ company, accrualType, description, totalAmount, recognitionPeriods, firstRecognitionDate, resultAccountNo, registrationDate?, periodStepMonths?, balanceAccountNo?, settlementAccountNo?, documentId?, note?, confirm }` | Registrerer en periodeafgrænsningspost og bogfører registreringsposteringen. |
 | `asset_depreciate` | `asset depreciate` | `{ company, assetId, period, date, confirm }` | Bogfører en periodes afskrivning. |
 | `asset_register` | `asset register` | `{ company, name, category, acquisitionDate, cost, usefulLifeMonths, documentId, assetAccount, depreciationAccount, accumulatedAccount, note?, confirm }` | Registrerer et aktiv med lineær afskrivningsplan. |

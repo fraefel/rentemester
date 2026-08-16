@@ -194,6 +194,31 @@ describe("MCP server scaffold", () => {
     expect(structured?.errors?.some((message: string) => message.includes("confirm: true required"))).toBe(true);
   });
 
+  test("efaktura_send rejects a caller-supplied accessPoint before handling", async () => {
+    const response = await client.send("tools/call", {
+      name: "efaktura_send",
+      arguments: {
+        company: companyRoot,
+        documentId: 1,
+        accessPoint: "caller-controlled",
+        confirm: true,
+      },
+    });
+    expect(response.error).toBeUndefined();
+    expect(response.result?.structuredContent?.ok).toBe(false);
+    expect(response.result?.structuredContent?.errors.join(" ")).toContain("accessPoint is not allowed");
+  });
+
+  test("efaktura_status is a confirmed write and rejects before network access", async () => {
+    const response = await client.send("tools/call", {
+      name: "efaktura_status",
+      arguments: { company: companyRoot, documentId: 1, confirm: false },
+    });
+    expect(response.error).toBeUndefined();
+    expect(response.result?.structuredContent?.ok).toBe(false);
+    expect(response.result?.structuredContent?.errors.join(" ")).toContain("confirm: true");
+  });
+
   test("the opt-in backup lock blocks a bookkeeping write tool over MCP but exempts system_backup", async () => {
     const lockedRoot = mkdtempSync(join(tmpdir(), "mcp-lock-company-"));
     try {

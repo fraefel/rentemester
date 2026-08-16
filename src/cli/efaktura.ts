@@ -34,7 +34,10 @@ import {
 import {
   resolveDigisenseReceiver,
   resolveDigisenseRegistrar,
+  resolveDigisenseStatusChecker,
 } from "../core/efaktura/digisense-wiring";
+import { digisenseAccessPointIdentity } from "../core/efaktura/digisense-wiring";
+import { resumePublicEInvoicePeppolSubmission } from "../core/public-einvoice";
 import { saveDigisenseSecretConfig } from "../core/efaktura/digisense-config";
 import type { DigisenseCompanyType, DigisenseEnvironment } from "../core/efaktura/digisense-client";
 import type { DocumentMetadata } from "../core/documents";
@@ -47,6 +50,11 @@ export function register(dispatch: CommandDispatch): void {
   // starter alle med loadDigisenseSecretConfig og fejler hvis filen mangler.
   // license-key er et SECRET og rammer ALDRIG ledger'en — kun JSON-filen.
   dispatch.on("efaktura", "konfigurer", (ctx) => {
+    const confirmValue = (ctx.arg("--confirm") ?? "").trim().toLowerCase();
+    if (confirmValue !== "yes") {
+      ctx.emitResult({ ok: false, errors: ["--confirm yes required to save Digisense API credentials"] });
+      process.exit(1);
+    }
     const apiLicenseKey = ctx.trimToNull(ctx.arg("--api-license-key") ?? null);
     if (!apiLicenseKey) {
       ctx.emitResult({
@@ -179,5 +187,31 @@ export function register(dispatch: CommandDispatch): void {
     } finally {
       db.close();
     }
+  });
+
+  dispatch.on("efaktura", "status", async (ctx) => {
+    const confirmValue = (ctx.arg("--confirm") ?? "").trim().toLowerCase();
+    if (confirmValue !== "yes") {
+      ctx.emitResult({ ok: false, errors: ["--confirm yes required to record Digisense delivery status evidence"] });
+      process.exit(1);
+    }
+    const documentId = Number(ctx.arg("--document-id"));
+    if (!Number.isSafeInteger(documentId) || documentId <= 0) {
+      ctx.emitResult({ ok: false, errors: ["Missing required --document-id <positive integer>"] });
+      process.exit(2);
+    }
+    const root = ctx.companyRoot();
+    const db = openCommandDb(ctx);
+    migrate(db);
+    try {
+      const resolved = resolveDigisenseStatusChecker(db, root, { companyKey: ctx.trimToNull(ctx.arg("--digisense-company-key") ?? null) ?? undefined });
+      if (!resolved.ok) { ctx.emitResult({ ok: false, errors: resolved.errors }); process.exit(1); }
+      const result = await resumePublicEInvoicePeppolSubmission(db, { invoiceDocumentId: documentId, accessPoint: digisenseAccessPointIdentity(resolved.companyKey) }, async (queuedDocumentId) => {
+        const status = await resolved.client.documentStatus(queuedDocumentId, resolved.companyKey);
+        return status.ok ? { ok: true, status: status.data.documentStatus, message: status.data.message, publicUrl: status.data.publicUrl } : { ok: false, error: `digisense document-status failed: ${status.error.message}` };
+      });
+      ctx.emitResult(result as unknown as Record<string, unknown>);
+      if (!result.ok) process.exit(1);
+    } finally { db.close(); }
   });
 }

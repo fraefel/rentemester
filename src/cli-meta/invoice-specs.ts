@@ -77,12 +77,13 @@ export const invoiceSpecs: CommandSpec[] = [
   // Digisense e-faktura-transport (#efaktura)
   {
     key: "invoice transmit-digisense",
-    usage: "invoice transmit-digisense --company <path> (--document-id <n> | --invoice-number <no>) [--digisense-company-key <key>]",
+    usage: "invoice transmit-digisense --company <path> (--document-id <n> | --invoice-number <no>) --confirm yes [--digisense-company-key <key>]",
     description:
       "Sender en offentlig e-faktura gennem Digisense' access point: validate-document (schematron) -> deliver-document -> poll til delivered, og bogfører en succes som en acknowledged PEPPOL-submission. License-key hentes fra secret-laget (config/digisense.json) — gem den først med `efaktura konfigurer`. companyKey resolves fra Digisense-state eller --digisense-company-key.",
-    allowedFlags: ["--company", "--document-id", "--invoice-number", "--digisense-company-key"],
+    allowedFlags: ["--company", "--document-id", "--invoice-number", "--digisense-company-key", "--confirm"],
     inputNotes: [
       "INTET --access-point: for Digisense ER access point'et Digisense selv (routing på companyKey + license-key). Access-point-identiteten udledes deterministisk af companyKey, så gentaget transmit af samme faktura er idempotent og aldrig leverer dobbelt.",
+      "--confirm yes: påkrævet bekræftelse; kommandoen kræver også en actor.",
       "Forudsætter en gemt license-key (`efaktura konfigurer --api-license-key ...`) og en registreret virksomhed (`efaktura registrer`).",
     ],
   },

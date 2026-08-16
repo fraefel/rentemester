@@ -11,6 +11,7 @@ import {
   exportPublicEInvoicePreview,
   submitPublicEInvoicePeppol,
   transmitPublicEInvoicePeppol,
+  resumePublicEInvoicePeppolSubmission,
   type PeppolTransmitter,
 } from "../../src/core/public-einvoice";
 import { digisenseAccessPointIdentity } from "../../src/core/efaktura/digisense-wiring";
@@ -611,9 +612,10 @@ describe("public e-invoice PEPPOL transmission", () => {
       transmission_id: string | null;
       acknowledged_at: string | null;
     };
-    expect(row.status).toBe("acknowledged");
-    expect(row.transmission_id).toBe("tx-test-0001");
-    expect(row.acknowledged_at).toBe("2026-05-22T10:00:00Z");
+    expect(row.status).toBe("prepared");
+    expect(row.transmission_id).toBeNull();
+    expect(row.acknowledged_at).toBeNull();
+    expect(db.query("SELECT document_id FROM peppol_submission_events WHERE event_type = 'delivered'").get()).toMatchObject({ document_id: "tx-test-0001" });
 
     const audit = db
       .query("SELECT message FROM audit_log WHERE event_type = 'public_einvoice_peppol_transmission'")
@@ -662,7 +664,7 @@ describe("public e-invoice PEPPOL transmission", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("records a failed transmission in the audit log without writing a submission row", async () => {
+  test("records a failed transmission as retryable append-only evidence", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-peppol-transmit-fail-"));
     const db = openDb(ensureCompanyDirs(root).db);
     migrate(db);
@@ -679,7 +681,8 @@ describe("public e-invoice PEPPOL transmission", () => {
     expect(result.errors.join(" ")).toContain("access point unavailable");
 
     const rows = db.query("SELECT id FROM peppol_submissions").all() as Array<{ id: number }>;
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(db.query("SELECT event_type FROM peppol_submission_events WHERE event_type = 'delivery_failed'").get()).not.toBeNull();
 
     const audit = db
       .query("SELECT message FROM audit_log WHERE event_type = 'public_einvoice_peppol_transmission'")
@@ -715,7 +718,7 @@ describe("public e-invoice PEPPOL transmission", () => {
 
     const rows = db.query("SELECT status FROM peppol_submissions").all() as Array<{ status: string }>;
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.status).toBe("acknowledged");
+    expect(rows[0]!.status).toBe("prepared");
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -771,7 +774,7 @@ describe("public e-invoice PEPPOL transmission", () => {
     expect(result.errors.join(" ")).toContain("socket reset by access point");
 
     const rows = db.query("SELECT id FROM peppol_submissions").all() as Array<{ id: number }>;
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -813,6 +816,32 @@ describe("public e-invoice PEPPOL transmission — Digisense double-send safety"
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("atomically reserves delivery before an async transport so concurrent callers deliver once", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-concurrent-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const issued = issueInvoice(db, root, { ...PUBLIC_INVOICE });
+    let calls = 0;
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => { release = resolve; });
+    const transmitter: PeppolTransmitter = async () => {
+      calls += 1;
+      await hold;
+      return { ok: true, transmissionId: "ds-concurrent-1", transmittedAt: "2026-06-01T00:00:00Z" };
+    };
+    const ap = digisenseAccessPointIdentity(COMPANY_KEY);
+    const first = transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, transmitter);
+    const second = transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, transmitter);
+    await Promise.resolve();
+    release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(calls).toBe(1);
+    expect(firstResult.ok).toBe(true);
+    expect(secondResult.errors.join(" ")).toContain("in progress");
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("a queued-but-not-delivered timeout records a pending row and refuses to re-deliver", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-queued-"));
     const db = openDb(ensureCompanyDirs(root).db);
@@ -834,12 +863,13 @@ describe("public e-invoice PEPPOL transmission — Digisense double-send safety"
     expect(first.ok).toBe(false);
     expect(first.status).toBe("prepared");
     expect(first.transmissionId).toBe("ds-queued-7");
-    // A pending submission row was recorded (status prepared + the queued id).
+    // A pending submission row and append-only queued event were recorded.
     const pendingRow = db
       .query("SELECT status, transmission_id FROM peppol_submissions WHERE invoice_document_id = ?")
       .get(issued.documentId!) as { status: string; transmission_id: string | null };
     expect(pendingRow.status).toBe("prepared");
-    expect(pendingRow.transmission_id).toBe("ds-queued-7");
+    expect(pendingRow.transmission_id).toBeNull();
+    expect(db.query("SELECT document_id FROM peppol_submission_events WHERE event_type = 'queued'").get()).toMatchObject({ document_id: "ds-queued-7" });
 
     // A naive retry MUST NOT call deliver again — that would deliver the invoice
     // a second time. The double-send guard refuses and points at the queued id.
@@ -853,6 +883,32 @@ describe("public e-invoice PEPPOL transmission — Digisense double-send safety"
     const rows = db.query("SELECT id FROM peppol_submissions").all() as Array<{ id: number }>;
     expect(rows).toHaveLength(1);
 
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("status resume records append-only evidence and makes later transmit acknowledged without re-delivery", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-resume-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const issued = issueInvoice(db, root, { ...PUBLIC_INVOICE });
+    const ap = digisenseAccessPointIdentity(COMPANY_KEY);
+    let deliverCalls = 0;
+    await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, () => {
+      deliverCalls += 1;
+      return { ok: false, error: "queued", queuedDocumentId: "ds-resume-1" };
+    });
+    const resumed = await resumePublicEInvoicePeppolSubmission(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, () => ({ ok: true, status: "delivered", message: "done", observedAt: "2026-06-01T00:00:00Z" }));
+    expect(resumed.ok).toBe(true);
+    expect(resumed.status).toBe("acknowledged");
+    expect(db.query("SELECT id FROM peppol_submission_events WHERE event_type = 'status_observed'").all()).toHaveLength(1);
+    const retry = await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, () => {
+      deliverCalls += 1;
+      return { ok: true, transmissionId: "should-not-run", transmittedAt: "2026-06-01T00:00:00Z" };
+    });
+    expect(retry.ok).toBe(true);
+    expect(retry.status).toBe("acknowledged");
+    expect(deliverCalls).toBe(1);
     db.close();
     rmSync(root, { recursive: true, force: true });
   });

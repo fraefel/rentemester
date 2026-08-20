@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 114 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 117 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-114 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+117 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -207,7 +207,8 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `efaktura_onboarding_status` | Secret-redacted local readiness: profile identity, configured environment, inbound/outbound readiness and blockers. |
 | `efaktura_onboard` | `{ companyKey, status }` — validates auth and idempotently registers the profile CVR inbound + outbound. |
 | `efaktura_modtag` | `{ pagesFetched, documentsListed, documentsIngested, documentsSkipped, documentsQuarantined, documents[], errors[] }` — tællere over pollen; `documentsQuarantined` er TERMINALT uingesterbare bilag (validering/dublet) der er sat i karantæne så de ikke down­loades igen. `documents[]` er `ReceivedDocumentOutcome`: `{ internalId, status, documentNo?, errors? }`, hvor `status` er `"ingested" \| "skipped-duplicate" \| "quarantined" \| "error"`. **Partiel succes:** konvoluttens `ok` er kun `false` ved en BATCH-fejl (list-received-documents fejlede); en enkelt dårlig faktura giver `ok:true` med tællerne intakte og fejlen i `documents[]`/`errors[]`. |
-| `efaktura_send` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — samme `SubmitPublicEInvoicePeppolResult`-shape som `peppol_submit_public_invoice`. `status` er `"acknowledged"` ved levering. En queued-men-endnu-ikke-leveret timeout giver `ok:false` + `status:"prepared"` + `transmissionId`; senere send returnerer den effektive acknowledgement, når den er observeret. |
+| `efaktura_modtag_workspace` | `{ companies: [{ slug, status, reason?, documentsIngested? }] }` — confirm-gated poll af aktive manifest-virksomheder. Ingen caller credentials/companyKey; arkiverede og ukonfigurerede springes over, fejl fortsætter pr. virksomhed, og resultater er redigerede. |
+| `efaktura_send` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — samme `SubmitPublicEInvoicePeppolResult`-shape som `peppol_submit_public_invoice`. `status` er `"acknowledged"` ved levering. En queued-men-endnu-ikke-leveret accept giver `ok:true` + `status:"prepared"` + `transmissionId`; klienten skal kun polle status og aldrig redelivere. |
 | `efaktura_status` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — observerer kun `document-status` for en allerede køsat afsendelse og gemmer append-only statusevidens; kalder aldrig `document-delivery`. |
 
 > **Discovery-kontrakten:** Konvolut-formen er maskin-kendt via `outputSchema`
@@ -223,9 +224,9 @@ Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
 - **Read-tools**: 49
-- **Ordinary write-tools**: 64
+- **Ordinary write-tools**: 67
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **114** (49 read, 64 ordinary write, 1 destructive)
+- **Total**: **117** (49 read, 67 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -341,6 +342,7 @@ append-only finanskæde.
 | `customer_create` | `customer create` | `{ company, input: CreateCustomerInput, fromCvr?, confirm }` | Opretter append-only kundepost. Kan arkiveres. |
 | `documents_ingest` | `documents ingest` | `{ company, filePath, metadata: DocumentMetadata, vendorId?, force?, confirm }` | Indlæser og hash-lagrer et bilag. |
 | `efaktura_modtag` | `efaktura modtag` | `{ company, digisenseCompanyKey?, limit?, maxTimestamp?, metadata?, force?, confirm }` | Poller modtagne e-fakturaer hos Digisense (pagination), ingester hvert nyt dokument. Dedup på internalId — rerun-stabil. |
+| `efaktura_modtag_workspace` | `efaktura modtag-workspace` | `{ workspace, confirm }` | Poller aktive manifest-virksomheder med deres lokale bindings; ingen caller credentials/companyKey og redigerede per-company resultater. |
 | `efaktura_onboarding_status` | `efaktura onboarding-status` | `{ company }` | Local, secret-redacted DigiSense readiness for the ledger profile. |
 | `efaktura_onboard` | `efaktura onboard` | `{ company, confirm }` | Validates auth and idempotently registers only the local profile CVR for inbound + outbound. |
 | `exception_resolve` | `exceptions resolve` | `{ company, id, note?, confirm }` | Markerer exception som løst. |

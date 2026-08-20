@@ -39,6 +39,10 @@ import {
 import { saveDigisenseSecretConfig, loadDigisenseSecretConfig } from "../../core/efaktura/digisense-config";
 import { createDigisenseClient } from "../../core/efaktura/digisense-client";
 import { getDigisenseOnboardingStatus, onboardDigisenseCompany } from "../../core/efaktura/digisense-onboarding";
+import { pollWorkspaceDigisenseInbound } from "../../core/efaktura/digisense-workspace";
+import { companyRootForSlug, listWorkspaceCompanies, resolveWorkspaceRoot } from "../../core/workspace";
+import { checkActorAllowlist } from "../../cli-actor";
+import { deriveMcpActor } from "../actor";
 import {
   transmitPublicEInvoicePeppol,
   resumePublicEInvoicePeppolSubmission,
@@ -50,7 +54,7 @@ import type {
 } from "../../core/efaktura/digisense-client";
 import type { DocumentMetadata } from "../../core/documents";
 import { documentMetadataFields } from "./documents";
-import { envelopeShape, errorEnvelope, successEnvelope, wrapCoreResult } from "../envelope";
+import { envelopeShape, envelopeToCallResult, errorEnvelope, successEnvelope, wrapCoreResult } from "../envelope";
 import {
   withCompanyDbConfirmed,
   withCompanyDb,
@@ -79,6 +83,35 @@ const metadataSchema = z
  * idempotency-nøglen, ikke routingen.
  */
 export function registerEfakturaTools(server: McpServer): void {
+  server.registerTool(
+    "efaktura_modtag_workspace",
+    {
+      title: "Poll DigiSense inbound for active workspace companies",
+      description: "Confirm-gated workspace poll. Iterates only active manifest companies using each ledger's local binding; callers cannot supply credentials or companyKey. Continues after per-company failures and returns redacted results.",
+      inputSchema: { workspace: z.string().min(1), confirm: confirmField },
+      outputSchema: envelopeShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async (args: { workspace: string; confirm?: boolean }) => {
+      if (args.confirm !== true) return envelopeToCallResult(errorEnvelope("confirm: true is required", { code: "CONFIRM_REQUIRED" }));
+      try {
+        const workspaceRoot = resolveWorkspaceRoot(args.workspace);
+        // Apply the same profile policy as company-scoped confirmed writes to
+        // every active target before starting the fan-out. This avoids a
+        // partially-mutated workspace when the actor is not authorised for a
+        // later ledger.
+        const actor = deriveMcpActor(server.server.getClientVersion());
+        for (const entry of listWorkspaceCompanies(workspaceRoot)) {
+          if (entry.archived) continue;
+          const decision = checkActorAllowlist(companyRootForSlug(workspaceRoot, entry.slug), actor.createdBy);
+          if (!decision.allowed) return envelopeToCallResult(errorEnvelope(decision.reason, { code: "ACTOR_NOT_ALLOWED" }));
+        }
+        return envelopeToCallResult(successEnvelope(await pollWorkspaceDigisenseInbound(workspaceRoot)));
+      } catch (error) {
+        return envelopeToCallResult(errorEnvelope(error instanceof Error ? error.message : String(error)));
+      }
+    },
+  );
   server.registerTool(
     "efaktura_onboarding_status",
     {

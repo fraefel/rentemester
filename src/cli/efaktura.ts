@@ -44,10 +44,29 @@ import { saveDigisenseSecretConfig } from "../core/efaktura/digisense-config";
 import { loadDigisenseSecretConfig } from "../core/efaktura/digisense-config";
 import { createDigisenseClient, type DigisenseCompanyType, type DigisenseEnvironment } from "../core/efaktura/digisense-client";
 import { getDigisenseOnboardingStatus, onboardDigisenseCompany } from "../core/efaktura/digisense-onboarding";
+import { pollWorkspaceDigisenseInbound } from "../core/efaktura/digisense-workspace";
+import { resolveWorkspaceRoot } from "../core/workspace";
 import type { DocumentMetadata } from "../core/documents";
 import type { CommandDispatch } from "../cli-dispatch";
 
 export function register(dispatch: CommandDispatch): void {
+  dispatch.on("efaktura", "modtag-workspace", async (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim().toLowerCase() !== "yes") {
+      ctx.emitResult({ ok: false, errors: ["--confirm yes required to poll workspace DigiSense inbound"] });
+      process.exit(1);
+    }
+    const workspace = ctx.trimToNull(ctx.arg("--workspace"));
+    if (!workspace) {
+      ctx.emitResult({ ok: false, errors: ["Missing required --workspace <dir>"] });
+      process.exit(2);
+    }
+    try {
+      ctx.emitResult(await pollWorkspaceDigisenseInbound(resolveWorkspaceRoot(workspace)) as unknown as Record<string, unknown>);
+    } catch (error) {
+      ctx.emitResult({ ok: false, errors: [error instanceof Error ? error.message : String(error)] });
+      process.exit(1);
+    }
+  });
   dispatch.on("efaktura", "onboarding-status", (ctx) => {
     const db = openCommandDb(ctx); migrate(db);
     try { ctx.emitResult({ ok: true, ...getDigisenseOnboardingStatus(db, ctx.companyRoot()) }); }

@@ -2,7 +2,7 @@
 
 This is the operating contract for an **external agent** (Claude Desktop,
 Cursor, Claude Code, Codex, …) that drives Rentemester through the **MCP
-server's 114 loose tools**.
+server's 117 loose tools**.
 
 It is the sibling of [`docs/runtime-agent-contract.md`](runtime-agent-contract.md),
 which covers the *packaged* `agent run` loop — a deterministic, replayable
@@ -18,7 +18,7 @@ form. The authoritative tool catalogue is
 
 ## What the surface is
 
-Rentemester exposes its bookkeeping core as **114 MCP tools** over stdio
+Rentemester exposes its bookkeeping core as **117 MCP tools** over stdio
 (`src/mcp/server.ts`, registered by `src/mcp/registry.ts`). Each tool maps
 to a single core operation — issue an invoice, post a journal entry, list
 bank transactions, take a backup, and so on.
@@ -305,6 +305,9 @@ append-only posting. See "Actor-attribution" in `docs/mcp-tool-surface.md`.
   readiness without secrets, then `efaktura_onboard` with `confirm:true` to
   register the ledger profile's CVR for both directions. Never reuse a
   `companyKey` from another ledger; the core rejects it before networking.
+  For an active workspace, `efaktura_modtag_workspace` is confirm-gated and
+  iterates every configured ledger itself; it accepts neither credentials nor
+  a companyKey and returns redacted per-company outcomes.
 - **Uncertain ⇒ exception or human, never a guess.** If a precondition
   cannot be resolved deterministically, surface it — the exception queue and
   the human are the contract for everything ambiguous.

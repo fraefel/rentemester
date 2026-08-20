@@ -110,12 +110,18 @@ export async function registerDigisenseCompany(
   if (!companyName) {
     return { ok: false, errors: ["companyName is required to register a company"] };
   }
-  const participantId = (options.participantId ?? options.companyType.id)?.trim();
-  if (!participantId) {
-    return { ok: false, errors: ["participantId is required to register a participant"] };
-  }
+  // A ledger represents one legal entity. Participant routing must therefore
+  // be exactly that profile's DK:CVR identity; accepting an override would let
+  // a caller bind this ledger's companyKey to another company.
+  const participantId = identity.value.cvr;
   const network = options.network ?? "nemhandel";
-  const participantType: ParticipantType = options.participantType ?? "DK:CVR";
+  const participantType: ParticipantType = "DK:CVR";
+  if (options.participantId !== undefined && options.participantId.trim() !== participantId) {
+    return { ok: false, errors: ["participantId must match this ledger's profile CVR"] };
+  }
+  if (options.participantType !== undefined && options.participantType !== participantType) {
+    return { ok: false, errors: ["participantType must be DK:CVR for this ledger's profile identity"] };
+  }
 
   // 1) Genbrug en allerede auditeret lokal companyKey for samme juridiske
   // identitet. DigiSense returnerer 409 ved gentaget register-company, så den

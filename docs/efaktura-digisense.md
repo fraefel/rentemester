@@ -27,6 +27,7 @@ Relateret: [peppol-nemhandel.md](peppol-nemhandel.md) (format/transport-baggrund
 | 2a | Registrér test-GLN (kun testmiljø) | `efaktura registrer-test-gln --company <path> --confirm yes` | — |
 | 3 | Send en udstedt e-faktura | `invoice transmit-digisense` | `efaktura_send` |
 | 4 | Modtag indkomne e-fakturaer (poll) | `efaktura modtag` | `efaktura_modtag` |
+| 4b | Poll alle aktive workspace-virksomheder | `efaktura modtag-workspace` | `efaktura_modtag_workspace` |
 
 Datamodel hos Digisense: **license (din nøgle) → company (companyKey pr. CVR) →
 participant (inbound + outbound)**. Én license-key dækker **flere virksomheder**;

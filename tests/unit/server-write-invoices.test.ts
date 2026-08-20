@@ -182,7 +182,8 @@ describe("Cockpit write — DigiSense e-faktura", () => {
     try {
       const documentId = issuePublicInvoice(ws, slug);
       const sent = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, { invoiceDocumentId: documentId, confirm: true });
-      expect(sent.status).toBe(400);
+      expect(sent.status).toBe(200);
+      expect(sent.body.submission.status).toBe("prepared");
       const observed = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public/status`, { invoiceDocumentId: documentId, confirm: true });
       expect(observed.status).toBe(200);
       expect(observed.body.submission.status).toBe("acknowledged");

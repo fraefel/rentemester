@@ -86,6 +86,13 @@ export const efakturaSpecs: CommandSpec[] = [
     ],
   },
   {
+    key: "efaktura modtag-workspace",
+    usage: "efaktura modtag-workspace --company <path> --workspace <dir> --confirm yes",
+    description: "Poller aktivt-manifestets virksomheder én ad gangen uden caller companyKey eller credentials. Arkiverede og ukonfigurerede virksomheder springes over; fejl i én virksomhed stopper ikke de øvrige. Kræver actor og '--confirm yes'.",
+    allowedFlags: ["--company", "--workspace", "--confirm"],
+    inputNotes: ["Resultater er redigerede og indeholder aldrig license-key eller companyKey."],
+  },
+  {
     key: "efaktura leveringsstatus",
     usage: "efaktura leveringsstatus --company <path> --document-id <n> --confirm yes [--digisense-company-key <key>]",
     description: "Tydeligt navn for dokumentets leveringsstatus; `efaktura status` bevares som kompatibilitetsalias.",

@@ -856,7 +856,7 @@ describe("public e-invoice PEPPOL transmission — Digisense double-send safety"
     const ap = digisenseAccessPointIdentity(COMPANY_KEY);
     const first = await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, queuedTimeoutTransmitter);
 
-    expect(first.ok).toBe(false);
+    expect(first.ok).toBe(true);
     expect(first.status).toBe("prepared");
     expect(first.transmissionId).toBe("ds-queued-7");
     // A pending submission row and append-only queued event were recorded.
@@ -868,11 +868,11 @@ describe("public e-invoice PEPPOL transmission — Digisense double-send safety"
     expect(db.query("SELECT document_id FROM peppol_submission_events WHERE event_type = 'queued'").get()).toMatchObject({ document_id: "ds-queued-7" });
 
     // A naive retry MUST NOT call deliver again — that would deliver the invoice
-    // a second time. The double-send guard refuses and points at the queued id.
+    // a second time. It is a successful pending result for status-only UI mode.
     const retry = await transmitPublicEInvoicePeppol(db, { invoiceDocumentId: issued.documentId!, accessPoint: ap }, queuedTimeoutTransmitter);
-    expect(retry.ok).toBe(false);
-    expect(retry.errors.join(" ")).toContain("ds-queued-7");
-    expect(retry.errors.join(" ").toLowerCase()).toContain("re-deliver");
+    expect(retry.ok).toBe(true);
+    expect(retry.status).toBe("prepared");
+    expect(retry.transmissionId).toBe("ds-queued-7");
     // deliver ran exactly ONCE across both attempts.
     expect(deliverCalls).toBe(1);
     // Still exactly one submission row.

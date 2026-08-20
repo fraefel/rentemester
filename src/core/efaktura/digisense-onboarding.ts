@@ -26,8 +26,18 @@ export function getDigisenseOnboardingStatus(db: Database, companyRoot: string):
   const key = identity.ok ? resolveBoundDigisenseCompanyKey(db) : null;
   if (identity.ok && (!key || !key.ok)) blockers.push(...(key?.ok === false ? key.errors : []));
   const participants = key?.ok ? listDigisenseParticipants(db, key.value) : [];
-  const inboundReady = participants.some((p) => p.direction === "inbound" && p.registeredOnNetwork);
-  const outboundReady = participants.some((p) => p.direction === "outbound" && p.registeredOnNetwork);
+  // Readiness is a complete routing pair for the ledger identity on ONE
+  // network. A stale GLN, another CVR, or directions split across networks is
+  // not a send/receive-ready company.
+  const matching = identity.ok
+    ? participants.filter((p) => p.participantType === "DK:CVR" && p.participantId === identity.value.cvr && p.registeredOnNetwork)
+    : [];
+  const readyNetwork = ["nemhandel", "peppol"].find((network) =>
+    matching.some((p) => p.network === network && p.direction === "inbound") &&
+    matching.some((p) => p.network === network && p.direction === "outbound"),
+  );
+  const inboundReady = Boolean(readyNetwork);
+  const outboundReady = Boolean(readyNetwork);
   if (key?.ok && !inboundReady) blockers.push("Inbound participant is not registered.");
   if (key?.ok && !outboundReady) blockers.push("Outbound participant is not registered.");
   return { configured: Boolean(config), environment: config?.environment ?? null, identity: identity.ok ? identity.value : null, companyKeyConfigured: Boolean(key?.ok), inboundReady, outboundReady, ready: blockers.length === 0, blockers };

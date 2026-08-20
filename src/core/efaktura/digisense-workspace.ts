@@ -22,10 +22,12 @@ export async function pollWorkspaceDigisenseInbound(workspaceRoot: string): Prom
     try {
       migrate(db);
       const resolved = resolveDigisenseReceiver(db, root);
-      if (!resolved.ok) { companies.push({ slug: entry.slug, status: "skipped", reason: resolved.errors.join(" ") }); continue; }
+      // This is a workspace surface: do not echo company bindings, config
+      // paths, or provider errors from an individual ledger.
+      if (!resolved.ok) { companies.push({ slug: entry.slug, status: "skipped", reason: "not configured" }); continue; }
       const result = await pollDigisenseReceived(db, root, resolved.client, resolved.downloader, { companyKey: resolved.companyKey });
-      companies.push(result.ok ? { slug: entry.slug, status: "polled", documentsIngested: result.documentsIngested } : { slug: entry.slug, status: "failed", reason: result.errors.join(" ") });
-    } catch (error) { companies.push({ slug: entry.slug, status: "failed", reason: error instanceof Error ? error.message : String(error) }); }
+      companies.push(result.ok ? { slug: entry.slug, status: "polled", documentsIngested: result.documentsIngested } : { slug: entry.slug, status: "failed", reason: "poll failed" });
+    } catch { companies.push({ slug: entry.slug, status: "failed", reason: "poll failed" }); }
     finally { db.close(); }
   }
   return { ok: true, companies };

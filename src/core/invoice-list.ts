@@ -61,7 +61,7 @@ export type InvoiceListRow = {
   /**
    * The most recent PEPPOL submission/transmission status for this invoice,
    * or `null` when none exists. Derived from the append-only
-   * `peppol_submissions` table.
+ * `peppol_submissions` reservation plus append-only delivery evidence.
    */
   peppolStatus: InvoicePeppolStatus | null;
   grossAmount: number;
@@ -216,10 +216,18 @@ function loadLatestPeppolStatus(db: Database, invoiceDocumentId: number): Invoic
   try {
     const row = db
       .query(
-        `SELECT status, submission_reference, transmission_id, acknowledged_at
-         FROM peppol_submissions
-         WHERE invoice_document_id = ?
-         ORDER BY CASE status WHEN 'acknowledged' THEN 0 ELSE 1 END, id DESC
+        `SELECT s.submission_reference,
+                e.document_id AS transmission_id,
+                e.observed_at AS acknowledged_at,
+                CASE WHEN e.id IS NULL THEN 'prepared' ELSE 'acknowledged' END AS status
+         FROM peppol_submissions s
+         LEFT JOIN peppol_submission_events e ON e.id = (
+           SELECT id FROM peppol_submission_events
+           WHERE submission_id = s.id AND event_type = 'delivered'
+           ORDER BY id DESC LIMIT 1
+         )
+         WHERE s.invoice_document_id = ?
+         ORDER BY CASE WHEN e.id IS NULL THEN 1 ELSE 0 END, s.id DESC
          LIMIT 1`,
       )
       .get(invoiceDocumentId) as

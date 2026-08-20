@@ -31,6 +31,7 @@ function freshLedger(label: string) {
   const root = mkdtempSync(join(tmpdir(), `rentemester-digisense-register-${label}-`));
   const db = openDb(ensureCompanyDirs(root).db);
   migrate(db);
+  db.run("INSERT INTO companies (id, cvr, name) VALUES (1, ?, ?)", [CVR, "Min Virksomhed ApS"]);
   return { root, db };
 }
 
@@ -70,6 +71,15 @@ function fakeRegisterClient(): { client: DigisenseClient; calls: RecordedCall[] 
 const CVR = "DK12345678";
 
 describe("registerDigisenseCompany — happy path", () => {
+  test("rejects a foreign caller identity before making a network call", async () => {
+    const { root, db } = freshLedger("identity-mismatch");
+    const { client, calls } = fakeRegisterClient();
+    try {
+      const result = await registerDigisenseCompany(db, root, client, { companyType: { type: "DK:CVR", id: "DK87654321" }, companyName: "Min Virksomhed ApS" });
+      expect(result.ok).toBe(false);
+      expect(calls).toHaveLength(0);
+    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
   test("registers the company, saves the companyKey, and registers inbound+outbound", async () => {
     const { root, db } = freshLedger("happy");
     const { client, calls } = fakeRegisterClient();
@@ -202,7 +212,7 @@ describe("registerDigisenseCompany — error handling", () => {
     try {
       const result = await registerDigisenseCompany(db, root, client, {
         companyType: { type: "DK:CVR", id: CVR },
-        companyName: "Acme ApS",
+        companyName: "Min Virksomhed ApS",
       });
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.errors.join(" ")).toContain("boom");
@@ -226,7 +236,7 @@ describe("registerDigisenseCompany — error handling", () => {
     try {
       const result = await registerDigisenseCompany(db, root, client, {
         companyType: { type: "DK:CVR", id: CVR },
-        companyName: "Acme ApS",
+        companyName: "Min Virksomhed ApS",
       });
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.errors.join(" ")).toContain("network down");

@@ -17,7 +17,7 @@ import { createDigisenseClient, type DigisenseClient, type KsefEnvironment } fro
 import { createDigisenseTransmitter } from "./digisense-transmitter";
 import { defaultDocumentDownloader, type DigisenseDocumentDownloader } from "./digisense-receive";
 import { loadDigisenseSecretConfig } from "./digisense-config";
-import { listDigisenseCompanies } from "./digisense-state";
+import { resolveBoundDigisenseCompanyKey } from "./digisense-identity";
 import type { PeppolTransmitter, PeppolAccessPointConfig } from "../public-einvoice";
 
 export type ResolveDigisenseTransmitter =
@@ -36,7 +36,7 @@ export function resolveDigisenseStatusChecker(
 ): ResolveDigisenseStatusChecker {
   const secret = loadDigisenseSecretConfig(companyRoot);
   if (!secret) return { ok: false, errors: [digisenseNotConfiguredError("kontrolleres leveringsstatus")] };
-  const companyKey = resolveCompanyKey(db, options.companyKey);
+  const companyKey = resolveBoundDigisenseCompanyKey(db, options.companyKey);
   if (!companyKey.ok) return { ok: false, errors: companyKey.errors };
   return { ok: true, companyKey: companyKey.value, client: createDigisenseClient({ apiLicenseKey: secret.apiLicenseKey, environment: secret.environment }) };
 }
@@ -85,7 +85,7 @@ export function resolveDigisenseTransmitter(
     return { ok: false, errors: [digisenseNotConfiguredError("sendes")] };
   }
 
-  const companyKey = resolveCompanyKey(db, options.companyKey);
+  const companyKey = resolveBoundDigisenseCompanyKey(db, options.companyKey);
   if (!companyKey.ok) return { ok: false, errors: companyKey.errors };
 
   const client = createDigisenseClient({
@@ -128,7 +128,7 @@ export function resolveDigisenseReceiver(
     return { ok: false, errors: [digisenseNotConfiguredError("modtages")] };
   }
 
-  const companyKey = resolveCompanyKey(db, options.companyKey);
+  const companyKey = resolveBoundDigisenseCompanyKey(db, options.companyKey);
   if (!companyKey.ok) return { ok: false, errors: companyKey.errors };
 
   const client = createDigisenseClient({
@@ -186,33 +186,4 @@ function digisenseNotConfiguredError(action: string): string {
     `--environment test|production\` (eller MCP-tool'et efaktura_konfigurer). Det skriver ` +
     `config/digisense.json (0600) før der kan ${action} e-fakturaer.`
   );
-}
-
-function resolveCompanyKey(
-  db: Database,
-  explicit: string | undefined,
-): { ok: true; value: string } | { ok: false; errors: string[] } {
-  const trimmed = explicit?.trim();
-  if (trimmed) return { ok: true, value: trimmed };
-
-  const companies = listDigisenseCompanies(db);
-  if (companies.length === 1) {
-    return { ok: true, value: companies[0]!.companyKey };
-  }
-  if (companies.length === 0) {
-    return {
-      ok: false,
-      errors: [
-        "Ingen Digisense-virksomhed er registreret (digisense_companies er tom). " +
-          "Registrér virksomheden hos Digisense (register-company) før der sendes.",
-      ],
-    };
-  }
-  return {
-    ok: false,
-    errors: [
-      `Flere Digisense-virksomheder er registreret (${companies.length}). ` +
-        "Angiv hvilken companyKey der skal sendes fra med --digisense-company-key.",
-    ],
-  };
 }

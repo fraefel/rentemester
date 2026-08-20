@@ -36,7 +36,9 @@ import {
   resolveDigisenseStatusChecker,
   digisenseAccessPointIdentity,
 } from "../../core/efaktura/digisense-wiring";
-import { saveDigisenseSecretConfig } from "../../core/efaktura/digisense-config";
+import { saveDigisenseSecretConfig, loadDigisenseSecretConfig } from "../../core/efaktura/digisense-config";
+import { createDigisenseClient } from "../../core/efaktura/digisense-client";
+import { getDigisenseOnboardingStatus, onboardDigisenseCompany } from "../../core/efaktura/digisense-onboarding";
 import {
   transmitPublicEInvoicePeppol,
   resumePublicEInvoicePeppolSubmission,
@@ -51,6 +53,7 @@ import { documentMetadataFields } from "./documents";
 import { envelopeShape, errorEnvelope, successEnvelope, wrapCoreResult } from "../envelope";
 import {
   withCompanyDbConfirmed,
+  withCompanyDb,
   confirmField,
   resolveIssuedInvoiceDocumentId,
   invoiceNotFoundEnvelope,
@@ -76,6 +79,31 @@ const metadataSchema = z
  * idempotency-nøglen, ikke routingen.
  */
 export function registerEfakturaTools(server: McpServer): void {
+  server.registerTool(
+    "efaktura_onboarding_status",
+    {
+      title: "DigiSense onboarding-status",
+      description: "Local, secret-redacted readiness for this ledger's single legal company. Never returns API credentials or signatureSecret.",
+      inputSchema: { company: z.string().min(1) }, outputSchema: envelopeShape,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    withCompanyDb<{ company: string }>(server, ({ db, args }) => successEnvelope(getDigisenseOnboardingStatus(db, args.company))),
+  );
+  server.registerTool(
+    "efaktura_onboard",
+    {
+      title: "Onboard ledger company with DigiSense",
+      description: "Validates authorization and idempotently registers the profile CVR for inbound and outbound. Identity is derived only from the local company profile.",
+      inputSchema: { company: z.string().min(1), confirm: confirmField }, outputSchema: envelopeShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    withCompanyDbConfirmed<{ company: string; confirm?: boolean }>(server, "efaktura_onboard", async ({ db, args }) => {
+      const config = loadDigisenseSecretConfig(args.company);
+      if (!config) return errorEnvelope("Digisense is not configured");
+      const result = await onboardDigisenseCompany(db, args.company, createDigisenseClient(config));
+      return result.ok ? successEnvelope({ companyKey: result.companyKey, status: result.status }) : errorEnvelope(result.errors, { status: result.status });
+    }),
+  );
   server.registerTool(
     "efaktura_registrer",
     {

@@ -39,6 +39,7 @@ import {
   saveDigisenseCompany,
   saveDigisenseParticipant,
 } from "./digisense-state";
+import { validateDigisenseRegistrationIdentity } from "./digisense-identity";
 
 // Begge retninger registreres altid: en virksomhed der registreres skal kunne
 // både sende (outbound) og modtage (inbound).
@@ -100,6 +101,11 @@ export async function registerDigisenseCompany(
   client: DigisenseClient,
   options: RegisterDigisenseCompanyOptions,
 ): Promise<RegisterDigisenseCompanyResult> {
+  const identity = validateDigisenseRegistrationIdentity(db, {
+    cvr: options.companyType.id,
+    companyName: options.companyName,
+  });
+  if (!identity.ok) return { ok: false, errors: identity.errors };
   const companyName = options.companyName?.trim();
   if (!companyName) {
     return { ok: false, errors: ["companyName is required to register a company"] };
@@ -114,7 +120,7 @@ export async function registerDigisenseCompany(
   // 1) Genbrug en allerede auditeret lokal companyKey for samme juridiske
   // identitet. DigiSense returnerer 409 ved gentaget register-company, så den
   // lokale state er den idempotente genvej til at tilføje et nyt netværk.
-  const existingCompany = getDigisenseCompanyByParticipantId(db, options.companyType.id);
+  const existingCompany = getDigisenseCompanyByParticipantId(db, identity.value.cvr);
   if (existingCompany && existingCompany.companyType !== options.companyType.type) {
     return { ok: false, errors: ["Existing Digisense company type does not match registration request"] };
   }

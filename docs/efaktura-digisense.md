@@ -22,6 +22,8 @@ Relateret: [peppol-nemhandel.md](peppol-nemhandel.md) (format/transport-baggrund
 | 0 | Få en API license-key hos Digisense | *(uden for systemet — se nedenfor)* | — |
 | 1 | Gem nøglen i Rentemester | `efaktura konfigurer` | `efaktura_konfigurer` |
 | 2 | Registrér virksomheden i NemHandel | `efaktura registrer` | `efaktura_registrer` |
+| 2b | Sikker onboarding fra ledgerprofilen | `efaktura onboard` | `efaktura_onboard` |
+| 2c | Lokal readiness (redacted) | `efaktura onboarding-status` | `efaktura_onboarding_status` |
 | 2a | Registrér test-GLN (kun testmiljø) | `efaktura registrer-test-gln --company <path> --confirm yes` | — |
 | 3 | Send en udstedt e-faktura | `invoice transmit-digisense` | `efaktura_send` |
 | 4 | Modtag indkomne e-fakturaer (poll) | `efaktura modtag` | `efaktura_modtag` |
@@ -184,7 +186,8 @@ Hele overfladen findes også som MCP-tools, så en agent kan drive forløbet:
 `efaktura_konfigurer`, `efaktura_registrer`, `efaktura_send`, `efaktura_status`, `efaktura_modtag`.
 
 Hvis en afsendelse ender som `prepared` med et Digisense documentId, brug
-`efaktura status --document-id <lokalt-id> --confirm yes` (eller
+`efaktura leveringsstatus --document-id <lokalt-id> --confirm yes` (eller den kompatible alias
+`efaktura status`, eller
 `efaktura_status`). Den kalder kun `document-status`, gemmer append-only
 statusevidens og kalder aldrig `document-delivery` igen. Når status er
 `delivered`, bliver resultatet effektivt `acknowledged` for senere send.
@@ -195,6 +198,10 @@ autoritative input/output-shapes i [mcp-tool-surface.md](mcp-tool-surface.md).
 
 En typisk agent-sætning: *"Registrér virksomheden CVR DK12345678 i NemHandel"* →
 agenten kalder `efaktura_registrer`. *"Hent nye fakturaer"* → `efaktura_modtag`.
+
+## Legal-company boundary
+
+Every ledger is one legal company. DigiSense registration identity is derived from the local company profile (CVR and legal name); conflicting caller values and company keys belonging to another CVR fail before a network request. `efaktura_onboarding_status` is local-only and never exposes the API key or DigiSense `signatureSecret`. `efaktura_onboard` validates auth and idempotently ensures both inbound and outbound registration.
 
 ---
 

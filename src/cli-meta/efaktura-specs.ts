@@ -8,6 +8,18 @@ import type { CommandSpec } from "./_shared";
 // opdagelige, dokumenterer input/flags, og slår flag-validering til.
 export const efakturaSpecs: CommandSpec[] = [
   {
+    key: "efaktura onboarding-status",
+    usage: "efaktura onboarding-status --company <path>",
+    description: "Viser lokal, secret-redacted DigiSense readiness for denne ledgers ene juridiske virksomhed.",
+    allowedFlags: ["--company"], inputNotes: ["Viser aldrig license-key eller signatureSecret."],
+  },
+  {
+    key: "efaktura onboard",
+    usage: "efaktura onboard --company <path> --confirm yes",
+    description: "Validerer DigiSense auth og registrerer ledgerens profil-CVR for både inbound og outbound. Idempotent.",
+    allowedFlags: ["--company", "--confirm"], inputNotes: ["Identitet udledes kun fra company profile; ingen CVR/navn/companyKey accepteres."],
+  },
+  {
     key: "efaktura konfigurer",
     usage: "efaktura konfigurer --company <path> --api-license-key <secret> --confirm yes [--environment test|production]",
     description:
@@ -72,6 +84,12 @@ export const efakturaSpecs: CommandSpec[] = [
       "--force: tillad ingest af en logisk dublet (samme afsender + fakturanr.).",
       "Forudsætter en gemt license-key — kør `efaktura konfigurer` først.",
     ],
+  },
+  {
+    key: "efaktura leveringsstatus",
+    usage: "efaktura leveringsstatus --company <path> --document-id <n> --confirm yes [--digisense-company-key <key>]",
+    description: "Tydeligt navn for dokumentets leveringsstatus; `efaktura status` bevares som kompatibilitetsalias.",
+    allowedFlags: ["--company", "--document-id", "--confirm", "--digisense-company-key"], inputNotes: [],
   },
   {
     key: "efaktura status",

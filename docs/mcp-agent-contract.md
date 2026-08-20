@@ -301,6 +301,10 @@ append-only posting. See "Actor-attribution" in `docs/mcp-tool-surface.md`.
 - **One company per company-scoped call.** Cross-company work is done by
   looping the single-company tools; nothing is consolidated across legal
   entities (this is also why `portfolio_overview` only juxtaposes).
+- **DigiSense is profile-bound.** Use `efaktura_onboarding_status` to inspect
+  readiness without secrets, then `efaktura_onboard` with `confirm:true` to
+  register the ledger profile's CVR for both directions. Never reuse a
+  `companyKey` from another ledger; the core rejects it before networking.
 - **Uncertain ⇒ exception or human, never a guess.** If a precondition
   cannot be resolved deterministically, surface it — the exception queue and
   the human are the contract for everything ambiguous.

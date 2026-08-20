@@ -43,10 +43,30 @@ import { resumePublicEInvoicePeppolSubmission } from "../core/public-einvoice";
 import { saveDigisenseSecretConfig } from "../core/efaktura/digisense-config";
 import { loadDigisenseSecretConfig } from "../core/efaktura/digisense-config";
 import { createDigisenseClient, type DigisenseCompanyType, type DigisenseEnvironment } from "../core/efaktura/digisense-client";
+import { getDigisenseOnboardingStatus, onboardDigisenseCompany } from "../core/efaktura/digisense-onboarding";
 import type { DocumentMetadata } from "../core/documents";
 import type { CommandDispatch } from "../cli-dispatch";
 
 export function register(dispatch: CommandDispatch): void {
+  dispatch.on("efaktura", "onboarding-status", (ctx) => {
+    const db = openCommandDb(ctx); migrate(db);
+    try { ctx.emitResult({ ok: true, ...getDigisenseOnboardingStatus(db, ctx.companyRoot()) }); }
+    finally { db.close(); }
+  });
+
+  dispatch.on("efaktura", "onboard", async (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim().toLowerCase() !== "yes") {
+      ctx.emitResult({ ok: false, errors: ["--confirm yes required to onboard DigiSense"] }); process.exit(1);
+    }
+    const root = ctx.companyRoot(); const db = openCommandDb(ctx); migrate(db);
+    try {
+      const config = loadDigisenseSecretConfig(root);
+      if (!config) { ctx.emitResult({ ok: false, errors: ["Digisense is not configured"] }); process.exit(1); }
+      const result = await onboardDigisenseCompany(db, root, createDigisenseClient(config));
+      ctx.emitResult(result as unknown as Record<string, unknown>);
+      if (!result.ok) process.exit(1);
+    } finally { db.close(); }
+  });
   // `efaktura konfigurer` — gem Digisense API license-key i secret-laget
   // (config/digisense.json, 0600). UDEN denne kommando er hele Digisense-
   // overfladen (registrer/modtag/transmit) uopnåelig: de tre operationer
@@ -261,7 +281,7 @@ export function register(dispatch: CommandDispatch): void {
     }
   });
 
-  dispatch.on("efaktura", "status", async (ctx) => {
+  const registerDeliveryStatus = (command: "status" | "leveringsstatus") => dispatch.on("efaktura", command, async (ctx) => {
     const confirmValue = (ctx.arg("--confirm") ?? "").trim().toLowerCase();
     if (confirmValue !== "yes") {
       ctx.emitResult({ ok: false, errors: ["--confirm yes required to record Digisense delivery status evidence"] });
@@ -286,4 +306,7 @@ export function register(dispatch: CommandDispatch): void {
       if (!result.ok) process.exit(1);
     } finally { db.close(); }
   });
+  // Legacy alias; `leveringsstatus` avoids ambiguity with onboarding-status.
+  registerDeliveryStatus("status");
+  registerDeliveryStatus("leveringsstatus");
 }

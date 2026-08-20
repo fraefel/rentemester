@@ -407,7 +407,12 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     "      </cac:PartyTaxScheme>",
     "      <cac:PartyLegalEntity>",
     xmlTag("cbc:RegistrationName", payload.seller?.name, "        "),
-    xmlTag("cbc:CompanyID", payload.seller?.vatOrCvr, "        "),
+    xmlTagWithAttrs(
+      "cbc:CompanyID",
+      { schemeID: SELLER_ENDPOINT_SCHEME_ID },
+      payload.seller?.vatOrCvr,
+      "        ",
+    ),
     "      </cac:PartyLegalEntity>",
     "    </cac:Party>",
     "  </cac:AccountingSupplierParty>",

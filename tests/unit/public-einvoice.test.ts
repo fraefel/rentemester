@@ -152,6 +152,14 @@ describe("public e-invoice preview export", () => {
     // 0184. schemeID 0184 carries the bare 8-digit CVR — the "DK" prefix is
     // stripped (JUR-9), so it must NOT render as "DK12345678".
     expect(first.xml).toContain('<cbc:EndpointID schemeID="0184">12345678</cbc:EndpointID>');
+    // The legal entity uses the Danish CVR scheme, while the VAT registration
+    // remains the existing DK-prefixed VAT CompanyID without a scheme attribute.
+    expect(first.xml).toContain(
+      "<cac:PartyTaxScheme>\n        <cbc:CompanyID>DK12345678</cbc:CompanyID>\n        <cac:TaxScheme>\n          <cbc:ID>VAT</cbc:ID>",
+    );
+    expect(first.xml).toContain(
+      '<cac:PartyLegalEntity>\n        <cbc:RegistrationName>Rentemester ApS</cbc:RegistrationName>\n        <cbc:CompanyID schemeID="0184">DK12345678</cbc:CompanyID>',
+    );
     // BuyerReference (BT-10) is mandatory for public recipients (PEPPOL-EN16931-R003).
     expect(first.xml).toContain("<cbc:BuyerReference>");
     // Country code is mandatory on both postal addresses (BR-09 / BR-11).

@@ -161,7 +161,7 @@ describe("registerDigisenseCompany — happy path", () => {
 describe("registerDigisenseCompany — idempotent re-run", () => {
   test("re-registering the same CVR does not duplicate state and does not hard-fail", async () => {
     const { root, db } = freshLedger("idempotent");
-    const { client } = fakeRegisterClient();
+    const { client, calls } = fakeRegisterClient();
     try {
       const first = await registerDigisenseCompany(db, root, client, {
         companyType: { type: "DK:CVR", id: CVR },
@@ -174,6 +174,7 @@ describe("registerDigisenseCompany — idempotent re-run", () => {
 
       expect(first.ok).toBe(true);
       expect(second.ok).toBe(true);
+      expect(calls.filter((call) => call.kind === "register-company")).toHaveLength(1);
 
       // No duplicate company row; exactly one (inbound+outbound) participant pair.
       expect(listDigisenseCompanies(db)).toHaveLength(1);

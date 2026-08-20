@@ -34,7 +34,11 @@ import type {
   ParticipantType,
   RegisterParticipantRequest,
 } from "./digisense-client";
-import { saveDigisenseCompany, saveDigisenseParticipant } from "./digisense-state";
+import {
+  getDigisenseCompanyByParticipantId,
+  saveDigisenseCompany,
+  saveDigisenseParticipant,
+} from "./digisense-state";
 
 // Begge retninger registreres altid: en virksomhed der registreres skal kunne
 // både sende (outbound) og modtage (inbound).
@@ -107,18 +111,27 @@ export async function registerDigisenseCompany(
   const network = options.network ?? "nemhandel";
   const participantType: ParticipantType = options.participantType ?? "DK:CVR";
 
-  // 1) register-company ⇒ companyKey. En fejl her ⇒ vi rører aldrig state.
-  const registered = await client.registerCompany({
-    companyType: options.companyType,
-    companyName,
-  });
-  if (!registered.ok) {
-    return {
-      ok: false,
-      errors: [`register-company failed: ${registered.error.message}`],
-    };
+  // 1) Genbrug en allerede auditeret lokal companyKey for samme juridiske
+  // identitet. DigiSense returnerer 409 ved gentaget register-company, så den
+  // lokale state er den idempotente genvej til at tilføje et nyt netværk.
+  const existingCompany = getDigisenseCompanyByParticipantId(db, options.companyType.id);
+  if (existingCompany && existingCompany.companyType !== options.companyType.type) {
+    return { ok: false, errors: ["Existing Digisense company type does not match registration request"] };
   }
-  const companyKey = registered.data.companyKey?.trim();
+  let companyKey = existingCompany?.companyKey.trim() ?? "";
+  if (!companyKey) {
+    const registered = await client.registerCompany({
+      companyType: options.companyType,
+      companyName,
+    });
+    if (!registered.ok) {
+      return {
+        ok: false,
+        errors: [`register-company failed: ${registered.error.message}`],
+      };
+    }
+    companyKey = registered.data.companyKey?.trim() ?? "";
+  }
   if (!companyKey) {
     return { ok: false, errors: ["register-company returned no companyKey"] };
   }
@@ -126,11 +139,13 @@ export async function registerDigisenseCompany(
   // 2) Gem companyKey FØR participant-registreringen, så et delvist udfald (én
   // retning lykkes, den anden fejler) stadig kan retries på et re-run uden at
   // miste companyKey'en. Upsert på participant-id ⇒ ingen dublet ved re-run.
-  saveDigisenseCompany(db, {
-    companyKey,
-    companyType: options.companyType,
-    companyName,
-  });
+  if (!existingCompany) {
+    saveDigisenseCompany(db, {
+      companyKey,
+      companyType: options.companyType,
+      companyName,
+    });
+  }
 
   // 3) register-participant for BÅDE outbound OG inbound. webhookUrl=null ⇒ vi
   // poller selv. Hvert udfald gemmes i state-laget (upsert pr. retning).

@@ -23,6 +23,7 @@
 import type {
   DigisenseClient,
   DigisenseDocumentStatus,
+  DigisenseError,
   KsefEnvironment,
   ValidateDocumentError,
 } from "./digisense-client";
@@ -81,6 +82,55 @@ function formatValidationErrors(errors: ValidateDocumentError[]): string {
   return shown || "ukendt schematron-fejl";
 }
 
+const SAFE_DELIVERY_ERROR_KEYS = new Set([
+  "documentStatus",
+  "status",
+  "message",
+  "title",
+  "detail",
+  "description",
+  "error",
+]);
+
+function redactDiagnostic(value: string): string {
+  return value
+    .replace(/https?:\/\/\S+/gi, "[url redacted]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[id redacted]")
+    .replace(/\b\d{8,}\b/g, "[number redacted]")
+    .replace(/\b[A-Za-z0-9_-]{20,}\b/g, "[token redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
+function collectSafeDiagnostic(value: unknown, output: string[]): void {
+  if (output.length >= 4 || value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectSafeDiagnostic(item, output);
+    return;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (output.length >= 4) return;
+    if (SAFE_DELIVERY_ERROR_KEYS.has(key) && typeof item === "string") {
+      const sanitized = redactDiagnostic(item);
+      if (sanitized) output.push(`${key}: ${sanitized}`);
+    } else if (typeof item === "object") {
+      collectSafeDiagnostic(item, output);
+    }
+  }
+}
+
+function safeDeliveryError(error: DigisenseError): string {
+  if (!error.body) return error.message;
+  try {
+    const diagnostic: string[] = [];
+    collectSafeDiagnostic(JSON.parse(error.body), diagnostic);
+    return diagnostic.length > 0 ? `${error.message}; ${diagnostic.join("; ")}` : error.message;
+  } catch {
+    return error.message;
+  }
+}
+
 /**
  * Bygger en `PeppolTransmitter` oven på en (allerede konfigureret) DigisenseClient.
  *
@@ -123,7 +173,7 @@ export function createDigisenseTransmitter(
       ksefEnvironment: deps.ksefEnvironment,
     });
     if (!delivered.ok) {
-      return { ok: false, error: `digisense deliver-document failed: ${delivered.error.message}` };
+      return { ok: false, error: `digisense deliver-document failed: ${safeDeliveryError(delivered.error)}` };
     }
 
     const { documentId, documentStatus, statusCode } = delivered.data;

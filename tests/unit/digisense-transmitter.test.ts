@@ -328,6 +328,37 @@ describe("digisense transmitter — deliver-level errors", () => {
     expect(calls.status).toHaveLength(0);
   });
 
+  test("surfaces a structured deliver diagnostic without leaking identifiers or URLs", async () => {
+    const { client } = fakeClient({
+      deliver: {
+        ok: false,
+        error: {
+          status: 400,
+          message: "digisense responded 400",
+          body: JSON.stringify({
+            documentStatus: "document-not-valid",
+            message: "Receiver 5790001234567 rejected document 123e4567-e89b-42d3-a456-426614174000",
+            detail: "See https://test-api.example.invalid/documents/secret-company-token-12345",
+            companyKey: "must-not-be-included",
+          }),
+        },
+      },
+    });
+    const transmit = createDigisenseTransmitter(client, { companyKey: "ck" });
+
+    const outcome = await transmit(TRANSMITTER_INPUT);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toContain("document-not-valid");
+      expect(outcome.error).toContain("[number redacted]");
+      expect(outcome.error).toContain("[id redacted]");
+      expect(outcome.error).toContain("[url redacted]");
+      expect(outcome.error).not.toContain("5790001234567");
+      expect(outcome.error).not.toContain("123e4567-e89b-42d3-a456-426614174000");
+      expect(outcome.error).not.toContain("must-not-be-included");
+    }
+  });
+
   test("a 4xx deliver documentStatus rejects immediately", async () => {
     const { client } = fakeClient({
       deliver: ok<DeliverDocumentResponse>(

@@ -22,6 +22,7 @@ Relateret: [peppol-nemhandel.md](peppol-nemhandel.md) (format/transport-baggrund
 | 0 | Få en API license-key hos Digisense | *(uden for systemet — se nedenfor)* | — |
 | 1 | Gem nøglen i Rentemester | `efaktura konfigurer` | `efaktura_konfigurer` |
 | 2 | Registrér virksomheden i NemHandel | `efaktura registrer` | `efaktura_registrer` |
+| 2a | Registrér test-GLN (kun testmiljø) | `efaktura registrer-test-gln --company <path> --confirm yes` | — |
 | 3 | Send en udstedt e-faktura | `invoice transmit-digisense` | `efaktura_send` |
 | 4 | Modtag indkomne e-fakturaer (poll) | `efaktura modtag` | `efaktura_modtag` |
 

@@ -16,6 +16,37 @@ async function runCli(args: string[]) {
 }
 
 describe("Digisense CLI safety gates", () => {
+  test("test-GLN registration requires literal confirmation and rejects a GLN input flag", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-cli-test-gln-"));
+    const company = join(root, "company");
+    try {
+      expect((await runCli(["init", "--company", company])).exitCode).toBe(0);
+      const missingConfirm = await runCli(["efaktura", "registrer-test-gln", "--company", company]);
+      expect(missingConfirm.exitCode).toBe(1);
+      expect(JSON.parse(missingConfirm.stdout).errors.join(" ")).toContain("--confirm yes");
+      const nonLiteralConfirm = await runCli(["efaktura", "registrer-test-gln", "--company", company, "--confirm", "YES"]);
+      expect(nonLiteralConfirm.exitCode).toBe(1);
+      expect(JSON.parse(nonLiteralConfirm.stdout).errors.join(" ")).toContain("--confirm yes");
+      const glnFlag = await runCli(["efaktura", "registrer-test-gln", "--company", company, "--confirm", "yes", "--gln", "5790000000001"]);
+      expect(glnFlag.exitCode).toBe(2);
+      expect(glnFlag.stderr).toContain("Unknown flag --gln");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("test-GLN registration refuses production configuration before any network registration", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-cli-test-gln-production-"));
+    const company = join(root, "company");
+    try {
+      expect((await runCli(["init", "--company", company])).exitCode).toBe(0);
+      expect((await runCli([
+        "efaktura", "konfigurer", "--company", company, "--api-license-key", "test-key", "--environment", "production", "--confirm", "yes",
+      ])).exitCode).toBe(0);
+      const result = await runCli(["efaktura", "registrer-test-gln", "--company", company, "--confirm", "yes"]);
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout).errors).toEqual(["Digisense test configuration is required"]);
+      expect(result.stderr).toBe("");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   test("configuration requires confirmation and writes no secret without it", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-digisense-cli-config-"));
     const company = join(root, "company");

@@ -34,6 +34,18 @@ export const efakturaSpecs: CommandSpec[] = [
     ],
   },
   {
+    key: "efaktura registrer-test-gln",
+    usage: "efaktura registrer-test-gln --company <path> --confirm yes",
+    description:
+      "Registrerer alene test-GLN'en fra en Digisense test-license som inbound GLN i NemHandel. GLN kan ikke angives som input; kommandoen kræver præcis én allerede lokalt registreret virksomhed, og license-constraint skal matche den. Skrivende handling — kræver '--confirm yes' og en actor.",
+    allowedFlags: ["--company", "--confirm"],
+    inputNotes: [
+      "--confirm yes: påkrævet bekræftelse (valued flag, ikke en bar boolean).",
+      "Forudsætter gyldig Digisense test-konfiguration og præcis én lokalt registreret virksomhed.",
+      "Ingen --gln-flag: GLN'en hentes kun fra Digisense validate-auth.",
+    ],
+  },
+  {
     key: "efaktura modtag",
     usage: "efaktura modtag --company <path> --confirm yes [--digisense-company-key <key>] [--limit <n>] [--max-timestamp <ISO8601>] [--metadata <file.json>] [--force]",
     description:

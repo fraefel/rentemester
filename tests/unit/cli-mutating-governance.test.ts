@@ -81,6 +81,10 @@ describe("MUTATING_COMMANDS governance-klasser (audit AGENT-1/AGENT-2)", () => {
     expect(MUTATING_COMMANDS.has("efaktura registrer-test-gln")).toBe(true);
   });
 
+  test("efaktura registrer-test-afsender er actor-gated", () => {
+    expect(MUTATING_COMMANDS.has("efaktura registrer-test-afsender")).toBe(true);
+  });
+
   // Audit 2026-06-11 (AGENT-3): COMPLETENESS-værn. En kurateret liste over de
   // CLI-kommandoer hvis handler skriver til company-db'en eller audit_log'en
   // (verificeret ved at læse src/cli/*.ts-handlerne mod deres core-funktioner).

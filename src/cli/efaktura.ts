@@ -32,6 +32,7 @@ import {
   type RegisterDigisenseCompanyOptions,
 } from "../core/efaktura/digisense-register";
 import { registerDigisenseTestGln } from "../core/efaktura/digisense-register-test-gln";
+import { registerDigisenseTestSender } from "../core/efaktura/digisense-register-test-sender";
 import {
   resolveDigisenseReceiver,
   resolveDigisenseRegistrar,
@@ -159,6 +160,34 @@ export function register(dispatch: CommandDispatch): void {
     try {
       const client = createDigisenseClient({ apiLicenseKey: config.apiLicenseKey, environment: "test" });
       const result = await registerDigisenseTestGln(db, client, networkValue);
+      ctx.emitResult(result as unknown as Record<string, unknown>);
+      if (!result.ok) process.exit(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  dispatch.on("efaktura", "registrer-test-afsender", async (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim() !== "yes") {
+      ctx.emitResult({ ok: false, errors: ["--confirm yes required to register the Digisense test sender"] });
+      process.exit(1);
+    }
+    const root = ctx.companyRoot();
+    let config;
+    try {
+      config = loadDigisenseSecretConfig(root);
+    } catch {
+      ctx.emitResult({ ok: false, errors: ["Digisense test configuration is invalid"] });
+      process.exit(1);
+    }
+    if (!config || config.environment !== "test" || !config.apiLicenseKey?.trim()) {
+      ctx.emitResult({ ok: false, errors: ["Digisense test configuration is required"] });
+      process.exit(1);
+    }
+    const db = openCommandDb(ctx);
+    try {
+      const client = createDigisenseClient({ apiLicenseKey: config.apiLicenseKey, environment: "test" });
+      const result = await registerDigisenseTestSender(db, client);
       ctx.emitResult(result as unknown as Record<string, unknown>);
       if (!result.ok) process.exit(1);
     } finally {

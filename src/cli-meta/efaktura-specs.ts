@@ -47,6 +47,17 @@ export const efakturaSpecs: CommandSpec[] = [
     ],
   },
   {
+    key: "efaktura registrer-test-afsender",
+    usage: "efaktura registrer-test-afsender --company <path> --confirm yes",
+    description:
+      "Registrerer kun i DigiSense TEST det bare 8-cifrede CVR, som Peppol BIS3 XML bruger med scheme 0184, som outbound afsender. Identiteten udledes fra den ene lokalt registrerede DK:CVR-virksomhed og kan ikke angives som input.",
+    allowedFlags: ["--company", "--confirm"],
+    inputNotes: [
+      "--confirm yes: påkrævet bekræftelse; kommandoen kræver også en actor.",
+      "Kræver environment=test og kan ikke anvendes mod produktion.",
+    ],
+  },
+  {
     key: "efaktura modtag",
     usage: "efaktura modtag --company <path> --confirm yes [--digisense-company-key <key>] [--limit <n>] [--max-timestamp <ISO8601>] [--metadata <file.json>] [--force]",
     description:

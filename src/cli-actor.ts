@@ -143,6 +143,7 @@ export const MUTATING_COMMANDS = new Set([
   // actor og listes under "Skrivekommandoer", ikke under "read-only".
   "efaktura registrer",
   "efaktura registrer-test-gln",
+  "efaktura registrer-test-afsender",
   "efaktura konfigurer",
   "efaktura modtag",
   "efaktura status",

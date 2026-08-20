@@ -39,7 +39,10 @@ export async function registerDigisenseTestGln(
   if (!/^\d{13}$/.test(testGlnNumber)) {
     return { ok: false, errors: ["Digisense returned an invalid test GLN"] };
   }
-  if (auth.data.companyKeyConstraint == null || auth.data.companyKeyConstraint.trim() !== companyKey) {
+  if (
+    auth.data.companyKeyConstraint != null &&
+    auth.data.companyKeyConstraint.trim() !== companyKey
+  ) {
     return { ok: false, errors: ["Digisense test GLN is not authorized for the local company"] };
   }
 
@@ -60,7 +63,7 @@ export async function registerDigisenseTestGln(
     documentProfiles: "default-nemhandel",
   };
   const registered = await client.registerParticipant("nemhandel", request);
-  if (!registered.ok) {
+  if (!registered.ok || registered.data.registeredOnNetwork !== true) {
     insertAuditLog(db, {
       eventType: "digisense_test_gln_registration_failed",
       entityType: "digisense_test_gln",

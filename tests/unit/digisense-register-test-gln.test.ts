@@ -23,7 +23,12 @@ function freshLedger() {
   return { root, db };
 }
 
-function fakeClient(options: { constraint?: string | null; gln?: string; fail?: boolean } = {}) {
+function fakeClient(options: {
+  constraint?: string | null;
+  gln?: string;
+  fail?: boolean;
+  registeredOnNetwork?: boolean;
+} = {}) {
   const calls: Array<{ network: string; body: RegisterParticipantRequest }> = [];
   const client = {
     async validateAuth() {
@@ -43,7 +48,14 @@ function fakeClient(options: { constraint?: string | null; gln?: string; fail?: 
       calls.push({ network, body });
       return options.fail
         ? { ok: false as const, error: { status: 500, message: "vendor response not for output", body: "secret vendor body" } }
-        : { ok: true as const, status: 200, data: { registeredOnNetwork: true, webhookRegistered: false } };
+        : {
+            ok: true as const,
+            status: 200,
+            data: {
+              registeredOnNetwork: options.registeredOnNetwork ?? true,
+              webhookRegistered: false,
+            },
+          };
     },
   } as unknown as DigisenseClient;
   return { client, calls };
@@ -80,6 +92,35 @@ describe("registerDigisenseTestGln", () => {
     try {
       expect(await registerDigisenseTestGln(db, client)).toEqual({ ok: false, errors: ["Digisense test GLN is not authorized for the local company"] });
       expect(calls).toHaveLength(0);
+    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("accepts an unconstrained license and still binds the GLN request to the local company", async () => {
+    const { root, db } = freshLedger();
+    const { client, calls } = fakeClient({ constraint: null });
+    try {
+      expect(await registerDigisenseTestGln(db, client)).toEqual({ ok: true, registered: true });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.body.companyKey).toBe(COMPANY_KEY);
+    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("treats a 200 response without network registration as a generic failure", async () => {
+    const { root, db } = freshLedger();
+    const { client } = fakeClient({ registeredOnNetwork: false });
+    try {
+      expect(await registerDigisenseTestGln(db, client)).toEqual({
+        ok: false,
+        errors: ["Digisense test GLN registration failed"],
+      });
+      const events = db.query(
+        "SELECT event_type, message FROM audit_log WHERE event_type LIKE 'digisense_test_gln_registration_%' ORDER BY id",
+      ).all() as Array<{ event_type: string; message: string }>;
+      expect(events.map((row) => row.event_type)).toEqual([
+        "digisense_test_gln_registration_intended",
+        "digisense_test_gln_registration_failed",
+      ]);
+      expect(JSON.stringify(events)).not.toContain(TEST_GLN);
     } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
   });
 

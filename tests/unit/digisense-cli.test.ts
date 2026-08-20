@@ -30,6 +30,9 @@ describe("Digisense CLI safety gates", () => {
       const glnFlag = await runCli(["efaktura", "registrer-test-gln", "--company", company, "--confirm", "yes", "--gln", "5790000000001"]);
       expect(glnFlag.exitCode).toBe(2);
       expect(glnFlag.stderr).toContain("Unknown flag --gln");
+      const badNetwork = await runCli(["efaktura", "registrer-test-gln", "--company", company, "--confirm", "yes", "--network", "other"]);
+      expect(badNetwork.exitCode).toBe(1);
+      expect(JSON.parse(badNetwork.stdout).errors).toEqual(["--network must be nemhandel or peppol"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

@@ -4,7 +4,7 @@
 
 import type { Database } from "bun:sqlite";
 import { insertAuditLog } from "../actor";
-import type { DigisenseClient, RegisterParticipantRequest } from "./digisense-client";
+import type { DigisenseClient, DigisenseNetwork, RegisterParticipantRequest } from "./digisense-client";
 import { listDigisenseCompanies } from "./digisense-state";
 
 const GENERIC_FAILURE = "Digisense test GLN registration failed";
@@ -24,6 +24,7 @@ export type RegisterTestGlnResult =
 export async function registerDigisenseTestGln(
   db: Database,
   client: DigisenseClient,
+  network: DigisenseNetwork = "nemhandel",
 ): Promise<RegisterTestGlnResult> {
   const companies = listDigisenseCompanies(db);
   if (companies.length !== 1) {
@@ -60,9 +61,9 @@ export async function registerDigisenseTestGln(
     participantId: testGlnNumber,
     companyKey,
     webhookUrl: null,
-    documentProfiles: "default-nemhandel",
+    documentProfiles: network === "peppol" ? "default-peppol" : "default-nemhandel",
   };
-  const registered = await client.registerParticipant("nemhandel", request);
+  const registered = await client.registerParticipant(network, request);
   if (!registered.ok || registered.data.registeredOnNetwork !== true) {
     insertAuditLog(db, {
       eventType: "digisense_test_gln_registration_failed",

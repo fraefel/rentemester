@@ -134,6 +134,11 @@ export function register(dispatch: CommandDispatch): void {
       ctx.emitResult({ ok: false, errors: ["--confirm yes required to register the Digisense test GLN"] });
       process.exit(1);
     }
+    const networkValue = ctx.trimToNull(ctx.arg("--network") ?? null) ?? "nemhandel";
+    if (networkValue !== "nemhandel" && networkValue !== "peppol") {
+      ctx.emitResult({ ok: false, errors: ["--network must be nemhandel or peppol"] });
+      process.exit(1);
+    }
     const root = ctx.companyRoot();
     let config;
     try {
@@ -150,11 +155,10 @@ export function register(dispatch: CommandDispatch): void {
       ctx.emitResult({ ok: false, errors: ["Digisense test configuration is required"] });
       process.exit(1);
     }
-
     const db = openCommandDb(ctx);
     try {
       const client = createDigisenseClient({ apiLicenseKey: config.apiLicenseKey, environment: "test" });
-      const result = await registerDigisenseTestGln(db, client);
+      const result = await registerDigisenseTestGln(db, client, networkValue);
       ctx.emitResult(result as unknown as Record<string, unknown>);
       if (!result.ok) process.exit(1);
     } finally {

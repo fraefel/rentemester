@@ -105,6 +105,21 @@ describe("registerDigisenseTestGln", () => {
     } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
+  test("registers the authorized test GLN on Peppol with the Peppol profile", async () => {
+    const { root, db } = freshLedger();
+    const { client, calls } = fakeClient({ constraint: null });
+    try {
+      expect(await registerDigisenseTestGln(db, client, "peppol")).toEqual({ ok: true, registered: true });
+      expect(calls).toEqual([{
+        network: "peppol",
+        body: {
+          direction: "inbound", participantType: "GLN", participantId: TEST_GLN,
+          companyKey: COMPANY_KEY, webhookUrl: null, documentProfiles: "default-peppol",
+        },
+      }]);
+    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   test("treats a 200 response without network registration as a generic failure", async () => {
     const { root, db } = freshLedger();
     const { client } = fakeClient({ registeredOnNetwork: false });

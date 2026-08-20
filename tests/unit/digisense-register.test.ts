@@ -115,6 +115,29 @@ describe("registerDigisenseCompany — happy path", () => {
     }
   });
 
+  test("uses the Peppol document profile when registering on Peppol", async () => {
+    const { root, db } = freshLedger("peppol-profile");
+    const { client, calls } = fakeRegisterClient();
+    try {
+      const result = await registerDigisenseCompany(db, root, client, {
+        companyType: { type: "DK:CVR", id: CVR },
+        companyName: "Min Virksomhed ApS",
+        network: "peppol",
+      });
+      expect(result.ok).toBe(true);
+      const participantCalls = calls.filter((call) => call.kind === "register-participant");
+      expect(participantCalls).toHaveLength(2);
+      for (const call of participantCalls) {
+        if (call.kind !== "register-participant") continue;
+        expect(call.network).toBe("peppol");
+        expect(call.body.documentProfiles).toBe("default-peppol");
+      }
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("writes an audit_log row for the registration", async () => {
     const { root, db } = freshLedger("audit");
     const { client } = fakeRegisterClient();

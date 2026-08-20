@@ -42,7 +42,9 @@ const DIRECTIONS: ParticipantDirection[] = ["outbound", "inbound"];
 
 // Vi poller selv (ingen always-on server), så vi registrerer aldrig en webhook.
 const NO_WEBHOOK = null;
-const DEFAULT_DOCUMENT_PROFILES = "default-nemhandel";
+function defaultDocumentProfiles(network: DigisenseNetwork): "default-nemhandel" | "default-peppol" {
+  return network === "peppol" ? "default-peppol" : "default-nemhandel";
+}
 
 export type RegisterDigisenseCompanyOptions = {
   /** CVR/NIP-identifikatoren der registreres som virksomhed hos Digisense. */
@@ -141,7 +143,7 @@ export async function registerDigisenseCompany(
       participantId,
       companyKey,
       webhookUrl: NO_WEBHOOK,
-      documentProfiles: DEFAULT_DOCUMENT_PROFILES,
+      documentProfiles: defaultDocumentProfiles(network),
     };
     const result = await client.registerParticipant(network, body);
     if (!result.ok) {

@@ -273,6 +273,22 @@ Settles an issued invoice against a bank payment.
 - Response key `settlement`:
   `{ entryId, paymentId, principalAmount, claimAmount, invoiceNumber, openBalance }`.
 
+### `POST /api/companies/:slug/invoices/send-public`
+
+Sends a public-recipient invoice through the selected company's locally bound
+DigiSense transport. Body: `{ invoiceDocumentId, confirm: true }`. The HTTP
+body cannot choose a DigiSense `companyKey`, access-point identity, endpoint or
+credentials; all are resolved server-side from that company's local binding.
+An already acknowledged retry is idempotent and does not call delivery again.
+
+### `POST /api/companies/:slug/invoices/send-public/status`
+
+Observes only a previously queued DigiSense submission. Body:
+`{ invoiceDocumentId, confirm: true }`. It calls DigiSense `document-status`
+and records append-only status evidence; it can never invoke document-delivery
+or redeliver the invoice. Missing DigiSense configuration or an ambiguous local
+company binding is returned as a safe `400` error.
+
 ### `POST /api/companies/:slug/budget`
 
 Appends a budget revision for one (account, period) cell (#339). The core is

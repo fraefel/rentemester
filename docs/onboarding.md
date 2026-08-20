@@ -192,3 +192,11 @@ Hvis en agent skal arbejde via MCP, følg den MCP-specifikke klientopsætning i
 [MCP-installation](mcp-install.md). MCP-write-tools kræver `confirm: true` pr.
 kald, også når CLI's daglige writes bruger actor i stedet; den præcise kontrakt
 står i [MCP-agentkontrakten](mcp-agent-contract.md).
+
+## Cockpit e-faktura
+
+The Cockpit's **Send e-faktura** action uses the selected company's local
+DigiSense configuration and bound company identity. Do not put DigiSense keys,
+access-point details or company keys in browser/API request bodies. A queued
+delivery appears as **E-faktura køsat — afventer status**; use **Opdatér
+leveringsstatus** to observe it. That action never sends the document again.

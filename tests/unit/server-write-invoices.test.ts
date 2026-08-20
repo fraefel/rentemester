@@ -21,6 +21,8 @@ import { companyPaths } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { configureBackupLock } from "../../src/core/backup-governance";
 import { createSystemBackup } from "../../src/core/system-backups";
+import { issueInvoice } from "../../src/core/issued-invoices";
+import { setInvoiceDigisenseDependenciesForTests } from "../../src/server/write-handlers/invoice";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -122,6 +124,109 @@ function issueBody(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+function issuePublicInvoice(ws: string, slug: string): number {
+  return withLedger(ws, slug, (db, companyRoot) => {
+    const issued = issueInvoice(db, companyRoot, {
+      invoiceType: "full", vatTreatment: "standard", issueDate: "2026-05-16",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Acme ApS", address: "Testvej 1, 2100 København Ø", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kommune", address: "Rådhuspladsen 1, 1550 København V", publicRecipient: true, eanNumber: "5790000000001" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 }, currency: "DKK", dueDate: "2026-06-15",
+    });
+    expect(issued.ok).toBe(true);
+    return issued.documentId!;
+  });
+}
+
+describe("Cockpit write — DigiSense e-faktura", () => {
+  test("delivers once, keeps acknowledged retry local, and never trusts body identity", async () => {
+    const { root: ws, slug } = makeWorkspace("digisense-send");
+    let deliveries = 0;
+    setInvoiceDigisenseDependenciesForTests({
+      resolveTransmitter: () => ({ ok: true, companyKey: "company-a", transmitter: () => {
+        deliveries += 1;
+        return { ok: true, transmissionId: "remote-1", transmittedAt: "2026-05-16T10:00:00Z" };
+      } }),
+    });
+    try {
+      const documentId = issuePublicInvoice(ws, slug);
+      const body = { invoiceDocumentId: documentId, confirm: true, companyKey: "foreign", accessPoint: { accessPointId: "foreign" }, credentials: "never-used" };
+      const first = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, body);
+      expect(first.status).toBe(200);
+      expect(first.body.submission.status).toBe("acknowledged");
+      const retry = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, body);
+      expect(retry.status).toBe(200);
+      expect(deliveries).toBe(1);
+    } finally {
+      setInvoiceDigisenseDependenciesForTests(null);
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("status endpoint observes a queued document and cannot redeliver", async () => {
+    const { root: ws, slug } = makeWorkspace("digisense-status");
+    let deliveries = 0;
+    let statusCalls = 0;
+    setInvoiceDigisenseDependenciesForTests({
+      resolveTransmitter: () => ({ ok: true, companyKey: "company-a", transmitter: () => {
+        deliveries += 1;
+        return { ok: false, error: "queued", queuedDocumentId: "queued-1" };
+      } }),
+      resolveStatusChecker: () => ({ ok: true, companyKey: "company-a", client: { documentStatus: async () => {
+        statusCalls += 1;
+        return { ok: true, data: { documentStatus: "delivered", message: "done", publicUrl: null } };
+      } } } as any),
+    });
+    try {
+      const documentId = issuePublicInvoice(ws, slug);
+      const sent = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, { invoiceDocumentId: documentId, confirm: true });
+      expect(sent.status).toBe(400);
+      const observed = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public/status`, { invoiceDocumentId: documentId, confirm: true });
+      expect(observed.status).toBe(200);
+      expect(observed.body.submission.status).toBe("acknowledged");
+      expect(statusCalls).toBe(1);
+      expect(deliveries).toBe(1);
+    } finally {
+      setInvoiceDigisenseDependenciesForTests(null);
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("missing local DigiSense setup is a safe 400", async () => {
+    const { root: ws, slug } = makeWorkspace("digisense-missing");
+    try {
+      const documentId = issuePublicInvoice(ws, slug);
+      const res = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, { invoiceDocumentId: documentId, confirm: true });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0]).toContain("Digisense");
+    } finally { rmSync(ws, { recursive: true, force: true }); }
+  });
+
+  test("does not deliver an invoice through another company's slug", async () => {
+    const ws = tmpRoot("digisense-isolation");
+    initWorkspace(ws);
+    const acme = createCompany(ws, { name: "Acme ApS" });
+    const other = createCompany(ws, { name: "Other ApS" });
+    let deliveries = 0;
+    setInvoiceDigisenseDependenciesForTests({
+      resolveTransmitter: () => ({ ok: true, companyKey: "other-company", transmitter: () => {
+        deliveries += 1;
+        return { ok: true, transmissionId: "should-not-send", transmittedAt: "2026-05-16T10:00:00Z" };
+      } }),
+    });
+    try {
+      const documentId = issuePublicInvoice(ws, acme.slug);
+      const res = await post(config({ workspaceRoot: ws }), `/api/companies/${other.slug}/invoices/send-public`, { invoiceDocumentId: documentId, confirm: true });
+      expect(res.status).toBe(409);
+      expect(deliveries).toBe(0);
+    } finally {
+      setInvoiceDigisenseDependenciesForTests(null);
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
 
 // --------------------------------------------------------------------------
 // Issue

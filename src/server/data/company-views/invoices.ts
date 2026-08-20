@@ -65,7 +65,7 @@ export function resolveCompanyIssuedInvoicePdf(
 /**
  * Cockpit-facing PEPPOL/e-faktura status (#428) — verbatim copy of the
  * core `InvoicePeppolStatus`, exposed so the Cockpit can flag
- * "Sendt som e-faktura" on a row and gate the send-action.
+ * truthful delivery status on a row and gate send/status actions.
  */
 export type CompanyInvoicePeppolStatus = {
   status: "prepared" | "acknowledged";

@@ -68,8 +68,9 @@ export function InvoicesView() {
   const [settling, setSettling] = useState<CompanyInvoiceRow | null>(null);
   // The invoice row whose "Krediter" ConfirmDialog is open, if any (#412).
   const [crediting, setCrediting] = useState<CompanyInvoiceRow | null>(null);
-  // The invoice row whose "Forbered e-faktura" ConfirmDialog is open (#428).
+  // The invoice row whose "Send e-faktura" ConfirmDialog is open (#428).
   const [sendingPublic, setSendingPublic] = useState<CompanyInvoiceRow | null>(null);
+  const [checkingPublicStatus, setCheckingPublicStatus] = useState<CompanyInvoiceRow | null>(null);
   // The invoice row whose "Send på mail" ConfirmDialog is open (#429).
   const [sendingEmail, setSendingEmail] = useState<CompanyInvoiceRow | null>(null);
   // The invoice row whose "Send rykker" ConfirmDialog is open (#434).
@@ -201,23 +202,22 @@ export function InvoicesView() {
         />
       )}
 
-      {/* #428: Forbered e-faktura ConfirmDialog. The action is only ever
+      {/* #428: Send e-faktura ConfirmDialog. The action is only ever
           offered for rows with an EAN-number on a public-recipient buyer;
           the dialog shows that EAN + the kanal so the owner can sanity-check
           who and where the invoice will be transmitted to. Write-irreversible
           (it records a peppol_submissions row + an audit_log entry), so the
           server requires `confirm: true` — the dialog's primary button maps
           to that flag.
-          Audit UI-2: the server only RECORDS the submission envelope (status
-          `prepared`) — the AS4/NemHandel transport is not wired in yet. The
-          dialog must say "forberedes/registreres", never promise "Sendes nu". */}
+          The server resolves the selected company's DigiSense identity and
+          transmits now; no transport identity or credentials come from the UI. */}
       {sendingPublic && (
         <ConfirmDialog
-          title="Forbered e-faktura"
+          title="Send e-faktura"
           body={
             <div>
               <p>
-                Forbered faktura <strong>{sendingPublic.invoiceNo}</strong> til{" "}
+                Send faktura <strong>{sendingPublic.invoiceNo}</strong> til{" "}
                 <strong>{sendingPublic.customerName ?? "modtageren"}</strong> som
                 e-faktura via NemHandel/PEPPOL.
               </p>
@@ -228,21 +228,20 @@ export function InvoicesView() {
                 </div>
                 <div>
                   <dt>Kanal</dt>
-                  <dd>NemHandel (PEPPOL)</dd>
+                  <dd>DigiSense via NemHandel (PEPPOL)</dd>
                 </div>
                 <div>
                   <dt>Handling</dt>
-                  <dd>Registreres til afsendelse</dd>
+                  <dd>Sendes nu</dd>
                 </div>
               </dl>
               <p className="muted">
-                Fakturaen registreres til afsendelse via NemHandel — selve
-                transmissionen er endnu ikke aktiv i denne version.
-                Registreringen indgår i revisionssporet og kan ikke fortrydes.
+                Fakturaen sendes via DigiSense. Leveringsstatus vises bagefter;
+                en køsat faktura kan kun statuskontrolleres og sendes aldrig igen.
               </p>
             </div>
           }
-          confirmLabel="Registrér til afsendelse"
+          confirmLabel="Send e-faktura"
           confirmKind="danger"
           onConfirm={async () => {
             await api.sendInvoiceAsEInvoice(slug, {
@@ -251,6 +250,20 @@ export function InvoicesView() {
             state.reload();
           }}
           onClose={() => setSendingPublic(null)}
+        />
+      )}
+
+      {checkingPublicStatus && (
+        <ConfirmDialog
+          title="Opdatér leveringsstatus"
+          body={<p>Kontrollér leveringsstatus for <strong>{checkingPublicStatus.invoiceNo}</strong>. Handlingen observerer kun den eksisterende DigiSense-afsendelse og sender ikke fakturaen igen.</p>}
+          confirmLabel="Kontrollér status"
+          confirmKind="danger"
+          onConfirm={async () => {
+            await api.refreshEInvoiceStatus(slug, { invoiceDocumentId: checkingPublicStatus.documentId });
+            state.reload();
+          }}
+          onClose={() => setCheckingPublicStatus(null)}
         />
       )}
 
@@ -478,18 +491,17 @@ export function InvoicesView() {
                     row.status !== "credited" &&
                     row.status !== "refunded" &&
                     row.status !== "written_off";
-                  // #428: "Forbered e-faktura" appears only when the buyer
+                  // #428: A fresh send is offered only when the buyer
                   // is a public recipient with a valid EAN-number (the
                   // server-side requirement for a NemHandel/PEPPOL send).
                   // Hidden once the invoice has been acknowledged by the
-                  // access point — re-sending an already-acknowledged
-                  // invoice would only confuse the owner. A `prepared`
-                  // status (envelope recorded but not acknowledged) still
-                  // allows a retry.
+                  // access point. A prepared row has an explicit status-only
+                  // action, never a second delivery action.
                   const canSendPublic =
                     Boolean(row.buyerEanNumber) &&
                     row.buyerPublicRecipient &&
-                    row.peppolStatus?.status !== "acknowledged";
+                    row.peppolStatus === null;
+                  const canCheckPublicStatus = row.peppolStatus?.status === "prepared";
                   // #429: "Send på mail" appears only when the customer
                   // has an e-mail on the kontaktkort — without it the
                   // dialog has no recipient to prefill, and the issue
@@ -580,8 +592,8 @@ export function InvoicesView() {
                             }
                           >
                             {row.peppolStatus.status === "acknowledged"
-                              ? "Sendt som e-faktura"
-                              : "E-faktura forberedt"}
+                              ? "E-faktura leveret"
+                              : "E-faktura køsat — afventer status"}
                           </span>
                         )}
                       </td>
@@ -621,22 +633,24 @@ export function InvoicesView() {
                               Kreditér
                             </button>
                           )}
-                          {/* #428 — "Forbered e-faktura" is shown ONLY when
+                          {/* #428 — "Send e-faktura" is shown ONLY when
                               the customer has an EAN-number on file (a public
                               buyer). Hidden for archived years and once the
                               invoice has been acknowledged by the access
-                              point. The button replaces the missing CLI step
-                              `invoice submit-public-peppol`. Audit UI-2: it
-                              says "Forbered", not "Send" — the server only
-                              records the envelope (status `prepared`); the
-                              AS4 transport is not wired in yet. */}
+                              point. A queued delivery has its own status-only
+                              action and can never be redelivered from here. */}
                           {!inv.archived && canSendPublic && (
                             <button
                               type="button"
                               className="btn secondary"
                               onClick={() => setSendingPublic(row)}
                             >
-                              Forbered e-faktura
+                              Send e-faktura
+                            </button>
+                          )}
+                          {!inv.archived && canCheckPublicStatus && (
+                            <button type="button" className="btn secondary" onClick={() => setCheckingPublicStatus(row)}>
+                              Opdatér leveringsstatus
                             </button>
                           )}
                           {/* #429 — "Send på mail" is shown ONLY when the

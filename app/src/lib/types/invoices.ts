@@ -17,8 +17,9 @@ export type InvoiceStatus =
 
 /**
  * Cockpit-facing PEPPOL/e-faktura status (#428) — `null` when the invoice
- * has never been sent as an e-faktura. `prepared` means an envelope has been
- * recorded; `acknowledged` means the access point confirmed receipt.
+ * has never been sent as an e-faktura. `prepared` means DigiSense has queued
+ * delivery and it is awaiting a status observation; `acknowledged` means the
+ * access point confirmed receipt.
  */
 export type InvoicePeppolStatus = {
   status: "prepared" | "acknowledged";
@@ -40,7 +41,7 @@ export type CompanyInvoiceRow = {
   customerEmail: string | null;
   /**
    * Buyer's EAN-number (13 digits) when set on the invoice payload. The
-   * cockpit row offers "Forbered e-faktura" only when this is present.
+   * cockpit row offers "Send e-faktura" only when this is present.
    */
   buyerEanNumber: string | null;
   /** True when the buyer is marked as a public recipient. */

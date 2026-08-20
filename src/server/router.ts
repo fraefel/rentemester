@@ -116,6 +116,7 @@ import {
   handleGenerateRecurringInvoice,
   handleInvoiceCreditNote,
   handleInvoiceSendPublic,
+  handleInvoiceSendPublicStatus,
   handleInvoiceSendEmail,
   handleInvoiceSendReminder,
   handleInvoiceIssue,
@@ -231,6 +232,7 @@ export const ROUTE_CATALOG: ReadonlyArray<{
   { method: "POST", pattern: "/api/companies/:slug/invoices/settle", summary: "Afregner faktura fra bank." },
   { method: "POST", pattern: "/api/companies/:slug/invoices/credit-note", summary: "Udsteder kreditnota." },
   { method: "POST", pattern: "/api/companies/:slug/invoices/send-public", summary: "Sender faktura som e-faktura (NemHandel/PEPPOL)." },
+  { method: "POST", pattern: "/api/companies/:slug/invoices/send-public/status", summary: "Kontrollerer kun status for en køsat DigiSense e-faktura." },
   { method: "POST", pattern: "/api/companies/:slug/invoices/send-email", summary: "Sender faktura til kundens e-mail med PDF vedhæftet." },
   { method: "POST", pattern: "/api/companies/:slug/invoices/send-reminder", summary: "Registrerer rykker (rentel. § 9b) og sender den på e-mail." },
   { method: "POST", pattern: "/api/companies/:slug/periods/close", summary: "Lukker regnskabsperiode." },
@@ -880,12 +882,17 @@ export async function handleRequest(
       return await handleInvoiceCreditNote(config, request, slug);
     }
 
-    // Bookkeeping write route (#428): send an issued invoice as an
-    // e-faktura via NemHandel/PEPPOL. Cockpit becomes a third caller of
-    // `submitPublicEInvoicePeppol`, alongside the CLI's
-    // `invoice submit-public-peppol` command and the MCP tool. Access-point
-    // config is loaded from `RENTEMESTER_PEPPOL_ACCESS_POINT` so credentials
-    // never enter core state or the request body.
+    // Status-only route must precede the broader send-public matcher.
+    const invoiceSendPublicStatusMatch =
+      /^\/api\/companies\/([^/]+)\/invoices\/send-public\/status$/.exec(path);
+    if (invoiceSendPublicStatusMatch) {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      const slug = decodeURIComponent(invoiceSendPublicStatusMatch[1]!);
+      return await handleInvoiceSendPublicStatus(config, request, slug);
+    }
+
+    // Bookkeeping write route (#428): transmit an issued invoice through the
+    // selected company's locally configured DigiSense identity.
     const invoiceSendPublicMatch =
       /^\/api\/companies\/([^/]+)\/invoices\/send-public$/.exec(path);
     if (invoiceSendPublicMatch) {

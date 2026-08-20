@@ -10,19 +10,16 @@ import { projectVatLines } from "./vat-lines";
 const RULE_ID = "DK-INVOICE-PUBLIC-EXPORT-001";
 const OIOUBL_RULE_ID = "DK-INVOICE-PUBLIC-OIOUBL-001";
 
-// The public-recipient handoff document is a Peppol BIS Billing 3.0 invoice
-// (UBL 2.1). Denmark's national OIOUBL 3.0 format was cancelled in January
-// 2026; Peppol BIS Billing 3.0 is accepted by every Danish public authority
-// and is the format NemHandel itself is migrating onto. The surrounding
-// "OioUbl" function/CLI names are kept for interface stability.
-const OIOUBL_UBL_VERSION = "2.1";
-const PEPPOL_BIS_CUSTOMIZATION_ID =
-  "urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0";
-const PEPPOL_BIS_PROFILE_ID = "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0";
-// Peppol participant identifier schemes (ISO 6523): 0088 = GLN/EAN for the
-// buying public authority, 0184 = Danish CVR for the selling company.
-const BUYER_ENDPOINT_SCHEME_ID = "0088";
-const SELLER_ENDPOINT_SCHEME_ID = "0184";
+// DigiSense routes the TEST document to NemHandel from these OIOUBL markers.
+// Keep this exporter genuinely OIOUBL 2.02; a Peppol BIS3 customization would
+// instead select DigiSense's separate Peppol participant registry.
+const OIOUBL_UBL_VERSION = "2.0";
+const OIOUBL_CUSTOMIZATION_ID = "OIOUBL-2.02";
+const OIOUBL_PROFILE_ID = "Procurement-BilSim-1.0";
+const OIOUBL_PROFILE_SCHEME_ID = "urn:oioubl:id:profileid-1.2";
+const OIOUBL_AGENCY_ID = "320";
+const BUYER_ENDPOINT_SCHEME_ID = "GLN";
+const SELLER_ENDPOINT_SCHEME_ID = "DK:CVR";
 const PEPPOL_SUBMIT_RULE_ID = "DK-PEPPOL-SUBMIT-001";
 const PEPPOL_ENVELOPE_VERSION = "rentemester:dk:peppol-submission:v1";
 
@@ -155,9 +152,9 @@ function deriveUblTaxCategory(
   return { id: "S", percent: vatPercent };
 }
 
-// Normalise a Danish seller participant id to the bare 8-digit CVR that
-// schemeID="0184" (ISO 6523) requires: strip an optional "DK" prefix and any
-// non-digits. Returns null when the result is not exactly 8 digits, so a
+// Normalise a Danish seller participant id to eight digits before rendering
+// OIOUBL's DK:CVR / DK:SE values with the required DK prefix. Returns null when
+// the result is not exactly 8 digits, so a
 // malformed CVR surfaces as a validation error rather than a bad EndpointID.
 function normalizeDanishCvrEndpoint(value: string | null | undefined): string | null {
   if (!hasText(value)) return null;
@@ -165,15 +162,15 @@ function normalizeDanishCvrEndpoint(value: string | null | undefined): string | 
   return /^\d{8}$/.test(digits) ? digits : null;
 }
 
-// Default UN/ECE Rec 20 unit code for an invoice line: piece ("H87").
-const DEFAULT_UNIT_CODE = "H87";
+// OIOUBL 2.02 uses the legacy UN/ECE list where piece is "EA".
+const DEFAULT_UNIT_CODE = "EA";
 
 function resolveUnitCode(
   payload: InvoicePayload,
   line: { unitCode?: string },
 ): string {
-  if (hasText(line.unitCode)) return line.unitCode.trim();
-  if (hasText(payload.unitCode)) return payload.unitCode.trim();
+  if (hasText(line.unitCode)) return line.unitCode.trim() === "H87" ? "EA" : line.unitCode.trim();
+  if (hasText(payload.unitCode)) return payload.unitCode.trim() === "H87" ? "EA" : payload.unitCode.trim();
   return DEFAULT_UNIT_CODE;
 }
 
@@ -181,17 +178,20 @@ function buildAddressXml(
   tagName: string,
   address: string | null | undefined,
   indent = "",
-  countryCode = "DK",
+  _countryCode = "DK",
 ) {
   if (!hasText(address)) return "";
   return [
     `${indent}<${tagName}>`,
+    xmlTagWithAttrs(
+      "cbc:AddressFormatCode",
+      { listID: "urn:oioubl:codelist:addressformatcode-1.1", listAgencyID: OIOUBL_AGENCY_ID },
+      "Unstructured",
+      `${indent}  `,
+    ),
     `${indent}  <cac:AddressLine>`,
     xmlTag("cbc:Line", address.trim(), `${indent}    `),
     `${indent}  </cac:AddressLine>`,
-    `${indent}  <cac:Country>`,
-    xmlTag("cbc:IdentificationCode", countryCode, `${indent}    `),
-    `${indent}  </cac:Country>`,
     `${indent}</${tagName}>`,
   ].join("\n");
 }
@@ -260,9 +260,7 @@ function validateOioUblPayload(invoiceNumber: string, payload: InvoicePayload, e
   if (!hasText(payload.seller?.vatOrCvr)) {
     errors.push(`invoice ${invoiceNumber} is missing seller.vatOrCvr required for OIOUBL handoff`);
   } else if (!normalizeDanishCvrEndpoint(payload.seller?.vatOrCvr)) {
-    // schemeID="0184" (Danish CVR) requires exactly 8 digits after stripping an
-    // optional "DK" prefix.
-    errors.push(`invoice ${invoiceNumber} seller.vatOrCvr must be a Danish 8-digit CVR for EndpointID schemeID 0184`);
+    errors.push(`invoice ${invoiceNumber} seller.vatOrCvr must be a Danish 8-digit CVR for EndpointID schemeID DK:CVR`);
   }
   // PEPPOL-EN16931-R003: a public-recipient invoice must carry a BuyerReference.
   // The export falls back to orderReference / invoice number, so this only fails
@@ -316,8 +314,7 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
   const taxLines = payload.lines?.some((line) => line.taxClassification)
     ? projectedTaxLines
     : projectedTaxLines.map((line) => ({ ...line, taxClassification: taxCategory.id === "S" ? "taxable" as const : taxCategory.id === "AE" ? "reverse_charge" as const : "exempt" as const }));
-  // The seller participant id under schemeID="0184" must be the bare 8-digit
-  // CVR (no "DK" prefix). validateOioUblPayload guarantees it is present.
+  // OIOUBL scheme DK:CVR carries the DK-prefixed 10-character identifier.
   const sellerEndpoint = normalizeDanishCvrEndpoint(payload.seller?.vatOrCvr);
   // Reverse-charge / exempt invoices carry no VAT amount; render it as 0.00 so
   // cac:TaxTotal stays well-formed (TaxAmount is mandatory in UBL).
@@ -330,32 +327,57 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     const base = selected.reduce((sum, line) => sum + line.vatBase, 0);
     const vat = selected.reduce((sum, line) => sum + line.vatAmount, 0);
     const rate = selected[0].vatRate;
-    const category = classification === "taxable" ? "S" : classification === "reverse_charge" ? "AE" : "E";
+    const category = classification === "taxable" ? "StandardRated" : classification === "reverse_charge" ? "ReverseCharge" : "ZeroRated";
     return [
       "    <cac:TaxSubtotal>",
       xmlTagWithAttrs("cbc:TaxableAmount", { currencyID: currency }, formatAmount(base), "      "),
       xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, formatAmount(vat), "      "),
       "      <cac:TaxCategory>",
-      xmlTag("cbc:ID", category, "        "),
+      xmlTagWithAttrs("cbc:ID", { schemeID: "urn:oioubl:id:taxcategoryid-1.1", schemeAgencyID: OIOUBL_AGENCY_ID }, category, "        "),
       xmlTag("cbc:Percent", String(rate * 100), "        "),
-      ...(category === "AE" ? [xmlTag("cbc:TaxExemptionReasonCode", VATEX_REVERSE_CHARGE_CODE, "        "), xmlTag("cbc:TaxExemptionReason", hasText(payload.reverseChargeBasis) ? `${REVERSE_CHARGE_REASON_TEXT} (${payload.reverseChargeBasis})` : REVERSE_CHARGE_REASON_TEXT, "        ")] : category === "E" ? [xmlTag("cbc:TaxExemptionReason", EXEMPT_REASON_TEXT, "        ")] : []),
-      "        <cac:TaxScheme>", xmlTag("cbc:ID", "VAT", "          "), "        </cac:TaxScheme>",
+      ...(category === "ReverseCharge" ? [xmlTag("cbc:TaxExemptionReasonCode", VATEX_REVERSE_CHARGE_CODE, "        "), xmlTag("cbc:TaxExemptionReason", hasText(payload.reverseChargeBasis) ? `${REVERSE_CHARGE_REASON_TEXT} (${payload.reverseChargeBasis})` : REVERSE_CHARGE_REASON_TEXT, "        ")] : category === "ZeroRated" ? [xmlTag("cbc:TaxExemptionReason", EXEMPT_REASON_TEXT, "        ")] : []),
+      "        <cac:TaxScheme>",
+      xmlTagWithAttrs("cbc:ID", { schemeID: "urn:oioubl:id:taxschemeid-1.1", schemeAgencyID: OIOUBL_AGENCY_ID }, "63", "          "),
+      xmlTag("cbc:Name", "Moms", "          "),
+      "        </cac:TaxScheme>",
       "      </cac:TaxCategory>", "    </cac:TaxSubtotal>",
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n");
   const lineXml = lines
-    .map((line, index) => [
+    .map((line, index) => {
+      const projected = taxLines[index];
+      const lineCategory = projected?.taxClassification === "taxable" ? "StandardRated" : projected?.taxClassification === "reverse_charge" ? "ReverseCharge" : "ZeroRated";
+      const lineVatAmount = projected?.vatAmount ?? 0;
+      const lineVatBase = projected?.vatBase ?? line.lineTotalExVat;
+      const lineVatRate = (projected?.vatRate ?? 0) * 100;
+      return [
       "  <cac:InvoiceLine>",
       xmlTag("cbc:ID", index + 1, "    "),
       xmlTagWithAttrs("cbc:InvoicedQuantity", { unitCode: resolveUnitCode(payload, line) }, line.quantity, "    "),
       xmlTagWithAttrs("cbc:LineExtensionAmount", { currencyID: currency }, formatAmount(line.lineTotalExVat), "    "),
+      "    <cac:TaxTotal>",
+      xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, formatAmount(lineVatAmount), "      "),
+      "      <cac:TaxSubtotal>",
+      xmlTagWithAttrs("cbc:TaxableAmount", { currencyID: currency }, formatAmount(lineVatBase), "        "),
+      xmlTagWithAttrs("cbc:TaxAmount", { currencyID: currency }, formatAmount(lineVatAmount), "        "),
+      "        <cac:TaxCategory>",
+      xmlTagWithAttrs("cbc:ID", { schemeID: "urn:oioubl:id:taxcategoryid-1.1", schemeAgencyID: OIOUBL_AGENCY_ID }, lineCategory, "          "),
+      xmlTag("cbc:Percent", String(lineVatRate), "          "),
+      "          <cac:TaxScheme>",
+      xmlTagWithAttrs("cbc:ID", { schemeID: "urn:oioubl:id:taxschemeid-1.1", schemeAgencyID: OIOUBL_AGENCY_ID }, "63", "            "),
+      xmlTag("cbc:Name", "Moms", "            "),
+      "          </cac:TaxScheme>",
+      "        </cac:TaxCategory>",
+      "      </cac:TaxSubtotal>",
+      "    </cac:TaxTotal>",
       "    <cac:Item>",
       xmlTag("cbc:Name", line.description, "      "),
       "      <cac:ClassifiedTaxCategory>",
-      xmlTag("cbc:ID", taxLines[index]?.taxClassification === "taxable" ? "S" : taxLines[index]?.taxClassification === "reverse_charge" ? "AE" : "E", "        "),
-      xmlTag("cbc:Percent", String((taxLines[index]?.vatRate ?? 0) * 100), "        "),
+      xmlTagWithAttrs("cbc:ID", { schemeID: "urn:oioubl:id:taxcategoryid-1.1", schemeAgencyID: OIOUBL_AGENCY_ID }, lineCategory, "        "),
+      xmlTag("cbc:Percent", String(lineVatRate), "        "),
       "        <cac:TaxScheme>",
-      xmlTag("cbc:ID", "VAT", "          "),
+      xmlTagWithAttrs("cbc:ID", { schemeID: "urn:oioubl:id:taxschemeid-1.1", schemeAgencyID: OIOUBL_AGENCY_ID }, "63", "          "),
+      xmlTag("cbc:Name", "Moms", "          "),
       "        </cac:TaxScheme>",
       "      </cac:ClassifiedTaxCategory>",
       "    </cac:Item>",
@@ -363,19 +385,20 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
       xmlTagWithAttrs("cbc:PriceAmount", { currencyID: currency }, formatAmount(line.unitPriceExVat), "      "),
       "    </cac:Price>",
       "  </cac:InvoiceLine>",
-    ].filter(Boolean).join("\n"))
+    ].filter(Boolean).join("\n");
+    })
     .join("\n");
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">',
     xmlTag("cbc:UBLVersionID", OIOUBL_UBL_VERSION, "  "),
-    xmlTag("cbc:CustomizationID", PEPPOL_BIS_CUSTOMIZATION_ID, "  "),
-    xmlTag("cbc:ProfileID", PEPPOL_BIS_PROFILE_ID, "  "),
+    xmlTag("cbc:CustomizationID", OIOUBL_CUSTOMIZATION_ID, "  "),
+    xmlTagWithAttrs("cbc:ProfileID", { schemeID: OIOUBL_PROFILE_SCHEME_ID, schemeAgencyID: OIOUBL_AGENCY_ID }, OIOUBL_PROFILE_ID, "  "),
     xmlTag("cbc:ID", invoiceNumber, "  "),
     xmlTag("cbc:IssueDate", payload.issueDate, "  "),
     xmlTag("cbc:DueDate", payload.dueDate, "  "),
-    xmlTag("cbc:InvoiceTypeCode", "380", "  "),
+    xmlTagWithAttrs("cbc:InvoiceTypeCode", { listID: "urn:oioubl:codelist:invoicetypecode-1.1", listAgencyID: OIOUBL_AGENCY_ID }, "380", "  "),
     xmlTag("cbc:DocumentCurrencyCode", currency, "  "),
     // cbc:BuyerReference (BT-10) — mandatory for a public-recipient invoice
     // (PEPPOL-EN16931-R003). Falls back to the order reference, then the
@@ -394,15 +417,16 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
       : "",
     "  <cac:AccountingSupplierParty>",
     "    <cac:Party>",
-    xmlTagWithAttrs("cbc:EndpointID", { schemeID: SELLER_ENDPOINT_SCHEME_ID }, sellerEndpoint, "      "),
+    xmlTagWithAttrs("cbc:EndpointID", { schemeID: SELLER_ENDPOINT_SCHEME_ID }, sellerEndpoint ? `DK${sellerEndpoint}` : null, "      "),
     "      <cac:PartyName>",
     xmlTag("cbc:Name", payload.seller?.name, "        "),
     "      </cac:PartyName>",
     buildAddressXml("cac:PostalAddress", payload.seller?.address, "      "),
     "      <cac:PartyTaxScheme>",
-    xmlTag("cbc:CompanyID", payload.seller?.vatOrCvr, "        "),
+    xmlTagWithAttrs("cbc:CompanyID", { schemeID: "DK:SE" }, sellerEndpoint ? `DK${sellerEndpoint}` : null, "        "),
     "        <cac:TaxScheme>",
-    xmlTag("cbc:ID", "VAT", "          "),
+    xmlTagWithAttrs("cbc:ID", { schemeID: "urn:oioubl:id:taxschemeid-1.1", schemeAgencyID: OIOUBL_AGENCY_ID }, "63", "          "),
+    xmlTag("cbc:Name", "Moms", "          "),
     "        </cac:TaxScheme>",
     "      </cac:PartyTaxScheme>",
     "      <cac:PartyLegalEntity>",
@@ -410,10 +434,14 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     xmlTagWithAttrs(
       "cbc:CompanyID",
       { schemeID: SELLER_ENDPOINT_SCHEME_ID },
-      payload.seller?.vatOrCvr,
+      sellerEndpoint ? `DK${sellerEndpoint}` : null,
       "        ",
     ),
     "      </cac:PartyLegalEntity>",
+    "      <cac:Contact>",
+    xmlTag("cbc:ID", "TEST", "        "),
+    xmlTag("cbc:Name", payload.seller?.name, "        "),
+    "      </cac:Contact>",
     "    </cac:Party>",
     "  </cac:AccountingSupplierParty>",
     "  <cac:AccountingCustomerParty>",
@@ -423,9 +451,10 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     xmlTag("cbc:Name", payload.buyer?.name, "        "),
     "      </cac:PartyName>",
     buildAddressXml("cac:PostalAddress", payload.buyer?.address, "      "),
-    "      <cac:PartyLegalEntity>",
-    xmlTag("cbc:RegistrationName", payload.buyer?.name, "        "),
-    "      </cac:PartyLegalEntity>",
+    "      <cac:Contact>",
+    xmlTag("cbc:ID", "TEST", "        "),
+    xmlTag("cbc:Name", payload.buyer?.name, "        "),
+    "      </cac:Contact>",
     "    </cac:Party>",
     "  </cac:AccountingCustomerParty>",
     "  <cac:TaxTotal>",
@@ -434,7 +463,7 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     "  </cac:TaxTotal>",
     "  <cac:LegalMonetaryTotal>",
     xmlTagWithAttrs("cbc:LineExtensionAmount", { currencyID: currency }, formatAmount(payload.totals?.netAmount), "    "),
-    xmlTagWithAttrs("cbc:TaxExclusiveAmount", { currencyID: currency }, formatAmount(payload.totals?.netAmount), "    "),
+    xmlTagWithAttrs("cbc:TaxExclusiveAmount", { currencyID: currency }, vatAmountForXml, "    "),
     xmlTagWithAttrs("cbc:TaxInclusiveAmount", { currencyID: currency }, formatAmount(payload.totals?.grossAmount), "    "),
     xmlTagWithAttrs("cbc:PayableAmount", { currencyID: currency }, formatAmount(payload.totals?.grossAmount), "    "),
     "  </cac:LegalMonetaryTotal>",
@@ -749,8 +778,8 @@ function buildPeppolSubmissionEnvelope(args: {
     xmlTag("Status", args.status, "  "),
     "  <Document>",
     xmlTag("InvoiceNumber", args.invoiceNumber, "    "),
-    xmlTag("Format", "PEPPOL-BIS-3.0", "    "),
-    xmlTag("Profile", PEPPOL_BIS_CUSTOMIZATION_ID, "    "),
+    xmlTag("Format", OIOUBL_CUSTOMIZATION_ID, "    "),
+    xmlTag("Profile", OIOUBL_PROFILE_ID, "    "),
     xmlTag("HandoffArtifactSha256", args.oioublSha256, "    "),
     "  </Document>",
     "  <AccessPoint>",

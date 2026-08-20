@@ -142,30 +142,20 @@ describe("public e-invoice preview export", () => {
     expect(first.sha256).toBe(second.sha256);
     expect(first.xml).toBe(second.xml);
     expect(readFileSync(outPath, "utf8")).toBe(first.xml);
+    expect(first.xml).toContain("<cbc:CustomizationID>OIOUBL-2.02</cbc:CustomizationID>");
+    expect(first.xml).toContain('schemeID="urn:oioubl:id:profileid-1.2" schemeAgencyID="320">Procurement-BilSim-1.0</cbc:ProfileID>');
+    expect(first.xml).toContain('<cbc:EndpointID schemeID="GLN">5790000000001</cbc:EndpointID>');
+    expect(first.xml).toContain('<cbc:EndpointID schemeID="DK:CVR">DK12345678</cbc:EndpointID>');
     expect(first.xml).toContain(
-      "<cbc:CustomizationID>urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0</cbc:CustomizationID>",
-    );
-    expect(first.xml).toContain("<cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>");
-    // Buyer (public authority) addressed by its EAN/GLN under Peppol scheme 0088.
-    expect(first.xml).toContain('<cbc:EndpointID schemeID="0088">5790000000001</cbc:EndpointID>');
-    // Seller electronic address is mandatory in Peppol BIS (BR-62), DK CVR scheme
-    // 0184. schemeID 0184 carries the bare 8-digit CVR — the "DK" prefix is
-    // stripped (JUR-9), so it must NOT render as "DK12345678".
-    expect(first.xml).toContain('<cbc:EndpointID schemeID="0184">12345678</cbc:EndpointID>');
-    // The legal entity uses the Danish CVR scheme, while the VAT registration
-    // remains the existing DK-prefixed VAT CompanyID without a scheme attribute.
-    expect(first.xml).toContain(
-      "<cac:PartyTaxScheme>\n        <cbc:CompanyID>DK12345678</cbc:CompanyID>\n        <cac:TaxScheme>\n          <cbc:ID>VAT</cbc:ID>",
+      '<cac:PartyTaxScheme>\n        <cbc:CompanyID schemeID="DK:SE">DK12345678</cbc:CompanyID>',
     );
     expect(first.xml).toContain(
-      '<cac:PartyLegalEntity>\n        <cbc:RegistrationName>Rentemester ApS</cbc:RegistrationName>\n        <cbc:CompanyID schemeID="0184">DK12345678</cbc:CompanyID>',
+      '<cac:PartyLegalEntity>\n        <cbc:RegistrationName>Rentemester ApS</cbc:RegistrationName>\n        <cbc:CompanyID schemeID="DK:CVR">DK12345678</cbc:CompanyID>',
     );
     // BuyerReference (BT-10) is mandatory for public recipients (PEPPOL-EN16931-R003).
     expect(first.xml).toContain("<cbc:BuyerReference>");
-    // Country code is mandatory on both postal addresses (BR-09 / BR-11).
-    expect(first.xml).toContain("<cbc:IdentificationCode>DK</cbc:IdentificationCode>");
-    // Buyer name carried as the legal RegistrationName (BT-44).
-    expect(first.xml).toContain("<cbc:RegistrationName>Københavns Kommune</cbc:RegistrationName>");
+    expect(first.xml).toContain('listID="urn:oioubl:codelist:addressformatcode-1.1" listAgencyID="320">Unstructured</cbc:AddressFormatCode>');
+    expect(first.xml).toContain("<cbc:Name>Københavns Kommune</cbc:Name>");
     // VAT percent follows the canonical 0..1→×100 contract: a 0.25 rate renders
     // as "25" (BT-119/BT-152), never "0.25" — and a 1.0 rate would be "100",
     // never "1" (the old heuristic's bug).
@@ -258,11 +248,11 @@ describe("public e-invoice preview export", () => {
   });
 });
 
-// JUR-9 — Peppol BIS 3.0 conformance: BuyerReference (PEPPOL-EN16931-R003),
+// OIOUBL 2.02 conformance: BuyerReference,
 // a tax category derived from the VAT treatment (not hardcoded "S"), a
 // configurable unit code, and the seller EndpointID under schemeID 0184 as a
 // bare 8-digit CVR.
-describe("public e-invoice OIOUBL — JUR-9 Peppol conformance", () => {
+describe("public e-invoice OIOUBL 2.02 conformance", () => {
   test("emits BuyerReference, OrderReference and a configurable unit code", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-jur9-ref-"));
     const db = openDb(ensureCompanyDirs(root).db);
@@ -287,8 +277,7 @@ describe("public e-invoice OIOUBL — JUR-9 Peppol conformance", () => {
     expect(exported.xml).toContain("<cbc:ID>ORDRE-987</cbc:ID>");
     // The configurable unit code overrides the H87 default.
     expect(exported.xml).toContain('<cbc:InvoicedQuantity unitCode="DAY">');
-    // Seller EndpointID is the bare 8-digit CVR (no "DK") under scheme 0184.
-    expect(exported.xml).toContain('<cbc:EndpointID schemeID="0184">12345678</cbc:EndpointID>');
+    expect(exported.xml).toContain('<cbc:EndpointID schemeID="DK:CVR">DK12345678</cbc:EndpointID>');
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -308,8 +297,7 @@ describe("public e-invoice OIOUBL — JUR-9 Peppol conformance", () => {
 
     const exported = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: issued.documentId! });
     expect(exported.ok).toBe(true);
-    // A standard 25% line keeps category S with its real percent.
-    expect(exported.xml).toContain("<cbc:ID>S</cbc:ID>");
+    expect(exported.xml).toContain(">StandardRated</cbc:ID>");
     expect(exported.xml).toContain("<cbc:Percent>25</cbc:Percent>");
     // JUR-9: a standard-rated invoice must NOT carry an exemption reason
     // (BR-S-* forbids BT-120/BT-121 on category S).
@@ -348,7 +336,7 @@ describe("public e-invoice OIOUBL — JUR-9 Peppol conformance", () => {
     expect(exported.ok).toBe(true);
     // Reverse charge => category AE, and the invoice still validates/exports
     // despite carrying no VAT amount/rate.
-    expect(exported.xml).toContain("<cbc:ID>AE</cbc:ID>");
+    expect(exported.xml).toContain(">ReverseCharge</cbc:ID>");
     expect(exported.xml).toContain("<cbc:BuyerReference>EAN-REF-RC</cbc:BuyerReference>");
     // TaxAmount renders as 0.00 so cac:TaxTotal stays well-formed.
     expect(exported.xml).toContain('<cbc:TaxAmount currencyID="DKK">0.00</cbc:TaxAmount>');
@@ -406,7 +394,7 @@ describe("public e-invoice OIOUBL — JUR-9 Peppol conformance", () => {
     const exported = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: documentId });
     expect(exported.ok).toBe(true);
     // A 0% line is treated as exempt (E); BR-E-10 requires an exemption reason.
-    expect(exported.xml).toContain("<cbc:ID>E</cbc:ID>");
+    expect(exported.xml).toContain(">ZeroRated</cbc:ID>");
     expect(exported.xml).toContain("<cbc:TaxExemptionReason>");
 
     db.close();

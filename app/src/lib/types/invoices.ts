@@ -17,12 +17,14 @@ export type InvoiceStatus =
 
 /**
  * Cockpit-facing PEPPOL/e-faktura status (#428) — `null` when the invoice
- * has never been sent as an e-faktura. `prepared` means DigiSense has queued
- * delivery and it is awaiting a status observation; `acknowledged` means the
- * access point confirmed receipt.
+ * has never been attempted as an e-faktura. `queued` has an accepted document
+ * id and permits status-only polling; `failed` is a terminal remote result and
+ * `uncertain` means the POST outcome cannot safely be retried. Neither may be
+ * redelivered. `retryable` failed before delivery; `in_progress` is reserved by
+ * another sender; `acknowledged` is delivered.
  */
 export type InvoicePeppolStatus = {
-  status: "prepared" | "acknowledged";
+  status: "queued" | "failed" | "uncertain" | "retryable" | "in_progress" | "acknowledged";
   submissionReference: string;
   transmissionId: string | null;
   acknowledgedAt: string | null;

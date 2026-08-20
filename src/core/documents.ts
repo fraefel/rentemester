@@ -54,6 +54,8 @@ export type IngestDocumentResult = {
 
 export type IngestDocumentOptions = {
   forceDuplicateLogicalIdentity?: boolean;
+  createdBy?: string;
+  createdByProgram?: string;
 };
 
 const RULES = {
@@ -429,6 +431,8 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
         entityType: "document",
         entityId: inserted.id,
         message: `Ingested supporting document ${documentNo} (${sha256})`,
+        createdBy: options.createdBy,
+        createdByProgram: options.createdByProgram,
       });
 
       return { id: asDocumentId(inserted.id), documentNo };

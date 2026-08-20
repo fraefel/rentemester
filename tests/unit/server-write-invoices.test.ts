@@ -195,6 +195,53 @@ describe("Cockpit write — DigiSense e-faktura", () => {
     }
   });
 
+  test("accepted terminal failure is truthful on first HTTP response and retry", async () => {
+    const { root: ws, slug } = makeWorkspace("digisense-terminal");
+    let deliveries = 0;
+    setInvoiceDigisenseDependenciesForTests({
+      resolveTransmitter: () => ({ ok: true, companyKey: "company-a", transmitter: () => {
+        deliveries += 1;
+        return { ok: false, error: "unable-to-deliver", acceptedDocumentId: "terminal-1", acceptedStatus: "unable-to-deliver" };
+      } }),
+    });
+    try {
+      const documentId = issuePublicInvoice(ws, slug);
+      const body = { invoiceDocumentId: documentId, confirm: true };
+      const first = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, body);
+      const retry = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, body);
+      expect(first.status).toBe(200);
+      expect(first.body.submission).toMatchObject({ status: "failed", transmissionId: "terminal-1" });
+      expect(retry.body.submission).toMatchObject({ status: "failed", transmissionId: "terminal-1", duplicate: true });
+      expect(deliveries).toBe(1);
+    } finally {
+      setInvoiceDigisenseDependenciesForTests(null);
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("ambiguous delivery is truthful and blocked from HTTP redelivery", async () => {
+    const { root: ws, slug } = makeWorkspace("digisense-uncertain");
+    let deliveries = 0;
+    setInvoiceDigisenseDependenciesForTests({
+      resolveTransmitter: () => ({ ok: true, companyKey: "company-a", transmitter: () => {
+        deliveries += 1;
+        return { ok: false, error: "transport timeout after POST", deliveryUncertain: true };
+      } }),
+    });
+    try {
+      const documentId = issuePublicInvoice(ws, slug);
+      const body = { invoiceDocumentId: documentId, confirm: true };
+      const first = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, body);
+      const retry = await post(config({ workspaceRoot: ws }), `/api/companies/${slug}/invoices/send-public`, body);
+      expect(first.body.submission).toMatchObject({ status: "uncertain", transmissionId: null });
+      expect(retry.body.submission).toMatchObject({ status: "uncertain", duplicate: true });
+      expect(deliveries).toBe(1);
+    } finally {
+      setInvoiceDigisenseDependenciesForTests(null);
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   test("missing local DigiSense setup is a safe 400", async () => {
     const { root: ws, slug } = makeWorkspace("digisense-missing");
     try {

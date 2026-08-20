@@ -61,7 +61,12 @@ export function register(dispatch: CommandDispatch): void {
       process.exit(2);
     }
     try {
-      ctx.emitResult(await pollWorkspaceDigisenseInbound(resolveWorkspaceRoot(workspace)) as unknown as Record<string, unknown>);
+      const createdBy = ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor();
+      if (!createdBy) throw new Error("actor required for workspace DigiSense polling");
+      const createdByProgram = ctx.cliActorVia ?? process.env.RENTEMESTER_ACTOR_VIA ?? "rentemester-cli";
+      ctx.emitResult(await pollWorkspaceDigisenseInbound(resolveWorkspaceRoot(workspace), {
+        actor: { createdBy, createdByProgram },
+      }) as unknown as Record<string, unknown>);
     } catch (error) {
       ctx.emitResult({ ok: false, errors: [error instanceof Error ? error.message : String(error)] });
       process.exit(1);
@@ -81,7 +86,10 @@ export function register(dispatch: CommandDispatch): void {
     try {
       const config = loadDigisenseSecretConfig(root);
       if (!config) { ctx.emitResult({ ok: false, errors: ["Digisense is not configured"] }); process.exit(1); }
-      const result = await onboardDigisenseCompany(db, root, createDigisenseClient(config));
+      const result = await onboardDigisenseCompany(db, root, createDigisenseClient(config), {
+        createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? undefined,
+        createdByProgram: ctx.cliActorVia ?? process.env.RENTEMESTER_ACTOR_VIA ?? "rentemester-cli",
+      });
       ctx.emitResult(result as unknown as Record<string, unknown>);
       if (!result.ok) process.exit(1);
     } finally { db.close(); }
@@ -150,7 +158,14 @@ export function register(dispatch: CommandDispatch): void {
     }
 
     const companyType: DigisenseCompanyType = { type: "DK:CVR", id: cvr };
-    const options: RegisterDigisenseCompanyOptions = { companyType, companyName };
+    const options: RegisterDigisenseCompanyOptions = {
+      companyType,
+      companyName,
+      actor: {
+        createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? undefined,
+        createdByProgram: ctx.cliActorVia ?? process.env.RENTEMESTER_ACTOR_VIA ?? "rentemester-cli",
+      },
+    };
     const network = ctx.trimToNull(ctx.arg("--network") ?? null);
     if (network === "nemhandel" || network === "peppol") options.network = network;
 
@@ -263,6 +278,10 @@ export function register(dispatch: CommandDispatch): void {
       const options: PollDigisenseReceivedOptions = {
         companyKey: resolved.companyKey,
         ingestOptions: { forceDuplicateLogicalIdentity: ctx.hasFlag("--force") },
+        actor: {
+          createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? undefined,
+          createdByProgram: ctx.cliActorVia ?? process.env.RENTEMESTER_ACTOR_VIA ?? "rentemester-cli",
+        },
       };
 
       const limit = ctx.parseOptionalNumber("--limit");
@@ -322,7 +341,7 @@ export function register(dispatch: CommandDispatch): void {
         return status.ok ? { ok: true, status: status.data.documentStatus, message: status.data.message, publicUrl: status.data.publicUrl } : { ok: false, error: `digisense document-status failed: ${status.error.message}` };
       });
       ctx.emitResult(result as unknown as Record<string, unknown>);
-      if (!result.ok) process.exit(1);
+      if (!result.ok || result.status === "failed" || result.status === "uncertain") process.exit(1);
     } finally { db.close(); }
   });
   // Legacy alias; `leveringsstatus` avoids ambiguity with onboarding-status.

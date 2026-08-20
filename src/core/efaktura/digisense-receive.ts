@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Database } from "bun:sqlite";
 import { ingestDocument, type DocumentMetadata, type IngestDocumentOptions } from "../documents";
-import { insertAuditLog } from "../actor";
+import { insertAuditLog, type ResolveActorInput } from "../actor";
 import type {
   DigisenseClient,
   ListReceivedDocumentsQuery,
@@ -88,6 +88,8 @@ export type PollDigisenseReceivedOptions = {
   ingestOptions?: IngestDocumentOptions;
   /** Hård øvre grænse på antal sider, så et fejlende nextPageUrl ikke looper. */
   maxPages?: number;
+  /** Explicit actor propagated to every document and DigiSense audit event. */
+  actor?: ResolveActorInput;
 };
 
 /**
@@ -264,7 +266,11 @@ async function ingestReceivedDocument(
     writeFileSync(xmlPath, download.xml, "utf8");
 
     const metadata = buildReceivedMetadata(doc, download.xml, options.metadata);
-    const ingest = ingestDocument(db, companyRoot, xmlPath, metadata, options.ingestOptions ?? {});
+    const ingest = ingestDocument(db, companyRoot, xmlPath, metadata, {
+      ...(options.ingestOptions ?? {}),
+      createdBy: options.actor?.createdBy,
+      createdByProgram: options.actor?.createdByProgram,
+    });
     if (!ingest.ok) {
       // TERMINAL ingest-fejl: download lykkedes, men XML'en kan ikke bookføres
       // (manglende obligatoriske felter, indholds-dublet, logisk dublet). Det er
@@ -274,7 +280,7 @@ async function ingestReceivedDocument(
       // fejler igen i det uendelige (den signerede downloadUrl udløber). Et
       // menneske kan se quarantine-rækken og håndtere bilaget manuelt.
       const reason = (ingest.errors ?? ["ingest failed"]).join("; ");
-      quarantineReceivedDocument(db, companyKey, doc, reason);
+      quarantineReceivedDocument(db, companyKey, doc, reason, options.actor);
       return { internalId, status: "quarantined", errors: ingest.errors ?? ["ingest failed"] };
     }
 
@@ -303,6 +309,7 @@ async function ingestReceivedDocument(
         entityType: "document",
         entityId: ingest.documentId ?? null,
         message: `Modtog e-faktura ${ingest.documentNo} via Digisense (internalId=${internalId}, ${doc.sourceNetwork ?? "ukendt netværk"}, afsender ${doc.senderName ?? doc.senderParticipantId ?? "ukendt"})`,
+        ...options.actor,
       });
     })();
 
@@ -324,6 +331,7 @@ function quarantineReceivedDocument(
   companyKey: string,
   doc: ReceivedDocument,
   reason: string,
+  actor?: ResolveActorInput,
 ): void {
   db.transaction(() => {
     db.run(
@@ -347,6 +355,7 @@ function quarantineReceivedDocument(
       entityType: "document",
       entityId: null,
       message: `Sat modtaget e-faktura i karantæne (internalId=${doc.internalId}, afsender ${doc.senderName ?? doc.senderParticipantId ?? "ukendt"}): ${reason}`,
+      ...actor,
     });
   })();
 }

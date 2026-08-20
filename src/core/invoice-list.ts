@@ -25,14 +25,13 @@ export type InvoiceListFilters = {
  * `submitPublicEInvoicePeppol` / `transmitPublicEInvoicePeppol` (#128).
  *
  * `null` when the invoice has never been submitted/transmitted as a public
- * e-faktura. When present, `status` is `"prepared"` once a submission
- * envelope has been recorded and `"acknowledged"` once the access point has
- * confirmed receipt. The Cockpit row uses this both to flag "Sendt som
- * e-faktura" and to suppress a duplicate-send button when the invoice has
- * already been transmitted.
+ * e-faktura. The read model distinguishes accepted `queued` delivery from a
+ * terminal provider `failed` result, a pre-acceptance `retryable` failure and
+ * an active `in_progress` reservation. This distinction prevents both duplicate
+ * delivery and a UI dead end after a safe-to-retry failure.
  */
 export type InvoicePeppolStatus = {
-  status: "prepared" | "acknowledged";
+  status: "queued" | "failed" | "uncertain" | "retryable" | "in_progress" | "acknowledged";
   submissionReference: string;
   transmissionId: string | null;
   acknowledgedAt: string | null;
@@ -217,22 +216,41 @@ function loadLatestPeppolStatus(db: Database, invoiceDocumentId: number): Invoic
     const row = db
       .query(
         `SELECT s.submission_reference,
-                e.document_id AS transmission_id,
-                e.observed_at AS acknowledged_at,
-                CASE WHEN e.id IS NULL THEN 'prepared' ELSE 'acknowledged' END AS status
+                COALESCE(d.document_id, CASE WHEN s.status = 'acknowledged' THEN s.transmission_id END, q.document_id) AS transmission_id,
+                COALESCE(d.observed_at, CASE WHEN s.status = 'acknowledged' THEN s.acknowledged_at END) AS acknowledged_at,
+                CASE
+                  WHEN d.id IS NOT NULL OR s.status = 'acknowledged' THEN 'acknowledged'
+                  WHEN latest.event_type = 'delivery_reserved' THEN 'in_progress'
+                  WHEN latest.event_type = 'delivery_failed' AND COALESCE(latest.status, '') <> 'pre-acceptance-failed' THEN 'uncertain'
+                  WHEN q.id IS NOT NULL AND (
+                    q.status IN ('document-not-valid', 'unable-to-deliver', 'unknown-server-error')
+                    OR latest.status IN ('document-not-valid', 'unable-to-deliver', 'unknown-server-error')
+                  ) THEN 'failed'
+                  WHEN q.id IS NOT NULL AND latest.event_type IN ('queued', 'status_observed') THEN 'queued'
+                  ELSE 'retryable'
+                END AS status
          FROM peppol_submissions s
-         LEFT JOIN peppol_submission_events e ON e.id = (
+         LEFT JOIN peppol_submission_events d ON d.id = (
            SELECT id FROM peppol_submission_events
            WHERE submission_id = s.id AND event_type = 'delivered'
            ORDER BY id DESC LIMIT 1
          )
+         LEFT JOIN peppol_submission_events q ON q.id = (
+           SELECT id FROM peppol_submission_events
+           WHERE submission_id = s.id AND event_type = 'queued'
+           ORDER BY id DESC LIMIT 1
+         )
+         LEFT JOIN peppol_submission_events latest ON latest.id = (
+           SELECT id FROM peppol_submission_events
+           WHERE submission_id = s.id ORDER BY id DESC LIMIT 1
+         )
          WHERE s.invoice_document_id = ?
-         ORDER BY CASE WHEN e.id IS NULL THEN 1 ELSE 0 END, s.id DESC
+         ORDER BY CASE WHEN d.id IS NOT NULL OR s.status = 'acknowledged' THEN 0 ELSE 1 END, s.id DESC
          LIMIT 1`,
       )
       .get(invoiceDocumentId) as
       | {
-          status: "prepared" | "acknowledged";
+          status: "queued" | "failed" | "uncertain" | "retryable" | "in_progress" | "acknowledged";
           submission_reference: string;
           transmission_id: string | null;
           acknowledged_at: string | null;

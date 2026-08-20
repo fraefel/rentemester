@@ -353,7 +353,7 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
     );
     ctx.emitResult(result as unknown as Record<string, unknown>);
     db.close();
-    if (!result.ok) process.exit(1);
+    if (!result.ok || result.status === "failed" || result.status === "uncertain") process.exit(1);
   });
 
   dispatch.on("invoice", "credit-note", (ctx) => {

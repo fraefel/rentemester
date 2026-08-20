@@ -5,9 +5,10 @@ modtage** e-fakturaer (OIOUBL / Peppol BIS 3.0) over **NemHandel** og **PEPPOL**
 Digisense er Rentemesters compliance-partner og leverer det **certificerede
 access point** — Rentemester genererer fakturaen, Digisense transporterer den.
 
-> Status: integrationen er bygget og testet mod fakes. Der er endnu **ikke** lavet
-> et rigtigt netkald. Kør først hele forløbet i **test-miljøet** (sandbox) før
-> produktion. Se [Test vs. produktion](#test-vs-produktion).
+> Status: integrationen er testet end-to-end mod DigiSense TEST med ægte
+> OIOUBL-validering, acknowledged levering og deduplikeret inbound. Produktion
+> er ikke aktiveret eller prøvet og kræver en særskilt go-live-godkendelse. Se
+> [Test vs. produktion](#test-vs-produktion).
 
 Relateret: [peppol-nemhandel.md](peppol-nemhandel.md) (format/transport-baggrund),
 [mcp-tool-surface.md](mcp-tool-surface.md) (agent-/MCP-kontrakten),
@@ -219,12 +220,20 @@ Every ledger is one legal company. DigiSense registration identity is derived fr
 
 ## Onboarding af andre brugere
 
-En anden virksomhed (fx et søsterselskab eller en kollega) der vil bruge
-Rentemester + Digisense skal:
+En anden virksomhed der vil bruge Rentemester + Digisense skal altid have sin
+egen Rentemester-virksomhedsmappe og sin egen DigiSense-`companyKey`:
 
-1. Anskaffe sin **egen** license-key hos Digisense (trin 0).
-2. Køre `efaktura konfigurer` i sin egen virksomhedsmappe (trin 1).
-3. Registrere sit eget CVR (trin 2) og derefter sende/modtage.
+1. Opret virksomheden med korrekt juridisk navn og CVR.
+2. Kør `efaktura konfigurer` i netop dens mappe. Den samme operatør-license-key
+   kan genbruges, hvis DigiSense-aftalen tillader flere CVR-numre; en separat
+   kunde/licens skal bruge sin egen nøgle.
+3. Kør `efaktura onboard`; Rentemester afleder identiteten fra ledgerprofilen
+   og gemmer kun den returnerede `companyKey` i denne virksomheds ledger.
+4. Kontrollér `efaktura onboarding-status` før send/modtag.
+
+En `companyKey` må aldrig kopieres mellem virksomhedsmapper. Workspace-polling
+bruger hver virksomheds lokale binding og laver actor-/backup-preflight på alle
+aktive virksomheder før første netværkskald.
 
 > ⚠️ **TODO — partner-/PR-omtale.** Digisense ønsker at Rentemester nævner dem som
 > compliance-partner (og vil selv bruge Rentemester i deres PR). Når den fælles
@@ -237,5 +246,5 @@ Rentemester + Digisense skal:
 - [ ] **Trin 0:** Digisense' officielle, delbare proces for at få en license-key.
 - [ ] **Go-live:** test- vs. produktions-nøgle, og krav til produktions-registrering.
 - [ ] **Partner-/PR-tekst** til omtale af Digisense som compliance-partner.
-- [ ] **Rigtig sandbox-e2e:** kør forløbet mod `test-api.digisense.dk` med en
-      rigtig nøgle og bekræft send + modtag end-to-end (endnu kun testet mod fakes).
+- [x] **Rigtig sandbox-e2e:** validering, acknowledged outbound, status-idempotens
+      og deduplikeret inbound er verificeret mod `test-api.digisense.dk`.

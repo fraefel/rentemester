@@ -249,6 +249,8 @@ describe("digisense transmitter — 202 queued triggers polling", () => {
     if (!outcome.ok) {
       expect(outcome.error).toContain("unable-to-deliver");
       expect(outcome.error).toContain("receiver rejected");
+      expect(outcome.acceptedDocumentId).toBe("doc-fail");
+      expect(outcome.acceptedStatus).toBe("unable-to-deliver");
     }
     // Kun ÉT status-poll: terminal fejl stopper loopet.
     expect(calls.status).toHaveLength(1);
@@ -268,7 +270,11 @@ describe("digisense transmitter — 202 queued triggers polling", () => {
     const transmit = createDigisenseTransmitter(client, { companyKey: "ck", clock: time.clock, sleep: time.sleep });
     const outcome = await transmit(TRANSMITTER_INPUT);
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.error).toContain("document-not-valid");
+    if (!outcome.ok) {
+      expect(outcome.error).toContain("document-not-valid");
+      expect(outcome.acceptedDocumentId).toBe("doc-nv");
+      expect(outcome.acceptedStatus).toBe("document-not-valid");
+    }
   });
 
   test("a transient status keeps polling until the bounded attempt budget is exhausted", async () => {
@@ -324,8 +330,20 @@ describe("digisense transmitter — deliver-level errors", () => {
 
     const outcome = await transmit(TRANSMITTER_INPUT);
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.error).toContain("503");
+    if (!outcome.ok) {
+      expect(outcome.error).toContain("503");
+      expect(outcome.deliveryUncertain).toBe(true);
+    }
     expect(calls.status).toHaveLength(0);
+  });
+
+  test("an incomplete 2xx delivery response is uncertain and must not be retried", async () => {
+    const { client } = fakeClient({
+      deliver: ok<DeliverDocumentResponse>({} as DeliverDocumentResponse, 200),
+    });
+    const transmit = createDigisenseTransmitter(client, { companyKey: "ck" });
+    const outcome = await transmit(TRANSMITTER_INPUT);
+    expect(outcome).toMatchObject({ ok: false, deliveryUncertain: true });
   });
 
   test("surfaces a structured deliver diagnostic without leaking identifiers or URLs", async () => {
@@ -372,6 +390,10 @@ describe("digisense transmitter — deliver-level errors", () => {
     const transmit = createDigisenseTransmitter(client, { companyKey: "ck", clock: time.clock, sleep: time.sleep });
     const outcome = await transmit(TRANSMITTER_INPUT);
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.error).toContain("document-not-valid");
+    if (!outcome.ok) {
+      expect(outcome.error).toContain("document-not-valid");
+      expect(outcome.acceptedDocumentId).toBe("doc-4xx");
+      expect(outcome.acceptedStatus).toBe("document-not-valid");
+    }
   });
 });

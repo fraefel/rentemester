@@ -90,10 +90,14 @@ for den tabel der pr. business-operation viser hvilke stakke der kræver hvad.
 |----------|----------------|------------------|
 | `system restore-backup` | Overskriver filer i `--target-company` | Exit `1`. `errors[]` slutter med `Re-run with --confirm yes to proceed.` |
 | `asset write-off` | Straksafskriver et aktiv (modposterer cost) | Exit `1`. Resultatet er `{ok:false, errors:[…]}` fra core'en. |
+| `efaktura konfigurer` / `onboard` / `registrer*` | Gemmer secret eller ændrer ekstern DigiSense/NemHandel-registrering | Exit `1`; ingen secret/state/netværksmutation udføres. |
+| `efaktura modtag` / `modtag-workspace` | Henter og indlæser eksterne bilag i én eller flere ledgers | Exit `1`; workspace-varianten preflighter actor og backup-lås for alle aktive mål før første netværkskald. |
+| `invoice transmit-digisense` / `efaktura leveringsstatus` | Leverer én e-faktura eller observerer eksisterende queued levering | Exit `1`; en queued identitet må kun status-poll'es og må aldrig blindt leveres igen. |
 
 Alle andre muterende kommandoer (faktura-bogføring, journal-postering,
 bank-import, periode-luk, …) kræver **ikke** `--confirm yes` — `--actor`
-er kontrakten. Det modsatte gælder for samme operation på MCP (alle writes
+er kontrakten. DigiSense-kommandoerne ovenfor er en bevidst ekstra ekstern
+sikkerhedsgate. Det modsatte gælder for samme operation på MCP (alle writes
 kræver `confirm: true`); afvigelsen er bevidst og forklaret i
 [`docs/confirm-contract.md`](confirm-contract.md).
 

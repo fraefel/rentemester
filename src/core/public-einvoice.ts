@@ -664,8 +664,8 @@ export type SubmitPublicEInvoicePeppolResult = {
   envelopeSha256?: string;
   /** The deterministic submission envelope XML. */
   envelope?: string;
-  /** 'prepared' or 'acknowledged'. */
-  status?: "prepared" | "acknowledged";
+  /** queued/prepared, terminally failed after provider acceptance, or delivered. */
+  status?: "prepared" | "failed" | "uncertain" | "acknowledged";
   /** True when an existing submission record was reused (idempotent re-run). */
   duplicate?: boolean;
   outPath?: string;
@@ -701,15 +701,24 @@ type PeppolSubmissionEventRow = {
 function effectiveAcknowledgement(
   db: Database,
   row: PeppolSubmissionRow,
-): PeppolSubmissionStatusEvidenceRow | null {
-  // `peppol_submissions` is the immutable reservation/envelope artifact.
-  // Delivery truth belongs exclusively to the append-only evidence stream.
-  // In particular, do not fall back to the legacy immutable columns here: a
-  // later observation must be able to supersede the prepared artifact.
-  return db.query(
+): { document_id: string; observed_at: string } | null {
+  const event = db.query(
     `SELECT document_id, observed_at FROM peppol_submission_events
      WHERE submission_id = ? AND event_type = 'delivered' ORDER BY id DESC LIMIT 1`,
   ).get(row.id) as PeppolSubmissionEventRow | null;
+  if (event) return event;
+
+  // Databases created before the append-only event migration stored the
+  // acknowledgement on the immutable submission row. Preserve that evidence
+  // as a read-only fallback so an upgrade can never make a delivered invoice
+  // appear unsent (and therefore tempt a duplicate delivery).
+  if (row.status === "acknowledged" && row.transmission_id) {
+    return {
+      document_id: row.transmission_id,
+      observed_at: row.acknowledged_at ?? "",
+    };
+  }
+  return null;
 }
 
 function latestSubmissionEvent(db: Database, submissionId: number): PeppolSubmissionEventRow | null {
@@ -726,6 +735,16 @@ function queuedSubmissionEvent(db: Database, submissionId: number): PeppolSubmis
       WHERE submission_id = ? AND event_type = 'queued'
       ORDER BY id DESC LIMIT 1`,
   ).get(submissionId) as PeppolSubmissionEventRow | null;
+}
+
+const TERMINAL_ACCEPTED_FAILURE_STATUSES = new Set([
+  "document-not-valid",
+  "unable-to-deliver",
+  "unknown-server-error",
+]);
+
+function isTerminalAcceptedFailure(status: string | null | undefined): boolean {
+  return Boolean(status && TERMINAL_ACCEPTED_FAILURE_STATUSES.has(status));
 }
 
 function recordSubmissionEvent(
@@ -1012,27 +1031,37 @@ export function submitPublicEInvoicePeppol(
 // (Oxalis); it is wired in separately once an access point and a MitID system
 // certificate are available, and its credentials never enter core state.
 //
-// A successful transmission is recorded as an `acknowledged` peppol_submissions
-// row (reusing submitPublicEInvoicePeppol's acknowledgement path). A failed
-// attempt is recorded only in the append-only audit log — no submission row is
-// written, so a later retry can still reach `acknowledged`.
+// A successful transmission is recorded as effective append-only delivered
+// evidence. A pre-acceptance failure remains retryable; once a provider assigns
+// a document id, that accepted identity is persisted and can never be delivered
+// again, regardless of whether its later terminal status is success or failure.
 // ============================================================================
 
 /**
  * Outcome of one transport attempt through an access point.
  *
- * `ok:false` may carry a `queuedDocumentId`: the transport ACCEPTED the document
- * (it sits in the access point's delivery queue, e.g. Digisense' 202/queued) but
- * we did not observe a terminal `delivered` within the bounded poll budget. The
- * document is NOT lost — it will likely be delivered asynchronously — so a blind
- * retry that calls `deliver` again would deliver it a SECOND time. When this id
- * is present, `transmitPublicEInvoicePeppol` records a non-terminal `prepared`
- * submission row keyed on it and a later run refuses to re-deliver (it must poll
- * the existing documentId instead).
+ * `ok:false` may carry an `acceptedDocumentId`: the provider assigned a remote
+ * identity, either while queued or before reporting a terminal rejection. That
+ * identity is durable acceptance evidence, so a blind retry could duplicate the
+ * invoice. The public-einvoice layer records it append-only and permanently
+ * refuses a second delivery. `queuedDocumentId` remains as a compatibility alias.
  */
 export type PeppolTransmissionOutcome =
   | { ok: true; transmissionId: string; transmittedAt: string }
-  | { ok: false; error: string; queuedDocumentId?: string };
+  | {
+      ok: false;
+      error: string;
+      /** A remote id proves provider acceptance and permanently forbids re-delivery. */
+      acceptedDocumentId?: string;
+      /** Provider status observed for the accepted document. */
+      acceptedStatus?: string;
+      /** Delivery POST completed ambiguously without a trustworthy remote id. */
+      deliveryUncertain?: boolean;
+      /** Explicit proof that failure happened before any delivery POST. */
+      retryableBeforeDelivery?: boolean;
+      /** @deprecated Compatibility alias for acceptedDocumentId. */
+      queuedDocumentId?: string;
+    };
 
 /**
  * Performs the actual AS4 transport of an OIOUBL invoice through an access
@@ -1129,6 +1158,18 @@ export async function resumePublicEInvoicePeppolSubmission(
     recordSubmissionEvent(db, row.id, "delivered", { documentId: queuedDocumentId, status: "delivered", observedAt, message: observed.message, publicUrl: observed.publicUrl });
     return { ...rowToSubmissionResult(db, row, invoiceNumber, true), status: "acknowledged", transmissionId: queuedDocumentId };
   }
+  if (isTerminalAcceptedFailure(observed.status)) {
+    return {
+      ok: true,
+      invoiceNumber,
+      submissionReference: row.submission_reference,
+      idempotencyKey,
+      status: "failed",
+      transmissionId: queuedDocumentId,
+      appliedRules: [PEPPOL_SUBMIT_RULE_ID],
+      errors: [],
+    };
+  }
   return { ok: false, invoiceNumber, submissionReference: row.submission_reference, idempotencyKey, status: "prepared", transmissionId: queuedDocumentId, appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [`PEPPOL submission remains ${observed.status ?? "unknown"}: ${observed.message ?? "no status message"}`] };
 }
 
@@ -1190,9 +1231,15 @@ export async function transmitPublicEInvoicePeppol(
     ).get(idempotencyKey) as PeppolSubmissionRow;
     const effective = effectiveAcknowledgement(db, row);
     if (row.status === "acknowledged" || effective) return { row, action: "acknowledged" as const, documentId: effective?.document_id ?? row.transmission_id };
-    const queued = queuedSubmissionEvent(db, row.id);
-    if (queued && hasText(queued.document_id)) return { row, action: "queued" as const, documentId: queued.document_id };
     const latest = latestSubmissionEvent(db, row.id);
+    const queued = queuedSubmissionEvent(db, row.id);
+    if (queued && hasText(queued.document_id)) {
+      const acceptedStatus = latest?.event_type === "status_observed" ? latest.status : queued.status;
+      return { row, action: "accepted" as const, documentId: queued.document_id, acceptedStatus };
+    }
+    if (latest?.event_type === "delivery_failed" && latest.status !== "pre-acceptance-failed") {
+      return { row, action: "uncertain" as const };
+    }
     if (latest?.event_type === "delivery_reserved") return { row, action: "in_progress" as const };
     // A delivery_failed event proves the prior reservation never obtained a
     // remote id, so it is safe to create a new attempt rather than deadlock it.
@@ -1200,7 +1247,8 @@ export async function transmitPublicEInvoicePeppol(
     return { row, action: "deliver" as const };
   }, { immediate: true })();
   if (reservation.action === "acknowledged") return { ...rowToSubmissionResult(db, reservation.row, invoiceNumber, true), status: "acknowledged", transmissionId: reservation.documentId ?? undefined };
-  if (reservation.action === "queued") return { ok: true, invoiceNumber, submissionReference: reservation.row.submission_reference, idempotencyKey, status: "prepared", duplicate: true, transmissionId: reservation.documentId, appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [] };
+  if (reservation.action === "accepted") return { ok: true, invoiceNumber, submissionReference: reservation.row.submission_reference, idempotencyKey, status: isTerminalAcceptedFailure(reservation.acceptedStatus) ? "failed" : "prepared", duplicate: true, transmissionId: reservation.documentId, appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [] };
+  if (reservation.action === "uncertain") return { ok: true, invoiceNumber, submissionReference: reservation.row.submission_reference, idempotencyKey, status: "uncertain", duplicate: true, appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [] };
   if (reservation.action === "in_progress") return { ok: false, invoiceNumber, submissionReference: reservation.row.submission_reference, idempotencyKey, status: "prepared", appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [`PEPPOL transmission is already in progress for invoice ${invoiceNumber}; retry later or poll its queued status.`] };
 
   // Perform the transport. A thrown error is treated as a failed attempt.
@@ -1213,7 +1261,14 @@ export async function transmitPublicEInvoicePeppol(
       accessPoint: input.accessPoint,
     });
   } catch (error) {
-    outcome = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    // A transmitter throw does not reveal whether its delivery POST reached
+    // the provider. Fail closed: persist an uncertain result and forbid an
+    // automatic second delivery.
+    outcome = {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      deliveryUncertain: true,
+    };
   }
 
   if (!outcome.ok) {
@@ -1225,31 +1280,57 @@ export async function transmitPublicEInvoicePeppol(
         `PEPPOL transmission failed for invoice ${invoiceNumber} ` +
         `via access point ${input.accessPoint.accessPointId.trim()}: ${outcome.error}`,
     });
-    if (outcome.queuedDocumentId) {
-      recordSubmissionEvent(db, reservation.row.id, "queued", { documentId: outcome.queuedDocumentId, status: "queued-for-delivery", message: outcome.error });
+    const acceptedDocumentId = outcome.acceptedDocumentId ?? outcome.queuedDocumentId;
+    if (acceptedDocumentId) {
+      const acceptedStatus = outcome.acceptedStatus ?? "queued-for-delivery";
+      recordSubmissionEvent(db, reservation.row.id, "queued", { documentId: acceptedDocumentId, status: acceptedStatus, message: outcome.error });
       insertAuditLog(db, {
         eventType: "public_einvoice_peppol_transmission",
         entityType: "document",
         entityId: input.invoiceDocumentId,
         message:
-          `PEPPOL transmission for invoice ${invoiceNumber} is QUEUED at the access point ` +
-          `(documentId ${outcome.queuedDocumentId}); recorded a pending submission to prevent a re-deliver. ` +
-          `Poll the delivery status for this documentId rather than retrying transmit.`,
+          `PEPPOL transmission for invoice ${invoiceNumber} was accepted by the access point ` +
+          `(documentId ${acceptedDocumentId}, status ${acceptedStatus}); recorded accepted evidence to prevent a re-deliver. ` +
+          `Observe only the existing documentId; never retry transmit.`,
       });
       return {
-        // The provider accepted the document. This is a successful pending
-        // response, not an HTTP failure: callers reload into status-only mode.
+        // The provider assigned a remote identity. Persisted state is the
+        // authority: callers reload into queued or terminal-failed mode.
         ok: true,
         invoiceNumber,
         submissionReference: reservation.row.submission_reference,
         idempotencyKey,
-        status: "prepared",
-        transmissionId: outcome.queuedDocumentId,
+        status: isTerminalAcceptedFailure(acceptedStatus) ? "failed" : "prepared",
+        transmissionId: acceptedDocumentId,
         appliedRules: [PEPPOL_SUBMIT_RULE_ID],
         errors: [],
       };
     }
-    recordSubmissionEvent(db, reservation.row.id, "delivery_failed", { message: outcome.error });
+    if (outcome.deliveryUncertain || !outcome.retryableBeforeDelivery) {
+      recordSubmissionEvent(db, reservation.row.id, "delivery_failed", {
+        status: "delivery-uncertain",
+        message: outcome.error,
+      });
+      insertAuditLog(db, {
+        eventType: "public_einvoice_peppol_transmission",
+        entityType: "document",
+        entityId: input.invoiceDocumentId,
+        message: `PEPPOL delivery outcome is uncertain for invoice ${invoiceNumber}; automatic re-delivery is blocked pending manual provider reconciliation.`,
+      });
+      return {
+        ok: true,
+        invoiceNumber,
+        submissionReference: reservation.row.submission_reference,
+        idempotencyKey,
+        status: "uncertain",
+        appliedRules: [PEPPOL_SUBMIT_RULE_ID],
+        errors: [],
+      };
+    }
+    recordSubmissionEvent(db, reservation.row.id, "delivery_failed", {
+      status: "pre-acceptance-failed",
+      message: outcome.error,
+    });
     return {
       ok: false,
       invoiceNumber,

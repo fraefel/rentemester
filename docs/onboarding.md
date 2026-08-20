@@ -200,3 +200,15 @@ DigiSense configuration and bound company identity. Do not put DigiSense keys,
 access-point details or company keys in browser/API request bodies. A queued
 delivery appears as **E-faktura køsat — afventer status**; use **Opdatér
 leveringsstatus** to observe it. That action never sends the document again.
+En fejl før DigiSense har accepteret dokumentet vises derimod som
+**E-faktura fejlede — kan prøves igen** og må leveres igen med samme
+idempotente identitet.
+En terminal status efter DigiSense har accepteret dokumentet vises som
+**E-faktura afvist — send ikke igen**. Det eksisterende dokument-id bevares
+som revisionsspor, og Cockpit tilbyder hverken ny levering eller yderligere
+automatisk polling.
+Et timeout, forbindelsesbrud eller ubrugeligt svar efter selve delivery-POST'en
+vises som **E-faktura-status ukendt — afklar manuelt**. Rentemester blokerer
+automatisk gensendelse, fordi DigiSense kan have accepteret dokumentet uden at
+returnere et brugbart dokument-id. Afklar udfaldet hos DigiSense før manuel
+videre behandling.

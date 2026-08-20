@@ -4,6 +4,7 @@ import { loadDigisenseSecretConfig } from "./digisense-config";
 import { resolveDigisenseIdentity, resolveBoundDigisenseCompanyKey } from "./digisense-identity";
 import { listDigisenseParticipants } from "./digisense-state";
 import { registerDigisenseCompany } from "./digisense-register";
+import type { ResolveActorInput } from "../actor";
 
 export type DigisenseOnboardingStatus = {
   configured: boolean;
@@ -45,7 +46,7 @@ export function getDigisenseOnboardingStatus(db: Database, companyRoot: string):
 
 /** Idempotently validates authorization then makes the current profile send+receive ready. */
 export async function onboardDigisenseCompany(
-  db: Database, companyRoot: string, client: DigisenseClient,
+  db: Database, companyRoot: string, client: DigisenseClient, actor?: ResolveActorInput,
 ): Promise<{ ok: true; status: DigisenseOnboardingStatus; companyKey: string } | { ok: false; errors: string[]; status: DigisenseOnboardingStatus }> {
   const before = getDigisenseOnboardingStatus(db, companyRoot);
   if (!before.identity) return { ok: false, errors: before.blockers, status: before };
@@ -53,6 +54,7 @@ export async function onboardDigisenseCompany(
   if (!auth.ok) return { ok: false, errors: [`validate-auth failed: ${auth.error.message}`], status: before };
   const result = await registerDigisenseCompany(db, companyRoot, client, {
     companyType: { type: "DK:CVR", id: before.identity.cvr }, companyName: before.identity.companyName,
+    actor,
   });
   const status = getDigisenseOnboardingStatus(db, companyRoot);
   return result.ok ? { ok: true, status, companyKey: result.companyKey } : { ok: false, errors: result.errors, status };

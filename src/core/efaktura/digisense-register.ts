@@ -25,7 +25,7 @@
 // config (secret-laget), aldrig her.
 
 import type { Database } from "bun:sqlite";
-import { insertAuditLog } from "../actor";
+import { insertAuditLog, type ResolveActorInput } from "../actor";
 import type {
   DigisenseClient,
   DigisenseCompanyType,
@@ -72,6 +72,8 @@ export type RegisterDigisenseCompanyOptions = {
    * en dansk virksomhed registreres på sit eget CVR.
    */
   participantId?: string;
+  /** Explicit actor from CLI/MCP, propagated to registration audit evidence. */
+  actor?: ResolveActorInput;
 };
 
 export type RegisterDigisenseCompanyResult =
@@ -201,6 +203,7 @@ export async function registerDigisenseCompany(
       `på ${network} (companyKey=${companyKey}); ` +
       `retninger: ${directionsRegistered.length > 0 ? directionsRegistered.join(", ") : "ingen"}` +
       (errors.length > 0 ? ` — ${errors.length} fejlede` : ""),
+    ...options.actor,
   });
 
   if (errors.length > 0) {

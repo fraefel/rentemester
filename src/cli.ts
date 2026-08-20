@@ -332,7 +332,12 @@ if (!cmd || cmd === "help") {
   if (MUTATING_COMMANDS.has(commandKey)) {
     const mutationRoot = commandKey === "system restore-backup"
       ? trimToNull(parsedArgs.flags.get("--target-company") as string | undefined)
-      : ctx.companyRoot();
+      // The workspace handler performs an all-target actor + backup preflight
+      // before any network/write. A synthetic --company must not substitute
+      // for those actual target ledgers here.
+      : commandKey === "efaktura modtag-workspace"
+        ? null
+        : ctx.companyRoot();
     if (mutationRoot) {
       enforceMutationActorPolicy(commandKey, mutationRoot, cliActor, cliActorVia, fatal);
     }

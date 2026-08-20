@@ -564,6 +564,7 @@ export async function handleInvoiceSendPublic(
         submissionReference: submitted.submissionReference,
         status: submitted.status,
         duplicate: submitted.duplicate,
+        transmissionId: submitted.transmissionId,
         envelopeSha256: submitted.envelopeSha256,
         oioublSha256: submitted.oioublSha256,
       };
@@ -577,6 +578,7 @@ export async function handleInvoiceSendPublic(
       submissionReference: result.submissionReference ?? null,
       status: result.status ?? null,
       duplicate: Boolean(result.duplicate),
+      transmissionId: result.transmissionId ?? null,
       envelopeSha256: result.envelopeSha256 ?? null,
       oioublSha256: result.oioublSha256 ?? null,
     },

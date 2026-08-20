@@ -68,7 +68,7 @@ export function resolveCompanyIssuedInvoicePdf(
  * truthful delivery status on a row and gate send/status actions.
  */
 export type CompanyInvoicePeppolStatus = {
-  status: "prepared" | "acknowledged";
+  status: "queued" | "failed" | "uncertain" | "retryable" | "in_progress" | "acknowledged";
   submissionReference: string;
   transmissionId: string | null;
   acknowledgedAt: string | null;

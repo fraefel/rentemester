@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InvoicesView } from "./InvoicesView";
 import { renderAt } from "../test/render";
@@ -353,7 +353,7 @@ describe("InvoicesView — write actions", () => {
       documentId: 8, invoiceNo: "2026-00008", invoiceDate: "2026-03-15",
       customerName: "Aarhus Kommune", customerEmail: null,
       buyerEanNumber: "5790000123456", buyerPublicRecipient: true,
-      peppolStatus: { status: "prepared", submissionReference: "PEPPOL-8", transmissionId: "queued-8", acknowledgedAt: null },
+      peppolStatus: { status: "queued", submissionReference: "PEPPOL-8", transmissionId: "queued-8", acknowledgedAt: null },
       lastEmailedAt: null, lastReminderAt: null, lastReminderSequence: 0,
       grossAmount: 1000, openBalance: 1000, currency: "DKK", status: "open",
       effectiveDueDate: "2026-04-14", overdueDays: 0,
@@ -363,6 +363,57 @@ describe("InvoicesView — write actions", () => {
     expect(screen.getByText("E-faktura køsat — afventer status")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Opdatér leveringsstatus" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send e-faktura" })).not.toBeInTheDocument();
+  });
+
+  test("a pre-acceptance delivery failure can be retried and is not labelled queued", async () => {
+    mockFetch(route({ invoices: [{
+      documentId: 9, invoiceNo: "2026-00009", invoiceDate: "2026-03-15",
+      customerName: "Aarhus Kommune", customerEmail: null,
+      buyerEanNumber: "5790000123456", buyerPublicRecipient: true,
+      peppolStatus: { status: "retryable", submissionReference: "PEPPOL-9", transmissionId: null, acknowledgedAt: null },
+      lastEmailedAt: null, lastReminderAt: null, lastReminderSequence: 0,
+      grossAmount: 1000, openBalance: 1000, currency: "DKK", status: "open",
+      effectiveDueDate: "2026-04-14", overdueDays: 0,
+    }] }));
+    renderView();
+    await screen.findByRole("heading", { name: "Acme ApS" });
+    expect(screen.getByText("E-faktura fejlede — kan prøves igen")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send e-faktura" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Opdatér leveringsstatus" })).not.toBeInTheDocument();
+  });
+
+  test("an accepted terminal failure cannot be sent or polled again", async () => {
+    mockFetch(route({ invoices: [{
+      documentId: 10, invoiceNo: "2026-00010", invoiceDate: "2026-03-15",
+      customerName: "Aarhus Kommune", customerEmail: null,
+      buyerEanNumber: "5790000123456", buyerPublicRecipient: true,
+      peppolStatus: { status: "failed", submissionReference: "PEPPOL-10", transmissionId: "ds-terminal-1", acknowledgedAt: null },
+      lastEmailedAt: null, lastReminderAt: null, lastReminderSequence: 0,
+      grossAmount: 1000, openBalance: 1000, currency: "DKK", status: "open",
+      effectiveDueDate: "2026-04-14", overdueDays: 0,
+    }] }));
+    renderView();
+    await screen.findByRole("heading", { name: "Acme ApS" });
+    expect(screen.getByText("E-faktura afvist — send ikke igen")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send e-faktura" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Opdatér leveringsstatus" })).not.toBeInTheDocument();
+  });
+
+  test("an uncertain delivery requires manual clarification and cannot be sent again", async () => {
+    mockFetch(route({ invoices: [{
+      documentId: 11, invoiceNo: "2026-00011", invoiceDate: "2026-03-15",
+      customerName: "Aarhus Kommune", customerEmail: null,
+      buyerEanNumber: "5790000123456", buyerPublicRecipient: true,
+      peppolStatus: { status: "uncertain", submissionReference: "PEPPOL-11", transmissionId: null, acknowledgedAt: null },
+      lastEmailedAt: null, lastReminderAt: null, lastReminderSequence: 0,
+      grossAmount: 1000, openBalance: 1000, currency: "DKK", status: "open",
+      effectiveDueDate: "2026-04-14", overdueDays: 0,
+    }] }));
+    renderView();
+    await screen.findByRole("heading", { name: "Acme ApS" });
+    expect(screen.getByText("E-faktura-status ukendt — afklar manuelt")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send e-faktura" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Opdatér leveringsstatus" })).not.toBeInTheDocument();
   });
 
   test("Send e-faktura is hidden for an archived year (no live ledger)", async () => {
@@ -422,9 +473,8 @@ describe("InvoicesView — write actions", () => {
     expect(screen.getByText(/NemHandel \(PEPPOL\)/)).toBeInTheDocument();
     expect(screen.getByText("Sendes nu")).toBeInTheDocument();
     expect(screen.getByText(/sendes via DigiSense/)).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Send e-faktura" }),
-    );
+    const dialog = screen.getByRole("dialog", { name: "Send e-faktura" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Send e-faktura" }));
 
     await waitFor(() => {
       const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;

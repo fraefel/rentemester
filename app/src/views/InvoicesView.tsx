@@ -494,14 +494,14 @@ export function InvoicesView() {
                   // #428: A fresh send is offered only when the buyer
                   // is a public recipient with a valid EAN-number (the
                   // server-side requirement for a NemHandel/PEPPOL send).
-                  // Hidden once the invoice has been acknowledged by the
-                  // access point. A prepared row has an explicit status-only
-                  // action, never a second delivery action.
+                  // A pre-acceptance transport failure is retryable. Once the
+                  // access point has returned a queued document id, only the
+                  // status action is allowed — never a second delivery.
                   const canSendPublic =
                     Boolean(row.buyerEanNumber) &&
                     row.buyerPublicRecipient &&
-                    row.peppolStatus === null;
-                  const canCheckPublicStatus = row.peppolStatus?.status === "prepared";
+                    (row.peppolStatus === null || row.peppolStatus.status === "retryable");
+                  const canCheckPublicStatus = row.peppolStatus?.status === "queued";
                   // #429: "Send på mail" appears only when the customer
                   // has an e-mail on the kontaktkort — without it the
                   // dialog has no recipient to prefill, and the issue
@@ -593,7 +593,15 @@ export function InvoicesView() {
                           >
                             {row.peppolStatus.status === "acknowledged"
                               ? "E-faktura leveret"
-                              : "E-faktura køsat — afventer status"}
+                              : row.peppolStatus.status === "queued"
+                                ? "E-faktura køsat — afventer status"
+                                : row.peppolStatus.status === "failed"
+                                  ? "E-faktura afvist — send ikke igen"
+                                : row.peppolStatus.status === "uncertain"
+                                  ? "E-faktura-status ukendt — afklar manuelt"
+                                : row.peppolStatus.status === "in_progress"
+                                  ? "E-faktura afsendes"
+                                  : "E-faktura fejlede — kan prøves igen"}
                           </span>
                         )}
                       </td>

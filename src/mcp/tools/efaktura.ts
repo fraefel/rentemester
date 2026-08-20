@@ -40,8 +40,7 @@ import { saveDigisenseSecretConfig, loadDigisenseSecretConfig } from "../../core
 import { createDigisenseClient } from "../../core/efaktura/digisense-client";
 import { getDigisenseOnboardingStatus, onboardDigisenseCompany } from "../../core/efaktura/digisense-onboarding";
 import { pollWorkspaceDigisenseInbound } from "../../core/efaktura/digisense-workspace";
-import { companyRootForSlug, listWorkspaceCompanies, resolveWorkspaceRoot } from "../../core/workspace";
-import { checkActorAllowlist } from "../../cli-actor";
+import { resolveWorkspaceRoot } from "../../core/workspace";
 import { deriveMcpActor } from "../actor";
 import {
   transmitPublicEInvoicePeppol,
@@ -87,7 +86,7 @@ export function registerEfakturaTools(server: McpServer): void {
     "efaktura_modtag_workspace",
     {
       title: "Poll DigiSense inbound for active workspace companies",
-      description: "Confirm-gated workspace poll. Iterates only active manifest companies using each ledger's local binding; callers cannot supply credentials or companyKey. Continues after per-company failures and returns redacted results.",
+      description: "Confirm-gated workspace poll. Iterates only active manifest companies using each ledger's local binding; callers cannot supply credentials or companyKey. Continues after per-company failures and returns redacted results. write-reversible.",
       inputSchema: { workspace: z.string().min(1), confirm: confirmField },
       outputSchema: envelopeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -96,17 +95,8 @@ export function registerEfakturaTools(server: McpServer): void {
       if (args.confirm !== true) return envelopeToCallResult(errorEnvelope("confirm: true is required", { code: "CONFIRM_REQUIRED" }));
       try {
         const workspaceRoot = resolveWorkspaceRoot(args.workspace);
-        // Apply the same profile policy as company-scoped confirmed writes to
-        // every active target before starting the fan-out. This avoids a
-        // partially-mutated workspace when the actor is not authorised for a
-        // later ledger.
         const actor = deriveMcpActor(server.server.getClientVersion());
-        for (const entry of listWorkspaceCompanies(workspaceRoot)) {
-          if (entry.archived) continue;
-          const decision = checkActorAllowlist(companyRootForSlug(workspaceRoot, entry.slug), actor.createdBy);
-          if (!decision.allowed) return envelopeToCallResult(errorEnvelope(decision.reason, { code: "ACTOR_NOT_ALLOWED" }));
-        }
-        return envelopeToCallResult(successEnvelope(await pollWorkspaceDigisenseInbound(workspaceRoot)));
+        return envelopeToCallResult(successEnvelope(await pollWorkspaceDigisenseInbound(workspaceRoot, { actor })));
       } catch (error) {
         return envelopeToCallResult(errorEnvelope(error instanceof Error ? error.message : String(error)));
       }
@@ -126,14 +116,14 @@ export function registerEfakturaTools(server: McpServer): void {
     "efaktura_onboard",
     {
       title: "Onboard ledger company with DigiSense",
-      description: "Validates authorization and idempotently registers the profile CVR for inbound and outbound. Identity is derived only from the local company profile.",
+      description: "Validates authorization and idempotently registers the profile CVR for inbound and outbound. Identity is derived only from the local company profile. write-irreversible.",
       inputSchema: { company: z.string().min(1), confirm: confirmField }, outputSchema: envelopeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    withCompanyDbConfirmed<{ company: string; confirm?: boolean }>(server, "efaktura_onboard", async ({ db, args }) => {
+    withCompanyDbConfirmed<{ company: string; confirm?: boolean }>(server, "efaktura_onboard", async ({ db, actor, args }) => {
       const config = loadDigisenseSecretConfig(args.company);
       if (!config) return errorEnvelope("Digisense is not configured");
-      const result = await onboardDigisenseCompany(db, args.company, createDigisenseClient(config));
+      const result = await onboardDigisenseCompany(db, args.company, createDigisenseClient(config), actor);
       return result.ok ? successEnvelope({ companyKey: result.companyKey, status: result.status }) : errorEnvelope(result.errors, { status: result.status });
     }),
   );
@@ -170,7 +160,7 @@ export function registerEfakturaTools(server: McpServer): void {
       companyName: string;
       network?: DigisenseNetwork;
       confirm?: boolean;
-    }>(server, "efaktura_registrer", async ({ db, args }) => {
+    }>(server, "efaktura_registrer", async ({ db, actor, args }) => {
       const resolved = resolveDigisenseRegistrar(args.company);
       if (!resolved.ok) return errorEnvelope(resolved.errors);
 
@@ -178,6 +168,7 @@ export function registerEfakturaTools(server: McpServer): void {
       const options: RegisterDigisenseCompanyOptions = {
         companyType,
         companyName: args.companyName,
+        actor,
       };
       if (args.network !== undefined) options.network = args.network;
 
@@ -232,7 +223,7 @@ export function registerEfakturaTools(server: McpServer): void {
       metadata?: Omit<DocumentMetadata, "source">;
       force?: boolean;
       confirm?: boolean;
-    }>(server, "efaktura_modtag", async ({ db, args }) => {
+    }>(server, "efaktura_modtag", async ({ db, actor, args }) => {
       const resolved = resolveDigisenseReceiver(db, args.company, {
         companyKey: args.digisenseCompanyKey,
       });
@@ -241,6 +232,7 @@ export function registerEfakturaTools(server: McpServer): void {
       const options: PollDigisenseReceivedOptions = {
         companyKey: resolved.companyKey,
         ingestOptions: { forceDuplicateLogicalIdentity: args.force === true },
+        actor,
       };
       if (args.limit !== undefined) options.limit = args.limit;
       if (args.maxTimestamp !== undefined) options.maxTimestamp = args.maxTimestamp;

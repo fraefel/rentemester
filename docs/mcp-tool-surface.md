@@ -208,8 +208,8 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `efaktura_onboard` | `{ companyKey, status }` — validates auth and idempotently registers the profile CVR inbound + outbound. |
 | `efaktura_modtag` | `{ pagesFetched, documentsListed, documentsIngested, documentsSkipped, documentsQuarantined, documents[], errors[] }` — tællere over pollen; `documentsQuarantined` er TERMINALT uingesterbare bilag (validering/dublet) der er sat i karantæne så de ikke down­loades igen. `documents[]` er `ReceivedDocumentOutcome`: `{ internalId, status, documentNo?, errors? }`, hvor `status` er `"ingested" \| "skipped-duplicate" \| "quarantined" \| "error"`. **Partiel succes:** konvoluttens `ok` er kun `false` ved en BATCH-fejl (list-received-documents fejlede); en enkelt dårlig faktura giver `ok:true` med tællerne intakte og fejlen i `documents[]`/`errors[]`. |
 | `efaktura_modtag_workspace` | `{ companies: [{ slug, status, reason?, documentsIngested? }] }` — confirm-gated poll af aktive manifest-virksomheder. Ingen caller credentials/companyKey; arkiverede og ukonfigurerede springes over, fejl fortsætter pr. virksomhed, og resultater er redigerede. |
-| `efaktura_send` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — samme `SubmitPublicEInvoicePeppolResult`-shape som `peppol_submit_public_invoice`. `status` er `"acknowledged"` ved levering. En queued-men-endnu-ikke-leveret accept giver `ok:true` + `status:"prepared"` + `transmissionId`; klienten skal kun polle status og aldrig redelivere. |
-| `efaktura_status` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — observerer kun `document-status` for en allerede køsat afsendelse og gemmer append-only statusevidens; kalder aldrig `document-delivery`. |
+| `efaktura_send` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — samme `SubmitPublicEInvoicePeppolResult`-shape som `peppol_submit_public_invoice`. `status` er `"acknowledged"` ved levering. En queued-men-endnu-ikke-leveret accept giver `ok:true` + `status:"prepared"` + `transmissionId`; klienten skal kun polle status og aldrig redelivere. En terminal afvisning efter accept giver `status:"failed"`; et tvetydigt delivery-POST uden pålideligt remote-id giver `status:"uncertain"`. Begge blokerer redelivery, og CLI'en afslutter med exit 1. |
+| `efaktura_status` | `{ invoiceNumber, submissionReference, idempotencyKey, status, transmissionId, ... }` — observerer kun `document-status` for en allerede køsat afsendelse og gemmer append-only statusevidens; kalder aldrig `document-delivery`. En terminal afvisning returneres eksplicit som `status:"failed"`; CLI'en afslutter med exit 1. |
 
 > **Discovery-kontrakten:** Konvolut-formen er maskin-kendt via `outputSchema`
 > i `tools/list`. Den præcise `data`-feltliste står her og i kildens
@@ -223,14 +223,14 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
-- **Read-tools**: 49
-- **Ordinary write-tools**: 67
+- **Read-tools**: 50
+- **Ordinary write-tools**: 66
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **117** (49 read, 67 ordinary write, 1 destructive)
+- **Total**: **117** (50 read, 66 ordinary write, 1 destructive)
 
 ## Read-tools
 
-49 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
+50 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
 frit og parallelt.
 
 | Tool | CLI-ækvivalent | Input | Brief |
@@ -253,6 +253,7 @@ frit og parallelt.
 | `customer_validate_vat` | `customer validate-vat` | `{ company, cvr }` | Validerer EU-VAT via VIES og opdaterer en lokal validerings-cache. Klassificeret `read` (se note nedenfor): den skriver kun en gennemsigtig opslags-cache, ingen bogførings-/stamdata-state, og kræver ikke `confirm`. |
 | `cvr_lookup` | `customer cvr-lookup` | `{ company, cvr }` | Slår en dansk virksomhed op i CVR-registret. Kræver `CVR_USERNAME`/`CVR_PASSWORD`. |
 | `documents_list` | `documents list` | `{ company, limit?, offset? }` | Lister gemte bilag. Pagineret. |
+| `efaktura_onboarding_status` | `efaktura onboarding-status` | `{ company }` | Lokal, secret-redacted DigiSense-readiness for ledgerens profil; foretager ingen netværkskald og returnerer aldrig API-nøgle eller signature secret. |
 | `exceptions_list` | `exceptions list` | `{ company, status?, includeArchived? }` | Lister exceptions-køen (open/resolved/all). |
 | `import_archive_list` | `import archive` | `{ company, sourceSystem? }` | Lister pre-cut-over regnskabsår arkiveret fra et flerårigt eksport. |
 | `import_archive_year` | (afledt af `import archive`)¹ | `{ company, fiscalYear, sourceSystem? }` | Henter ét arkiveret regnskabsårs fulde posteringer + saldobalance. |
@@ -330,7 +331,7 @@ uden at kernen kaldes.
 
 ### write-reversible
 
-13 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
+14 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
 append-only finanskæde.
 
 | Tool | CLI-ækvivalent | Input | Brief |
@@ -343,8 +344,6 @@ append-only finanskæde.
 | `documents_ingest` | `documents ingest` | `{ company, filePath, metadata: DocumentMetadata, vendorId?, force?, confirm }` | Indlæser og hash-lagrer et bilag. |
 | `efaktura_modtag` | `efaktura modtag` | `{ company, digisenseCompanyKey?, limit?, maxTimestamp?, metadata?, force?, confirm }` | Poller modtagne e-fakturaer hos Digisense (pagination), ingester hvert nyt dokument. Dedup på internalId — rerun-stabil. |
 | `efaktura_modtag_workspace` | `efaktura modtag-workspace` | `{ workspace, confirm }` | Poller aktive manifest-virksomheder med deres lokale bindings; ingen caller credentials/companyKey og redigerede per-company resultater. |
-| `efaktura_onboarding_status` | `efaktura onboarding-status` | `{ company }` | Local, secret-redacted DigiSense readiness for the ledger profile. |
-| `efaktura_onboard` | `efaktura onboard` | `{ company, confirm }` | Validates auth and idempotently registers only the local profile CVR for inbound + outbound. |
 | `exception_resolve` | `exceptions resolve` | `{ company, id, note?, confirm }` | Markerer exception som løst. |
 | `imap_intake_poll` | `imap-intake poll` | `{ company, imapHost, imapPort?, imapUsername, imapMailbox?, sinceUid?, metadata?, metadataPerMessage?, force?, confirm }` | Poller en IMAP-postkasse og videresender vedhæftninger til bilags-pipelinen. Dedup-stabil. |
 | `mail_intake_ingest` | `mail-intake ingest` | `{ company, source, metadata?, metadataPerMessage?, force?, confirm }` | Indlæser en `.eml`-fil/maildrop-mappe og videresender vedhæftninger. Idempotent. |
@@ -354,7 +353,7 @@ append-only finanskæde.
 
 ### write-irreversible
 
-50 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
+51 tools (tæl tabellen — den er facit). Bogfører i den append-only hash-kæde eller skriver
 revisionsklare/eksterne artefakter; kan kun "rulles tilbage" via en
 modpostering.
 
@@ -365,6 +364,7 @@ modpostering.
 | `gdpr_export` | `gdpr export` | `{ company, cvr?, name?, asOf?, confirm }` | Bygger en retention-annoteret DSAR og skriver et actor-attribueret, append-only `gdpr_export`-audit-event. |
 | `accrual_recognize` | `accrual recognize` | `{ company, accrualId, period, date?, settlementAccountNo?, confirm }` | Indtægts-/omkostningsfører én periode af en periodeafgrænsningspost. |
 | `efaktura_konfigurer` | `efaktura konfigurer` | `{ company, apiLicenseKey, environment?, confirm }` | Gemmer Digisense API license-key i secret-laget (config/digisense.json, 0600). PRECONDITION for efaktura_registrer/efaktura_modtag/efaktura_send. license-key rammer aldrig ledger'en. |
+| `efaktura_onboard` | `efaktura onboard` | `{ company, confirm }` | Validerer auth og registrerer idempotent kun ledgerprofilens eget CVR inbound + outbound. Ekstern registrering gør governance-klassen write-irreversible. |
 | `efaktura_registrer` | `efaktura registrer` | `{ company, cvr, companyName, network?, confirm }` | Registrerer en virksomhed i NemHandel via Digisense: register-company ⇒ gemmer companyKey ⇒ register-participant for BÅDE outbound OG inbound. webhookUrl=null (vi poller selv). Idempotent: re-run med samme CVR duplikerer ikke state. |
 | `efaktura_send` | `invoice transmit-digisense` | `{ company, documentId? \| invoiceNumber?, digisenseCompanyKey?, confirm }` | Sender en udstedt offentlig e-faktura gennem Digisense: validate-document ⇒ deliver-document ⇒ poll til delivered; bogfører succes som acknowledged PEPPOL-submission. Kun den konfigurerede Digisense-identitet indgår i idempotens. |
 | `efaktura_status` | `efaktura status` | `{ company, documentId, digisenseCompanyKey?, confirm }` | Genoptager en allerede køsat afsendelse med document-status alene; append-only status-evidens betyder, at en senere send ikke redeliverer. |

@@ -31,6 +31,7 @@ import {
   checkRollForward,
   describeRollForward,
   parseArchiveYears,
+  type RollForwardResult,
 } from "./dinero-archive";
 import { ingestDineroBilag } from "./dinero-bilag";
 import type {
@@ -445,9 +446,11 @@ export function runImportFromSource(
   if (!parsed.ok || !parsed.source) {
     return failParse(parsed.errors, resolved);
   }
+  let archivePreflight: RollForwardResult | undefined;
   if (parser.system === "dinero" && typeof parser.parseSource === "function") {
-    const archivePreflightErrors = preflightDineroArchive(db, resolved, parsed.source);
-    if (archivePreflightErrors.length > 0) return failParse(archivePreflightErrors, resolved);
+    const preflight = preflightDineroArchive(db, resolved, parsed.source);
+    archivePreflight = preflight.rollForward;
+    if (preflight.errors.length > 0) return failParse(preflight.errors, resolved);
   }
   const result = runImport(db, parsed.source as ImportSource, options);
   if (resolved.archiveIntegrity) result.archiveIntegrity = resolved.archiveIntegrity;
@@ -459,7 +462,7 @@ export function runImportFromSource(
   // roll-forward consistency into the next year's opening balance. Archiving
   // is purely additive: it never affects whether the ledger import succeeded.
   if (result.ok && !result.dryRun && parser.system === "dinero" && typeof parser.parseSource === "function") {
-    archivePreCutOverYears(db, resolved, result);
+    archivePreCutOverYears(db, resolved, result, archivePreflight);
     // --- bilag (receipts) ingest (#196) ------------------------------------
     // A Dinero export ships the actual receipts. Ingest each cut-over-year
     // bilag through the documents pipeline, link it to its voucher's journal
@@ -476,9 +479,9 @@ function preflightDineroArchive(
   db: Database,
   resolved: MultiArtifactSource,
   source: ImportSource,
-): string[] {
+): { errors: string[]; rollForward?: RollForwardResult } {
   const parsed = parseArchiveYears(resolved);
-  if (!parsed.ok) return parsed.errors.map((error) => `archive integrity failure: ${error}`);
+  if (!parsed.ok) return { errors: parsed.errors.map((error) => `archive integrity failure: ${error}`) };
   const closingBalances = new Map<number, Map<string, number>>(
     parsed.years.map((year) => [
       year.fiscalYear,
@@ -490,15 +493,19 @@ function preflightDineroArchive(
       .filter((account) => account.normalizedType)
       .map((account) => [account.accountNo, account.normalizedType!] as const),
   );
-  const rollForward = checkRollForward(db, resolved, { closingBalances, accountTypes });
-  if (rollForward.ok) return [];
-  return [
+  const rollForward = checkRollForward(db, resolved, {
+    closingBalances,
+    accountTypes,
+    accountRoleProposals: source.accountRoleProposals,
+  });
+  if (rollForward.ok) return { errors: [], rollForward };
+  return { rollForward, errors: [
     ...rollForward.errors.map((error) => `roll-forward integrity failure: ${error}`),
     ...rollForward.breaks.map(
       (item) =>
         `roll-forward integrity failure: account ${item.accountNo} ${item.fromYear}->${item.toYear} closing ${item.closingAmount} != opening ${item.openingAmount}`,
     ),
-  ];
+  ] };
 }
 
 /**
@@ -559,6 +566,7 @@ function archivePreCutOverYears(
   db: Database,
   resolved: MultiArtifactSource,
   result: ImportResult,
+  preflight?: RollForwardResult,
 ): void {
   const archive = archiveDineroYears(db, resolved);
   for (const line of archive.auditTrail) result.auditTrail.push(line);
@@ -568,7 +576,7 @@ function archivePreCutOverYears(
     }
     return;
   }
-  const rollForward = checkRollForward(db, resolved);
+  const rollForward = preflight ?? checkRollForward(db, resolved);
   for (const line of describeRollForward(rollForward)) result.auditTrail.push(line);
   if (!rollForward.ok) {
     result.auditTrail.push(

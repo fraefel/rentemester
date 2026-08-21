@@ -24,6 +24,7 @@ export const MUTATING_COMMANDS = new Set([
   "system backup-remove-destination",
   "system backup-place",
   "system backup-confirm-placement",
+  "system backup-verify-remote-placement",
   "system backup-lock",
   "system restore-backup",
   "system export-authority",

@@ -18,7 +18,7 @@ import {
   removeBackupDestination,
   verifyRemoteBackupPlacement,
 } from "../core/backup-governance";
-import type { RemoteBackupProviderAdapter } from "../core/backup-remote-provider";
+import { defaultRemoteBackupProviderResolver, type RemoteBackupProviderAdapter } from "../core/backup-remote-provider";
 import { renderBackupGuide } from "../core/backup-guide";
 import { getCompanySettings } from "../core/company";
 import { exportAuthorityPackage } from "../core/authority-export";
@@ -234,19 +234,14 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
   dispatch.on("system", "backup-verify-remote-placement", async (ctx) => {
     const destination = ctx.arg("--destination");
     const backupId = ctx.arg("--backup-id");
-    const sha256 = ctx.arg("--archive-sha256");
-    const provider = ctx.arg("--remote-provider");
     const objectId = ctx.arg("--remote-object-id");
-    const objectName = ctx.arg("--remote-object-name");
-    const parentId = ctx.arg("--remote-parent-id");
-    if (!destination || !backupId || !sha256 || !provider || !objectId || !objectName || !parentId) {
-      console.error("Missing required destination, backup, archive, or remote object identity flags");
+    if (!destination || !backupId || !objectId) {
+      console.error("Missing required --destination, --backup-id, or --remote-object-id");
       process.exit(2);
     }
-    const size = ctx.parseOptionalNumber("--archive-size");
     const metadataAge = ctx.parseOptionalNumber("--max-metadata-age-ms");
-    if (!size.ok || !metadataAge.ok || size.value === undefined) {
-      console.error(!size.ok ? size.error : !metadataAge.ok ? metadataAge.error : "Missing required --archive-size <bytes>");
+    if (!metadataAge.ok) {
+      console.error(metadataAge.error);
       process.exit(2);
     }
     const { actor, actorKind } = placementActor(ctx);
@@ -255,22 +250,13 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
     const result = await verifyRemoteBackupPlacement(db, ctx.companyRoot(), {
       destinationId: destination,
       backupId,
-      archiveSha256: sha256,
-      archiveSizeBytes: size.value,
-      expectedRemoteObject: {
-        provider,
-        objectId,
-        name: objectName,
-        parentId,
-        sizeBytes: size.value,
-        checksumSha256: sha256,
-      },
+      remoteObjectId: objectId,
       actor,
       actorKind,
       at: ctx.arg("--at"),
       note: ctx.arg("--note"),
       maxMetadataAgeMs: metadataAge.value,
-    }, remoteProviderAdapter);
+    }, remoteProviderAdapter ?? defaultRemoteBackupProviderResolver().resolve(ctx.companyRoot(), "google-drive"));
     ctx.emitResult(result as Record<string, unknown>);
     db.close();
   });

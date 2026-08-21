@@ -70,15 +70,11 @@ describe("#547 — remote backup evidence schema", () => {
     const remote = (response.result?.tools ?? []).find((tool: any) => tool.name === "system_backup_verify_remote_placement");
     expect(remote).toBeDefined();
     const required = remote!.inputSchema.required as string[];
-    for (const field of [
-      "remoteProvider",
-      "remoteObjectId",
-      "remoteObjectName",
-      "remoteParentId",
-      "archiveSha256",
-      "archiveSizeBytes",
-    ]) {
+    for (const field of ["remoteObjectId"]) {
       expect(required).toContain(field);
+    }
+    for (const callerTrusted of ["remoteProvider", "remoteObjectName", "remoteParentId", "archiveSha256", "archiveSizeBytes"]) {
+      expect(required).not.toContain(callerTrusted);
     }
   });
 });

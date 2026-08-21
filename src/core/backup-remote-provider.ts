@@ -112,7 +112,8 @@ export async function verifyRemoteBackupEvidence(
 
   const { metadata } = lookup;
   const observedAtMs = Date.parse(metadata.observedAt);
-  if (Number.isNaN(observedAtMs) || verifiedAtMs - observedAtMs > maxMetadataAgeMs || observedAtMs > verifiedAtMs) {
+  const observationSkewMs = 1_000;
+  if (Number.isNaN(observedAtMs) || verifiedAtMs - observedAtMs > maxMetadataAgeMs || observedAtMs > verifiedAtMs + observationSkewMs) {
     return { ok: false, errors: ["remote backup metadata is stale or has an invalid observation time"] };
   }
   const expected = input.expected;
@@ -147,7 +148,7 @@ export async function verifyRemoteBackupEvidence(
       sizeBytes: expected.sizeBytes,
       checksumSha256: expected.checksumSha256.toLowerCase(),
       metadataObservedAt: new Date(observedAtMs).toISOString(),
-      verifiedAt: new Date(verifiedAtMs).toISOString(),
+      verifiedAt: new Date(Math.max(verifiedAtMs, observedAtMs)).toISOString(),
     },
   };
 }
@@ -195,4 +196,65 @@ export class GoogleDriveRemoteBackupProvider implements RemoteBackupProviderAdap
   readObjectContent(objectId: string): Promise<Uint8Array> {
     return this.api.downloadFile(objectId);
   }
+}
+
+/** A deliberately tiny fetch seam: callers inject short-lived access tokens. */
+export type GoogleDriveFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+export class NativeGoogleDriveBackupApi implements GoogleDriveBackupApi {
+  constructor(
+    private readonly accessToken: () => Promise<string | undefined>,
+    private readonly fetcher: GoogleDriveFetch = fetch,
+  ) {}
+
+  private async request(fileId: string, query: string): Promise<Response | null> {
+    const token = await this.accessToken();
+    if (!token) return null;
+    return this.fetcher(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${query}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  async getFile(fileId: string): Promise<Awaited<ReturnType<GoogleDriveBackupApi["getFile"]>>> {
+    let response: Response | null;
+    try {
+      response = await this.request(fileId, "fields=id,name,parents,size,sha256Checksum,mimeType,capabilities(canDownload)&supportsAllDrives=true");
+    } catch { return { ok: false, failure: "error" }; }
+    if (!response) return { ok: false, failure: "revoked" };
+    if (response.status === 401 || response.status === 403) return { ok: false, failure: "revoked" };
+    if (response.status === 404) return { ok: false, failure: "missing" };
+    if (!response.ok) return { ok: false, failure: "error" };
+    let data: any;
+    try { data = await response.json(); } catch { return { ok: false, failure: "error" }; }
+    const sizeBytes = typeof data.size === "string" ? Number(data.size) : data.size;
+    if (
+      typeof data.id !== "string" || typeof data.name !== "string" || !Array.isArray(data.parents) || data.parents.length !== 1 ||
+      typeof data.parents[0] !== "string" || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0 ||
+      typeof data.sha256Checksum !== "string" || !/^[0-9a-f]{64}$/i.test(data.sha256Checksum) ||
+      !["application/x-tar", "application/octet-stream"].includes(data.mimeType) || data.capabilities?.canDownload !== true
+    ) return { ok: false, failure: "error" };
+    return { ok: true, id: data.id, name: data.name, parentId: data.parents[0], sizeBytes, checksumSha256: data.sha256Checksum, observedAt: new Date().toISOString() };
+  }
+
+  async downloadFile(fileId: string): Promise<Uint8Array> {
+    let response: Response | null;
+    try { response = await this.request(fileId, "alt=media&supportsAllDrives=true"); } catch { throw new Error("Drive download failed"); }
+    if (!response || !response.ok) throw new Error("Drive download failed");
+    return new Uint8Array(await response.arrayBuffer());
+  }
+}
+
+export type RemoteBackupProviderResolver = {
+  resolve(companyRoot: string, provider: string): RemoteBackupProviderAdapter | undefined;
+};
+
+/** Default host composition: no credential is persisted or logged. */
+export function defaultRemoteBackupProviderResolver(fetcher?: GoogleDriveFetch): RemoteBackupProviderResolver {
+  return {
+    resolve(_companyRoot, provider) {
+      if (provider !== "google-drive") return undefined;
+      const api = new NativeGoogleDriveBackupApi(async () => process.env.RENTEMESTER_GOOGLE_DRIVE_ACCESS_TOKEN, fetcher);
+      return new GoogleDriveRemoteBackupProvider(api);
+    },
+  };
 }

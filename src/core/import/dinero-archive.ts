@@ -530,6 +530,18 @@ export type RollForwardVatGroup = {
   openingAmount: number;
   difference: number;
   accountNos: string[];
+  status: "continuous" | "explained_reclassification" | "unexplained";
+  explanation?: {
+    fiscalYear: number;
+    voucher: string;
+    transactionDate: string;
+    voucherType: string;
+    text: string;
+    perAccountDeltas: Array<{ accountNo: string; closingAmount: number; openingAmount: number; voucherAmount: number }>;
+    sourceAccountNos: string[];
+    destinationAccountNo: string;
+    transferAmount: number;
+  };
 };
 
 /** The outcome of the closing-balance roll-forward consistency check. */
@@ -546,7 +558,81 @@ export type RollForwardOptions = {
   closingBalances?: Map<number, Map<string, number>>;
   /** Source-chart types let preflight preserve the P&L/equity exclusion. */
   accountTypes?: Map<string, string>;
+  /** Parser evidence only; DB role state must not make an import less strict. */
+  accountRoleProposals?: Array<{ role: string; accountNo: string; source: string }>;
 };
+
+function isOpeningPosting(posting: ArchivePostingLine): boolean {
+  return posting.voucher === "0" && posting.text.trim().toLowerCase() === "primobeholdning";
+}
+
+function resolveVatGroup(
+  closing: Map<string, number>, opening: Map<string, number>, accountTypeOf: (accountNo: string) => string | null,
+  proposals: RollForwardOptions["accountRoleProposals"],
+): { accountNos: string[]; settlement: string } | null {
+  const vatAccounts = [...new Set([...closing.keys(), ...opening.keys()])].filter((accountNo) => accountTypeOf(accountNo) === "vat").sort();
+  const settlements = (proposals ?? []).filter((proposal) => proposal.role === "vat_settlement" && proposal.accountNo && accountTypeOf(proposal.accountNo) !== "vat");
+  return vatAccounts.length > 0 && settlements.length === 1 ? { accountNos: [...vatAccounts, settlements[0]!.accountNo].sort(), settlement: settlements[0]!.accountNo } : null;
+}
+
+/**
+ * The first conservative rule supports calendar-year boundaries only: the
+ * voucher must be dated 31/12 or 1/1 and wholly contained in the explicit VAT
+ * group. Shifted fiscal years therefore fail closed until their boundary is
+ * represented explicitly by the source format.
+ */
+function explainVatReclassification(
+  input: MultiArtifactSource,
+  fromYear: number,
+  toYear: number,
+  closing: Map<string, number>,
+  opening: Map<string, number>,
+  accountTypeOf: (accountNo: string) => string | null,
+  proposals: RollForwardOptions["accountRoleProposals"],
+): { accountNos: string[]; fiscalYear: number; voucher: string; lines: ArchivePostingLine[] } | null {
+  const group = resolveVatGroup(closing, opening, accountTypeOf, proposals);
+  // Multiple equally plausible settlement proposals are accounting ambiguity,
+  // not permission to silently net balances.
+  if (!group) return null;
+  const accountNos = group.accountNos;
+  const expected = new Map<string, number>();
+  for (const accountNo of accountNos) {
+    const delta = toOreInt((opening.get(accountNo) ?? 0) - (closing.get(accountNo) ?? 0));
+    if (delta !== 0) expected.set(accountNo, delta);
+  }
+  if (expected.size === 0) return null;
+
+  const fromFile = input.files[`${fromYear}/Posteringer.csv`];
+  const toFile = input.files[`${toYear}/Posteringer.csv`];
+  if (!fromFile || !toFile) return null;
+  const parseErrors: string[] = [];
+  const boundaryDates = new Set([`${fromYear}-12-31`, `${toYear}-01-01`]);
+  const postings = [
+    ...parsePosteringer(fromFile.text, `${fromYear}/Posteringer.csv`, parseErrors).map((posting) => ({ ...posting, fiscalYear: fromYear })),
+    ...parsePosteringer(toFile.text, `${toYear}/Posteringer.csv`, parseErrors).map((posting) => ({ ...posting, fiscalYear: toYear })),
+  ].filter((posting) => !isOpeningPosting(posting));
+  if (parseErrors.length > 0) return null;
+  const byVoucher = new Map<string, Array<ArchivePostingLine & { fiscalYear: number }>>();
+  for (const posting of postings) {
+    if (!posting.voucher || !boundaryDates.has(posting.transactionDate) || toOreInt(posting.amount) === 0) continue;
+    const key = `${posting.fiscalYear}\u0000${posting.voucher}`;
+    const group = byVoucher.get(key) ?? [];
+    group.push(posting);
+    byVoucher.set(key, group);
+  }
+  const matches: Array<{ accountNos: string[]; fiscalYear: number; voucher: string; lines: ArchivePostingLine[] }> = [];
+  for (const lines of byVoucher.values()) {
+    if (lines.some((line) => !accountNos.includes(line.accountNo))) continue;
+    const amounts = new Map<string, number>();
+    for (const line of lines) amounts.set(line.accountNo, (amounts.get(line.accountNo) ?? 0) + toOreInt(line.amount));
+    if ([...amounts.values()].reduce((sum, amount) => sum + amount, 0) !== 0) continue;
+    if (amounts.size !== expected.size) continue;
+    if ([...expected].every(([accountNo, amount]) => amounts.get(accountNo) === amount)) {
+      matches.push({ accountNos, fiscalYear: lines[0]!.fiscalYear, voucher: lines[0]!.voucher, lines });
+    }
+  }
+  return matches.length === 1 ? matches[0]! : null;
+}
 
 /**
  * Compares one year's closing `SaldoBalance` against the next year's opening
@@ -599,7 +685,7 @@ function vatGroupEvidence(
   if (accountNos.length === 0) return [];
   const closingAmount = accountNos.reduce((sum, accountNo) => sum + (closing.get(accountNo) ?? 0), 0);
   const openingAmount = accountNos.reduce((sum, accountNo) => sum + (opening.get(accountNo) ?? 0), 0);
-  return [{ group: "vat", closingAmount, openingAmount, difference: closingAmount - openingAmount, accountNos }];
+  return [{ group: "vat", closingAmount, openingAmount, difference: closingAmount - openingAmount, accountNos, status: "unexplained" }];
 }
 
 /**
@@ -693,14 +779,46 @@ export function checkRollForward(
       errors.push(`fiscal year ${toYear} has no Posteringer.csv — cannot read its opening balance`);
       continue;
     }
-    const breaks = compareRollForward(fromYear, toYear, closing, opening, accountTypeOf);
+    let breaks = compareRollForward(fromYear, toYear, closing, opening, accountTypeOf);
+    const vatGroup = resolveVatGroup(closing, opening, accountTypeOf, options.accountRoleProposals);
+    const explanation = explainVatReclassification(
+      input, fromYear, toYear, closing, opening, accountTypeOf, options.accountRoleProposals,
+    );
+    if (explanation) {
+      const group = new Set(explanation.accountNos);
+      // Only the complete group may be removed. Any unrelated or partially
+      // explained member remains a fatal roll-forward break.
+      const groupBreaks = breaks.filter((item) => group.has(item.accountNo));
+      if (groupBreaks.length > 0 && groupBreaks.every((item) => group.has(item.accountNo))) {
+        breaks = breaks.filter((item) => !group.has(item.accountNo));
+      }
+    }
     steps.push({
       fromYear,
       toYear,
       toIsCutOver: toYear === cutOverYear,
       ok: breaks.length === 0,
       breaks,
-      vatGroups: vatGroupEvidence(closing, opening, accountTypeOf),
+      vatGroups: (() => {
+        const accountNos = explanation?.accountNos ?? vatGroup?.accountNos ?? vatGroupEvidence(closing, opening, accountTypeOf)[0]?.accountNos ?? [];
+        if (accountNos.length === 0) return [];
+        const closingAmount = accountNos.reduce((sum, accountNo) => sum + (closing.get(accountNo) ?? 0), 0);
+        const openingAmount = accountNos.reduce((sum, accountNo) => sum + (opening.get(accountNo) ?? 0), 0);
+        const voucherAmounts = new Map<string, number>();
+        for (const line of explanation?.lines ?? []) voucherAmounts.set(line.accountNo, (voucherAmounts.get(line.accountNo) ?? 0) + line.amount);
+        return [{
+          group: "vat" as const, closingAmount, openingAmount, difference: closingAmount - openingAmount, accountNos,
+          status: explanation ? "explained_reclassification" as const : breaks.some((item) => accountNos.includes(item.accountNo)) ? "unexplained" as const : "continuous" as const,
+          ...(explanation ? { explanation: {
+            fiscalYear: explanation.fiscalYear, voucher: explanation.voucher,
+            transactionDate: explanation.lines[0]!.transactionDate, voucherType: explanation.lines[0]!.voucherType,
+            text: explanation.lines[0]!.text,
+            sourceAccountNos: accountNos.filter((accountNo) => accountNo !== vatGroup?.settlement), destinationAccountNo: vatGroup?.settlement ?? "",
+            transferAmount: voucherAmounts.get(vatGroup?.settlement ?? "") ?? 0,
+            perAccountDeltas: accountNos.map((accountNo) => ({ accountNo, closingAmount: closing.get(accountNo) ?? 0, openingAmount: opening.get(accountNo) ?? 0, voucherAmount: voucherAmounts.get(accountNo) ?? 0 })),
+          } } : {}),
+        }];
+      })(),
     });
     allBreaks.push(...breaks);
   }
@@ -722,7 +840,10 @@ export function describeRollForward(result: RollForwardResult): string[] {
   const lines: string[] = [];
   for (const step of result.steps) {
     const target = step.toIsCutOver ? `cut-over year ${step.toYear}` : `${step.toYear}`;
-    if (step.ok) {
+    const explained = step.vatGroups.find((group) => group.status === "explained_reclassification");
+    if (step.ok && explained?.explanation) {
+      lines.push(`Roll-forward ${step.fromYear} -> ${target}: VAT group continuity documented by reclassification voucher ${explained.explanation.fiscalYear}/${explained.explanation.voucher}`);
+    } else if (step.ok) {
       lines.push(`Roll-forward ${step.fromYear} -> ${target}: closing balances carry forward`);
     } else {
       lines.push(
@@ -736,8 +857,14 @@ export function describeRollForward(result: RollForwardResult): string[] {
     }
     for (const group of step.vatGroups) {
       lines.push(
-        `  VAT group ${group.group}: closing ${group.closingAmount}, opening ${group.openingAmount}, difference ${group.difference} (${group.accountNos.join(", ")})`,
+        `  VAT group ${group.group}: closing ${group.closingAmount}, opening ${group.openingAmount}, difference ${group.difference} (${group.accountNos.join(", ")}); ${group.status}${group.explanation ? ` by ${group.explanation.fiscalYear}/${group.explanation.voucher}` : ""}`,
       );
+      if (group.explanation) for (const delta of group.explanation.perAccountDeltas) {
+        lines.push(`    account ${delta.accountNo}: closing ${delta.closingAmount}, opening ${delta.openingAmount}, voucher delta ${delta.voucherAmount}`);
+      }
+      if (group.explanation) {
+        lines.push(`    transfer ${group.explanation.sourceAccountNos.join(", ")} -> ${group.explanation.destinationAccountNo}: ${group.explanation.transferAmount}`);
+      }
     }
   }
   for (const error of result.errors) lines.push(`Roll-forward check error: ${error}`);

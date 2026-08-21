@@ -23,7 +23,7 @@ import {
   removeBackupDestination,
   verifyRemoteBackupPlacement,
 } from "../../../core/backup-governance";
-import type { RemoteBackupProviderAdapter } from "../../../core/backup-remote-provider";
+import { defaultRemoteBackupProviderResolver, type RemoteBackupProviderResolver } from "../../../core/backup-remote-provider";
 import { envelopeShape, successEnvelope, wrapCoreResult } from "../../envelope";
 import {
   withCompanyDb,
@@ -33,7 +33,7 @@ import {
 
 export function registerSystemBackupDestinationTools(
   server: McpServer,
-  remoteProviderAdapter?: RemoteBackupProviderAdapter,
+  remoteProviderResolver: RemoteBackupProviderResolver = defaultRemoteBackupProviderResolver(),
 ): void {
   server.registerTool(
     "system_backup_governance",
@@ -385,31 +385,21 @@ export function registerSystemBackupDestinationTools(
         company: z.string().min(1).describe("Absolute path to the company directory, or a workspace slug."),
         destinationId: z.string().min(1).describe("Destination id from system_backup_destination_list."),
         backupId: z.string().min(1).describe("Backup id returned by system_backup."),
-        archiveSha256: z.string().min(1).describe("Expected SHA-256 of the remote archive."),
-        archiveSizeBytes: z.number().int().nonnegative().describe("Expected archive size in bytes."),
-        remoteProvider: z.string().min(1).describe("Injected provider adapter name, for example google-drive."),
         remoteObjectId: z.string().min(1).describe("Provider object id of the placed archive."),
-        remoteObjectName: z.string().min(1).describe("Expected provider object name."),
-        remoteParentId: z.string().min(1).describe("Expected provider parent/folder id."),
         maxMetadataAgeMs: z.number().int().nonnegative().optional().describe("Maximum acceptable provider metadata age; defaults to five minutes."),
         actorKind: z.enum(["human", "agent"]).optional().describe("Who performed the placement; default agent."),
-        at: z.string().optional().describe("Verification timestamp; defaults to current UTC time."),
+        at: z.string().optional().describe("When the backup was placed; defaults to current UTC time and cannot be future-dated."),
         note: z.string().optional().describe("Optional placement note."),
         confirm: confirmField,
       },
       outputSchema: envelopeShape,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     withCompanyDbConfirmed<{
       company: string;
       destinationId: string;
       backupId: string;
-      archiveSha256: string;
-      archiveSizeBytes: number;
-      remoteProvider: string;
       remoteObjectId: string;
-      remoteObjectName: string;
-      remoteParentId: string;
       maxMetadataAgeMs?: number;
       actorKind?: "human" | "agent";
       at?: string;
@@ -419,22 +409,13 @@ export function registerSystemBackupDestinationTools(
       wrapCoreResult(await verifyRemoteBackupPlacement(db, args.company, {
         destinationId: args.destinationId,
         backupId: args.backupId,
-        archiveSha256: args.archiveSha256,
-        archiveSizeBytes: args.archiveSizeBytes,
-        expectedRemoteObject: {
-          provider: args.remoteProvider,
-          objectId: args.remoteObjectId,
-          name: args.remoteObjectName,
-          parentId: args.remoteParentId,
-          sizeBytes: args.archiveSizeBytes,
-          checksumSha256: args.archiveSha256,
-        },
+        remoteObjectId: args.remoteObjectId,
         actorKind: args.actorKind ?? "agent",
         actor: actor.createdBy,
         at: args.at,
         note: args.note,
         maxMetadataAgeMs: args.maxMetadataAgeMs,
-      }, remoteProviderAdapter)),
+      }, remoteProviderResolver.resolve(args.company, "google-drive"))),
     ),
   );
 }

@@ -20,14 +20,15 @@
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { companyPaths } from "./paths";
 import { insertAuditLog } from "./actor";
 import { writeFileAtomic } from "./atomic-file";
-import { getBackupComplianceStatus } from "./system-backups";
+import { backupManifestKeyPath, getBackupComplianceStatus } from "./system-backups";
 import type { BackupComplianceStatus } from "./system-backups";
-import { readTar } from "./tar";
+import { createTar, dirToTarEntries, readTar } from "./tar";
+import { verifyBackupSignature } from "./system-restore";
 import {
   verifyRemoteBackupEvidence,
   type ExpectedRemoteBackupObject,
@@ -370,6 +371,40 @@ function backupIdFromArchive(archivePath: string): string | null {
   }
 }
 
+function verifyArchivePayload(archivePath: string, backupId: string, companyRoot: string, backupDir: string): boolean {
+  try {
+    const archiveBytes = readFileSync(archivePath);
+    const entries = readTar(archiveBytes);
+    const expectedEntries = dirToTarEntries(backupDir);
+    // The canonical packer is deterministic. Exact bytes also reject duplicate
+    // entries, traversal shadows, extra entries and bytes after the tar trailer.
+    if (!archiveBytes.equals(createTar(expectedEntries))) return false;
+    if (entries.length !== expectedEntries.length || new Set(entries.map((entry) => entry.path)).size !== entries.length) return false;
+    const expectedByPath = new Map(expectedEntries.map((entry) => [entry.path, entry]));
+    if (!entries.every((entry) => {
+      const expectedEntry = expectedByPath.get(entry.path);
+      return expectedEntry && entry.content.byteLength === expectedEntry.content.byteLength &&
+        createHash("sha256").update(entry.content).digest("hex") === createHash("sha256").update(expectedEntry.content).digest("hex");
+    })) return false;
+    const manifestEntry = entries.find((entry) => entry.path === "manifest.json");
+    const signature = entries.find((entry) => entry.path === "manifest.json.hmac");
+    if (!manifestEntry || !signature) return false;
+    const key = readFileSync(backupManifestKeyPath(companyRoot), "utf8").trim();
+    if (!/^[0-9a-f]{64}$/i.test(key)) return false;
+    const actual = Buffer.from(Buffer.from(signature.content).toString("utf8").trim(), "hex");
+    const expected = Buffer.from(createHmac("sha256", Buffer.from(key, "hex")).update(manifestEntry.content).digest("hex"), "hex");
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return false;
+    const manifest = JSON.parse(Buffer.from(manifestEntry.content).toString("utf8")) as any;
+    if (manifest?.backupId !== backupId) return false;
+    const files = [manifest.dbSnapshot, ...(manifest.copiedFiles?.documentsOriginals ?? []), ...(manifest.copiedFiles?.invoicesIssued ?? []), ...(manifest.copiedFiles?.config ?? [])];
+    if (!files.every((file: any) => file && typeof file.path === "string" && /^[0-9a-f]{64}$/i.test(file.sha256) && Number.isSafeInteger(file.sizeBytes))) return false;
+    return files.every((file: any) => {
+      const entry = entries.find((candidate) => candidate.path === file.path);
+      return entry && entry.content.byteLength === file.sizeBytes && createHash("sha256").update(entry.content).digest("hex") === file.sha256;
+    });
+  } catch { return false; }
+}
+
 function appendPlacement(
   db: Database,
   companyRoot: string,
@@ -523,9 +558,8 @@ export type ConfirmBackupPlacementResult = {
 export type VerifyRemoteBackupPlacementInput = {
   destinationId: string;
   backupId: string;
-  archiveSha256: string;
-  archiveSizeBytes: number;
-  expectedRemoteObject: ExpectedRemoteBackupObject;
+  /** Provider object id only; all other object facts are derived locally. */
+  remoteObjectId: string;
   actorKind?: BackupPlacementActorKind;
   actor?: string;
   at?: string;
@@ -544,29 +578,52 @@ export async function verifyRemoteBackupPlacement(
   adapter: RemoteBackupProviderAdapter | undefined,
 ): Promise<ConfirmBackupPlacementResult> {
   const backupId = trimOrNull(input.backupId);
-  const archiveSha256 = trimOrNull(input.archiveSha256);
   const placedAt = resolveAt(input.at);
   const errors: string[] = [];
-  if (!backupId) errors.push("backupId is required");
-  if (!archiveSha256 || !/^[0-9a-f]{64}$/i.test(archiveSha256)) {
-    errors.push("archiveSha256 must be a 64-character hex sha256 digest");
-  }
-  if (!Number.isSafeInteger(input.archiveSizeBytes) || input.archiveSizeBytes < 0) {
-    errors.push("archiveSizeBytes must be a non-negative integer");
-  }
+  if (!backupId || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(backupId)) errors.push("backupId is invalid");
+  const objectId = trimOrNull(input.remoteObjectId);
+  if (!objectId) errors.push("remoteObjectId is required");
   if (!placedAt) errors.push("at must be a valid ISO-8601 datetime when provided");
-  if (archiveSha256 && input.expectedRemoteObject.checksumSha256.toLowerCase() !== archiveSha256.toLowerCase()) {
-    errors.push("remote object checksum must equal archiveSha256");
-  }
-  if (input.expectedRemoteObject.sizeBytes !== input.archiveSizeBytes) {
-    errors.push("remote object size must equal archiveSizeBytes");
-  }
+  if (placedAt && Date.parse(placedAt) > Date.now() + 1_000) errors.push("at must not be in the future");
   if (errors.length > 0) return { ok: false, appliedRules: [BACKUP_RULE_ID], errors };
 
   const destination = getBackupDestination(companyRoot, input.destinationId);
   if (!destination) {
     return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: [`no backup destination with id: ${input.destinationId}`] };
   }
+  if (destination.kind !== "google-drive") {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: ["remote verification requires a google-drive destination"] };
+  }
+  const folder = googleDriveFolderId(destination.location);
+  if (!folder) {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: ["google-drive destination location must be google-drive://<folderId> or a Drive folder URL"] };
+  }
+  const backups = resolve(companyPaths(companyRoot).backups);
+  const archivePath = resolve(backups, `${backupId}.tar`);
+  const backupDir = resolve(backups, backupId!);
+  if (!archivePath.startsWith(`${backups}/`) || !backupDir.startsWith(`${backups}/`) || !existsSync(archivePath) || !statSync(archivePath).isFile()) {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: ["canonical local backup archive is missing"] };
+  }
+  if (!existsSync(backupDir) || !statSync(backupDir).isDirectory() || backupIdFromArchive(archivePath) !== backupId || !verifyArchivePayload(archivePath, backupId!, companyRoot, backupDir)) {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: ["canonical archive and backup directory manifests do not match backupId"] };
+  }
+  const localSignature = verifyBackupSignature({ backupDir });
+  if (!localSignature.ok || localSignature.backupId !== backupId) {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: ["canonical backup directory failed manifest integrity verification"] };
+  }
+  const localHash = sha256File(archivePath);
+  const sidecar = `${archivePath}.sha256`;
+  let sidecarText: string;
+  try { sidecarText = readFileSync(sidecar, "utf8").trim(); } catch {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: ["canonical archive checksum sidecar is missing"] };
+  }
+  if (sidecarText !== `${localHash}  ${backupId}.tar`) {
+    return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: ["canonical archive checksum sidecar does not match archive"] };
+  }
+  const expectedRemoteObject: ExpectedRemoteBackupObject = {
+    provider: "google-drive", objectId: objectId!, name: `${backupId}.tar`, parentId: folder,
+    sizeBytes: statSync(archivePath).size, checksumSha256: localHash,
+  };
   if (!adapter) {
     return {
       ok: false,
@@ -576,16 +633,18 @@ export async function verifyRemoteBackupPlacement(
   }
 
   const verified = await verifyRemoteBackupEvidence(adapter, {
-    expected: input.expectedRemoteObject,
-    verifiedAt: placedAt!,
+    expected: expectedRemoteObject,
+    // Verification happens now; `placedAt` describes the human placement and
+    // may legitimately predate this provider observation.
+    verifiedAt: new Date().toISOString(),
     maxMetadataAgeMs: input.maxMetadataAgeMs,
   });
   if (!verified.ok) return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: verified.errors };
 
   const placement: BackupPlacement = {
     backupId: backupId!,
-    archiveSha256: archiveSha256!.toLowerCase(),
-    archiveSizeBytes: input.archiveSizeBytes,
+    archiveSha256: expectedRemoteObject.checksumSha256,
+    archiveSizeBytes: expectedRemoteObject.sizeBytes,
     placedAt: placedAt!,
     actor: trimOrNull(input.actor) ?? "system",
     actorKind: input.actorKind === "human" ? "human" : "agent",
@@ -597,6 +656,17 @@ export async function verifyRemoteBackupPlacement(
   const appended = appendPlacement(db, companyRoot, destination.id, placement);
   if (!appended.ok) return { ok: false, appliedRules: [BACKUP_RULE_ID], errors: appended.errors };
   return { ok: true, placement, appliedRules: [BACKUP_RULE_ID], errors: [] };
+}
+
+function googleDriveFolderId(location: string): string | null {
+  const canonical = /^google-drive:\/\/([A-Za-z0-9_-]+)$/.exec(location.trim());
+  if (canonical) return canonical[1]!;
+  try {
+    const url = new URL(location);
+    if (url.hostname !== "drive.google.com") return null;
+    const match = /^\/drive\/folders\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname);
+    return match?.[1] ?? null;
+  } catch { return null; }
 }
 
 // Records a placement performed OUTSIDE Rentemester — typically the agent
@@ -874,6 +944,7 @@ export function getBackupGovernanceStatus(
   const lock = evaluateBackupLock(db, companyRoot, asOf);
   const destinations = listBackupDestinations(companyRoot);
   const compliant = destinations.filter(isCompliantDestination);
+  const checkedAtMs = Date.parse(compliance.checkedAt);
 
   let latestBackupPlacementCount = 0;
   let latestBackupPlacedOffsite = false;
@@ -881,6 +952,12 @@ export function getBackupGovernanceStatus(
     for (const destination of destinations) {
       for (const placement of destination.placements) {
         if (placement.backupId !== compliance.latestBackupId) continue;
+        const placedAtMs = Date.parse(placement.placedAt);
+        if (!Number.isFinite(placedAtMs) || placedAtMs > checkedAtMs) continue;
+        if (placement.verifyMethod === "remote-provider") {
+          const verifiedAtMs = placement.remoteEvidence ? Date.parse(placement.remoteEvidence.verifiedAt) : Number.NaN;
+          if (!Number.isFinite(verifiedAtMs) || verifiedAtMs > checkedAtMs) continue;
+        }
         latestBackupPlacementCount += 1;
         if (placement.verified && isCompliantDestination(destination)) {
           latestBackupPlacedOffsite = true;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Database } from "bun:sqlite";
@@ -21,6 +21,7 @@ import {
 } from "../../src/core/backup-governance";
 import type { RemoteBackupProviderAdapter } from "../../src/core/backup-remote-provider";
 import { createHash } from "node:crypto";
+import { createTar, readTar } from "../../src/core/tar";
 
 function withCompany(fn: (db: Database, companyRoot: string) => void): void {
   const companyRoot = mkdtempSync(join(tmpdir(), "rentemester-gov-"));
@@ -220,7 +221,11 @@ describe("backup placement", () => {
 
   test("persists checked remote evidence without upgrading declared placements", async () => {
     await withCompanyAsync(async (db, companyRoot) => {
-      const content = new TextEncoder().encode("remote-archive-547");
+      const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:00:00.000Z" });
+      expect(backup.ok).toBe(true);
+      const packed = packBackupArchive(db, companyRoot, { backupId: backup.backupId });
+      expect(packed.ok).toBe(true);
+      const content = new Uint8Array(readFileSync(packed.archivePath!));
       const checksum = createHash("sha256").update(content).digest("hex");
       const adapter: RemoteBackupProviderAdapter = {
         provider: "google-drive",
@@ -229,11 +234,11 @@ describe("backup placement", () => {
             ok: true,
             metadata: {
               objectId: "file-547",
-              name: "backup.tar",
+              name: `${backup.backupId}.tar`,
               parentId: "folder-547",
               sizeBytes: content.byteLength,
               checksumSha256: checksum,
-              observedAt: "2026-05-17T02:59:30.000Z",
+              observedAt: new Date().toISOString(),
             },
           };
         },
@@ -241,26 +246,87 @@ describe("backup placement", () => {
           return content;
         },
       };
-      const destination = addBackupDestination(db, companyRoot, COMPLIANT_DEST).destination!;
+      const destination = addBackupDestination(db, companyRoot, { ...COMPLIANT_DEST, kind: "google-drive", location: "google-drive://folder-547" }).destination!;
       const result = await verifyRemoteBackupPlacement(db, companyRoot, {
         destinationId: destination.id,
-        backupId: "backup-547",
-        archiveSha256: checksum,
-        archiveSizeBytes: content.byteLength,
-        expectedRemoteObject: {
-          provider: "google-drive",
-          objectId: "file-547",
-          name: "backup.tar",
-          parentId: "folder-547",
-          sizeBytes: content.byteLength,
-          checksumSha256: checksum,
-        },
+        backupId: backup.backupId!,
+        remoteObjectId: "file-547",
         at: "2026-05-17T03:00:00.000Z",
       }, adapter);
       expect(result.ok).toBe(true);
       expect(result.placement!.verifyMethod).toBe("remote-provider");
       expect(result.placement!.remoteEvidence?.objectId).toBe("file-547");
       expect(JSON.stringify(result.placement!.remoteEvidence)).not.toContain("remote-archive-547");
+    });
+  });
+
+  test("rejects a tampered canonical tar even when its checksum sidecar is rewritten", async () => {
+    await withCompanyAsync(async (db, companyRoot) => {
+      const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:00:00.000Z" });
+      const packed = packBackupArchive(db, companyRoot, { backupId: backup.backupId });
+      const archive = packed.archivePath!;
+      const bytes = Buffer.from(readFileSync(archive));
+      bytes[Math.floor(bytes.length / 2)]! ^= 1;
+      writeFileSync(archive, bytes);
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      writeFileSync(`${archive}.sha256`, `${hash}  ${backup.backupId}.tar\n`);
+      const destination = addBackupDestination(db, companyRoot, { ...COMPLIANT_DEST, kind: "google-drive", location: "google-drive://folder-547" }).destination!;
+      const adapter: RemoteBackupProviderAdapter = { provider: "google-drive", async getObject() { throw new Error("must not reach provider"); }, async readObjectContent() { throw new Error("must not reach provider"); } };
+      const result = await verifyRemoteBackupPlacement(db, companyRoot, { destinationId: destination.id, backupId: backup.backupId!, remoteObjectId: "file-547" }, adapter);
+      expect(result.ok).toBe(false);
+      expect(destination.placements).toHaveLength(0);
+      expect((db.query("SELECT COUNT(*) AS n FROM audit_log WHERE event_type = 'backup_placed'").get() as { n: number }).n).toBe(0);
+    });
+  });
+
+  test("rejects a duplicate shadow ledger entry even when sidecar is rewritten", async () => {
+    await withCompanyAsync(async (db, companyRoot) => {
+      const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:00:00.000Z" });
+      const packed = packBackupArchive(db, companyRoot, { backupId: backup.backupId });
+      const archive = packed.archivePath!;
+      const entries = readTar(readFileSync(archive));
+      const ledger = entries.find((entry) => entry.path.endsWith("ledger.sqlite"))!;
+      const tampered = Buffer.from(ledger.content); tampered[0]! ^= 1;
+      const canonical = Buffer.from(readFileSync(archive));
+      const duplicate = Buffer.concat([canonical.subarray(0, -1024), createTar([{ path: ledger.path, content: tampered }])]);
+      writeFileSync(archive, duplicate);
+      writeFileSync(`${archive}.sha256`, `${createHash("sha256").update(duplicate).digest("hex")}  ${backup.backupId}.tar\n`);
+      const destination = addBackupDestination(db, companyRoot, { ...COMPLIANT_DEST, kind: "google-drive", location: "google-drive://folder-547" }).destination!;
+      const adapter: RemoteBackupProviderAdapter = { provider: "google-drive", async getObject() { throw new Error("must not reach provider"); }, async readObjectContent() { throw new Error("must not reach provider"); } };
+      const result = await verifyRemoteBackupPlacement(db, companyRoot, { destinationId: destination.id, backupId: backup.backupId!, remoteObjectId: "file-547" }, adapter);
+      expect(result.ok).toBe(false);
+      expect(destination.placements).toHaveLength(0);
+      expect((db.query("SELECT COUNT(*) AS n FROM audit_log WHERE event_type = 'backup_placed'").get() as { n: number }).n).toBe(0);
+    });
+  });
+
+  test("rejects trailing bytes even when the archive sidecar is rewritten", async () => {
+    await withCompanyAsync(async (db, companyRoot) => {
+      const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:00:00.000Z" });
+      const packed = packBackupArchive(db, companyRoot, { backupId: backup.backupId });
+      const archive = packed.archivePath!;
+      const tainted = Buffer.concat([readFileSync(archive), Buffer.from("unexpected trailing payload")]);
+      writeFileSync(archive, tainted);
+      writeFileSync(`${archive}.sha256`, `${createHash("sha256").update(tainted).digest("hex")}  ${backup.backupId}.tar\n`);
+      const destination = addBackupDestination(db, companyRoot, { ...COMPLIANT_DEST, kind: "google-drive", location: "google-drive://folder-547" }).destination!;
+      const adapter: RemoteBackupProviderAdapter = { provider: "google-drive", async getObject() { throw new Error("must not reach provider"); }, async readObjectContent() { throw new Error("must not reach provider"); } };
+      const result = await verifyRemoteBackupPlacement(db, companyRoot, { destinationId: destination.id, backupId: backup.backupId!, remoteObjectId: "file-547" }, adapter);
+      expect(result.ok).toBe(false);
+      expect(destination.placements).toHaveLength(0);
+      expect((db.query("SELECT COUNT(*) AS n FROM audit_log WHERE event_type = 'backup_placed'").get() as { n: number }).n).toBe(0);
+    });
+  });
+
+  test("rejects future-dated remote verification without placement mutation", async () => {
+    await withCompanyAsync(async (db, companyRoot) => {
+      const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:00:00.000Z" });
+      packBackupArchive(db, companyRoot, { backupId: backup.backupId });
+      const destination = addBackupDestination(db, companyRoot, { ...COMPLIANT_DEST, kind: "google-drive", location: "google-drive://folder-547" }).destination!;
+      const adapter: RemoteBackupProviderAdapter = { provider: "google-drive", async getObject() { throw new Error("must not reach provider"); }, async readObjectContent() { throw new Error("must not reach provider"); } };
+      const result = await verifyRemoteBackupPlacement(db, companyRoot, { destinationId: destination.id, backupId: backup.backupId!, remoteObjectId: "file-547", at: "2099-01-01T00:00:00.000Z" }, adapter);
+      expect(result.ok).toBe(false);
+      expect(destination.placements).toHaveLength(0);
+      expect((db.query("SELECT COUNT(*) AS n FROM audit_log WHERE event_type = 'backup_placed'").get() as { n: number }).n).toBe(0);
     });
   });
 });
@@ -337,6 +403,9 @@ describe("backup governance status", () => {
           destinationId: dest.destination!.id,
           at: "2026-05-17T03:00:00.000Z",
         });
+        const historical = getBackupGovernanceStatus(db, companyRoot, "2026-05-17T02:30:00.000Z");
+        expect(historical.latestBackupPlacedOffsite).toBe(false);
+        expect(historical.ok).toBe(false);
         const status = getBackupGovernanceStatus(db, companyRoot, "2026-05-17T04:00:00.000Z");
         expect(status.hasCompliantDestination).toBe(true);
         expect(status.latestBackupPlacedOffsite).toBe(true);

@@ -34,12 +34,13 @@ import { registerSystemBackupDestinationTools } from "./system/backup-destinatio
 import { registerSystemBackupLockTools } from "./system/backup-lock";
 import { registerSystemAuthorityTools } from "./system/authority";
 import { registerSystemRestoreTools } from "./system/restore";
+import { defaultRemoteBackupProviderResolver, type RemoteBackupProviderResolver } from "../../core/backup-remote-provider";
 
-export function registerSystemTools(server: McpServer): void {
+export function registerSystemTools(server: McpServer, remoteProviderResolver: RemoteBackupProviderResolver = defaultRemoteBackupProviderResolver()): void {
   // Order is load-bearing — see the file-level comment.
   registerSystemHealthcheckTools(server);
   registerSystemBackupTools(server);
-  registerSystemBackupDestinationTools(server);
+  registerSystemBackupDestinationTools(server, remoteProviderResolver);
   registerSystemBackupLockTools(server);
   registerSystemAuthorityTools(server);
   registerSystemRestoreTools(server);

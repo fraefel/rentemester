@@ -407,10 +407,18 @@ modpostering.
 | `system_backup_destination_remove` | `system backup-remove-destination` | `{ company, id, confirm }` | Fjerner en konfigureret backup-destination. |
 | `system_backup_lock` | `system backup-lock` | `{ company, enforced, graceDays?, at?, confirm }` | Konfigurerer den frivillige bogførings-lås. |
 | `system_backup_place` | `system backup-place` | `{ company, archivePath, destinationId, actorKind?, at?, note?, confirm }` | Kopierer et backup-arkiv til en lokal/synkroniseret destination og verificerer med sha256. |
-| `system_backup_verify_remote_placement` | `system backup-verify-remote-placement` | `{ company, destinationId, backupId, archiveSha256, archiveSizeBytes, remoteProvider, remoteObjectId, remoteObjectName, remoteParentId, maxMetadataAgeMs?, actorKind?, at?, note?, confirm }` | Verificerer remote objektidentitet, placering, størrelse og checksum via provider-adapter før evidensen registreres som verificeret. |
+| `system_backup_verify_remote_placement` | `system backup-verify-remote-placement` | `{ company, destinationId, backupId, remoteObjectId, maxMetadataAgeMs?, actorKind?, at?, note?, confirm }` | Verificerer det kanoniske lokale `<backupId>.tar` mod remote objekt via provider-adapter før evidensen registreres som verificeret. |
 | `system_export_authority` | `system export-authority` | `{ company, from, to, out, requestedAt?, requester?, confirm }` | Eksporterer materiale til myndighedsudlevering. |
 | `vat_post_eu_service_purchase` | `vat post-eu-service-purchase` | `{ company, payload: ReverseChargePurchaseInput, confirm }` | Bogfører EU-servicekøb med reverse charge. |
 | `vat_post_representation_purchase` | `vat post-representation-purchase` | `{ company, payload: RepresentationPurchaseInput, confirm }` | Bogfører repræsentationsudgift med delvis momsfradrag. |
+
+Google Drive-verifikation bruger et kortlivet token fra
+`RENTEMESTER_GOOGLE_DRIVE_ACCESS_TOKEN`; tokenet lagres aldrig i virksomhedens
+mappe, backup, ledger eller auditlog. Udsted tokenet med `drive.file`, når
+Rentemester har oprettet eller fået delt den konkrete backupfil. Hvis et
+eksisterende objekt kræver den bredere `drive.readonly`, er det en særskilt
+produktions-/sikkerhedsgodkendelse. Rotér tokenet i hostmiljøet og genstart
+processen; fejl ved manglende eller tilbagekaldt token stopper fail-closed.
 
 > De seks `system_backup_*`-konfigurations-tools (`*_archive`,
 > `*_confirm_placement`, `*_destination_add`, `*_destination_remove`,

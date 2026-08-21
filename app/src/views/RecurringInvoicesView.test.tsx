@@ -322,6 +322,10 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
       screen.getByLabelText(/Første udstedelsesdato/),
       "2026-07-01",
     );
+    await userEvent.selectOptions(screen.getByLabelText(/^Interval$/), "weekly");
+    await userEvent.clear(screen.getByLabelText(/Gentag hver/));
+    await userEvent.type(screen.getByLabelText(/Gentag hver/), "2");
+    await userEvent.selectOptions(screen.getByLabelText(/Afsendelseskanal/), "email");
     await userEvent.type(screen.getByLabelText(/Kundens navn/), "Kunde ApS");
     await userEvent.type(
       screen.getByLabelText(/Linje 1 beskrivelse/),
@@ -351,7 +355,9 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
       const body = JSON.parse(String((createCall![1] as RequestInit).body));
       expect(body.confirm).toBe(true);
       expect(body.name).toBe("Ny månedlig");
-      expect(body.interval).toBe("monthly");
+      expect(body.interval).toBe("weekly");
+      expect(body.intervalCount).toBe(2);
+      expect(body.deliveryChannel).toBe("email");
       expect(body.firstIssueDate).toBe("2026-07-01");
       expect(Array.isArray(body.lines)).toBe(true);
       expect(body.lines).toHaveLength(1);

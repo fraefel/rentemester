@@ -30,7 +30,9 @@ export type RecurringInvoiceGenerationRow = {
 export type RecurringInvoiceTemplateRow = {
   id: number;
   name: string;
-  interval: "monthly" | "quarterly" | "yearly";
+  interval: "weekly" | "monthly" | "quarterly" | "yearly";
+  intervalCount: number;
+  deliveryChannel: "manual" | "email" | "digisense";
   firstIssueDate: string;
   /** Next date `generateRecurringInvoice` will materialize a new invoice for. */
   nextIssueDate: string;
@@ -74,6 +76,8 @@ export function buildCompanyRecurringInvoices(
       id: row.id,
       name: row.name,
       interval: row.interval,
+      intervalCount: row.intervalCount,
+      deliveryChannel: row.deliveryChannel,
       firstIssueDate: row.firstIssueDate,
       nextIssueDate: row.nextIssueDate,
       paymentTermsDays: row.paymentTermsDays,

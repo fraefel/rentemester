@@ -23,6 +23,13 @@ export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM = createHash("sha256")
   .update(PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT)
   .digest("hex");
 export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME = "rentemester-peppol-submission-events-v2";
+const RECURRING_AUTOMATION_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0003-recurring-automation.json"),
+);
+export const RECURRING_AUTOMATION_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(RECURRING_AUTOMATION_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const RECURRING_AUTOMATION_MIGRATION_NAME = "rentemester-recurring-automation-v3";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -47,6 +54,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
     name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME,
     checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM,
   },
+  { id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -237,16 +245,81 @@ export function readSchemaMigrations(db: Database): MigrationRow[] {
 /** Apply migrations after the immutable v1 normalization has completed. */
 export function applySchemaMigrations(db: Database): void {
   const build = getBuildIdentity();
-  const eventsMigration = JSON.parse(PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT.toString("utf8")) as {
-    sql: string;
-  };
-  const existing = db.query("SELECT id FROM schema_migrations WHERE id = 2").get();
-  if (existing) return;
-  db.transaction(() => {
-    db.exec(eventsMigration.sql);
-    db.query(
-      `INSERT INTO schema_migrations (id, name, checksum, applied_by_version, applied_by_commit)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(2, PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME, PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM, build.version, build.gitCommit);
-  }, { immediate: true })();
+  const migrations = [
+    { id: 2, name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME, checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM, artifact: PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT },
+    { id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM, artifact: RECURRING_AUTOMATION_MIGRATION_ARTIFACT },
+  ];
+  for (const migration of migrations) {
+    if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
+    const parsed = JSON.parse(migration.artifact.toString("utf8")) as { sql: string };
+    db.transaction(() => {
+      const recurringAlreadyUpgraded = migration.id === 3 &&
+        (db.query("PRAGMA table_info(recurring_invoice_templates)").all() as Array<{ name: string }>)
+          .some((column) => column.name === "interval_count");
+      if (recurringAlreadyUpgraded) {
+        // Recover a ledger whose v3 business tables committed but whose
+        // migration row or auxiliary delivery table was lost. Never rebuild
+        // the already-upgraded parent/child pair in that state.
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS recurring_invoice_generation_claims (
+            id INTEGER PRIMARY KEY,
+            template_id INTEGER NOT NULL REFERENCES recurring_invoice_templates(id),
+            period_index INTEGER NOT NULL CHECK(period_index >= 0),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(template_id, period_index)
+          );
+          INSERT OR IGNORE INTO recurring_invoice_generation_claims(template_id, period_index)
+            SELECT template_id, period_index FROM recurring_invoice_generations;
+          CREATE TABLE IF NOT EXISTS recurring_invoice_delivery_events (
+            id INTEGER PRIMARY KEY,
+            generation_id INTEGER NOT NULL REFERENCES recurring_invoice_generations(id),
+            channel TEXT NOT NULL CHECK(channel IN ('email','digisense')),
+            event_type TEXT NOT NULL CHECK(event_type IN ('attempted','acknowledged','accepted_pending','terminal_failed','uncertain','preflight_failed')),
+            provider_id TEXT,
+            message TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_recurring_invoice_delivery_events_generation
+            ON recurring_invoice_delivery_events(generation_id,id DESC);
+        `);
+      } else {
+        db.exec(parsed.sql);
+      }
+      db.query(`INSERT INTO schema_migrations (id, name, checksum, applied_by_version, applied_by_commit) VALUES (?, ?, ?, ?, ?)`)
+        .run(migration.id, migration.name, migration.checksum, build.version, build.gitCommit);
+    }, { immediate: true })();
+  }
+
+  // `migrate()` restores the immutable v1 trigger catalogue before applying
+  // post-baseline migrations. On a second open that catalogue would otherwise
+  // replace the v3 template guard with the old body that does not protect the
+  // new cadence and channel columns. Re-assert the post-migration guards and
+  // delivery reservation index on every open, including when v3 was already
+  // recorded.
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 3").get()) {
+    db.transaction(() => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS recurring_invoice_templates_guard_update;
+        CREATE TRIGGER recurring_invoice_templates_guard_update
+        BEFORE UPDATE ON recurring_invoice_templates
+        WHEN OLD.name != NEW.name
+          OR OLD.interval != NEW.interval
+          OR OLD.interval_count != NEW.interval_count
+          OR OLD.delivery_channel != NEW.delivery_channel
+          OR OLD.first_issue_date != NEW.first_issue_date
+          OR OLD.payment_terms_days != NEW.payment_terms_days
+          OR OLD.delivery_period_mode != NEW.delivery_period_mode
+          OR OLD.payload_json != NEW.payload_json
+          OR OLD.created_at != NEW.created_at
+          OR NEW.next_issue_date < OLD.next_issue_date
+          OR (OLD.active = 0 AND NEW.active = 1)
+        BEGIN
+          SELECT RAISE(ABORT, 'recurring invoice templates are append-only; only next_issue_date may advance and active may be retired');
+        END;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_recurring_invoice_delivery_single_attempt
+          ON recurring_invoice_delivery_events(generation_id)
+          WHERE event_type = 'attempted';
+      `);
+    }, { immediate: true })();
+  }
 }

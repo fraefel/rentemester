@@ -335,7 +335,7 @@ if (!cmd || cmd === "help") {
       // The workspace handler performs an all-target actor + backup preflight
       // before any network/write. A synthetic --company must not substitute
       // for those actual target ledgers here.
-      : commandKey === "efaktura modtag-workspace"
+      : commandKey === "efaktura modtag-workspace" || commandKey === "recurring-invoice run-workspace"
         ? null
         : ctx.companyRoot();
     if (mutationRoot) {

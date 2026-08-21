@@ -11,12 +11,21 @@ export const recurringInvoiceSpecs: CommandSpec[] = [
     exampleHint: "rentemester recurring-invoice create --example > skabelon.json",
     inputNotes: [
       "name: tekst",
-      'interval: "monthly" | "quarterly" | "yearly"',
+      'interval: "weekly" | "monthly" | "quarterly" | "yearly"',
+      "intervalCount: positivt heltal (standard 1; fx 2 = hver anden periode)",
+      'deliveryChannel: "manual" | "email" | "digisense" (standard manual)',
       "firstIssueDate: YYYY-MM-DD",
       "paymentTermsDays: heltal 0-365 (standard 30)",
       'deliveryPeriodMode: "issue_month" | "interval_window" | "none"',
       "invoice: faktura-payload (samme felter som invoice issue, uden issueDate/invoiceNumber)",
     ],
+  },
+  {
+    key: "recurring-invoice run-workspace",
+    usage: "recurring-invoice run-workspace --workspace <dir> --as-of <YYYY-MM-DD> [--max-generations <n>] --confirm yes",
+    description: "Eksplicit scheduler-kørsel for aktive, initialiserede workspace-virksomheder. Har ingen indbygget cron. Fortsætter efter per-virksomheds fejl.",
+    allowedFlags: ["--workspace", "--as-of", "--max-generations", "--confirm"],
+    inputNotes: ["Kræver canonical actor og --confirm yes.", "max-generations begrænser arbejdet pr. virksomhed; hasMore/continuation viser resterende arbejde.", "Afsendelseskanalen vælges kun fra hver skabelons deliveryChannel; credentials kan aldrig gives som CLI-argument."],
   },
   {
     key: "recurring-invoice generate",

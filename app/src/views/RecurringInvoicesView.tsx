@@ -33,9 +33,15 @@ type Page = {
 };
 
 const INTERVAL_LABELS: Record<RecurringInvoiceTemplateRow["interval"], string> = {
+  weekly: "ugentligt",
   monthly: "månedligt",
   quarterly: "kvartalsvist",
   yearly: "årligt",
+};
+const CHANNEL_LABELS: Record<"manual" | "email" | "digisense", string> = {
+  manual: "manuel kladde",
+  email: "e-mail",
+  digisense: "e-faktura",
 };
 
 export function RecurringInvoicesView() {
@@ -267,7 +273,7 @@ function TemplateCard({
         {!template.active && <span className="muted">(tilbagetrukken)</span>}
       </h4>
       <p className="muted">
-        {INTERVAL_LABELS[template.interval]} · næste udstedelse{" "}
+        {(template.intervalCount ?? 1) > 1 ? `hver ${template.intervalCount}. ` : ""}{INTERVAL_LABELS[template.interval]} · {CHANNEL_LABELS[template.deliveryChannel ?? "manual"]} · næste udstedelse{" "}
         {template.nextIssueDate} · betalingsfrist {template.paymentTermsDays}{" "}
         dage
         {template.notes ? ` · ${template.notes}` : ""}

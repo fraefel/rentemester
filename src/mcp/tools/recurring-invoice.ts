@@ -15,8 +15,16 @@ import {
   listRecurringInvoiceTemplates,
   type RecurringInvoiceTemplateInput,
 } from "../../core/recurring-invoices";
-import { withActor } from "../actor";
-import { envelopeShape, wrapCoreResult } from "../envelope";
+import { runWorkspaceRecurringInvoices } from "../../core/recurring-workspace";
+import { resolveWorkspaceRoot } from "../../core/workspace";
+import { deriveMcpActor, withActor } from "../actor";
+import {
+  envelopeShape,
+  wrapCoreResult,
+  envelopeToCallResult,
+  errorEnvelope,
+  successEnvelope,
+} from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 
 // --------------------------------------------------------------- invoice template schema
@@ -114,6 +122,46 @@ const recurringInvoicePayloadSchema = z
 
 export function registerRecurringInvoiceTools(server: McpServer): void {
   server.registerTool(
+    "recurring_invoice_run_workspace",
+    {
+      title: "Run recurring invoices for active workspace companies",
+      description: "Explicit scheduler entry point; Rentemester does not run a background timer. Uses each template's explicit delivery channel, skips archived/uninitialized companies, and continues after per-company failures. confirm:true required. write-irreversible.",
+      inputSchema: {
+        workspace: z.string().min(1).describe("Absolute workspace root containing workspace.json."),
+        asOfDate: z.string().min(1).describe("Deterministic YYYY-MM-DD scheduler reference date."),
+        maxGenerations: z.number().int().min(1).max(5000).optional().describe("Per-company generation cap; inspect hasMore and continuation before considering the run complete."),
+        confirm: confirmField,
+      },
+      outputSchema: envelopeShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args: { workspace: string; asOfDate: string; maxGenerations?: number; confirm?: boolean }) => {
+      if (args.confirm !== true) return envelopeToCallResult(errorEnvelope("confirm: true is required", { code: "CONFIRM_REQUIRED" }));
+      try {
+        const actor = deriveMcpActor(server.server.getClientVersion());
+        const result = await runWorkspaceRecurringInvoices(resolveWorkspaceRoot(args.workspace), {
+          asOfDate: args.asOfDate,
+          actor,
+          maxGenerations: args.maxGenerations,
+        });
+        return result.ok
+          ? envelopeToCallResult(successEnvelope(result))
+          : envelopeToCallResult({
+              ok: false,
+              data: {
+                companies: result.companies,
+                hasMore: result.hasMore,
+                remainingGenerations: result.remainingGenerations,
+                continuation: result.continuation,
+              },
+              errors: result.errors,
+            });
+      } catch (error) {
+        return envelopeToCallResult(errorEnvelope(error instanceof Error ? error.message : String(error)));
+      }
+    },
+  );
+  server.registerTool(
     "recurring_invoice_create",
     {
       title: "Create recurring invoice template",
@@ -126,8 +174,10 @@ export function registerRecurringInvoiceTools(server: McpServer): void {
           .min(1)
           .describe("Human-readable name of the template, e.g. 'Monthly retainer — Acme ApS'."),
         interval: z
-          .enum(["monthly", "quarterly", "yearly"])
+          .enum(["weekly", "monthly", "quarterly", "yearly"])
           .describe("How often the template generates an invoice."),
+        intervalCount: z.number().int().min(1).max(120).optional().describe("Repeat every N intervals (default 1)."),
+        deliveryChannel: z.enum(["manual", "email", "digisense"]).optional().describe("Explicit delivery channel (default manual)."),
         firstIssueDate: z
           .string()
           .min(1)
@@ -161,7 +211,9 @@ export function registerRecurringInvoiceTools(server: McpServer): void {
     withCompanyDbConfirmed<{
       company: string;
       name: string;
-      interval: "monthly" | "quarterly" | "yearly";
+      interval: "weekly" | "monthly" | "quarterly" | "yearly";
+      intervalCount?: number;
+      deliveryChannel?: "manual" | "email" | "digisense";
       firstIssueDate: string;
       invoice: z.infer<typeof recurringInvoicePayloadSchema>;
       paymentTermsDays?: number;
@@ -177,6 +229,8 @@ export function registerRecurringInvoiceTools(server: McpServer): void {
           {
             name: args.name,
             interval: args.interval,
+            intervalCount: args.intervalCount,
+            deliveryChannel: args.deliveryChannel,
             firstIssueDate: args.firstIssueDate,
             invoice: args.invoice as RecurringInvoiceTemplateInput["invoice"],
             paymentTermsDays: args.paymentTermsDays,

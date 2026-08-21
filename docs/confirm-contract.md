@@ -54,6 +54,7 @@ Hver række er én logisk mutation. **Kræves** betyder afvisning uden samtykke.
 | Genåbn periode | *(ingen MCP-tool)* / `POST /periods/reopen` / `period reopen` | N/A | `confirm: true` | Ikke krævet |
 | Ryd undtagelse | `exception_resolve` / `POST /exceptions/:id/resolve` / `exceptions resolve` | `confirm: true` | **Ikke krævet** (kun status flippes) | Ikke krævet |
 | Generér tilbagevendende faktura | `recurring_invoice_generate` / `POST /recurring-invoices/generate` / `recurring-invoice generate` | `confirm: true` | `confirm: true` | Ikke krævet |
+| Kør gentagende fakturaer i workspace | `recurring_invoice_run_workspace` / *(ingen cockpit-timer)* / `recurring-invoice run-workspace` | `confirm: true` | N/A | **`--confirm yes`** |
 | Registrer aktiv | `asset_register` / *(N/A)* / `asset register` | `confirm: true` | N/A | Ikke krævet |
 | Straksafskriv aktiv | `asset_write_off` / *(N/A)* / `asset write-off` | `confirm: true` | N/A | **`--confirm yes`** (matcher det MCP-felt der hedder `confirmImmediateWriteOff`) |
 | Tag backup | `system_backup` / *(N/A)* / `system backup` | `confirm: true` | N/A | Ikke krævet |

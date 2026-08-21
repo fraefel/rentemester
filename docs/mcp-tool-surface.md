@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 117 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 118 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-117 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+118 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -226,7 +226,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 50
 - **Ordinary write-tools**: 66
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **117** (50 read, 66 ordinary write, 1 destructive)
+- **Total**: **118** (50 read, 67 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -274,6 +274,7 @@ frit og parallelt.
 | `portfolio_overview` | `dashboard` (delvist) | `{ workspace, asOf? }` | Status side om side for hver virksomhed i workspace'et. Intet konsolideres. |
 | `reconcile_bank` | `reconcile bank` | `{ company, from, to, status?, textMatch?, amount?, account? }` | Bygger bank-afstemningsrapport for periode. |
 | `recurring_invoice_list` | `recurring-invoice list` | `{ company, includeInactive? }` | Lister gentagende fakturaskabeloner. |
+| `recurring_invoice_run_workspace` | `recurring-invoice run-workspace` | `{ workspace, asOfDate, confirm }` | Eksplicit scheduler-kørsel for aktive manifestvirksomheder. Ingen indbygget cron; arkiverede/uinitialiserede springes over og resultater er secret-frie. |
 | `retention_status` | `retention status` | `{ company, asOf? }` | Viser opbevaringsfrister og udløbet materiale. |
 | `gdpr_audit_log` | `gdpr audit-log` | `{ company, since?, until?, asOf?, signWithEd25519? }` | Eksporterer GDPR-hændelser med deterministisk fingerprint og valgfri signatur; skriver ikke state. |
 | `system_backup_destination_list` | `system backup-destinations` | `{ company }` | Lister konfigurerede backup-destinationer med attestering. |
@@ -397,7 +398,7 @@ modpostering.
 | `payable_register` | `payable register` | `{ company, documentId, billDate, dueDate, expenseAccount, vatTreatment?, vendorId?, note?, confirm }` | Registrerer et bogført leverandørbilag som en åben kreditorpost (debit udgift + købsmoms, credit 7000 Leverandørgæld). |
 | `peppol_submit_public_invoice` | `invoice submit-public-peppol` | `{ company, documentId? \| invoiceNumber?, accessPoint, acknowledgement?, confirm }` | Bygger en idempotent PEPPOL-submission-envelope og registrerer forsøget. |
 | `period_close` | `period close` | `{ company, from, to, kind?, status?, reference?, confirm }` | Lukker eller markerer regnskabsperiode. |
-| `recurring_invoice_create` | `recurring-invoice create` | `{ company, name, interval, firstIssueDate, invoice: InvoicePayload, paymentTermsDays?, deliveryPeriodMode?, notes?, confirm }` | Opretter en gentagende fakturaskabelon. `invoice` er en typet `InvoicePayload` (samme form som `invoice_issue`) — men dato-/nummerfelter (`invoiceNumber`, `issueDate`, `dueDate`, leveringsdatoer) sættes IKKE her; `recurring_invoice_generate` udleder dem pr. periode. |
+| `recurring_invoice_create` | `recurring-invoice create` | `{ company, name, interval: weekly|monthly|quarterly|yearly, intervalCount?, deliveryChannel?: manual|email|digisense, firstIssueDate, invoice: InvoicePayload, paymentTermsDays?, deliveryPeriodMode?, notes?, confirm }` | Opretter en gentagende fakturaskabelon. `invoice` er en typet `InvoicePayload` (samme form som `invoice_issue`) — men dato-/nummerfelter (`invoiceNumber`, `issueDate`, `dueDate`, leveringsdatoer) sættes IKKE her; `recurring_invoice_generate` udleder dem pr. periode. |
 | `recurring_invoice_generate` | `recurring-invoice generate` | `{ company, templateId, asOfDate, confirm }` | Materialiserer den forfaldne faktura for skabelonen. Idempotent pr. template/periode. |
 | `system_backup` | `system backup` | `{ company, at?, archive?, confirm }` | Opretter revisionsklar backup. `archive:true` pakker straks til ét `.tar`. |
 | `system_backup_archive` | `system backup-archive` | `{ company, backupId?, out?, confirm }` | Pakker en eksisterende backup til ét deterministisk `.tar` (+ `.sha256`). |

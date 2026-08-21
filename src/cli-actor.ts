@@ -71,6 +71,7 @@ export const MUTATING_COMMANDS = new Set([
   // ===== RECURRING INVOICES (#118) =====
   "recurring-invoice create",
   "recurring-invoice generate",
+  "recurring-invoice run-workspace",
   // ===== END RECURRING INVOICES (#118) =====
   // ===== MAIL INTAKE (#122) =====
   "mail-intake ingest",

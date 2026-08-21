@@ -6,7 +6,7 @@ import { companyPaths } from "./paths";
 import { addDays } from "./dates";
 import { validateInvoice, type InvoicePayload } from "./invoice";
 import { promoteTempFileExclusive, removeIfExists, writeTempFileFor } from "./atomic-file";
-import { insertAuditLog } from "./actor";
+import { insertAuditLog, type ResolveActorInput } from "./actor";
 import { companySequenceScope, fiscalYearLabelFromDate, reserveSequenceValue, nextSequenceValue } from "./sequences";
 import { retainUntilForDate } from "./retention";
 import { validateJournalTransactionDate } from "./periods";
@@ -295,7 +295,12 @@ export function previewIssuedInvoicePdf(
   };
 }
 
-export function issueInvoice(db: Database, companyRoot: string, rawPayload: InvoicePayload): IssueInvoiceResult {
+export function issueInvoice(
+  db: Database,
+  companyRoot: string,
+  rawPayload: InvoicePayload,
+  actor: ResolveActorInput = {},
+): IssueInvoiceResult {
   // #221: fill the seller identity + due date from the stored company profile
   // before validation, so the owner never re-types their own master data.
   const payload = enrichInvoiceFromCompany(db, rawPayload);
@@ -445,12 +450,16 @@ export function issueInvoice(db: Database, companyRoot: string, rawPayload: Invo
         entityType: "document",
         entityId: inserted.id,
         message: `Issued invoice ${invoiceNumber}`,
+        createdBy: actor.createdBy,
+        createdByProgram: actor.createdByProgram,
       });
       insertAuditLog(db, {
         eventType: "invoice_render_pdf",
         entityType: "document",
         entityId: pdfInserted.id,
         message: `Rendered invoice PDF ${invoiceNumber}`,
+        createdBy: actor.createdBy,
+        createdByProgram: actor.createdByProgram,
       });
 
       // Publish both immutable artifacts while the database transaction is

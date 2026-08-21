@@ -115,7 +115,10 @@ export type RecurringInvoiceGenerationRow = {
 export type RecurringInvoiceTemplateRow = {
   id: number;
   name: string;
-  interval: "monthly" | "quarterly" | "yearly";
+  interval: "weekly" | "monthly" | "quarterly" | "yearly";
+  /** Present for v3 templates; absent legacy API payloads mean 1/manual. */
+  intervalCount?: number;
+  deliveryChannel?: "manual" | "email" | "digisense";
   firstIssueDate: string;
   nextIssueDate: string;
   paymentTermsDays: number;
@@ -127,7 +130,8 @@ export type RecurringInvoiceTemplateRow = {
 };
 
 /** Public alias used by the create modal (#386). */
-export type RecurringInterval = "monthly" | "quarterly" | "yearly";
+export type RecurringInterval = "weekly" | "monthly" | "quarterly" | "yearly";
+export type RecurringDeliveryChannel = "manual" | "email" | "digisense";
 export type DeliveryPeriodMode = "issue_month" | "interval_window" | "none";
 
 /**
@@ -139,6 +143,8 @@ export type DeliveryPeriodMode = "issue_month" | "interval_window" | "none";
 export type RecurringInvoiceTemplateInput = {
   name: string;
   interval: RecurringInterval;
+  intervalCount?: number;
+  deliveryChannel?: RecurringDeliveryChannel;
   firstIssueDate: string;
   paymentTermsDays: number;
   deliveryPeriodMode?: DeliveryPeriodMode;
@@ -160,6 +166,8 @@ export type RecurringInvoiceTemplateCreatedResult = {
   templateId: number;
   name: string;
   interval: RecurringInterval;
+  intervalCount: number;
+  deliveryChannel: RecurringDeliveryChannel;
   firstIssueDate: string;
 };
 

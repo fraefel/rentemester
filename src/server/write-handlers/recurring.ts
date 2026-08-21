@@ -5,6 +5,7 @@ import {
   generateRecurringInvoice,
   retireRecurringInvoiceTemplate,
   type RecurringInterval,
+  type RecurringDeliveryChannel,
   type DeliveryPeriodMode,
 } from "../../core/recurring-invoices";
 import { resolveInvoiceMasterData } from "../../core/master-data";
@@ -134,10 +135,13 @@ export async function handleRetireRecurringInvoiceTemplate(
 }
 
 const VALID_INTERVALS: readonly RecurringInterval[] = [
+  "weekly",
   "monthly",
   "quarterly",
   "yearly",
 ] as const;
+
+const VALID_DELIVERY_CHANNELS: readonly RecurringDeliveryChannel[] = ["manual", "email", "digisense"] as const;
 
 const VALID_DELIVERY_MODES: readonly DeliveryPeriodMode[] = [
   "issue_month",
@@ -182,11 +186,18 @@ export async function handleCreateRecurringInvoiceTemplate(
       const intervalRaw = requireBodyString(body, "interval");
       if (!(VALID_INTERVALS as readonly string[]).includes(intervalRaw)) {
         throw ApiError.badRequest(
-          "'interval' must be one of monthly, quarterly, yearly",
+          "'interval' must be one of weekly, monthly, quarterly, yearly",
         );
       }
       const interval = intervalRaw as RecurringInterval;
       const firstIssueDate = requireBodyString(body, "firstIssueDate");
+      const intervalCount = optionalBodyPositiveInt(body, "intervalCount") ?? 1;
+      if (intervalCount > 120) throw ApiError.badRequest("'intervalCount' must be between 1 and 120");
+      const deliveryChannelRaw = optionalBodyString(body, "deliveryChannel") ?? "manual";
+      if (!(VALID_DELIVERY_CHANNELS as readonly string[]).includes(deliveryChannelRaw)) {
+        throw ApiError.badRequest("'deliveryChannel' must be one of manual, email, digisense");
+      }
+      const deliveryChannel = deliveryChannelRaw as RecurringDeliveryChannel;
       const paymentTermsDays =
         optionalBodyNumber(body, "paymentTermsDays") ?? 30;
       const deliveryModeRaw =
@@ -244,6 +255,8 @@ export async function handleCreateRecurringInvoiceTemplate(
       const created = createRecurringInvoiceTemplate(ctx.db, {
         name,
         interval,
+        intervalCount,
+        deliveryChannel,
         firstIssueDate,
         paymentTermsDays,
         deliveryPeriodMode,
@@ -260,6 +273,8 @@ export async function handleCreateRecurringInvoiceTemplate(
           templateId: created.templateId ?? null,
           name,
           interval,
+          intervalCount,
+          deliveryChannel,
           firstIssueDate,
         },
       };

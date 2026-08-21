@@ -1,6 +1,6 @@
 // Tests: src/core/recurring-invoices.ts
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
@@ -12,6 +12,7 @@ import {
   listRecurringInvoiceTemplates,
   retireRecurringInvoiceTemplate,
 } from "../../src/core/recurring-invoices";
+import { storeViesValidation } from "../../src/core/vies";
 
 function baseTemplateInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -62,7 +63,7 @@ describe("recurring invoice templates", () => {
 
     const created = createRecurringInvoiceTemplate(
       db,
-      baseTemplateInput({ interval: "weekly" }),
+      baseTemplateInput({ interval: "fortnightly" }),
     );
     expect(created.ok).toBe(false);
     expect(created.errors[0]).toContain("interval");
@@ -100,6 +101,35 @@ describe("recurring invoice templates", () => {
 });
 
 describe("recurring invoice generation", () => {
+  test("removes promoted invoice artifacts when the outer generation link rolls back", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-recurring-artifact-rollback-"));
+    const paths = ensureCompanyDirs(root);
+    const db = openDb(paths.db);
+    migrate(db);
+    const template = createRecurringInvoiceTemplate(db, baseTemplateInput());
+    db.exec(`CREATE TRIGGER recurring_generation_forced_abort
+      BEFORE INSERT ON recurring_invoice_generations
+      BEGIN SELECT RAISE(ABORT, 'forced generation link failure'); END;`);
+
+    expect(() => generateRecurringInvoice(db, root, {
+      templateId: template.templateId!, asOfDate: "2026-01-20",
+    })).toThrow("forced generation link failure");
+    expect(db.query("SELECT COUNT(*) AS n FROM documents WHERE document_type IN ('issued_invoice','issued_invoice_pdf')").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM recurring_invoice_generation_claims").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM recurring_invoice_generations").get()).toEqual({ n: 0 });
+    expect(readdirSync(paths.invoicesIssued).filter((name) => name.endsWith(".json") || name.endsWith(".pdf"))).toEqual([]);
+
+    db.exec("DROP TRIGGER recurring_generation_forced_abort;");
+    const retried = generateRecurringInvoice(db, root, {
+      templateId: template.templateId!, asOfDate: "2026-01-20",
+    });
+    expect(retried.ok).toBe(true);
+    expect(retried.created).toBe(true);
+    expect(readdirSync(paths.invoicesIssued).sort()).toEqual(["2026-0001.json", "2026-0001.pdf"]);
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("materializes the first due invoice for an as-of date", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-recurring-gen-first-"));
     const db = openDb(ensureCompanyDirs(root).db);
@@ -261,6 +291,70 @@ describe("recurring invoice generation", () => {
     expect(auditRow!.message).toContain(`template ${template.templateId!}`);
     expect(auditRow!.message).toContain(result.invoiceNumber!);
 
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rolls back a rejected claim and succeeds after repairable VIES evidence is added", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-recurring-vies-retry-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const template = createRecurringInvoiceTemplate(db, baseTemplateInput({
+      firstIssueDate: "2026-05-16",
+      invoice: {
+        invoiceType: "full",
+        vatTreatment: "foreign_reverse_charge",
+        seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+        buyer: { name: "EU Kunde GmbH", address: "Berlin", vatOrCvr: "DE123456789" },
+        lines: [{ description: "EU consulting", quantity: 1, unitPriceExVat: 8000, lineTotalExVat: 8000 }],
+        totals: { netAmount: 8000, grossAmount: 8000 },
+        reverseChargeBasis: "EU_MOMSDIREKTIV_ART_196",
+        reverseChargeNote: "VAT reverse charge — VAT to be accounted by the recipient",
+        currency: "DKK",
+      },
+    }));
+    const rejected = generateRecurringInvoice(db, root, {
+      templateId: template.templateId!, asOfDate: "2026-05-16",
+    });
+    expect(rejected.ok).toBe(false);
+    expect(rejected.errors.join(" ")).toContain("VIES lookup not yet performed");
+    expect(db.query("SELECT COUNT(*) AS n FROM recurring_invoice_generation_claims").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM documents WHERE document_type = 'issued_invoice'").get()).toEqual({ n: 0 });
+
+    storeViesValidation(db, {
+      vatOrCvr: "DE123456789", valid: true,
+      validatedAt: "2026-05-15T00:00:00.000Z",
+      expiresAt: "2026-12-15T00:00:00.000Z",
+    });
+    const repaired = generateRecurringInvoice(db, root, {
+      templateId: template.templateId!, asOfDate: "2026-05-16",
+    });
+    expect(repaired.ok).toBe(true);
+    expect(repaired.created).toBe(true);
+    expect(db.query("SELECT COUNT(*) AS n FROM recurring_invoice_generation_claims").get()).toEqual({ n: 1 });
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("attributes issue, render and generation audits to the scheduler actor", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-recurring-actor-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const template = createRecurringInvoiceTemplate(db, baseTemplateInput());
+    const result = generateRecurringInvoice(db, root, {
+      templateId: template.templateId!, asOfDate: "2026-01-20",
+      createdBy: "system:scheduler", createdByProgram: "recurring-cron",
+    });
+    expect(result.ok).toBe(true);
+    const rows = db.query(
+      `SELECT event_type, actor FROM audit_log
+        WHERE event_type IN ('invoice_issue','invoice_render_pdf','recurring_invoice_generate')
+        ORDER BY id`,
+    ).all() as Array<{ event_type: string; actor: string }>;
+    expect(rows.map((row) => row.event_type)).toEqual([
+      "invoice_issue", "invoice_render_pdf", "recurring_invoice_generate",
+    ]);
+    expect(rows.every((row) => row.actor === "system:scheduler via recurring-cron")).toBe(true);
     db.close();
     rmSync(root, { recursive: true, force: true });
   });

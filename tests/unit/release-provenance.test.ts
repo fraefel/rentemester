@@ -53,7 +53,7 @@ describe("release provenance", () => {
   test("combines product, schema and rule identities", () => {
     const provenance = getReleaseProvenance();
     expect(provenance.product.version).toBe("0.1.0");
-    expect(provenance.schema.version).toBe(2);
+    expect(provenance.schema.version).toBe(3);
     expect(provenance.schema.baselineChecksum).toMatch(/^[0-9a-f]{64}$/);
     expect(provenance.rules.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
   });

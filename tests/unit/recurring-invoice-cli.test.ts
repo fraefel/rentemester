@@ -3,6 +3,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createCompany } from "../../src/core/company";
+import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
+import { companyPaths } from "../../src/core/paths";
+import { openDb, migrate } from "../../src/core/db";
+import { createRecurringInvoiceTemplate } from "../../src/core/recurring-invoices";
 
 const TEMPLATE_INPUT = {
   name: "Monthly retainer",
@@ -106,5 +111,54 @@ describe("recurring-invoice CLI", () => {
     expect(listedJson.count).toBe(1);
 
     rmSync(root, { recursive: true, force: true });
+  });
+
+  test("run-workspace needs no irrelevant --company and exits nonzero on a partial failure", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-recurring-cli-workspace-"));
+    try {
+      initWorkspace(root);
+      const alpha = createCompany(root, { name: "Alpha ApS", onboardingActor: "agent:codex" });
+      const beta = createCompany(root, { name: "Beta ApS", onboardingActor: "agent:codex" });
+      for (const [slug, channel] of [[alpha.slug, "email"], [beta.slug, "manual"]] as const) {
+        const companyRoot = companyRootForSlug(root, slug);
+        const db = openDb(companyPaths(companyRoot).db); migrate(db);
+        createRecurringInvoiceTemplate(db, { ...TEMPLATE_INPUT, deliveryChannel: channel });
+        if (channel === "email") {
+          db.run("INSERT INTO customers (name, email) VALUES (?, ?)", "Kunde A/S", "kunde@example.test");
+          writeFileSync(join(companyPaths(companyRoot).config, "smtp.json"), JSON.stringify({
+            host: "smtp.example.test", port: 587, fromAddress: "billing@example.test", dryRun: false,
+          }));
+        }
+        db.close();
+      }
+
+      const result = await run([
+        "recurring-invoice", "run-workspace",
+        "--workspace", root,
+        "--as-of", "2026-03-20",
+        "--max-generations", "1",
+        "--confirm", "yes",
+        "--actor", "agent:codex",
+        "--actor-via", "test",
+        "--json",
+      ]);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(1);
+      const output = JSON.parse(result.stdout);
+      expect(output.ok).toBe(false);
+      expect(output.hasMore).toBe(true);
+      expect(output.remainingGenerations).toBe(4);
+      expect(output.continuation.companies).toEqual(expect.arrayContaining([
+        expect.objectContaining({ slug: alpha.slug, remainingGenerations: 2 }),
+        expect.objectContaining({ slug: beta.slug, remainingGenerations: 2 }),
+      ]));
+      expect(output.companies).toEqual(expect.arrayContaining([
+        expect.objectContaining({ slug: alpha.slug, status: "failed", attempted: 0 }),
+        expect.objectContaining({ slug: beta.slug, status: "processed", generated: 1 }),
+      ]));
+      expect(result.stdout).not.toContain("smtp.json");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

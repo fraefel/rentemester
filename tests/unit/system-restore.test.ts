@@ -17,6 +17,8 @@ import {
   BASELINE_MIGRATION_NAME,
   PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM,
   PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME,
+  RECURRING_AUTOMATION_MIGRATION_CHECKSUM,
+  RECURRING_AUTOMATION_MIGRATION_NAME,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
 import { buildBankReconciliationReport } from "../../src/core/reconciliation";
@@ -107,10 +109,16 @@ describe("system restore", () => {
         checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM,
         applied_by_version: expect.any(String),
       }),
+      expect.objectContaining({
+        id: 3,
+        name: RECURRING_AUTOMATION_MIGRATION_NAME,
+        checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
     ]);
     expect(manifest.provenance).toEqual(expect.objectContaining({
       product: expect.objectContaining({ version: expect.any(String) }),
-      schema: { version: 2, baselineChecksum: BASELINE_MIGRATION_CHECKSUM },
+      schema: { version: 3, baselineChecksum: BASELINE_MIGRATION_CHECKSUM },
     }));
     for (const table of ["invoice_payments", "invoice_refunds", "invoice_claim_payments"]) {
       const columns = restoredDb.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -262,7 +270,7 @@ describe("system restore", () => {
     snapshot.query(
       `INSERT INTO schema_migrations
          (id, name, checksum, applied_by_version)
-       VALUES (3, 'future', 'future-checksum', '0.3.0')`,
+       VALUES (4, 'future', 'future-checksum', '0.4.0')`,
     ).run();
     snapshot.close();
     manifest.dbSnapshot.sha256 = sha256File(snapshotPath);
@@ -279,7 +287,7 @@ describe("system restore", () => {
       allowNonEmptyTarget: true,
     });
     expect(restored.ok).toBe(false);
-    expect(restored.errors[0]).toContain("newer than supported version 2");
+    expect(restored.errors[0]).toContain("newer than supported version 3");
     expect(readFileSync(sentinel, "utf8")).toBe("existing target content");
     expect(existsSync(join(restoredRoot, "data", "ledger.sqlite"))).toBe(false);
     expect(readFileSync(snapshotPath)).toEqual(sourceBytes);

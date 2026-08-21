@@ -8,8 +8,41 @@ import {
   generateRecurringInvoice,
   listRecurringInvoiceTemplates,
 } from "../core/recurring-invoices";
+import { runWorkspaceRecurringInvoices } from "../core/recurring-workspace";
+import { resolveWorkspaceRoot } from "../core/workspace";
 
 export function register(dispatch: CommandDispatch): void {
+  // Scheduler entry point. There is intentionally no built-in cron: an
+  // external scheduler invokes this explicit command, normally daily.
+  dispatch.on("recurring-invoice", "run-workspace", async (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim().toLowerCase() !== "yes") {
+      ctx.emitResult({ ok: false, errors: ["--confirm yes required to run workspace recurring invoices"] });
+      process.exit(1);
+    }
+    const workspace = ctx.trimToNull(ctx.arg("--workspace"));
+    const asOfDate = ctx.trimToNull(ctx.arg("--as-of"));
+    const maxGenerationsRaw = ctx.trimToNull(ctx.arg("--max-generations"));
+    const maxGenerations = maxGenerationsRaw === null ? undefined : Number(maxGenerationsRaw);
+    if (!workspace || !asOfDate) {
+      ctx.emitResult({ ok: false, errors: ["Missing required --workspace <dir> or --as-of <YYYY-MM-DD>"] });
+      process.exit(2);
+    }
+    try {
+      const createdBy = ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor();
+      if (!createdBy) throw new Error("actor required for workspace recurring run");
+      const createdByProgram = ctx.cliActorVia ?? process.env.RENTEMESTER_ACTOR_VIA ?? "rentemester-cli";
+      const result = await runWorkspaceRecurringInvoices(resolveWorkspaceRoot(workspace), {
+        asOfDate,
+        actor: { createdBy, createdByProgram },
+        maxGenerations,
+      });
+      ctx.emitResult(result as unknown as Record<string, unknown>);
+      if (!result.ok) process.exit(1);
+    } catch (error) {
+      ctx.emitResult({ ok: false, errors: [error instanceof Error ? error.message : String(error)] });
+      process.exit(1);
+    }
+  });
   dispatch.on("recurring-invoice", "create", (ctx) => {
     const input = ctx.arg("--input");
     if (!input) {

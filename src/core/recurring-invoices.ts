@@ -26,8 +26,10 @@ import { validateInvoice, type InvoicePayload } from "./invoice";
 import { issueInvoice } from "./issued-invoices";
 import { insertAuditLog } from "./actor";
 import { asDocumentId, type DocumentId } from "./ids";
+import { removeIfExists } from "./atomic-file";
 
-export type RecurringInterval = "monthly" | "quarterly" | "yearly";
+export type RecurringInterval = "weekly" | "monthly" | "quarterly" | "yearly";
+export type RecurringDeliveryChannel = "manual" | "email" | "digisense";
 
 /** How the generated invoice's delivery period is derived from its issue date. */
 export type DeliveryPeriodMode = "issue_month" | "interval_window" | "none";
@@ -35,6 +37,10 @@ export type DeliveryPeriodMode = "issue_month" | "interval_window" | "none";
 export type RecurringInvoiceTemplateInput = {
   name: string;
   interval: RecurringInterval;
+  /** Repeat every N intervals; omitted historical templates mean 1. */
+  intervalCount?: number;
+  /** Explicit transport selection. `manual` only materializes an invoice. */
+  deliveryChannel?: RecurringDeliveryChannel;
   /** ISO date of the first invoice this template should produce. */
   firstIssueDate: string;
   /** The invoice payload reused for every generation (issue/delivery dates are derived). */
@@ -58,6 +64,8 @@ export type GenerateRecurringInvoiceInput = {
   templateId: number;
   /** Deterministic clock: the period due as of this ISO date is materialized. */
   asOfDate: string;
+  /** Internal deterministic period selector used by catch-up runners. */
+  periodIndex?: number;
   createdBy?: string;
   createdByProgram?: string;
 };
@@ -82,10 +90,12 @@ const TEMPLATE_RULE_ID = "DK-RECURRING-INVOICE-TEMPLATE-001";
 const GENERATE_RULE_ID = "DK-RECURRING-INVOICE-GENERATE-001";
 
 const INTERVAL_MONTHS: Record<RecurringInterval, number> = {
+  weekly: 0,
   monthly: 1,
   quarterly: 3,
   yearly: 12,
 };
+const DELIVERY_CHANNELS = new Set<RecurringDeliveryChannel>(["manual", "email", "digisense"]);
 
 const DELIVERY_MODES = new Set<DeliveryPeriodMode>([
   "issue_month",
@@ -140,27 +150,52 @@ export function periodIndexAsOf(
   firstIssueDate: string,
   intervalMonths: number,
   asOfDate: string,
+  intervalCount = 1,
+  interval: RecurringInterval = "monthly",
+  issueDateAt: typeof periodIssueDate = periodIssueDate,
 ): number {
   if (asOfDate < firstIssueDate) return -1;
-  let index = 0;
-  // Advance while the *next* period's issue date is still <= asOfDate.
-  while (addMonths(firstIssueDate, intervalMonths * (index + 1)) <= asOfDate) {
-    index += 1;
+  if (interval === "weekly") {
+    const first = Date.parse(`${firstIssueDate}T00:00:00.000Z`);
+    const asOf = Date.parse(`${asOfDate}T00:00:00.000Z`);
+    return Math.floor((asOf - first) / (intervalCount * 7 * 24 * 60 * 60 * 1000));
   }
-  return index;
+  const [firstYear, firstMonth] = firstIssueDate.split("-").map(Number);
+  const [asOfYear, asOfMonth] = asOfDate.split("-").map(Number);
+  const stepMonths = Math.max(1, intervalMonths * intervalCount);
+  const estimatedUpper = Math.max(1, Math.floor((((asOfYear! - firstYear!) * 12) + asOfMonth! - firstMonth!) / stepMonths) + 2);
+  let low = 0;
+  let high = estimatedUpper;
+  // Greatest due boundary <= asOfDate. Month-end and leap-day clamping stay
+  // delegated to periodIssueDate, while evaluations grow logarithmically with
+  // template age rather than once per historical period.
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (issueDateAt(firstIssueDate, interval, intervalCount, middle) <= asOfDate) low = middle;
+    else high = middle - 1;
+  }
+  return low;
+}
+
+/** Pure calendar issue date, anchored to the template's original date. */
+export function periodIssueDate(firstIssueDate: string, interval: RecurringInterval, intervalCount: number, periodIndex: number): string {
+  return interval === "weekly"
+    ? addDays(firstIssueDate, 7 * intervalCount * periodIndex)
+    : addMonths(firstIssueDate, INTERVAL_MONTHS[interval] * intervalCount * periodIndex);
 }
 
 function deliveryWindow(
   mode: DeliveryPeriodMode,
   issueDate: string,
   intervalMonths: number,
+  intervalWeeks = 0,
 ): { start?: string; end?: string } {
   if (mode === "issue_month") {
     return { start: startOfMonth(issueDate), end: endOfMonth(issueDate) };
   }
   if (mode === "interval_window") {
     // The delivery period is the interval window beginning on the issue date.
-    return { start: issueDate, end: addMonths(issueDate, intervalMonths) };
+    return { start: issueDate, end: intervalWeeks > 0 ? addDays(issueDate, intervalWeeks * 7) : addMonths(issueDate, intervalMonths) };
   }
   return {};
 }
@@ -175,7 +210,15 @@ export function createRecurringInvoiceTemplate(
   const name = hasText(input.name) ? input.name.trim() : null;
   if (!name) errors.push("name is required");
   if (!(input.interval in INTERVAL_MONTHS)) {
-    errors.push("interval must be one of monthly, quarterly, yearly");
+    errors.push("interval must be one of weekly, monthly, quarterly, yearly");
+  }
+  const intervalCount = input.intervalCount ?? 1;
+  if (!Number.isInteger(intervalCount) || intervalCount <= 0 || intervalCount > 120) {
+    errors.push("intervalCount must be a positive integer no greater than 120");
+  }
+  const deliveryChannel = input.deliveryChannel ?? "manual";
+  if (!DELIVERY_CHANNELS.has(deliveryChannel)) {
+    errors.push("deliveryChannel must be one of manual, email, digisense");
   }
   if (!isValidIsoDate(input.firstIssueDate)) {
     errors.push("firstIssueDate must be a YYYY-MM-DD date");
@@ -233,13 +276,15 @@ export function createRecurringInvoiceTemplate(
   const inserted = db.transaction(() => {
     const row = db.query(
       `INSERT INTO recurring_invoice_templates (
-        name, interval, first_issue_date, next_issue_date, payment_terms_days,
+        name, interval, interval_count, delivery_channel, first_issue_date, next_issue_date, payment_terms_days,
         delivery_period_mode, payload_json, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id`,
     ).get(
       name,
       input.interval,
+      intervalCount,
+      deliveryChannel,
       input.firstIssueDate,
       input.firstIssueDate,
       paymentTermsDays,
@@ -267,6 +312,8 @@ type TemplateRow = {
   id: number;
   name: string;
   interval: RecurringInterval;
+  interval_count: number;
+  delivery_channel: RecurringDeliveryChannel;
   first_issue_date: string;
   next_issue_date: string;
   payment_terms_days: number;
@@ -282,7 +329,7 @@ export function listRecurringInvoiceTemplates(
   options: { includeInactive?: boolean } = {},
 ) {
   const rows = db.query(
-    `SELECT id, name, interval, first_issue_date, next_issue_date, payment_terms_days,
+    `SELECT id, name, interval, interval_count, delivery_channel, first_issue_date, next_issue_date, payment_terms_days,
             delivery_period_mode, payload_json, notes, active, created_at
        FROM recurring_invoice_templates
       WHERE active = CASE WHEN ? THEN active ELSE 1 END
@@ -296,6 +343,8 @@ export function listRecurringInvoiceTemplates(
       id: row.id,
       name: row.name,
       interval: row.interval,
+      intervalCount: row.interval_count,
+      deliveryChannel: row.delivery_channel,
       firstIssueDate: row.first_issue_date,
       nextIssueDate: row.next_issue_date,
       paymentTermsDays: row.payment_terms_days,
@@ -439,7 +488,7 @@ export function generateRecurringInvoice(
   }
 
   const template = db.query(
-    `SELECT id, name, interval, first_issue_date, next_issue_date, payment_terms_days,
+    `SELECT id, name, interval, interval_count, delivery_channel, first_issue_date, next_issue_date, payment_terms_days,
             delivery_period_mode, payload_json, notes, active, created_at
        FROM recurring_invoice_templates WHERE id = ? LIMIT 1`,
   ).get(input.templateId) as TemplateRow | null;
@@ -451,8 +500,8 @@ export function generateRecurringInvoice(
   }
 
   const intervalMonths = INTERVAL_MONTHS[template.interval];
-  const periodIndex = periodIndexAsOf(template.first_issue_date, intervalMonths, input.asOfDate);
-  if (periodIndex < 0) {
+  const latestPeriodIndex = periodIndexAsOf(template.first_issue_date, intervalMonths, input.asOfDate, template.interval_count, template.interval);
+  if (latestPeriodIndex < 0) {
     return {
       ok: false,
       appliedRules,
@@ -461,9 +510,13 @@ export function generateRecurringInvoice(
       ],
     };
   }
+  const periodIndex = input.periodIndex ?? latestPeriodIndex;
+  if (!Number.isInteger(periodIndex) || periodIndex < 0 || periodIndex > latestPeriodIndex) {
+    return { ok: false, appliedRules, errors: ["periodIndex must be a due non-negative integer"] };
+  }
 
-  const issueDate = addMonths(template.first_issue_date, intervalMonths * periodIndex);
-  const window = deliveryWindow(template.delivery_period_mode, issueDate, intervalMonths);
+  const issueDate = periodIssueDate(template.first_issue_date, template.interval, template.interval_count, periodIndex);
+  const window = deliveryWindow(template.delivery_period_mode, issueDate, intervalMonths * template.interval_count, template.interval === "weekly" ? template.interval_count : 0);
   const dueDate = addDays(issueDate, template.payment_terms_days);
 
   // Idempotency gate: if this template/period was already generated, return
@@ -502,20 +555,57 @@ export function generateRecurringInvoice(
     deliveryPeriodEnd: window.end,
   };
 
-  const issued = issueInvoice(db, companyRoot, payload);
-  const mergedRules = [...new Set([...appliedRules, ...issued.appliedRules])];
-  if (!issued.ok || issued.documentId === undefined || issued.invoiceNumber === undefined) {
-    return { ok: false, appliedRules: mergedRules, errors: issued.errors };
-  }
+  // Claim, legal-document issuance and the generation link are one immediate
+  // SQLite transaction. A business rejection throws an internal rollback
+  // marker, so neither the claim nor an invoice-number reservation can strand
+  // the period. A later run can therefore succeed once the repairable
+  // precondition (for example VIES evidence) has been fixed.
+  const rollback = Symbol("recurring generation rollback");
+  let rejected: GenerateRecurringInvoiceResult | undefined;
+  let issuedArtifacts: { storedPath?: string; pdfStoredPath?: string } | undefined;
+  try {
+    return db.transaction(() => {
+      const generated = db.query(
+        `SELECT id, template_id, period_index, document_id, invoice_number, issue_date,
+                delivery_period_start, delivery_period_end, created_at
+           FROM recurring_invoice_generations WHERE template_id = ? AND period_index = ? LIMIT 1`,
+      ).get(template.id, periodIndex) as GenerationRow | null;
+      if (generated) {
+        return { ok: true, created: false, templateId: template.id, periodIndex,
+          documentId: generated.document_id, invoiceNumber: generated.invoice_number,
+          issueDate: generated.issue_date, dueDate,
+          deliveryPeriodStart: generated.delivery_period_start ?? undefined,
+          deliveryPeriodEnd: generated.delivery_period_end ?? undefined,
+          appliedRules, errors: [] };
+      }
 
-  const documentId: DocumentId = asDocumentId(Number(issued.documentId));
-  const invoiceNumber = String(issued.invoiceNumber);
+      const claimed = db.query(
+        `INSERT INTO recurring_invoice_generation_claims (template_id, period_index)
+         VALUES (?, ?) ON CONFLICT(template_id, period_index) DO NOTHING`,
+      ).run(template.id, periodIndex);
+      if (claimed.changes === 0) {
+        rejected = { ok: false, templateId: template.id, periodIndex, appliedRules,
+          errors: [`recurring invoice template ${template.id} period ${periodIndex} is pending recovery after an interrupted issuance`] };
+        throw rollback;
+      }
 
-  // Record the audit link generated-invoice -> template, and advance the
-  // template's next_issue_date marker. The UNIQUE(template_id, period_index)
-  // constraint is the hard backstop against double-generation under races.
-  db.transaction(() => {
-    db.query(
+      const issued = issueInvoice(db, companyRoot, payload, {
+        createdBy: input.createdBy,
+        createdByProgram: input.createdByProgram,
+      });
+      issuedArtifacts = issued.ok
+        ? { storedPath: issued.storedPath, pdfStoredPath: issued.pdfStoredPath }
+        : undefined;
+      const mergedRules = [...new Set([...appliedRules, ...issued.appliedRules])];
+      if (!issued.ok || issued.documentId === undefined || issued.invoiceNumber === undefined) {
+        rejected = { ok: false, appliedRules: mergedRules, errors: issued.errors };
+        throw rollback;
+      }
+
+      const documentId: DocumentId = asDocumentId(Number(issued.documentId));
+      const invoiceNumber = String(issued.invoiceNumber);
+
+      db.query(
       `INSERT INTO recurring_invoice_generations (
         template_id, period_index, document_id, invoice_number, issue_date,
         delivery_period_start, delivery_period_end
@@ -530,7 +620,7 @@ export function generateRecurringInvoice(
       window.end ?? null,
     );
 
-    const nextIssueDate = addMonths(template.first_issue_date, intervalMonths * (periodIndex + 1));
+    const nextIssueDate = periodIssueDate(template.first_issue_date, template.interval, template.interval_count, periodIndex + 1);
     if (nextIssueDate > template.next_issue_date) {
       db.run(
         `UPDATE recurring_invoice_templates SET next_issue_date = ? WHERE id = ?`,
@@ -539,28 +629,30 @@ export function generateRecurringInvoice(
       );
     }
 
-    insertAuditLog(db, {
-      eventType: "recurring_invoice_generate",
-      entityType: "document",
-      entityId: documentId,
-      message: `Generated invoice ${invoiceNumber} from recurring template ${template.id} period ${periodIndex}`,
-      createdBy: input.createdBy,
-      createdByProgram: input.createdByProgram,
-    });
-  }, { immediate: true })();
+      insertAuditLog(db, {
+        eventType: "recurring_invoice_generate",
+        entityType: "document",
+        entityId: documentId,
+        message: `Generated invoice ${invoiceNumber} from recurring template ${template.id} period ${periodIndex}`,
+        createdBy: input.createdBy,
+        createdByProgram: input.createdByProgram,
+      });
 
-  return {
-    ok: true,
-    created: true,
-    templateId: template.id,
-    periodIndex,
-    documentId,
-    invoiceNumber,
-    issueDate,
-    dueDate,
-    deliveryPeriodStart: window.start,
-    deliveryPeriodEnd: window.end,
-    appliedRules: mergedRules,
-    errors: [],
-  };
+      return {
+        ok: true, created: true, templateId: template.id, periodIndex,
+        documentId, invoiceNumber, issueDate, dueDate,
+        deliveryPeriodStart: window.start, deliveryPeriodEnd: window.end,
+        appliedRules: mergedRules, errors: [],
+      };
+    }, { immediate: true })();
+  } catch (error) {
+    // issueInvoice publishes immutable files before its nested transaction
+    // returns. If a later generation-link write aborts the outer transaction,
+    // its document rows disappear but those exact new files must be removed by
+    // the outer transaction owner as well.
+    if (issuedArtifacts?.pdfStoredPath) removeIfExists(issuedArtifacts.pdfStoredPath);
+    if (issuedArtifacts?.storedPath) removeIfExists(issuedArtifacts.storedPath);
+    if (error === rollback && rejected) return rejected;
+    throw error;
+  }
 }

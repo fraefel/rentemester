@@ -21,6 +21,7 @@ import { api } from "../lib/api";
 import type {
   ContactCustomerRow,
   RecurringInterval,
+  RecurringDeliveryChannel,
   DeliveryPeriodMode,
 } from "../lib/types";
 import { Banner } from "./Feedback";
@@ -52,9 +53,15 @@ const EMPTY_LINE: LineDraft = {
 };
 
 const INTERVAL_OPTIONS: Array<{ value: RecurringInterval; label: string }> = [
+  { value: "weekly", label: "Ugentligt" },
   { value: "monthly", label: "Månedligt" },
   { value: "quarterly", label: "Kvartalsvist" },
   { value: "yearly", label: "Årligt" },
+];
+const DELIVERY_CHANNEL_OPTIONS: Array<{ value: RecurringDeliveryChannel; label: string }> = [
+  { value: "manual", label: "Manuel kladde" },
+  { value: "email", label: "E-mail" },
+  { value: "digisense", label: "E-faktura (DigiSense)" },
 ];
 
 const DELIVERY_MODE_OPTIONS: Array<{
@@ -86,6 +93,8 @@ export function RecurringInvoiceTemplateModal({
 }: RecurringInvoiceTemplateModalProps) {
   const [name, setName] = useState("");
   const [interval, setInterval] = useState<RecurringInterval>("monthly");
+  const [intervalCount, setIntervalCount] = useState("1");
+  const [deliveryChannel, setDeliveryChannel] = useState<RecurringDeliveryChannel>("manual");
   const [firstIssueDate, setFirstIssueDate] = useState("");
   const [paymentTermsDays, setPaymentTermsDays] = useState("30");
   const [deliveryPeriodMode, setDeliveryPeriodMode] =
@@ -176,6 +185,11 @@ export function RecurringInvoiceTemplateModal({
       setError("Angiv første udstedelsesdato.");
       return;
     }
+    const cadenceCount = Number(intervalCount);
+    if (!Number.isInteger(cadenceCount) || cadenceCount < 1 || cadenceCount > 120) {
+      setError("Gentagelse skal være et helt tal mellem 1 og 120.");
+      return;
+    }
     const payTerms = Number(paymentTermsDays);
     if (!Number.isInteger(payTerms) || payTerms < 0 || payTerms > 365) {
       setError("Betalingsfrist skal være et helt tal mellem 0 og 365 dage.");
@@ -223,6 +237,8 @@ export function RecurringInvoiceTemplateModal({
       await api.createRecurringInvoiceTemplate(slug, {
         name: name.trim(),
         interval,
+        intervalCount: cadenceCount,
+        deliveryChannel,
         firstIssueDate: firstIssueDate.trim(),
         paymentTermsDays: payTerms,
         deliveryPeriodMode,
@@ -312,6 +328,19 @@ export function RecurringInvoiceTemplateModal({
             </select>
           </label>
           <label className="modal-field">
+            Gentag hver
+            <input
+              type="number"
+              min="1"
+              max="120"
+              inputMode="numeric"
+              value={intervalCount}
+              onChange={(e) => setIntervalCount(e.target.value)}
+              disabled={busy}
+              aria-label="Gentag hver"
+            />
+          </label>
+          <label className="modal-field">
             Første udstedelsesdato
             <input
               type="date"
@@ -322,6 +351,23 @@ export function RecurringInvoiceTemplateModal({
             />
           </label>
         </div>
+
+        <label className="modal-field">
+          Afsendelseskanal
+          <select
+            value={deliveryChannel}
+            onChange={(e) => setDeliveryChannel(e.target.value as RecurringDeliveryChannel)}
+            disabled={busy}
+            aria-label="Afsendelseskanal"
+          >
+            {DELIVERY_CHANNEL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <span className="muted" style={{ fontSize: "0.85em" }}>
+            Manuel opretter kun fakturaen. E-mail og e-faktura afsendes af den eksterne scheduler, når kanalen er konfigureret.
+          </span>
+        </label>
 
         <div className="modal-field-grid">
           <label className="modal-field">

@@ -51,13 +51,13 @@ const PRIMOBEHOLDNING_TEXT = "primobeholdning";
 
 // --- Dinero Momstype -> Rentemester VAT code -------------------------------
 //
-// Dinero `Momstype` cells are coded labels: a short code, a dash, a Danish
-// description (e.g. `U25 - Dansk salgsmoms`). Only the leading code is stable,
-// so the mapping keys on it.
+// Dinero `Momstype` cells occur both as coded labels (`U25 - Dansk salgsmoms`)
+// and as the bare Danish display label (`Dansk salgsmoms`) in Posteringer.csv.
+// Both forms are source-defined identities and map to the same canonical code.
 //
 // Rentemester's VAT codes (rules/dk/vat.yaml) are deliberately few:
 //   DK_SALE_25, DK_PURCHASE_25, EU_SERVICE_REVERSE_CHARGE,
-//   REPRESENTATION_SPECIAL, DK_BAD_DEBT_25.
+//   NON_EU_SERVICE_REVERSE_CHARGE, REPRESENTATION_SPECIAL.
 //
 // A Dinero code with NO Rentemester equivalent (EU/world goods, reverse-charge
 // purchase, the unindberettede EU sales code, ...) is intentionally left
@@ -67,11 +67,19 @@ const PRIMOBEHOLDNING_TEXT = "primobeholdning";
 const VAT_CODE_MAP: Record<string, string> = {
   // Danish standard-rated sales / purchases.
   U25: "DK_SALE_25",
+  "Dansk salgsmoms": "DK_SALE_25",
   I25: "DK_PURCHASE_25",
+  "Dansk købsmoms": "DK_PURCHASE_25",
   // EU service purchases settle as a reverse charge in Rentemester.
   IEUY: "EU_SERVICE_REVERSE_CHARGE",
+  "Ydelseskøb EU (rubrik A - ydelser)": "EU_SERVICE_REVERSE_CHARGE",
+  // Services bought outside the EU use the distinct non-EU reverse-charge
+  // code and therefore never feed the EU rubrik-A purchase base.
+  IVY: "NON_EU_SERVICE_REVERSE_CHARGE",
+  "Ydelseskøb fra verden": "NON_EU_SERVICE_REVERSE_CHARGE",
   // Representation has a special limited-deduction code.
   REP: "REPRESENTATION_SPECIAL",
+  "Repræsentation (kvartmoms)": "REPRESENTATION_SPECIAL",
 };
 
 // Dinero codes Rentemester has no equivalent for. Listed explicitly so the
@@ -79,7 +87,6 @@ const VAT_CODE_MAP: Record<string, string> = {
 // (both are surfaced, but the documentation is clearer this way):
 //   IEUV  - Varekøb EU (rubrik A - varer)
 //   IVV   - Varekøb fra verden
-//   IVY   - Ydelseskøb fra verden
 //   OBPK  - Dansk køb med omvendt betalingspligt
 //   UEUV  - Varesalg EU - Indberettes (rubrik B - varer)
 //   UEUV2 - Varesalg EU - Indberettes ikke (rubrik B - varer)
@@ -98,6 +105,11 @@ function vatCodeKey(momstype: string): string {
   if (trimmed.length === 0) return "";
   const dash = trimmed.indexOf("-");
   return (dash > 0 ? trimmed.slice(0, dash) : trimmed).trim();
+}
+
+function canonicalVatCode(momstype: string): string | undefined {
+  const trimmed = momstype.trim();
+  return VAT_CODE_MAP[trimmed] ?? VAT_CODE_MAP[vatCodeKey(trimmed)];
 }
 
 /**
@@ -395,11 +407,9 @@ function parseDineroSource(input: MultiArtifactSource): ParseResult {
         entryType: voucher.voucherType,
         lines: voucher.lines.map((line) => {
           const sourceVatCode = line.vatCode?.trim() ?? "";
-          const canonicalVatCode =
-            sourceVatCode.length > 0
-              ? VAT_CODE_MAP[vatCodeKey(sourceVatCode)]
-              : undefined;
-          if (sourceVatCode.length > 0 && canonicalVatCode === undefined) {
+          const normalizedVatCode =
+            sourceVatCode.length > 0 ? canonicalVatCode(sourceVatCode) : undefined;
+          if (sourceVatCode.length > 0 && normalizedVatCode === undefined) {
             errors.push(
               `${posteringer.name}: voucher ${voucher.bilag} account ${line.accountNo} has unsupported Dinero Momstype '${sourceVatCode}'`,
             );
@@ -412,7 +422,7 @@ function parseDineroSource(input: MultiArtifactSource): ParseResult {
             // Persist Rentemester's canonical code, never Dinero's display
             // text (`I25 - ...`). Only a genuinely blank source field may use
             // the reviewed account default in the historical-import adapter.
-            ...(canonicalVatCode ? { vatCode: canonicalVatCode } : {}),
+            ...(normalizedVatCode ? { vatCode: normalizedVatCode } : {}),
           };
         }),
       }))

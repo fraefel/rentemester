@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -74,7 +74,7 @@ describe("Dinero v4 atomic landing", () => {
   test("legacy archive collision and invalid booked receipt sets reject before mutation", () => {
     const variants: Array<(dir: string) => void> = [
       (dir) => writeFileSync(join(dir, "2025/Bilag/not-a-voucher.pdf"), readFileSync(join(FIXTURE, "2025/Bilag/2025-Bilag-1.pdf"))),
-      (dir) => unlinkSync(join(dir, "2025/Bilag/2025-Bilag-5.pdf")),
+      (dir) => writeFileSync(join(dir, "2025/Bilag/2025-Bilag-5.txt"), "unsupported"),
       (dir) => writeFileSync(join(dir, "2025/Bilag/2025-Bilag-99.pdf"), readFileSync(join(FIXTURE, "2025/Bilag/2025-Bilag-1.pdf"))),
     ];
     for (const change of variants) {

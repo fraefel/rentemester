@@ -357,9 +357,22 @@ function classifyDineroReverseChargePatterns(
       const line = lines[lineIndex]!;
       return typeof line.vatCode === "string" ? line.vatCode.trim() : "";
     };
+    const reverseChargeCodes = new Set([
+      "EU_SERVICE_REVERSE_CHARGE",
+      "NON_EU_SERVICE_REVERSE_CHARGE",
+    ]);
     const alreadyClassified = expenseIndexes.filter(
-      (lineIndex) => explicitCode(lineIndex) === "EU_SERVICE_REVERSE_CHARGE",
+      (lineIndex) => reverseChargeCodes.has(explicitCode(lineIndex)),
     );
+    const explicitReverseChargeCodes = new Set(
+      alreadyClassified.map((lineIndex) => explicitCode(lineIndex)),
+    );
+    if (explicitReverseChargeCodes.size > 1) {
+      errors.push(
+        `voucher ${ref} mixes EU and non-EU reverse-charge bases; human resolution is required`,
+      );
+      return entry;
+    }
 
     let baseIndexes = alreadyClassified;
     if (baseIndexes.length === 0) {
@@ -402,11 +415,12 @@ function classifyDineroReverseChargePatterns(
     }
 
     const baseIndexSet = new Set(baseIndexes);
+    const inferredCode = explicitReverseChargeCodes.values().next().value ?? "EU_SERVICE_REVERSE_CHARGE";
     return {
       ...entry,
       lines: lines.map((line, lineIndex) =>
         baseIndexSet.has(lineIndex)
-          ? { ...line, vatCode: "EU_SERVICE_REVERSE_CHARGE" }
+          ? { ...line, vatCode: inferredCode }
           : line,
       ),
     };

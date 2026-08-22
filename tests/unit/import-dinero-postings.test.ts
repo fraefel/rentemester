@@ -20,6 +20,7 @@ import { resolveSource } from "../../src/core/import/source";
 import { dineroParser } from "../../src/core/import/dinero";
 import {
   parseDineroPostings,
+  postDineroPostings,
   IMPORT_POSTINGS_PROGRAM,
 } from "../../src/core/import/dinero-postings";
 import { runImport, runImportFromSource } from "../../src/core/import/framework";
@@ -83,6 +84,40 @@ describe("Dinero parser: Posteringer.csv -> year-to-date vouchers", () => {
 });
 
 describe("Dinero import: year-to-date postings via runImport", () => {
+  test("preserves an explicit non-EU service reverse-charge classification", () => {
+    const { root, db } = freshCompany("rentemester-dinero-non-eu-posting-");
+    try {
+      db.run(
+        `INSERT INTO accounts (account_no, name, type, normal_balance)
+         VALUES ('5510', 'Dinero bank', 'asset', 'debit'),
+                ('64040', 'Dinero reverse charge', 'vat', 'credit'),
+                ('64060', 'Dinero input VAT', 'vat', 'debit')`,
+      );
+      const result = postDineroPostings(db, [{
+        transactionDate: "2026-02-01",
+        text: "Non-EU service",
+        voucherRef: "99",
+        entryType: "Køb",
+        lines: [
+          { accountNo: "3010", debitAmount: 100, vatCode: "NON_EU_SERVICE_REVERSE_CHARGE" },
+          { accountNo: "64060", debitAmount: 25 },
+          { accountNo: "5510", creditAmount: 100 },
+          { accountNo: "64040", creditAmount: 25 },
+        ],
+      }], new Set(["3010", "64060", "5510", "64040"]), { createdBy: "user:tester" });
+      expect(result.errors).toEqual([]);
+      expect(result.ok).toBe(true);
+      expect(db.query(
+        `SELECT jl.vat_code FROM journal_lines jl
+         JOIN accounts a ON a.id = jl.account_id
+         WHERE a.account_no = '3010'`,
+      ).get()).toEqual({ vat_code: "NON_EU_SERVICE_REVERSE_CHARGE" });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("the parsed source carries the year-to-date vouchers as historicalEntries", () => {
     const source = dineroParser.parseSource!(resolveSource(FIXTURE)).source!;
     expect(source.historicalEntries).toBeDefined();

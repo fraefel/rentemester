@@ -183,6 +183,122 @@ describe("Dinero archive: the read path", () => {
 });
 
 describe("Dinero archive: the roll-forward consistency check", () => {
+  test("documents exact fixed-asset consolidation onto the source primo account", () => {
+    const { root, db } = freshCompany("rentemester-dinero-fixed-asset-consolidation-");
+    const csv = (amount: string) => [
+      "Konto;Kontonavn;Dato;Bilag;Bilagstype;Tekst;Moms;Beløb;Saldo",
+      `51000;Driftsmiddel saldo primo;2025-01-01;0;;Primobeholdning;;${amount};${amount}`,
+      "",
+    ].join("\n");
+    const artifact = (name: string, text: string) => ({ name, path: name, text, bytes: new TextEncoder().encode(text) });
+    const input = {
+      rootDir: "/synthetic",
+      files: {
+        "2024/Posteringer.csv": artifact("2024/Posteringer.csv", csv("0,00")),
+        "2025/Posteringer.csv": artifact("2025/Posteringer.csv", csv("26778,39")),
+      },
+    };
+    const baseOptions = {
+      closingBalances: new Map([[2024, new Map([
+        ["51000", 17264], ["51020", 36399.2], ["51040", 0], ["51050", -17264], ["51060", -9620.81],
+      ])]]),
+      accountTypes: new Map([
+        ["51000", "asset"], ["51020", "asset"], ["51040", "asset"], ["51050", "asset"], ["51060", "asset"],
+      ]),
+      accountNames: new Map([
+        ["51000", "Driftsmiddel saldo primo"],
+        ["51020", "Driftsmiddel, tilgang i året"],
+        ["51040", "Driftsmiddel, afgang i året"],
+        ["51050", "Akkumulerede afskrivninger primo"],
+        ["51060", "Driftsmiddel, årets afskrivninger"],
+      ]),
+    };
+    try {
+      const result = checkRollForward(db, input, baseOptions);
+      expect(result.ok).toBe(true);
+      expect(result.breaks).toEqual([]);
+      expect(result.steps[0]!.sourceConsolidations).toEqual([
+        expect.objectContaining({
+          group: "fixed_asset",
+          destinationAccountNo: "51000",
+          closingAmount: 26778.39,
+          openingAmount: 26778.39,
+        }),
+      ]);
+
+      const mismatch = {
+        ...input,
+        files: {
+          ...input.files,
+          "2025/Posteringer.csv": artifact("2025/Posteringer.csv", csv("26778,40")),
+        },
+      };
+      const rejected = checkRollForward(db, mismatch, baseOptions);
+      expect(rejected.ok).toBe(false);
+      expect(rejected.breaks.length).toBeGreaterThan(0);
+      expect(rejected.steps[0]!.sourceConsolidations).toBeUndefined();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("documents an exact Dinero year-opening VAT consolidation without an invented voucher", () => {
+    const { root, db } = freshCompany("rentemester-dinero-vat-consolidation-");
+    const csv = (opening: string) => [
+      "Konto;Kontonavn;Dato;Bilag;Bilagstype;Tekst;Moms;Beløb;Saldo",
+      opening,
+      "",
+    ].join("\n");
+    const artifact = (name: string, text: string) => ({ name, path: name, text, bytes: new TextEncoder().encode(text) });
+    const input = {
+      rootDir: "/synthetic",
+      files: {
+        "2020/Posteringer.csv": artifact("2020/Posteringer.csv", csv([
+          "64100;Momsafregning;2020-01-01;0;;Primobeholdning;;0,00;0,00",
+          "64060;Købsmoms;2020-12-31;0;;Overført til momsafregning;;-100,00;0,00",
+          "64100;Momsafregning;2020-12-31;0;;Overført fra købsmoms;;100,00;0,00",
+        ].join("\n"))),
+        "2021/Posteringer.csv": artifact("2021/Posteringer.csv", csv("64100;Momsafregning;2021-01-01;0;;Primobeholdning;;9869,70;9869,70")),
+      },
+    };
+    const baseOptions = {
+      closingBalances: new Map([[2020, new Map([
+        ["64020", -510.44], ["64040", -1810.03], ["64060", 6979.46], ["64100", 5210.71],
+      ])]]),
+      accountTypes: new Map([
+        ["64020", "vat"], ["64040", "vat"], ["64060", "vat"], ["64100", "liability"],
+      ]),
+      accountRoleProposals: [{ role: "vat_settlement", accountNo: "64100", source: "dinero:chart:name-vat-settlement" }],
+    };
+    try {
+      const result = checkRollForward(db, input, baseOptions);
+      expect(result.ok).toBe(true);
+      expect(result.breaks).toEqual([]);
+      expect(result.steps[0]!.vatGroups[0]).toMatchObject({
+        status: "explained_source_consolidation",
+        closingAmount: 9869.7,
+        openingAmount: 9869.7,
+        sourceConsolidation: { destinationAccountNo: "64100" },
+      });
+
+      const oneOreMismatch = {
+        ...input,
+        files: {
+          ...input.files,
+          "2021/Posteringer.csv": artifact("2021/Posteringer.csv", csv("64100;Momsafregning;2021-01-01;0;;Primobeholdning;;9869,71;9869,71")),
+        },
+      };
+      const rejected = checkRollForward(db, oneOreMismatch, baseOptions);
+      expect(rejected.ok).toBe(false);
+      expect(rejected.breaks.length).toBeGreaterThan(0);
+      expect(rejected.steps[0]!.vatGroups[0]!.status).toBe("unexplained");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("#541 explains exactly one balanced, source-proposed VAT settlement voucher", () => {
     const { root, db } = freshCompany("rentemester-dinero-vat-reclass-");
     const csv = (rows: string[]) => ["Konto;Kontonavn;Dato;Bilag;Bilagstype;Tekst;Moms;Beløb;Saldo", ...rows, ""].join("\n");

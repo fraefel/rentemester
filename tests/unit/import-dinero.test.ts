@@ -99,6 +99,27 @@ describe("Dinero parser: multi-file export -> normalised source", () => {
     expect(by("3090").defaultVatCode ?? null).toBeNull();
   });
 
+  for (const [displayLabel, expected] of [
+    ["Dansk salgsmoms", "DK_SALE_25"],
+    ["Dansk købsmoms", "DK_PURCHASE_25"],
+    ["Ydelseskøb EU (rubrik A - ydelser)", "EU_SERVICE_REVERSE_CHARGE"],
+    ["Ydelseskøb fra verden", "NON_EU_SERVICE_REVERSE_CHARGE"],
+    ["Repræsentation (kvartmoms)", "REPRESENTATION_SPECIAL"],
+  ] as const) {
+    test(`maps bare Dinero Momstype display label '${displayLabel}'`, () => {
+      const source = resolveSource(FIXTURE);
+      const postings = source.files["2025/Posteringer.csv"]!;
+      postings.text = postings.text.replace("I25 - Dansk købsmoms", displayLabel);
+      const parsed = dineroParser.parseSource!(source);
+      expect(parsed.errors).toEqual([]);
+      expect(parsed.ok).toBe(true);
+      const line = parsed.source!.historicalEntries!
+        .find((entry) => entry.voucherRef === "1")!.lines
+        .find((entryLine) => entryLine.accountNo === "3000")!;
+      expect(line.vatCode).toBe(expected);
+    });
+  }
+
   test("surfaces unmapped Momstype codes instead of dropping them", () => {
     const parsed = dineroParser.parseSource!(resolveSource(FIXTURE));
     const unmapped = parsed.source!.unmappedVatCodes ?? [];

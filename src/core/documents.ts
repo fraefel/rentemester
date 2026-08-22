@@ -12,7 +12,7 @@ import { resolveLegacySupplierIdentity, resolveSupplierIdentity, type SupplierId
 import { compareDkk, percentOfDkk, roundDkk, sumDkk } from "./money";
 import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 
-export type DocumentType = "purchase_sale" | "cash_register_receipt";
+export type DocumentType = "purchase_sale" | "cash_register_receipt" | "issued_invoice_pdf";
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
 export type PurchaseVatClassification = "dk_purchase_25" | "exempt";
 export type PurchaseVatLine = { classification: PurchaseVatClassification; netAmount: number; vatAmount?: number };
@@ -285,7 +285,7 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   // it before any document-type shortcut can accept malformed amounts.
   errors.push(...validatePurchaseVatLines(metadata));
 
-  const exemptFromMinimumFields = documentType === "cash_register_receipt" || exemptionCode === "FOREIGN_PHYSICAL_ONLY";
+  const exemptFromMinimumFields = documentType === "cash_register_receipt" || documentType === "issued_invoice_pdf" || exemptionCode === "FOREIGN_PHYSICAL_ONLY";
   if (!exemptFromMinimumFields) {
     if (!looksLikeIsoDate(metadata.issueDate)) errors.push("issueDate must be present in YYYY-MM-DD format");
     if (!hasText(metadata.deliveryDescription)) errors.push("deliveryDescription is required");

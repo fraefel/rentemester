@@ -522,6 +522,17 @@ export type RollForwardStep = {
   breaks: RollForwardBreak[];
   /** VAT-account totals give the operator a second, grouped reconciliation view. */
   vatGroups: RollForwardVatGroup[];
+  /** Source-evidenced fixed-asset groups consolidated onto their primo account. */
+  sourceConsolidations?: RollForwardSourceConsolidation[];
+};
+
+export type RollForwardSourceConsolidation = {
+  group: "fixed_asset";
+  accountNos: string[];
+  destinationAccountNo: string;
+  closingAmount: number;
+  openingAmount: number;
+  perAccountDeltas: Array<{ accountNo: string; closingAmount: number; openingAmount: number }>;
 };
 
 export type RollForwardVatGroup = {
@@ -530,7 +541,7 @@ export type RollForwardVatGroup = {
   openingAmount: number;
   difference: number;
   accountNos: string[];
-  status: "continuous" | "explained_reclassification" | "unexplained";
+  status: "continuous" | "explained_reclassification" | "explained_source_consolidation" | "unexplained";
   explanation?: {
     fiscalYear: number;
     voucher: string;
@@ -541,6 +552,12 @@ export type RollForwardVatGroup = {
     sourceAccountNos: string[];
     destinationAccountNo: string;
     transferAmount: number;
+  };
+  sourceConsolidation?: {
+    fromYear: number;
+    toYear: number;
+    destinationAccountNo: string;
+    perAccountDeltas: Array<{ accountNo: string; closingAmount: number; openingAmount: number }>;
   };
 };
 
@@ -558,6 +575,8 @@ export type RollForwardOptions = {
   closingBalances?: Map<number, Map<string, number>>;
   /** Source-chart types let preflight preserve the P&L/equity exclusion. */
   accountTypes?: Map<string, string>;
+  /** Source-chart names are evidence for Dinero's explicit primo/asset groups. */
+  accountNames?: Map<string, string>;
   /** Parser evidence only; DB role state must not make an import less strict. */
   accountRoleProposals?: Array<{ role: string; accountNo: string; source: string }>;
 };
@@ -573,6 +592,111 @@ function resolveVatGroup(
   const vatAccounts = [...new Set([...closing.keys(), ...opening.keys()])].filter((accountNo) => accountTypeOf(accountNo) === "vat").sort();
   const settlements = (proposals ?? []).filter((proposal) => proposal.role === "vat_settlement" && proposal.accountNo && accountTypeOf(proposal.accountNo) !== "vat");
   return vatAccounts.length > 0 && settlements.length === 1 ? { accountNos: [...vatAccounts, settlements[0]!.accountNo].sort(), settlement: settlements[0]!.accountNo } : null;
+}
+
+/**
+ * Dinero may carry all VAT control balances into the next fiscal year as one
+ * opening balance on the source-identified VAT-settlement account. There is
+ * no separate voucher in the export for that presentation-only consolidation.
+ * Accept it only when the complete, source-typed VAT group conserves its total
+ * exactly and every non-settlement control opens at zero.
+ */
+function explainSourceVatConsolidation(
+  input: MultiArtifactSource,
+  fromYear: number,
+  toYear: number,
+  closing: Map<string, number>,
+  opening: Map<string, number>,
+  accountTypeOf: (accountNo: string) => string | null,
+  proposals: RollForwardOptions["accountRoleProposals"],
+): RollForwardVatGroup["sourceConsolidation"] | null {
+  const group = resolveVatGroup(closing, opening, accountTypeOf, proposals);
+  if (!group) return null;
+  const fromFile = input.files[`${fromYear}/Posteringer.csv`];
+  if (!fromFile) return null;
+  const parseErrors: string[] = [];
+  const automaticTransfers = parsePosteringer(
+    fromFile.text,
+    `${fromYear}/Posteringer.csv`,
+    parseErrors,
+  ).filter((posting) =>
+    posting.voucher === "0" &&
+    posting.transactionDate === `${fromYear}-12-31` &&
+    group.accountNos.includes(posting.accountNo) &&
+    /^overført (til|fra) /i.test(posting.text.trim()),
+  );
+  if (parseErrors.length > 0 || automaticTransfers.length < 2) return null;
+  if (automaticTransfers.reduce((sum, posting) => sum + toOreInt(posting.amount), 0) !== 0) return null;
+  const controlAccounts = group.accountNos.filter((accountNo) => accountNo !== group.settlement);
+  if (controlAccounts.length === 0) return null;
+  if (controlAccounts.some((accountNo) => toOreInt(opening.get(accountNo) ?? 0) !== 0)) return null;
+  const closingTotal = group.accountNos.reduce((sum, accountNo) => sum + toOreInt(closing.get(accountNo) ?? 0), 0);
+  const openingTotal = group.accountNos.reduce((sum, accountNo) => sum + toOreInt(opening.get(accountNo) ?? 0), 0);
+  if (closingTotal !== openingTotal) return null;
+  const changed = group.accountNos.some(
+    (accountNo) => toOreInt(closing.get(accountNo) ?? 0) !== toOreInt(opening.get(accountNo) ?? 0),
+  );
+  if (!changed) return null;
+  return {
+    fromYear,
+    toYear,
+    destinationAccountNo: group.settlement,
+    perAccountDeltas: group.accountNos.map((accountNo) => ({
+      accountNo,
+      closingAmount: closing.get(accountNo) ?? 0,
+      openingAmount: opening.get(accountNo) ?? 0,
+    })),
+  };
+}
+
+/**
+ * Dinero presents fixed assets as a small source-chart group: a `... primo`
+ * account plus current-year additions and depreciation. At the next opening,
+ * the movement accounts are zero and their exact net is carried on the primo
+ * account. Recognise only this explicit source shape, inside one three-digit
+ * Dinero account family, with exact øre conservation.
+ */
+function explainSourceFixedAssetConsolidations(
+  closing: Map<string, number>,
+  opening: Map<string, number>,
+  accountTypeOf: (accountNo: string) => string | null,
+  accountNames: Map<string, string> | undefined,
+): RollForwardSourceConsolidation[] {
+  if (!accountNames) return [];
+  const present = [...new Set([...closing.keys(), ...opening.keys()])];
+  const results: RollForwardSourceConsolidation[] = [];
+  for (const destinationAccountNo of present.sort()) {
+    const destinationName = accountNames.get(destinationAccountNo)?.trim() ?? "";
+    if (!/^\d{5}$/.test(destinationAccountNo) || !destinationAccountNo.endsWith("00")) continue;
+    if (accountTypeOf(destinationAccountNo) !== "asset" || !/\bprimo\b/i.test(destinationName)) continue;
+    const family = destinationAccountNo.slice(0, 3);
+    const accountNos = present.filter((accountNo) =>
+      accountNo.startsWith(family) &&
+      accountTypeOf(accountNo) === "asset" &&
+      accountNames.has(accountNo),
+    ).sort();
+    if (accountNos.length < 2) continue;
+    const otherAccounts = accountNos.filter((accountNo) => accountNo !== destinationAccountNo);
+    if (otherAccounts.some((accountNo) => !/(tilgang i året|afgang i året|afskrivninger)/i.test(accountNames.get(accountNo) ?? ""))) continue;
+    if (otherAccounts.some((accountNo) => toOreInt(opening.get(accountNo) ?? 0) !== 0)) continue;
+    if (!otherAccounts.some((accountNo) => toOreInt(closing.get(accountNo) ?? 0) !== 0)) continue;
+    const closingOre = accountNos.reduce((sum, accountNo) => sum + toOreInt(closing.get(accountNo) ?? 0), 0);
+    const openingOre = accountNos.reduce((sum, accountNo) => sum + toOreInt(opening.get(accountNo) ?? 0), 0);
+    if (closingOre !== openingOre) continue;
+    results.push({
+      group: "fixed_asset",
+      accountNos,
+      destinationAccountNo,
+      closingAmount: Number(closingOre) / 100,
+      openingAmount: Number(openingOre) / 100,
+      perAccountDeltas: accountNos.map((accountNo) => ({
+        accountNo,
+        closingAmount: closing.get(accountNo) ?? 0,
+        openingAmount: opening.get(accountNo) ?? 0,
+      })),
+    });
+  }
+  return results;
 }
 
 /**
@@ -680,7 +804,7 @@ function vatGroupEvidence(
   accountTypeOf: (accountNo: string) => string | null,
 ): RollForwardVatGroup[] {
   const accountNos = [...new Set([...closing.keys(), ...opening.keys()])]
-    .filter((accountNo) => accountTypeOf(accountNo) === "vat" || /^(64000|64040|64060)$/.test(accountNo))
+    .filter((accountNo) => accountTypeOf(accountNo) === "vat" || /^(64000|64020|64040|64060)$/.test(accountNo))
     .sort();
   if (accountNos.length === 0) return [];
   const closingAmount = accountNos.reduce((sum, accountNo) => sum + (closing.get(accountNo) ?? 0), 0);
@@ -780,12 +904,25 @@ export function checkRollForward(
       continue;
     }
     let breaks = compareRollForward(fromYear, toYear, closing, opening, accountTypeOf);
+    const sourceConsolidations = explainSourceFixedAssetConsolidations(
+      closing, opening, accountTypeOf, options.accountNames,
+    );
+    for (const consolidation of sourceConsolidations) {
+      const group = new Set(consolidation.accountNos);
+      breaks = breaks.filter((item) => !group.has(item.accountNo));
+    }
     const vatGroup = resolveVatGroup(closing, opening, accountTypeOf, options.accountRoleProposals);
     const explanation = explainVatReclassification(
       input, fromYear, toYear, closing, opening, accountTypeOf, options.accountRoleProposals,
     );
-    if (explanation) {
-      const group = new Set(explanation.accountNos);
+    const sourceConsolidation = explanation ? null : explainSourceVatConsolidation(
+      input, fromYear, toYear, closing, opening, accountTypeOf, options.accountRoleProposals,
+    );
+    const explainedAccountNos = explanation?.accountNos ?? (sourceConsolidation
+      ? resolveVatGroup(closing, opening, accountTypeOf, options.accountRoleProposals)?.accountNos
+      : undefined);
+    if (explainedAccountNos) {
+      const group = new Set(explainedAccountNos);
       // Only the complete group may be removed. Any unrelated or partially
       // explained member remains a fatal roll-forward break.
       const groupBreaks = breaks.filter((item) => group.has(item.accountNo));
@@ -799,6 +936,7 @@ export function checkRollForward(
       toIsCutOver: toYear === cutOverYear,
       ok: breaks.length === 0,
       breaks,
+      ...(sourceConsolidations.length > 0 ? { sourceConsolidations } : {}),
       vatGroups: (() => {
         const accountNos = explanation?.accountNos ?? vatGroup?.accountNos ?? vatGroupEvidence(closing, opening, accountTypeOf)[0]?.accountNos ?? [];
         if (accountNos.length === 0) return [];
@@ -808,7 +946,11 @@ export function checkRollForward(
         for (const line of explanation?.lines ?? []) voucherAmounts.set(line.accountNo, (voucherAmounts.get(line.accountNo) ?? 0) + line.amount);
         return [{
           group: "vat" as const, closingAmount, openingAmount, difference: closingAmount - openingAmount, accountNos,
-          status: explanation ? "explained_reclassification" as const : breaks.some((item) => accountNos.includes(item.accountNo)) ? "unexplained" as const : "continuous" as const,
+          status: explanation
+            ? "explained_reclassification" as const
+            : sourceConsolidation
+              ? "explained_source_consolidation" as const
+              : breaks.some((item) => accountNos.includes(item.accountNo)) ? "unexplained" as const : "continuous" as const,
           ...(explanation ? { explanation: {
             fiscalYear: explanation.fiscalYear, voucher: explanation.voucher,
             transactionDate: explanation.lines[0]!.transactionDate, voucherType: explanation.lines[0]!.voucherType,
@@ -817,6 +959,7 @@ export function checkRollForward(
             transferAmount: voucherAmounts.get(vatGroup?.settlement ?? "") ?? 0,
             perAccountDeltas: accountNos.map((accountNo) => ({ accountNo, closingAmount: closing.get(accountNo) ?? 0, openingAmount: opening.get(accountNo) ?? 0, voucherAmount: voucherAmounts.get(accountNo) ?? 0 })),
           } } : {}),
+          ...(sourceConsolidation ? { sourceConsolidation } : {}),
         }];
       })(),
     });
@@ -841,8 +984,11 @@ export function describeRollForward(result: RollForwardResult): string[] {
   for (const step of result.steps) {
     const target = step.toIsCutOver ? `cut-over year ${step.toYear}` : `${step.toYear}`;
     const explained = step.vatGroups.find((group) => group.status === "explained_reclassification");
+    const consolidated = step.vatGroups.find((group) => group.status === "explained_source_consolidation");
     if (step.ok && explained?.explanation) {
       lines.push(`Roll-forward ${step.fromYear} -> ${target}: VAT group continuity documented by reclassification voucher ${explained.explanation.fiscalYear}/${explained.explanation.voucher}`);
+    } else if (step.ok && consolidated?.sourceConsolidation) {
+      lines.push(`Roll-forward ${step.fromYear} -> ${target}: VAT group continuity documented by Dinero year-opening consolidation to account ${consolidated.sourceConsolidation.destinationAccountNo}`);
     } else if (step.ok) {
       lines.push(`Roll-forward ${step.fromYear} -> ${target}: closing balances carry forward`);
     } else {
@@ -864,6 +1010,20 @@ export function describeRollForward(result: RollForwardResult): string[] {
       }
       if (group.explanation) {
         lines.push(`    transfer ${group.explanation.sourceAccountNos.join(", ")} -> ${group.explanation.destinationAccountNo}: ${group.explanation.transferAmount}`);
+      }
+      if (group.sourceConsolidation) {
+        for (const delta of group.sourceConsolidation.perAccountDeltas) {
+          lines.push(`    account ${delta.accountNo}: closing ${delta.closingAmount}, opening ${delta.openingAmount}`);
+        }
+        lines.push(`    source year-opening consolidation -> ${group.sourceConsolidation.destinationAccountNo}`);
+      }
+    }
+    for (const consolidation of step.sourceConsolidations ?? []) {
+      lines.push(
+        `  fixed-asset source group: closing ${consolidation.closingAmount}, opening ${consolidation.openingAmount}; consolidated to ${consolidation.destinationAccountNo}`,
+      );
+      for (const delta of consolidation.perAccountDeltas) {
+        lines.push(`    account ${delta.accountNo}: closing ${delta.closingAmount}, opening ${delta.openingAmount}`);
       }
     }
   }

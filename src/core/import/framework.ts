@@ -418,7 +418,7 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
   const preflight = preflightDineroArchive(db, resolved, source);
   const bilagErrors = planDineroBilag(resolved, (source.historicalEntries ?? []).map((entry) => entry.voucherRef ?? "").filter(Boolean));
   const hasReceipts = Object.keys(resolved.files).some((name) =>
-    /^(\d{4}\/Bilag|Ikke-bogførte-bilag)\//i.test(name),
+    /^(\d{4}\/(?:Bilag|Faktura)|Ikke-bogførte-bilag)\//i.test(name),
   );
   const root = companyRootFor(db, options);
   if (preflight.errors.length || bilagErrors.length || (hasReceipts && !root)) {
@@ -609,9 +609,13 @@ function preflightDineroArchive(
       .filter((account) => account.normalizedType)
       .map((account) => [account.accountNo, account.normalizedType!] as const),
   );
+  const accountNames = new Map(
+    source.chartOfAccounts.map((account) => [account.accountNo, account.name] as const),
+  );
   const rollForward = checkRollForward(db, resolved, {
     closingBalances,
     accountTypes,
+    accountNames,
     accountRoleProposals: source.accountRoleProposals,
   });
   if (rollForward.ok) return { errors: [], rollForward };

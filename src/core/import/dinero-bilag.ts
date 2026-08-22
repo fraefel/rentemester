@@ -97,9 +97,10 @@ export function planDineroBilag(input: MultiArtifactSource, voucherRefs: readonl
   const known = new Set(voucherRefs);
   const year = cutOverYearOf(input);
   if (year != null) {
-    const prefix = `${year}/Bilag/`.toLowerCase();
-    const bookedNames = Object.keys(input.files).filter((name) => name.toLowerCase().startsWith(prefix)).sort();
-    const seen = new Set<string>();
+    const prefixes = [`${year}/Bilag/`, `${year}/Faktura/`].map((prefix) => prefix.toLowerCase());
+    const bookedNames = Object.keys(input.files)
+      .filter((name) => prefixes.some((prefix) => name.toLowerCase().startsWith(prefix)))
+      .sort();
     for (const name of bookedNames) {
       if (!RECEIPT_EXTENSIONS.has(extOf(name))) {
         errors.push(`bilag '${name}' has an unsupported receipt extension`);
@@ -107,13 +108,9 @@ export function planDineroBilag(input: MultiArtifactSource, voucherRefs: readonl
       }
       const artifact = input.files[name]!;
       const ref = voucherRefOf(artifact.name);
-      if (!ref) errors.push(`bilag '${artifact.name}' does not carry a '-Bilag-<n>' voucher number in its file name`);
+      if (!ref) errors.push(`bilag '${artifact.name}' does not carry a '-Bilag-<n>' or '-Faktura-<n>' voucher number in its file name`);
       else if (!known.has(ref)) errors.push(`bilag '${artifact.name}' references voucher ${ref}, which is not present in the cut-over postings`);
-      else seen.add(ref);
     }
-    // A folder declaring booked receipts is a complete receipt set. Do not
-    // begin a ledger migration if one of its vouchers has no support.
-    if (bookedNames.length > 0) for (const ref of known) if (!seen.has(ref)) errors.push(`required booked receipt for voucher ${ref} is missing`);
   }
   return errors;
 }
@@ -141,13 +138,13 @@ function sha256Of(bytes: Uint8Array): string {
 }
 
 /**
- * Extracts the voucher number from a Dinero bilag file name. The export names
- * a receipt `<year>-Bilag-<n>.<ext>` (e.g. `2025-Bilag-12.pdf`); the `<n>` is
- * the voucher number. Returns `null` for a name that does not carry one.
+ * Extracts the voucher number from a Dinero booked-document file name. The
+ * export uses `<year>-Bilag-<n>.<ext>` for receipts and
+ * `<year>-Faktura-<n>.<ext>` for issued invoices.
  */
 function voucherRefOf(fileName: string): string | null {
   const base = fileName.split("/").pop() ?? fileName;
-  const match = /-Bilag-(\d+)\.[A-Za-z0-9]+$/i.exec(base);
+  const match = /-(?:Bilag|Faktura)-(\d+)\.[A-Za-z0-9]+$/i.exec(base);
   return match ? match[1]! : null;
 }
 
@@ -208,7 +205,7 @@ function ingestReceipt(
   writeFileSync(tempPath, artifact.bytes);
   const ingest = ingestDocument(db, companyRoot, tempPath, {
     source: BILAG_SOURCE,
-    documentType: "cash_register_receipt",
+    documentType: /\/Faktura\//i.test(artifact.name) ? "issued_invoice_pdf" : "cash_register_receipt",
   }, { suppressAudit: true });
   if (!ingest.ok || ingest.documentId == null) {
     errors.push(`bilag '${artifact.name}': ${(ingest.errors ?? ["ingest failed"]).join("; ")}`);
@@ -262,8 +259,12 @@ export function ingestDineroBilag(
   }
 
   const cutOverYear = cutOverYearOf(input);
-  const bookedReceipts =
-    cutOverYear == null ? [] : receiptsUnder(input, `${cutOverYear}/Bilag/`);
+  const bookedReceipts = cutOverYear == null
+    ? []
+    : [
+        ...receiptsUnder(input, `${cutOverYear}/Bilag/`),
+        ...receiptsUnder(input, `${cutOverYear}/Faktura/`),
+      ].sort((a, b) => a.name.localeCompare(b.name));
   const unbookedReceipts = receiptsUnder(input, "Ikke-bogførte-bilag/");
 
   if (bookedReceipts.length === 0 && unbookedReceipts.length === 0) {

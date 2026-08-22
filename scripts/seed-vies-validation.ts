@@ -5,7 +5,8 @@
  * This is not a VIES substitute and must never be pointed at a real company.
  */
 import { Database } from "bun:sqlite";
-import { lstatSync, realpathSync, type Stats } from "node:fs";
+import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, realpathSync, type Stats } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { companyPaths } from "../src/core/paths";
@@ -15,6 +16,17 @@ const [, , companyRoot, vatOrCvr, acknowledgement] = Bun.argv;
 const UNSAFE_ACKNOWLEDGEMENT = "--unsafe-demo";
 const DEMO_LEDGER_NAME = "Rentemester company";
 const DEMO_ROOT_NAME = /^rentemester-(?:agent-demo|smoke)(?:-[A-Za-z0-9_-]+)?$/;
+export const DEMO_VIES_MARKER_FILENAME = ".rentemester-agent-demo-vies-seed-v1.json";
+const DEMO_VIES_MARKER_FORMAT = "rentemester-agent-demo-vies-seed/v1";
+
+type DemoViesMarker = {
+  format: typeof DEMO_VIES_MARKER_FORMAT;
+  purpose: "offline-vies-seed";
+  companyRoot: string;
+  ledger: { dev: number; ino: number };
+  auditTrailSha256: string;
+  nonce: string;
+};
 
 function fail(message: string): never {
   throw new Error(`Refusing offline VIES seed: ${message}`);
@@ -83,6 +95,65 @@ function verifySyntheticLedgerIdentity(db: Database) {
   }
 }
 
+function auditTrailSha256(db: Database) {
+  const rows = db.query(
+    "SELECT id, event_type, entity_type, entity_id, message, actor FROM audit_log ORDER BY id",
+  ).all();
+  return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+}
+
+function verifyDemoMarker(db: Database, ledger: VerifiedDemoLedger) {
+  const markerPath = resolve(ledger.root, DEMO_VIES_MARKER_FILENAME);
+  const marker = snapshotPath(markerPath, "demo marker", "file");
+  if (!isContainedBy(ledger.rootIdentity.canonicalPath, marker.canonicalPath) ||
+    marker.canonicalPath !== markerPath) {
+    fail("demo marker must remain canonically contained by the company root");
+  }
+  if (lstatSync(markerPath).nlink !== 1) fail("demo marker must not have hard links");
+  // The run flow creates this evidence atomically and makes it read-only.
+  // This is a guard against accidentally pointing the unsafe seeder at a
+  // merely empty ledger; it is not an authorization mechanism for hostile
+  // same-user filesystem access.
+  if ((lstatSync(markerPath).mode & 0o777) !== 0o400) {
+    fail("demo marker must be immutable (mode 0400)");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(markerPath, "utf8"));
+  } catch {
+    fail("demo marker must contain valid JSON");
+  }
+  const value = parsed as Partial<DemoViesMarker> | null;
+  if (!value || value.format !== DEMO_VIES_MARKER_FORMAT || value.purpose !== "offline-vies-seed" ||
+    value.companyRoot !== ledger.root || !value.ledger ||
+    value.ledger.dev !== ledger.ledgerIdentity.dev || value.ledger.ino !== ledger.ledgerIdentity.ino ||
+    typeof value.auditTrailSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.auditTrailSha256) ||
+    value.auditTrailSha256 !== auditTrailSha256(db) ||
+    typeof value.nonce !== "string" || !/^[0-9a-f-]{36}$/i.test(value.nonce)) {
+    fail("demo marker does not bind this synthetic ledger and init audit trail to the documented agent-demo flow");
+  }
+  return marker;
+}
+
+function verifyNoBusinessActivity(db: Database) {
+  // Initialisation legitimately creates schema, accounts, sequences and one
+  // init audit event. Everything else must remain empty before an unsafe
+  // offline seed is allowed. Enumerating sqlite_master makes this fail closed
+  // if later migrations introduce another business-state table.
+  const safeTables = new Set([
+    "schema_migrations", "companies", "accounts", "account_role_mappings",
+    "sequences", "audit_log", "vies_validations",
+  ]);
+  const tables = db.query(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+  ).all() as Array<{ name: string }>;
+  for (const { name } of tables) {
+    if (safeTables.has(name)) continue;
+    const count = db.query(`SELECT COUNT(*) AS count FROM "${name.replaceAll('"', '""')}"`).get() as { count: number };
+    if (count.count !== 0) fail(`ledger has business activity in ${name}`);
+  }
+}
+
 function verifyDisposableDemoLedger(inputRoot: string): VerifiedDemoLedger {
   if (acknowledgement !== UNSAFE_ACKNOWLEDGEMENT) {
     fail(`pass ${UNSAFE_ACKNOWLEDGEMENT} to acknowledge synthetic demo data`);
@@ -134,7 +205,9 @@ function verifyOpenedLedger(db: Database, ledger: VerifiedDemoLedger) {
   if (lstatSync(ledger.dbPath).nlink !== 1) {
     fail("ledger file must not have hard links");
   }
+  verifyDemoMarker(db, ledger);
   verifySyntheticLedgerIdentity(db);
+  verifyNoBusinessActivity(db);
 }
 
 if (!companyRoot || !vatOrCvr) {

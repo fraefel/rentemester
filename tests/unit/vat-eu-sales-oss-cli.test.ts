@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { openDb } from "../../src/core/db";
+import { companyPaths } from "../../src/core/paths";
+import { storeViesValidation } from "../../src/core/vies";
 
 async function run(args: string[]) {
   const proc = Bun.spawn(["bun", "run", "src/cli.ts", ...args], {
@@ -20,8 +23,14 @@ describe("vat eu-sales-list CLI", () => {
   test("lists foreign reverse-charge sales per customer VAT number", async () => {
     const company = mkdtempSync(join(tmpdir(), "rentemester-smoke-euslist-cli-"));
     await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
-    // VIES must be seeded for the buyer before a foreign reverse-charge invoice issues.
-    await Bun.$`bun run scripts/seed-vies-validation.ts ${company} DE123456789 --unsafe-demo`.quiet();
+    // The foreign buyer needs cached VIES evidence before issuing. This is a
+    // unit fixture, not the deliberately restricted offline demo seeder.
+    const db = openDb(companyPaths(company).db);
+    try {
+      storeViesValidation(db, { vatOrCvr: "DE123456789", valid: true });
+    } finally {
+      db.close();
+    }
 
     const invoicePath = join(company, "invoice.json");
     writeFileSync(

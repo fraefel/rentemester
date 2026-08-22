@@ -1,6 +1,7 @@
 // Tests: scripts/seed-vies-validation.ts (unsafe offline fixture boundary)
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, test } from "bun:test";
-import { linkSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, linkSync, lstatSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,12 +10,39 @@ import { openDb, migrate } from "../../src/core/db";
 import { companyPaths } from "../../src/core/paths";
 
 const SEED = resolve(fileURLToPath(new URL("../../scripts/seed-vies-validation.ts", import.meta.url)));
+const DEMO_VIES_MARKER_FILENAME = ".rentemester-agent-demo-vies-seed-v1.json";
 const roots: string[] = [];
 
-function disposableRoot(prefix = "rentemester-smoke-") {
+function markDemoLedger(root: string) {
+  const canonicalRoot = realpathSync(root);
+  const ledger = lstatSync(companyPaths(canonicalRoot).db);
+  const marker = join(canonicalRoot, DEMO_VIES_MARKER_FILENAME);
+  const db = openDb(companyPaths(canonicalRoot).db);
+  let auditTrailSha256: string;
+  try {
+    const auditRows = db.query(
+      "SELECT id, event_type, entity_type, entity_id, message, actor FROM audit_log ORDER BY id",
+    ).all();
+    auditTrailSha256 = createHash("sha256").update(JSON.stringify(auditRows)).digest("hex");
+  } finally {
+    db.close();
+  }
+  writeFileSync(marker, `${JSON.stringify({
+    format: "rentemester-agent-demo-vies-seed/v1",
+    purpose: "offline-vies-seed",
+    companyRoot: canonicalRoot,
+    ledger: { dev: ledger.dev, ino: ledger.ino },
+    auditTrailSha256,
+    nonce: crypto.randomUUID(),
+  })}\n`, { mode: 0o600, flag: "wx" });
+  chmodSync(marker, 0o400);
+}
+
+function disposableRoot(prefix = "rentemester-smoke-", marked = true) {
   const root = mkdtempSync(join(tmpdir(), prefix));
   roots.push(root);
   initialiseCompanyVolume(root);
+  if (marked) markDemoLedger(root);
   return root;
 }
 
@@ -55,6 +83,25 @@ describe("offline VIES seed boundary", () => {
     const result = await seed(disposableRoot());
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("--unsafe-demo");
+  });
+
+  test("rejects an otherwise fresh synthetic ledger without the explicit demo marker", async () => {
+    const result = await seed(disposableRoot("rentemester-smoke-", false), "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("demo marker");
+  });
+
+  test("rejects a marker that does not bind the current ledger identity", async () => {
+    const root = disposableRoot();
+    const marker = join(root, DEMO_VIES_MARKER_FILENAME);
+    chmodSync(marker, 0o600);
+    const parsed = JSON.parse(readFileSync(marker, "utf8")) as any;
+    parsed.ledger.ino += 1;
+    writeFileSync(marker, `${JSON.stringify(parsed)}\n`);
+    chmodSync(marker, 0o400);
+    const result = await seed(root, "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("does not bind");
   });
 
   test("rejects an arbitrary company root", async () => {
@@ -136,5 +183,36 @@ describe("offline VIES seed boundary", () => {
     const result = await seed(root, "--unsafe-demo");
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("ledger identity");
+  });
+
+  test("rejects a marked, default-identity ledger with a bank transaction", async () => {
+    const root = disposableRoot();
+    const db = openDb(companyPaths(root).db);
+    try {
+      db.run(
+        "INSERT INTO bank_transactions (transaction_date, text, amount, transaction_hash) VALUES (?, ?, ?, ?)",
+        ["2026-01-02", "real-looking payment", -100, "unsafe-demo-activity-bank-transaction"],
+      );
+    } finally {
+      db.close();
+    }
+    const result = await seed(root, "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("business activity in bank_transactions");
+  });
+
+  test("rejects a marked, default-identity ledger with a non-init audit event", async () => {
+    const root = disposableRoot();
+    const db = openDb(companyPaths(root).db);
+    try {
+      db.run("INSERT INTO audit_log (event_type, entity_type, message) VALUES (?, ?, ?)", [
+        "bank_import", "bank_transaction", "real-looking activity",
+      ]);
+    } finally {
+      db.close();
+    }
+    const result = await seed(root, "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("init audit trail");
   });
 });

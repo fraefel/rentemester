@@ -87,7 +87,36 @@ export type BilagIngestResult = {
   /** Ordered, human-readable description of what happened. */
   auditTrail: string[];
   errors: string[];
+  /** Newly published originals. The atomic orchestrator removes these on rollback. */
+  publishedPaths: string[];
 };
+
+/** Pure, fail-closed receipt planning used before an atomic Dinero import mutates. */
+export function planDineroBilag(input: MultiArtifactSource, voucherRefs: readonly string[]): string[] {
+  const errors: string[] = [];
+  const known = new Set(voucherRefs);
+  const year = cutOverYearOf(input);
+  if (year != null) {
+    const prefix = `${year}/Bilag/`.toLowerCase();
+    const bookedNames = Object.keys(input.files).filter((name) => name.toLowerCase().startsWith(prefix)).sort();
+    const seen = new Set<string>();
+    for (const name of bookedNames) {
+      if (!RECEIPT_EXTENSIONS.has(extOf(name))) {
+        errors.push(`bilag '${name}' has an unsupported receipt extension`);
+        continue;
+      }
+      const artifact = input.files[name]!;
+      const ref = voucherRefOf(artifact.name);
+      if (!ref) errors.push(`bilag '${artifact.name}' does not carry a '-Bilag-<n>' voucher number in its file name`);
+      else if (!known.has(ref)) errors.push(`bilag '${artifact.name}' references voucher ${ref}, which is not present in the cut-over postings`);
+      else seen.add(ref);
+    }
+    // A folder declaring booked receipts is a complete receipt set. Do not
+    // begin a ledger migration if one of its vouchers has no support.
+    if (bookedNames.length > 0) for (const ref of known) if (!seen.has(ref)) errors.push(`required booked receipt for voucher ${ref} is missing`);
+  }
+  return errors;
+}
 
 /** A document that is now present in the ledger — newly ingested or pre-existing. */
 type IngestedDocument = {
@@ -96,6 +125,7 @@ type IngestedDocument = {
   sha256: string;
   /** True when the content hash was already stored — re-ingest was a no-op. */
   duplicate: boolean;
+  storedPath?: string;
 };
 
 /** The lowercase file extension of a name, including the dot (e.g. `.pdf`). */
@@ -179,7 +209,7 @@ function ingestReceipt(
   const ingest = ingestDocument(db, companyRoot, tempPath, {
     source: BILAG_SOURCE,
     documentType: "cash_register_receipt",
-  });
+  }, { suppressAudit: true });
   if (!ingest.ok || ingest.documentId == null) {
     errors.push(`bilag '${artifact.name}': ${(ingest.errors ?? ["ingest failed"]).join("; ")}`);
     return null;
@@ -189,6 +219,7 @@ function ingestReceipt(
     documentNo: ingest.documentNo!,
     sha256: ingest.sha256!,
     duplicate: false,
+    storedPath: ingest.storedPath,
   };
 }
 
@@ -219,6 +250,7 @@ export function ingestDineroBilag(
   const unmatched: Array<{ fileName: string; voucherRef: string }> = [];
   const duplicates: string[] = [];
   const unbooked: UnbookedBilag[] = [];
+  const publishedPaths: string[] = [];
 
   // Voucher number -> the journal entry it was posted as (#195).
   const entryByVoucher = new Map<string, { entryId: number; entryNo: string }>();
@@ -236,7 +268,7 @@ export function ingestDineroBilag(
 
   if (bookedReceipts.length === 0 && unbookedReceipts.length === 0) {
     auditTrail.push("Export carries no bilag — no receipts to ingest");
-    return { ok: true, linked, unmatched, duplicates, unbooked, auditTrail, errors };
+    return { ok: true, linked, unmatched, duplicates, unbooked, auditTrail, errors, publishedPaths };
   }
 
   const docBySha = db.query("SELECT id, document_no FROM documents WHERE sha256_hash = ?");
@@ -262,6 +294,7 @@ export function ingestDineroBilag(
       const doc = ingestReceipt(db, companyRoot, spillDir, artifact, docBySha, errors);
       if (!doc) continue;
       if (doc.duplicate) duplicates.push(artifact.name);
+      else if (doc.storedPath) publishedPaths.push(doc.storedPath);
 
       const entry = entryByVoucher.get(voucherRef);
       if (!entry) {
@@ -295,6 +328,7 @@ export function ingestDineroBilag(
       const doc = ingestReceipt(db, companyRoot, spillDir, artifact, docBySha, errors);
       if (!doc) continue;
       if (doc.duplicate) duplicates.push(artifact.name);
+      else if (doc.storedPath) publishedPaths.push(doc.storedPath);
 
       const exception = recordException(db, {
         type: UNBOOKED_RECEIPT_EXCEPTION,
@@ -345,5 +379,6 @@ export function ingestDineroBilag(
     unbooked,
     auditTrail,
     errors,
+    publishedPaths,
   };
 }

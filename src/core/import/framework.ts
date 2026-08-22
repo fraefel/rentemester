@@ -19,6 +19,8 @@
 // clear, source-shaped error; postOpeningBalance is the backstop.
 
 import { dirname } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, unlinkSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import { postOpeningBalance } from "../opening-balance";
 import { isValidIsoDate } from "../dates";
@@ -33,7 +35,8 @@ import {
   parseArchiveYears,
   type RollForwardResult,
 } from "./dinero-archive";
-import { ingestDineroBilag } from "./dinero-bilag";
+import { ingestDineroBilag, planDineroBilag } from "./dinero-bilag";
+import { insertAuditLog } from "../actor";
 import type {
   ImportOptions,
   ImportResult,
@@ -44,6 +47,11 @@ import type {
 } from "./types";
 
 const IMPORT_RULE = "DK-BOOKKEEPING-BALANCED-001";
+
+/** Test-only deterministic fault boundary for the atomic Dinero v4 landing. */
+export const dineroImportFaults: Partial<Record<"archive" | "document" | "link" | "audit" | "verify" | "publish", () => void>> = {};
+function dineroFault(point: keyof typeof dineroImportFaults) { dineroImportFaults[point]?.(); }
+function digest(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 
 /**
  * Validates and posts a normalised `ImportSource` as the company's
@@ -382,6 +390,105 @@ export function runImport(db: Database, source: ImportSource, options: ImportOpt
   }
 }
 
+/** Persist the immutable v4 provenance rows.  This deliberately runs only after
+ * all source parsing and cross-file planning has succeeded. */
+function persistDineroEvidence(db: Database, resolved: MultiArtifactSource, source: ImportSource, options: ImportOptions, outcome: "accepted" | "rejected", result: ImportResult): { attemptId: number; inventoryId: number; sourceId: number } {
+  const evidence = resolved.sourceEvidence;
+  const raw = evidence.rawSha256 ?? evidence.canonicalInventorySha256;
+  const rawSize = evidence.rawSize ?? evidence.totalUncompressedBytes;
+  const listing = evidence.canonicalListingSha256 ?? evidence.canonicalInventorySha256;
+  const listingCount = evidence.listingEntryCount ?? evidence.importedEntryCount;
+  let sourceRow = db.query("SELECT id FROM dinero_import_sources WHERE raw_sha256 = ?").get(raw) as { id: number } | null;
+  if (!sourceRow) {
+    const inserted = db.query("INSERT INTO dinero_import_sources (raw_sha256, raw_size_bytes, canonical_listing_sha256, canonical_listing_count) VALUES (?, ?, ?, ?)").run(raw, rawSize, listing, listingCount);
+    sourceRow = { id: Number(inserted.lastInsertRowid) };
+  }
+  const inv = db.query("INSERT INTO dinero_import_inventories (source_id, source_raw_sha256, canonical_listing_sha256, canonical_listing_count, entry_count, total_size_bytes) VALUES (?, ?, ?, ?, ?, ?)").run(sourceRow.id, raw, listing, listingCount, evidence.importedEntryCount, evidence.totalUncompressedBytes);
+  const inventoryId = Number(inv.lastInsertRowid);
+  const addEntry = db.query("INSERT INTO dinero_import_inventory_entries (inventory_id, entry_path, entry_size_bytes, entry_sha256) VALUES (?, ?, ?, ?)");
+  for (const entry of evidence.entries) addEntry.run(inventoryId, entry.path, entry.size, entry.sha256);
+  const attempt = db.query("INSERT INTO dinero_import_attempts (inventory_id, source_id, source_raw_sha256, parser_contract, actor, cutover_date, outcome, result_sha256) VALUES (?, ?, ?, 'dinero-v4', ?, ?, ?, ?)")
+    .run(inventoryId, sourceRow.id, raw, options.createdBy ?? "system", source.cutOverDate, outcome, digest(result));
+  return { attemptId: Number(attempt.lastInsertRowid), inventoryId, sourceId: sourceRow.id };
+}
+
+/** Dinero is a whole-export import, not three independent best-effort imports.
+ * The old generic path remains untouched for every other source parser. */
+function runDineroV4(db: Database, resolved: MultiArtifactSource, source: ImportSource, options: ImportOptions): ImportResult {
+  const preflight = preflightDineroArchive(db, resolved, source);
+  const bilagErrors = planDineroBilag(resolved, (source.historicalEntries ?? []).map((entry) => entry.voucherRef ?? "").filter(Boolean));
+  if (preflight.errors.length || bilagErrors.length) {
+    return { ok: false, sourceSystem: "dinero", cutOverDate: source.cutOverDate, openingBalanceLineCount: source.openingBalances.length, historicalEntriesSkipped: source.historicalEntries?.length ?? 0, auditTrail: ["Dinero v4 planning rejected before mutation"], appliedRules: [IMPORT_RULE], errors: [...preflight.errors, ...bilagErrors] };
+  }
+  const raw = resolved.sourceEvidence.rawSha256 ?? resolved.sourceEvidence.canonicalInventorySha256;
+  const existingAccepted = db.query("SELECT id FROM dinero_import_attempts WHERE source_raw_sha256 = ? AND outcome = 'accepted' LIMIT 1").get(raw);
+  if (existingAccepted) return { ok: false, sourceSystem: "dinero", cutOverDate: source.cutOverDate, openingBalanceLineCount: source.openingBalances.length, historicalEntriesSkipped: source.historicalEntries?.length ?? 0, auditTrail: ["Dinero v4 import already accepted for this immutable source"], appliedRules: [IMPORT_RULE], errors: ["already-imported"] };
+
+  // A legacy archive has no immutable v4 ownership. Never silently attach new
+  // evidence to it: that would make changed history look accepted.
+  const years = parseArchiveYears(resolved);
+  if (years.ok) {
+    for (const year of years.years) {
+      const legacy = db.query("SELECT id FROM import_archive_years WHERE source_system = 'dinero' AND fiscal_year = ?").get(year.fiscalYear);
+      if (legacy) return { ok: false, sourceSystem: "dinero", cutOverDate: source.cutOverDate, openingBalanceLineCount: source.openingBalances.length, historicalEntriesSkipped: source.historicalEntries?.length ?? 0, auditTrail: ["Dinero v4 planning rejected legacy archive collision"], appliedRules: [IMPORT_RULE], errors: [`legacy archive already exists for fiscal year ${year.fiscalYear}`] };
+    }
+  }
+  const createdPaths: string[] = [];
+  let bilagOutcome: ReturnType<typeof ingestDineroBilag> | undefined;
+  let result: ImportResult | undefined;
+  try {
+    result = db.transaction(() => {
+      const landed = runImportImpl(db, source, options);
+      if (!landed.ok) throw new ImportRollback(landed);
+      if (options.dryRun) throw new ImportRollback({ ...landed, dryRun: true });
+      dineroFault("archive");
+      const archive = archiveDineroYears(db, resolved);
+      if (!archive.ok) throw new Error(archive.errors.join("; "));
+      landed.auditTrail.push(...archive.auditTrail, ...describeRollForward(preflight.rollForward!));
+      const root = companyRootFor(db, options);
+      if (root) {
+        dineroFault("document");
+        dineroFault("publish");
+        const bilag = ingestDineroBilag(db, root, resolved, landed);
+        bilagOutcome = bilag;
+        createdPaths.push(...bilag.publishedPaths);
+        if (!bilag.ok) throw new Error(bilag.errors.join("; "));
+        dineroFault("link");
+        landed.bilag = { linkedCount: bilag.linked.length, unmatchedCount: bilag.unmatched.length, duplicateCount: bilag.duplicates.length, unbookedCount: bilag.unbooked.length };
+      }
+      const provenance = persistDineroEvidence(db, resolved, source, options, "accepted", landed);
+      if (bilagOutcome) {
+        const addLink = db.query("INSERT INTO dinero_import_document_links (attempt_id, inventory_id, entry_path, entry_sha256, document_id, journal_entry_id, voucher_reference, disposition) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        for (const item of bilagOutcome.linked) addLink.run(provenance.attemptId, provenance.inventoryId, item.fileName, item.sha256, item.documentId, item.journalEntryId, item.voucherRef, "linked");
+        for (const item of bilagOutcome.unmatched) {
+          const artifact = resolved.files[item.fileName]!;
+          const document = db.query("SELECT id, sha256_hash FROM documents WHERE sha256_hash = ?").get(createHash("sha256").update(artifact.bytes).digest("hex")) as { id: number; sha256_hash: string };
+          addLink.run(provenance.attemptId, provenance.inventoryId, item.fileName, document.sha256_hash, document.id, null, item.voucherRef, "unmatched");
+        }
+        for (const item of bilagOutcome.unbooked) addLink.run(provenance.attemptId, provenance.inventoryId, item.fileName, item.sha256, item.documentId, null, null, "excluded");
+      }
+      for (const year of years.years) {
+        const yearEntries = resolved.sourceEvidence.entries.filter((entry) => entry.path.startsWith(`${year.fiscalYear}/`));
+        db.query("INSERT INTO dinero_import_archive_evidence (attempt_id, inventory_id, source_id, source_raw_sha256, fiscal_year, archive_sha256, archive_size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .run(provenance.attemptId, provenance.inventoryId, provenance.sourceId, raw, year.fiscalYear, digest(yearEntries), yearEntries.reduce((sum, entry) => sum + entry.size, 0));
+      }
+      dineroFault("audit");
+      insertAuditLog(db, { eventType: "dinero_import_accepted", entityType: "import", entityId: provenance.attemptId, message: `Accepted immutable Dinero v4 import ${raw}`, createdBy: options.createdBy, createdByProgram: options.createdByProgram });
+      dineroFault("verify");
+      const expectedDocs = landed.bilag ? landed.bilag.linkedCount + landed.bilag.unmatchedCount + landed.bilag.unbookedCount - landed.bilag.duplicateCount : 0;
+      if (expectedDocs > 0 && (db.query("SELECT COUNT(*) AS n FROM dinero_import_document_links WHERE attempt_id = ?").get(provenance.attemptId) as { n: number }).n !== expectedDocs) throw new Error("Dinero v4 verifier: provenance document-link count mismatch");
+      return landed;
+    }, { immediate: true })();
+    return result;
+  } catch (error) {
+    for (const path of createdPaths) { try { if (existsSync(path)) unlinkSync(path); } catch {} }
+    if (error instanceof ImportRollback) return error.result;
+    const rejected: ImportResult = { ok: false, sourceSystem: "dinero", cutOverDate: source.cutOverDate, openingBalanceLineCount: source.openingBalances.length, historicalEntriesSkipped: source.historicalEntries?.length ?? 0, auditTrail: ["Dinero v4 transaction rolled back"], appliedRules: [IMPORT_RULE], errors: [error instanceof Error ? error.message : String(error)] };
+    try { db.transaction(() => { persistDineroEvidence(db, resolved, source, options, "rejected", rejected); }, { immediate: true })(); } catch (recordError) { rejected.errors.push(`rejected-attempt evidence could not be recorded: ${recordError instanceof Error ? recordError.message : String(recordError)}`); }
+    return rejected;
+  }
+}
+
 /**
  * Runs an import end-to-end from an export PATH using a `SourceParser`. It
  * resolves the path (a directory, a `.zip`'s unpacked tree, or a single file)
@@ -451,6 +558,9 @@ export function runImportFromSource(
     const preflight = preflightDineroArchive(db, resolved, parsed.source);
     archivePreflight = preflight.rollForward;
     if (preflight.errors.length > 0) return failParse(preflight.errors, resolved);
+    const atomic = runDineroV4(db, resolved, parsed.source as ImportSource, options);
+    if (resolved.archiveIntegrity) atomic.archiveIntegrity = resolved.archiveIntegrity;
+    return atomic;
   }
   const result = runImport(db, parsed.source as ImportSource, options);
   if (resolved.archiveIntegrity) result.archiveIntegrity = resolved.archiveIntegrity;

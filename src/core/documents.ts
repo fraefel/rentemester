@@ -56,6 +56,8 @@ export type IngestDocumentOptions = {
   forceDuplicateLogicalIdentity?: boolean;
   createdBy?: string;
   createdByProgram?: string;
+  /** Internal bulk-import use only: the enclosing import writes one audit event. */
+  suppressAudit?: boolean;
 };
 
 const RULES = {
@@ -426,14 +428,16 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
         cvr: metadata.recipient?.vatOrCvr,
       });
 
-      insertAuditLog(db, {
-        eventType: "document_ingest",
-        entityType: "document",
-        entityId: inserted.id,
-        message: `Ingested supporting document ${documentNo} (${sha256})`,
-        createdBy: options.createdBy,
-        createdByProgram: options.createdByProgram,
-      });
+      if (!options.suppressAudit) {
+        insertAuditLog(db, {
+          eventType: "document_ingest",
+          entityType: "document",
+          entityId: inserted.id,
+          message: `Ingested supporting document ${documentNo} (${sha256})`,
+          createdBy: options.createdBy,
+          createdByProgram: options.createdByProgram,
+        });
+      }
 
       return { id: asDocumentId(inserted.id), documentNo };
     }, { immediate: true })();

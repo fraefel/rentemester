@@ -417,8 +417,12 @@ function persistDineroEvidence(db: Database, resolved: MultiArtifactSource, sour
 function runDineroV4(db: Database, resolved: MultiArtifactSource, source: ImportSource, options: ImportOptions): ImportResult {
   const preflight = preflightDineroArchive(db, resolved, source);
   const bilagErrors = planDineroBilag(resolved, (source.historicalEntries ?? []).map((entry) => entry.voucherRef ?? "").filter(Boolean));
-  if (preflight.errors.length || bilagErrors.length) {
-    return { ok: false, sourceSystem: "dinero", cutOverDate: source.cutOverDate, openingBalanceLineCount: source.openingBalances.length, historicalEntriesSkipped: source.historicalEntries?.length ?? 0, auditTrail: ["Dinero v4 planning rejected before mutation"], appliedRules: [IMPORT_RULE], errors: [...preflight.errors, ...bilagErrors] };
+  const hasReceipts = Object.keys(resolved.files).some((name) =>
+    /^(\d{4}\/Bilag|Ikke-bogførte-bilag)\//i.test(name),
+  );
+  const root = companyRootFor(db, options);
+  if (preflight.errors.length || bilagErrors.length || (hasReceipts && !root)) {
+    return { ok: false, sourceSystem: "dinero", cutOverDate: source.cutOverDate, openingBalanceLineCount: source.openingBalances.length, historicalEntriesSkipped: source.historicalEntries?.length ?? 0, auditTrail: ["Dinero v4 planning rejected before mutation"], appliedRules: [IMPORT_RULE], errors: [...preflight.errors, ...bilagErrors, ...(hasReceipts && !root ? ["receipt-bearing Dinero import requires a resolvable company root"] : [])] };
   }
   const raw = resolved.sourceEvidence.rawSha256 ?? resolved.sourceEvidence.canonicalInventorySha256;
   const existingAccepted = db.query("SELECT id FROM dinero_import_attempts WHERE source_raw_sha256 = ? AND outcome = 'accepted' LIMIT 1").get(raw);
@@ -445,7 +449,6 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
       const archive = archiveDineroYears(db, resolved);
       if (!archive.ok) throw new Error(archive.errors.join("; "));
       landed.auditTrail.push(...archive.auditTrail, ...describeRollForward(preflight.rollForward!));
-      const root = companyRootFor(db, options);
       if (root) {
         dineroFault("document");
         dineroFault("publish");
@@ -475,7 +478,10 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
       dineroFault("audit");
       insertAuditLog(db, { eventType: "dinero_import_accepted", entityType: "import", entityId: provenance.attemptId, message: `Accepted immutable Dinero v4 import ${raw}`, createdBy: options.createdBy, createdByProgram: options.createdByProgram });
       dineroFault("verify");
-      const expectedDocs = landed.bilag ? landed.bilag.linkedCount + landed.bilag.unmatchedCount + landed.bilag.unbookedCount - landed.bilag.duplicateCount : 0;
+      // Provenance is per source artifact, not per newly-created document.
+      // A pre-existing content-addressed receipt still needs its immutable
+      // evidence row and must not make this verifier undercount.
+      const expectedDocs = landed.bilag ? landed.bilag.linkedCount + landed.bilag.unmatchedCount + landed.bilag.unbookedCount : 0;
       if (expectedDocs > 0 && (db.query("SELECT COUNT(*) AS n FROM dinero_import_document_links WHERE attempt_id = ?").get(provenance.attemptId) as { n: number }).n !== expectedDocs) throw new Error("Dinero v4 verifier: provenance document-link count mismatch");
       return landed;
     }, { immediate: true })();

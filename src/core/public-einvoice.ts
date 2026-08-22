@@ -152,6 +152,29 @@ function deriveUblTaxCategory(
   return { id: "S", percent: vatPercent };
 }
 
+/**
+ * Projects the tax breakdown that will be transmitted in OIOUBL.
+ *
+ * Old issued-invoice payloads did not carry a per-line tax classification.
+ * A legacy, otherwise internally consistent 0% standard payload consequently
+ * has to mean exempt here: treating its unclassified line as taxable would
+ * invent a taxable 0% line and reject the very E-category export that the
+ * document-level totals describe. The compatibility branch is deliberately
+ * narrow: any explicit classification remains authoritative, and a non-zero
+ * VAT amount or rate still follows normal taxable validation.
+ */
+function projectOioUblVatLines(payload: InvoicePayload) {
+  const isLegacyExempt =
+    payload.vatTreatment === "standard" &&
+    payload.totals?.vatRate === 0 &&
+    payload.totals?.vatAmount === 0 &&
+    (payload.lines ?? []).every((line) => !line.taxClassification);
+  const lines = isLegacyExempt
+    ? (payload.lines ?? []).map((line) => ({ ...line, taxClassification: "exempt" as const }))
+    : payload.lines;
+  return projectVatLines(lines, payload.vatTreatment ?? "standard", payload.totals?.vatRate);
+}
+
 // Normalise a Danish seller participant id to eight digits before rendering
 // OIOUBL's DK:CVR / DK:SE values with the required DK prefix. Returns null when
 // the result is not exactly 8 digits, so a
@@ -303,7 +326,7 @@ function validateOioUblPayload(invoiceNumber: string, payload: InvoicePayload, e
   // validator, so never render contradictory OIOUBL tax totals from a legacy
   // payload. Re-project the rounded line tax amounts independently here.
   if (!isReverseCharge && Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number")) {
-    const projection = projectVatLines(payload.lines, "standard", payload.totals?.vatRate);
+    const projection = projectOioUblVatLines(payload);
     errors.push(...projection.errors.map((error) => `invoice ${invoiceNumber} ${error}`));
     const netAmount = roundDkk(Number(payload.totals?.netAmount));
     const vatAmount = roundDkk(Number(payload.totals?.vatAmount));
@@ -323,7 +346,7 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
   // The tax category is derived from the VAT treatment, not hardcoded "S", so
   // exempt / reverse-charge lines carry the correct EN16931 category code.
   const taxCategory = deriveUblTaxCategory(payload, vatPercent);
-  const projectedTaxLines = projectVatLines(payload.lines, payload.vatTreatment ?? "standard", payload.totals?.vatRate).lines;
+  const projectedTaxLines = projectOioUblVatLines(payload).lines;
   // Uniform historical payloads have no per-line classification. Retain their
   // established document-level E/AE meaning while explicit payloads use their
   // individual classifications.

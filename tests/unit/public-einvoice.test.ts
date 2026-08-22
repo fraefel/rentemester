@@ -401,6 +401,31 @@ describe("public e-invoice OIOUBL 2.02 conformance", () => {
     expect(exported.xml).toContain(">ZeroRated</cbc:ID>");
     expect(exported.xml).toContain("<cbc:TaxExemptionReason>");
 
+    // The backwards-compatible interpretation is deliberately limited to
+    // payloads without an explicit line classification. A source that says
+    // "taxable" at 0% remains contradictory and must fail closed.
+    const contradictoryPayload = {
+      ...payload,
+      invoiceNumber: "2026-EXEMPT-CONTRADICTORY",
+      lines: payload.lines.map((line) => ({ ...line, taxClassification: "taxable" as const })),
+    };
+    db.run(
+      `INSERT INTO documents (source, sha256_hash, invoice_no, invoice_date, document_type, payload_json)
+       VALUES ('test', ?, ?, ?, 'issued_invoice', ?)`,
+      `jur9-exempt-${contradictoryPayload.invoiceNumber}`,
+      contradictoryPayload.invoiceNumber,
+      contradictoryPayload.issueDate,
+      JSON.stringify(contradictoryPayload),
+    );
+    const contradictoryDocumentId = Number(
+      (db.query("SELECT last_insert_rowid() AS id").get() as { id: number }).id,
+    );
+    const contradictory = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: contradictoryDocumentId });
+    expect(contradictory.ok).toBe(false);
+    expect(contradictory.errors).toContain(
+      `invoice ${contradictoryPayload.invoiceNumber} lines[0].vatRate is required for taxable lines`,
+    );
+
     db.close();
     rmSync(root, { recursive: true, force: true });
   });

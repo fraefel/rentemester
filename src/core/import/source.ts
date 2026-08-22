@@ -160,6 +160,38 @@ function listArchiveEntries(zipPath: string, safeZipPath: string): { names: stri
   return { names, sha256: sha256(names.join("\n")) };
 }
 
+function extractArchiveWithPython(zipPath: string, dest: string): { names: string[]; error?: string } {
+  const script = [
+    "import json, os, shutil, stat, sys, zipfile",
+    "archive, dest = sys.argv[1], sys.argv[2]",
+    "root = os.path.realpath(dest)",
+    "names = []",
+    "with zipfile.ZipFile(archive) as source:",
+    "  for info in source.infolist():",
+    "    name = info.filename.replace('\\\\', '/')",
+    "    if info.is_dir(): continue",
+    "    mode = (info.external_attr >> 16) & 0o170000",
+    "    if mode == stat.S_IFLNK: raise ValueError('symbolic links are not allowed')",
+    "    target = os.path.realpath(os.path.join(dest, *name.split('/')))",
+    "    if not target.startswith(root + os.sep): raise ValueError('unsafe archive path')",
+    "    os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)",
+    "    with source.open(info) as src, open(target, 'xb') as out: shutil.copyfileobj(src, out)",
+    "    names.append(name)",
+    "print(json.dumps(names, ensure_ascii=False))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", script, zipPath, dest], { encoding: "utf8" });
+  if (result.error || result.status !== 0) {
+    return { names: [], error: sanitizeForErrorMessage(result.error?.message ?? result.stderr ?? "python ZIP extraction failed") };
+  }
+  try {
+    const names = (JSON.parse(result.stdout) as string[]).filter((name) => !name.endsWith("/")).map(normalizeEntryPath).sort();
+    assertUniquePaths(names);
+    return { names };
+  } catch (error) {
+    return { names: [], error: sanitizeForErrorMessage(error instanceof Error ? error.message : String(error)) };
+  }
+}
+
 /**
  * Extracts a `.zip` export into a fresh temporary directory and returns it.
  *
@@ -182,7 +214,7 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
     // entries extracted from another.
     const rawBytes = new Uint8Array(readFileSync(zipPath));
     writeFileSync(snapshotPath, rawBytes, { mode: 0o600 });
-    const listing = listArchiveEntries(snapshotPath, safeZipPath);
+    let listing = listArchiveEntries(snapshotPath, safeZipPath);
     // #199 — Dinero-exports carry some entry names i CP437 (legacy DOS-encoding),
     // især `Ikke-bogførte-bilag/`-mappen. På Info-ZIP-builds (Linux) tager
     // `-O CP437` flaget den encoding og transcoder til filesystem-locale — så
@@ -230,6 +262,16 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
         }
       }
       result = spawnSync("unzip", ["-q", "-o", snapshotPath, "-d", dest], { encoding: "utf8" });
+      if (!result.error && result.status !== 0) {
+        for (const entry of readdirSync(dest)) removePathWithRetry(join(dest, entry));
+        const python = extractArchiveWithPython(snapshotPath, dest);
+        if (!python.error) {
+          listing = { names: python.names, sha256: sha256(python.names.join("\n")) };
+          result = { ...result, status: 0, stderr: "" };
+        } else {
+          result = { ...result, stderr: `${result.stderr ?? ""}\npython fallback: ${python.error}` };
+        }
+      }
     }
     if (result.error) {
       throw new Error(

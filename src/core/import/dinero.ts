@@ -33,12 +33,14 @@ import type {
   ImportCompanyMasterData,
   ImportHistoricalEntry,
   ImportNormalBalance,
+  ImportOpenItemControlBalance,
   ImportOpeningBalanceLine,
   MultiArtifactSource,
   ParseResult,
   SourceParser,
 } from "./types";
 import { DINERO_VAT_CONTROL_ACCOUNTS } from "../vat-account-semantics";
+import type { AccountRole } from "../account-roles";
 
 const SYSTEM = "dinero";
 const LABEL = "Dinero (data export — chart of accounts, master data & opening balance)";
@@ -269,6 +271,69 @@ function findPosteringer(input: MultiArtifactSource): { name: string; text: stri
   return { name, text: input.files[name]!.text };
 }
 
+function parseOpenItemControlBalances(
+  input: MultiArtifactSource,
+  posteringerName: string | undefined,
+  proposals: Array<{ role: AccountRole; accountNo: string; source: string }>,
+  errors: string[],
+): ImportOpenItemControlBalance[] {
+  if (!posteringerName) return [];
+  const sourceReference = posteringerName.replace(/Posteringer\.csv$/i, "SaldoBalance.csv");
+  const artifact = input.files[sourceReference];
+  if (!artifact) return [];
+
+  const balances = new Map<string, number>();
+  const lines = artifact.text.split(/\r?\n/);
+  let sawHeader = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!.trim();
+    if (!line) continue;
+    const cells = splitRecord(line);
+    if (!sawHeader) {
+      if ((cells[0] ?? "").toLowerCase() === "konto") {
+        sawHeader = true;
+        continue;
+      }
+      errors.push(`${sourceReference}: missing the 'Konto;Kontonavn;Beløb' header row`);
+      return [];
+    }
+    const accountNo = cells[0] ?? "";
+    const amount = parseBelob(cells[2] ?? "");
+    if (!accountNo || amount == null) {
+      errors.push(`${sourceReference} line ${i + 1}: invalid account or Beløb`);
+      continue;
+    }
+    if (balances.has(accountNo)) {
+      errors.push(`${sourceReference} repeats account '${accountNo}'`);
+      continue;
+    }
+    balances.set(accountNo, amount);
+  }
+  if (!sawHeader) errors.push(`${sourceReference}: missing the 'Konto;Kontonavn;Beløb' header row`);
+
+  const out: ImportOpenItemControlBalance[] = [];
+  for (const proposal of proposals) {
+    if (proposal.role !== "debtors" && proposal.role !== "creditors") continue;
+    const signedAmount = balances.get(proposal.accountNo);
+    if (signedAmount == null || signedAmount === 0) continue;
+    if (proposal.role === "debtors" && signedAmount < 0) {
+      errors.push(`${sourceReference}: debtor control account '${proposal.accountNo}' has an unexpected credit balance ${signedAmount}`);
+      continue;
+    }
+    if (proposal.role === "creditors" && signedAmount > 0) {
+      errors.push(`${sourceReference}: creditor control account '${proposal.accountNo}' has an unexpected debit balance ${signedAmount}`);
+      continue;
+    }
+    out.push({
+      accountNo: proposal.accountNo,
+      kind: proposal.role === "debtors" ? "receivable" : "payable",
+      amount: Math.abs(signedAmount),
+      sourceReference,
+    });
+  }
+  return out.sort((a, b) => a.accountNo.localeCompare(b.accountNo, "en"));
+}
+
 /**
  * Parses a Dinero `Beløb` cell — a signed decimal with a comma decimal
  * separator and up to six decimal places, e.g. `30116,010000` or
@@ -395,6 +460,12 @@ function parseDineroSource(input: MultiArtifactSource): ParseResult {
   const { openingBalances, cutOverDate } = posteringer
     ? parsePosteringer(posteringer.text, posteringer.name, errors)
     : { openingBalances: [] as ImportOpeningBalanceLine[], cutOverDate: "" };
+  const openItemControlBalances = parseOpenItemControlBalances(
+    input,
+    posteringer?.name,
+    accountRoleProposals,
+    errors,
+  );
 
   // Year-to-date activity (#195): the cut-over year's `Posteringer.csv` rows
   // that are NOT Primobeholdning, grouped by `Bilag` into balanced vouchers.
@@ -445,6 +516,7 @@ function parseDineroSource(input: MultiArtifactSource): ParseResult {
       ...(accountRoleProposals.length > 0 ? { accountRoleProposals } : {}),
       openingBalances,
       ...(historicalEntries.length > 0 ? { historicalEntries } : {}),
+      ...(openItemControlBalances.length > 0 ? { openItemControlBalances } : {}),
       ...(companyMasterData ? { companyMasterData } : {}),
       ...(unmappedVatCodes.length > 0 ? { unmappedVatCodes } : {}),
     },

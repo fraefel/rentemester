@@ -63,4 +63,25 @@ describe("resolveSource — .zip export extraction (#192)", () => {
     rmSync(src, { recursive: true, force: true });
     rmSync(zipPath, { recursive: true, force: true });
   });
+
+  test("extracts a Dinero Unicode filename on macOS without dropping entries", () => {
+    const src = mkdtempSync(join(tmpdir(), "rm-zip-unicode-src-"));
+    const zipPath = join(src, "export.zip");
+    const made = spawnSync("python3", ["-c", [
+      "import sys, zipfile",
+      "with zipfile.ZipFile(sys.argv[1], 'w') as z:",
+      "  z.writestr('Ikke-bogførte-bilag/receipt.pdf', b'%PDF-1.4 receipt\\n')",
+    ].join("\n"), zipPath]);
+    expect(made.status).toBe(0);
+
+    const resolved = resolveSource(zipPath);
+    expect(resolved.files["Ikke-bogførte-bilag/receipt.pdf"]).toBeDefined();
+    expect(resolved.archiveIntegrity).toMatchObject({
+      archiveEntryCount: 1,
+      extractedEntryCount: 1,
+      importedEntryCount: 1,
+    });
+
+    rmSync(src, { recursive: true, force: true });
+  });
 });

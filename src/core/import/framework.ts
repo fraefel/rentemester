@@ -37,6 +37,7 @@ import {
 } from "./dinero-archive";
 import { ingestDineroBilag, planDineroBilag } from "./dinero-bilag";
 import { insertAuditLog } from "../actor";
+import { recordMigrationOpenItemBatch } from "../migration-open-items";
 import type {
   ImportOptions,
   ImportResult,
@@ -412,6 +413,60 @@ function persistDineroEvidence(db: Database, resolved: MultiArtifactSource, sour
   return { attemptId: Number(attempt.lastInsertRowid), inventoryId, sourceId: sourceRow.id };
 }
 
+function planMigrationOpenItemControls(db: Database, source: ImportSource): {
+  balances: NonNullable<ImportSource["openItemControlBalances"]>;
+  receivableAmount: number;
+  payableAmount: number;
+  errors: string[];
+} {
+  const balances = Array.isArray(source.openItemControlBalances) ? source.openItemControlBalances : [];
+  const errors: string[] = [];
+  const seen = new Set<string>();
+  let receivableOre = 0n;
+  let payableOre = 0n;
+  for (const balance of balances) {
+    const accountNo = balance.accountNo?.trim() ?? "";
+    if (!accountNo || seen.has(accountNo)) {
+      errors.push(`migration open-item control repeats or omits account '${accountNo}'`);
+      continue;
+    }
+    seen.add(accountNo);
+    if (balance.kind !== "receivable" && balance.kind !== "payable") {
+      errors.push(`migration open-item control ${accountNo} has an invalid kind`);
+      continue;
+    }
+    if (!Number.isFinite(balance.amount) || toOre(balance.amount) <= 0n) {
+      errors.push(`migration open-item control ${accountNo} needs a positive amount`);
+      continue;
+    }
+    if (!balance.sourceReference?.trim()) {
+      errors.push(`migration open-item control ${accountNo} needs a source reference`);
+      continue;
+    }
+    const row = db.query(
+      `SELECT COALESCE(SUM(jl.debit_amount - jl.credit_amount), 0) AS balance
+         FROM journal_lines jl
+         JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+         JOIN accounts account ON account.id = jl.account_id
+        WHERE account.account_no = ?`,
+    ).get(accountNo) as { balance: number };
+    const expected = balance.kind === "receivable" ? toOre(balance.amount) : -toOre(balance.amount);
+    const actual = toOre(Number(row.balance));
+    if (actual !== expected) {
+      errors.push(`migration open-item control ${accountNo} does not reconcile to the imported ledger in øre (${actual} != ${expected})`);
+      continue;
+    }
+    if (balance.kind === "receivable") receivableOre += toOre(balance.amount);
+    else payableOre += toOre(balance.amount);
+  }
+  return {
+    balances,
+    receivableAmount: Number(receivableOre) / 100,
+    payableAmount: Number(payableOre) / 100,
+    errors,
+  };
+}
+
 /** Dinero is a whole-export import, not three independent best-effort imports.
  * The old generic path remains untouched for every other source parser. */
 function runDineroV4(db: Database, resolved: MultiArtifactSource, source: ImportSource, options: ImportOptions): ImportResult {
@@ -444,6 +499,18 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
     result = db.transaction(() => {
       const landed = runImportImpl(db, source, options);
       if (!landed.ok) throw new ImportRollback(landed);
+      const openItems = planMigrationOpenItemControls(db, source);
+      if (openItems.errors.length > 0) throw new Error(openItems.errors.join("; "));
+      if (openItems.balances.length > 0) {
+        landed.migrationOpenItems = {
+          batchCount: openItems.balances.length,
+          receivableAmount: openItems.receivableAmount,
+          payableAmount: openItems.payableAmount,
+        };
+        for (const balance of openItems.balances) {
+          landed.auditTrail.push(`Preserve unallocated ${balance.kind} control ${balance.accountNo} from ${balance.sourceReference}: ${balance.amount}`);
+        }
+      }
       if (options.dryRun) throw new ImportRollback({ ...landed, dryRun: true });
       dineroFault("archive");
       const archive = archiveDineroYears(db, resolved);
@@ -460,6 +527,22 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
         landed.bilag = { linkedCount: bilag.linked.length, unmatchedCount: bilag.unmatched.length, duplicateCount: bilag.duplicates.length, unbookedCount: bilag.unbooked.length };
       }
       const provenance = persistDineroEvidence(db, resolved, source, options, "accepted", landed);
+      for (const balance of openItems.balances) {
+        const recorded = recordMigrationOpenItemBatch(db, {
+          dineroImportAttemptId: provenance.attemptId,
+          controlAccountNo: balance.accountNo,
+          kind: balance.kind,
+          sourceControlAmount: balance.amount,
+          items: [{
+            externalRef: `UNALLOCATED:${balance.accountNo}`,
+            originalAmount: balance.amount,
+            openAmountAtImport: balance.amount,
+            sourceKind: "control_balance",
+            resolutionStatus: "unallocated",
+          }],
+        });
+        if (!recorded.ok) throw new Error(recorded.errors.join("; "));
+      }
       if (bilagOutcome) {
         const addLink = db.query("INSERT INTO dinero_import_document_links (attempt_id, inventory_id, entry_path, entry_sha256, document_id, journal_entry_id, voucher_reference, disposition) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
         for (const item of bilagOutcome.linked) addLink.run(provenance.attemptId, provenance.inventoryId, item.fileName, item.sha256, item.documentId, item.journalEntryId, item.voucherRef, "linked");
@@ -483,6 +566,7 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
       // evidence row and must not make this verifier undercount.
       const expectedDocs = landed.bilag ? landed.bilag.linkedCount + landed.bilag.unmatchedCount + landed.bilag.unbookedCount : 0;
       if (expectedDocs > 0 && (db.query("SELECT COUNT(*) AS n FROM dinero_import_document_links WHERE attempt_id = ?").get(provenance.attemptId) as { n: number }).n !== expectedDocs) throw new Error("Dinero v4 verifier: provenance document-link count mismatch");
+      if ((db.query("SELECT COUNT(*) AS n FROM migration_open_item_batches WHERE dinero_import_attempt_id = ?").get(provenance.attemptId) as { n: number }).n !== openItems.balances.length) throw new Error("Dinero v4 verifier: migration open-item batch count mismatch");
       return landed;
     }, { immediate: true })();
     return result;

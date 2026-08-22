@@ -21,6 +21,47 @@ company_profile_get), and the round-2 polish batches D/E/F. See
 
 ## Product gaps (would block real-world adoption)
 
+### Complete historical analytics and AI-CFO surface
+
+**Surfaced by:** real-world multi-company Dinero migration (2026-08-22).
+**Current state:** a Dinero migration replays the cut-over year's postings into
+the live ledger and stores earlier fiscal years in append-only import archive
+tables. Historical years can be inspected individually, but the agent and
+cockpit do not yet have one normalized, documented query surface spanning live
+and archived years, vouchers, accounts, counterparties and source documents.
+That limits reliable trend, supplier, margin, cash-flow and anomaly analysis.
+**Workaround:** query each archived year and the live ledger separately, then
+reconcile and analyze exported datasets outside the ledger.
+**Estimated scope:** ~3-5 weeks after the Dinero migration path is fully
+verified; normalize historical analytical dimensions without rewriting source
+evidence, expose read-only multi-year MCP/CLI queries, and add deterministic
+reconciliation/eval fixtures before AI-generated explanations.
+**Next action:** use real migrations only as local, non-committed acceptance
+corpora. Define a read-only `historical_analysis` contract that returns
+source-linked postings across years and proves totals against each year's
+source balance before adding CFO suggestions. Repository tests use synthetic
+companies and values.
+
+### Legal group structure, intercompany reconciliation and consolidation
+
+**Surfaced by:** real-world holding-company workspace migration (2026-08-22).
+**Current state:** a workspace registers multiple legally separate companies,
+and `portfolio_overview` juxtaposes their status. It intentionally does not
+model ownership or consolidate figures. There is no effective-dated parent /
+subsidiary graph, intercompany counterparty mapping, reciprocal-balance check,
+elimination journal or consolidated reporting layer.
+**Workaround:** preserve each company's ledger separately, keep ownership in
+external documentation, and reconcile intercompany balances manually. Never
+sum workspace figures as if they were consolidated accounts.
+**Estimated scope:** ~4-8 weeks in slices: ownership graph and disclosures;
+intercompany account/counterparty mapping and mismatch report; then read-only
+consolidated statements with explicit elimination evidence. Consolidated tax or
+statutory reporting remains a separate reviewed scope.
+**Next action:** add a generic effective-dated group-manifest schema whose
+concrete CVRs and ownership percentages live only in each user's workspace.
+Keep legal ledgers immutable and implement the first feature as a read-only
+intercompany reconciliation report, not cross-company automatic postings.
+
 ### Payroll / A-skat / AM-bidrag / ATP / eIndkomst
 
 **Surfaced by:** virksomhedsejer-review (both rounds, top priority).

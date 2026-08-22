@@ -10,6 +10,33 @@ Før du kalder `rentemester`-CLI'en muterende, læs `docs/cli-contract.md`. Kort
   kald — ret flag/argumenter); `1` = forretnings-/ledger-afvisning (kaldet var
   korrekt, men resultatet er `ok:false` — læs `errors[]`).
 
+## Produktgrænse: generel motor, lokale virksomhedsdata
+
+Rentemester er et generelt bogføringsprodukt, som bruges af flere virksomheder.
+Produktkode, schema, regler, importere, validering, rapporter og tests skal derfor
+være genanvendelige og må ikke indeholde særlogik for en bestemt virksomhed,
+et bestemt CVR-nummer, en konkret kontoplan eller et konkret beløb.
+
+- Implementér generelle domænemodeller og konfigurerbare mekanismer. Eksempler er
+  Dinero-import, moms-roll-forward, en effektivt dateret virksomhedsgraf,
+  mellemregningsafstemning og konsolideringsregler.
+- Hold konkrete selskabsnavne, CVR-numre, ejerandele, kontomappinger,
+  bankkonti, saldi, bilag og lokale policyvalg i det enkelte workspace eller
+  virksomhedens konfiguration — aldrig som defaults eller hardcoding i
+  GitHub-koden.
+- Tests for generel kode skal bruge syntetiske virksomheder og beløb og dække
+  både positive og fail-closed scenarier. En reel virksomheds eksport kan være
+  et lokalt acceptkorpus, men må ikke checkes ind eller blive en skjult
+  forudsætning for produktlogikken.
+- En generel importregel skal udlede sin beslutning af dokumenterede
+  kildefelter og regnskabsmæssige invariants. Hvis en bestemt virksomheds data
+  kræver mapping eller menneskelig vurdering, gemmes beslutningen lokalt med
+  auditspor; kontrollen må ikke svækkes globalt.
+- En virksomhedsgraf i produktet beskriver det generelle schema og de generelle
+  operationer. Den konkrete graf-instans tilhører workspacet. Hver juridisk
+  enhed beholder sin egen ledger; koncernrapportering ligger som et
+  dokumenteret read-only lag med eksplicitte elimineringer.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

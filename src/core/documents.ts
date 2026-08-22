@@ -367,9 +367,12 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
   }
 
   const p = companyPaths(companyRoot);
-  mkdirSync(p.documentsOriginals, { recursive: true });
   const ext = extname(filePath).toLowerCase() || ".bin";
-  const storedPath = join(p.documentsOriginals, `${sha256}${ext}`);
+  const evidenceStore = docType === "issued_invoice_pdf"
+    ? p.invoicesIssued
+    : p.documentsOriginals;
+  mkdirSync(evidenceStore, { recursive: true });
+  const storedPath = join(evidenceStore, `${sha256}${ext}`);
 
   const currency = (metadata.currency ?? "DKK").trim().toUpperCase();
   const retentionBasisDate = metadata.issueDate ?? currentUtcIsoDate(db);
@@ -465,8 +468,9 @@ export type ResolvedDocumentFile = {
  * Resolves the stored file of an ingested document so a caller (the cockpit's
  * read route) can serve it back to a human.
  *
- * The file is resolved by its basename inside THIS company's
- * `documents/originals` store — robust if the workspace directory moved since
+ * The file is resolved by its basename inside THIS company's canonical
+ * evidence store (`invoices/issued` for issued invoice evidence, otherwise
+ * `documents/originals`) — robust if the workspace directory moved since
  * ingest, and inherently free of path traversal because a basename cannot
  * carry a directory separator. Returns an error (never throws) when the
  * document is unknown, never had a stored file, or the file is gone from disk.
@@ -481,7 +485,8 @@ export function resolveDocumentFile(
   const row = db
     .query(
       `SELECT stored_path AS storedPath, mime_type AS mimeType,
-              original_filename AS filename, document_no AS documentNo
+              original_filename AS filename, document_no AS documentNo,
+              document_type AS documentType
          FROM documents WHERE id = ?`,
     )
     .get(documentId) as
@@ -490,6 +495,7 @@ export function resolveDocumentFile(
         mimeType: string | null;
         filename: string | null;
         documentNo: string | null;
+        documentType: string;
       }
     | null;
   if (!row) {
@@ -498,8 +504,13 @@ export function resolveDocumentFile(
   if (!row.storedPath) {
     return { ok: false, error: `document ${documentId} has no stored file` };
   }
+  const paths = companyPaths(companyRoot);
+  const isIssuedEvidence =
+    row.documentType === "issued_invoice" ||
+    row.documentType === "issued_invoice_pdf" ||
+    row.documentType === "credit_note";
   const path = join(
-    companyPaths(companyRoot).documentsOriginals,
+    isIssuedEvidence ? paths.invoicesIssued : paths.documentsOriginals,
     basename(row.storedPath),
   );
   if (!existsSync(path)) {

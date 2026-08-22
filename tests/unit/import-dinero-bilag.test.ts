@@ -17,7 +17,7 @@ import { describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ensureCompanyDirs } from "../../src/core/paths";
+import { companyPaths, ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { resolveSource } from "../../src/core/import/source";
@@ -69,12 +69,16 @@ describe("Dinero bilag ingest (#196)", () => {
       });
       expect(result.ok).toBe(true);
       expect(result.bilag).toMatchObject({ linkedCount: 6, unmatchedCount: 0 });
-      expect(db.query(
-        "SELECT document_type, original_filename FROM documents WHERE original_filename = '2025-Faktura-1.pdf'",
-      ).get()).toEqual({ document_type: "issued_invoice_pdf", original_filename: "2025-Faktura-1.pdf" });
+      const importedInvoice = db.query(
+        "SELECT document_type, original_filename, stored_path FROM documents WHERE original_filename = '2025-Faktura-1.pdf'",
+      ).get() as { document_type: string; original_filename: string; stored_path: string };
+      expect(importedInvoice.document_type).toBe("issued_invoice_pdf");
+      expect(importedInvoice.original_filename).toBe("2025-Faktura-1.pdf");
+      expect(importedInvoice.stored_path.startsWith(companyPaths(root).invoicesIssued)).toBe(true);
       expect(db.query(
         "SELECT voucher_ref FROM import_document_links l JOIN documents d ON d.id = l.document_id WHERE d.original_filename = '2025-Faktura-1.pdf'",
       ).get()).toEqual({ voucher_ref: "1" });
+      expect(verifyAuditChain(db, { companyRoot: root })).toMatchObject({ ok: true, errors: [] });
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

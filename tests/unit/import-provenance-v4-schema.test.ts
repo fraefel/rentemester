@@ -83,7 +83,7 @@ describe("Dinero import provenance v4", () => {
     for (const table of ["sources", "inventories", "inventory_entries", "attempts", "archive_evidence", "document_links"]) {
       db.exec(`DROP TRIGGER dinero_import_${table}_no_update; DROP TRIGGER dinero_import_${table}_no_delete;`);
     }
-    db.exec(`DROP TABLE dinero_import_document_links; DROP TABLE dinero_import_archive_evidence; DROP TABLE dinero_import_attempts; DROP TABLE dinero_import_inventory_entries; DROP TABLE dinero_import_inventories; DROP TABLE dinero_import_sources; DELETE FROM schema_migrations WHERE id = 4;`);
+    db.exec(`DROP TABLE migration_open_item_applications; DROP TABLE migration_open_items; DROP TABLE migration_open_item_batches; DROP TABLE dinero_import_document_links; DROP TABLE dinero_import_archive_evidence; DROP TABLE dinero_import_attempts; DROP TABLE dinero_import_inventory_entries; DROP TABLE dinero_import_inventories; DROP TABLE dinero_import_sources; DELETE FROM schema_migrations WHERE id >= 4;`);
     migrate(db);
     expect(db.query("SELECT COUNT(*) AS count FROM dinero_import_attempts").get()).toEqual({ count: 0 });
     expect(db.query("SELECT COUNT(*) AS count FROM dinero_import_archive_evidence").get()).toEqual({ count: 0 });

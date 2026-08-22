@@ -16,6 +16,8 @@ import {
   RECURRING_AUTOMATION_MIGRATION_NAME,
   DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM,
   DINERO_IMPORT_PROVENANCE_MIGRATION_NAME,
+  MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM,
+  MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -61,7 +63,7 @@ describe("schema version compatibility", () => {
       migrate(db);
       expect(() => db.run("UPDATE recurring_invoice_templates SET interval_count = 2 WHERE id = 7")).toThrow("append-only");
       expect(() => db.run("UPDATE recurring_invoice_templates SET delivery_channel = 'email' WHERE id = 7")).toThrow("append-only");
-      expect(readSchemaMigrations(db)).toHaveLength(4);
+      expect(readSchemaMigrations(db)).toHaveLength(CURRENT_SCHEMA_VERSION);
       db.close();
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -106,6 +108,7 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 2, name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME, checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM }),
     ]);
     db.close();
   });
@@ -117,14 +120,18 @@ describe("schema version compatibility", () => {
     expect(readSchemaMigrations(db)).toHaveLength(1);
     migrate(db);
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'peppol_submission_events'").get()).not.toBeNull();
-    expect(readSchemaMigrations(db)).toHaveLength(4);
+    expect(readSchemaMigrations(db)).toHaveLength(CURRENT_SCHEMA_VERSION);
     db.close();
   });
 
-  test("upgrades an isolated v3 schema to v4 without touching a live ledger", () => {
+  test("upgrades an isolated v3 schema through v5 without touching a live ledger", () => {
     const db = new Database(":memory:");
     db.exec("PRAGMA foreign_keys = ON");
     migrate(db);
+    for (const table of ["migration_open_item_batches", "migration_open_items", "migration_open_item_applications"]) {
+      db.exec(`DROP TRIGGER ${table}_no_update; DROP TRIGGER ${table}_no_delete;`);
+    }
+    db.exec(`DROP TABLE migration_open_item_applications; DROP TABLE migration_open_items; DROP TABLE migration_open_item_batches;`);
     for (const table of ["sources", "inventories", "inventory_entries", "attempts", "archive_evidence", "document_links"]) {
       db.exec(`DROP TRIGGER dinero_import_${table}_no_update; DROP TRIGGER dinero_import_${table}_no_delete;`);
     }
@@ -136,11 +143,11 @@ describe("schema version compatibility", () => {
       DROP TABLE dinero_import_inventories;
       DROP TABLE dinero_import_sources;
       DROP INDEX idx_documents_id_sha256_hash;
-      DELETE FROM schema_migrations WHERE id = 4;
+      DELETE FROM schema_migrations WHERE id >= 4;
     `);
     expect(readSchemaMigrations(db)).toHaveLength(3);
     migrate(db);
-    expect(readSchemaMigrations(db)).toHaveLength(4);
+    expect(readSchemaMigrations(db)).toHaveLength(CURRENT_SCHEMA_VERSION);
     expect(db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_documents_id_sha256_hash'").get()).not.toBeNull();
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
     db.close();
@@ -183,10 +190,10 @@ describe("schema version compatibility", () => {
       );
       INSERT INTO schema_migrations
         (id, name, checksum, applied_by_version)
-      VALUES (5, 'future', 'abc', '0.2.0');
+      VALUES (${CURRENT_SCHEMA_VERSION + 1}, 'future', 'abc', '0.2.0');
     `);
 
-    expect(() => migrate(db)).toThrow("newer than supported version 4");
+    expect(() => migrate(db)).toThrow(`newer than supported version ${CURRENT_SCHEMA_VERSION}`);
     expect(
       db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'companies'").get(),
     ).toBeNull();
@@ -261,13 +268,13 @@ describe("schema version compatibility", () => {
         );
         INSERT INTO schema_migrations
           (id, name, checksum, applied_by_version)
-        VALUES (5, 'future', 'abc', '0.2.0');
+        VALUES (${CURRENT_SCHEMA_VERSION + 1}, 'future', 'abc', '0.2.0');
       `);
       db.close();
       const beforeBytes = readFileSync(path);
       const beforeFiles = readdirSync(directory).sort();
 
-      expect(() => openDb(path)).toThrow("newer than supported version 4");
+      expect(() => openDb(path)).toThrow(`newer than supported version ${CURRENT_SCHEMA_VERSION}`);
       expect(readFileSync(path)).toEqual(beforeBytes);
       expect(readdirSync(directory).sort()).toEqual(beforeFiles);
     } finally {

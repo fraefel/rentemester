@@ -21,6 +21,9 @@ import {
   RECURRING_AUTOMATION_MIGRATION_NAME,
   DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM,
   DINERO_IMPORT_PROVENANCE_MIGRATION_NAME,
+  MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM,
+  MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
+  CURRENT_SCHEMA_VERSION,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
 import { buildBankReconciliationReport } from "../../src/core/reconciliation";
@@ -134,10 +137,16 @@ describe("system restore", () => {
         checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM,
         applied_by_version: expect.any(String),
       }),
+      expect.objectContaining({
+        id: 5,
+        name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
+        checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
     ]);
     expect(manifest.provenance).toEqual(expect.objectContaining({
       product: expect.objectContaining({ version: expect.any(String) }),
-      schema: { version: 4, baselineChecksum: BASELINE_MIGRATION_CHECKSUM },
+      schema: { version: CURRENT_SCHEMA_VERSION, baselineChecksum: BASELINE_MIGRATION_CHECKSUM },
     }));
     for (const table of ["invoice_payments", "invoice_refunds", "invoice_claim_payments"]) {
       const columns = restoredDb.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -289,8 +298,8 @@ describe("system restore", () => {
     snapshot.query(
       `INSERT INTO schema_migrations
          (id, name, checksum, applied_by_version)
-       VALUES (5, 'future', 'future-checksum', '0.4.0')`,
-    ).run();
+       VALUES (?, 'future', 'future-checksum', '0.4.0')`,
+    ).run(CURRENT_SCHEMA_VERSION + 1);
     snapshot.close();
     manifest.dbSnapshot.sha256 = sha256File(snapshotPath);
     manifest.dbSnapshot.sizeBytes = statSync(snapshotPath).size;
@@ -306,7 +315,7 @@ describe("system restore", () => {
       allowNonEmptyTarget: true,
     });
     expect(restored.ok).toBe(false);
-    expect(restored.errors[0]).toContain("newer than supported version 4");
+    expect(restored.errors[0]).toContain(`newer than supported version ${CURRENT_SCHEMA_VERSION}`);
     expect(readFileSync(sentinel, "utf8")).toBe("existing target content");
     expect(existsSync(join(restoredRoot, "data", "ledger.sqlite"))).toBe(false);
     expect(readFileSync(snapshotPath)).toEqual(sourceBytes);

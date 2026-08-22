@@ -6,6 +6,7 @@ import {
   computeRuleSetDigest,
   getReleaseProvenance,
 } from "../../src/core/release-provenance";
+import { CURRENT_SCHEMA_VERSION } from "../../src/core/schema-version";
 
 describe("release provenance", () => {
   test("is stable for identical regulatory inputs and changes with bytes", () => {
@@ -53,7 +54,7 @@ describe("release provenance", () => {
   test("combines product, schema and rule identities", () => {
     const provenance = getReleaseProvenance();
     expect(provenance.product.version).toBe("0.1.0");
-    expect(provenance.schema.version).toBe(4);
+    expect(provenance.schema.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(provenance.schema.baselineChecksum).toMatch(/^[0-9a-f]{64}$/);
     expect(provenance.rules.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
   });

@@ -121,6 +121,31 @@ describe("schema version compatibility", () => {
     db.close();
   });
 
+  test("upgrades an isolated v3 schema to v4 without touching a live ledger", () => {
+    const db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    migrate(db);
+    for (const table of ["sources", "inventories", "inventory_entries", "attempts", "archive_evidence", "document_links"]) {
+      db.exec(`DROP TRIGGER dinero_import_${table}_no_update; DROP TRIGGER dinero_import_${table}_no_delete;`);
+    }
+    db.exec(`
+      DROP TABLE dinero_import_document_links;
+      DROP TABLE dinero_import_archive_evidence;
+      DROP TABLE dinero_import_attempts;
+      DROP TABLE dinero_import_inventory_entries;
+      DROP TABLE dinero_import_inventories;
+      DROP TABLE dinero_import_sources;
+      DROP INDEX idx_documents_id_sha256_hash;
+      DELETE FROM schema_migrations WHERE id = 4;
+    `);
+    expect(readSchemaMigrations(db)).toHaveLength(3);
+    migrate(db);
+    expect(readSchemaMigrations(db)).toHaveLength(4);
+    expect(db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_documents_id_sha256_hash'").get()).not.toBeNull();
+    expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+    db.close();
+  });
+
   test("accepts a complete append-only history when a future runtime supports it", () => {
     const supported = [
       {

@@ -72,6 +72,17 @@ function restoreStagingEntries(root: string) {
   return readdirSync(root).filter((entry) => entry.startsWith(".restore-"));
 }
 
+const provenanceHash = (letter: string) => letter.repeat(64);
+
+function seedV4Provenance(db: Database) {
+  db.query("INSERT INTO documents (id, source, sha256_hash) VALUES (1, 'test', ?)").run(provenanceHash("c"));
+  db.query("INSERT INTO dinero_import_sources (id, raw_sha256, raw_size_bytes, canonical_listing_sha256, canonical_listing_count) VALUES (1, ?, 9, ?, 1)").run(provenanceHash("a"), provenanceHash("b"));
+  db.query("INSERT INTO dinero_import_inventories (id, source_id, source_raw_sha256, canonical_listing_sha256, canonical_listing_count, entry_count, total_size_bytes) VALUES (1, 1, ?, ?, 1, 1, 9)").run(provenanceHash("a"), provenanceHash("b"));
+  db.query("INSERT INTO dinero_import_inventory_entries (inventory_id, entry_path, entry_size_bytes, entry_sha256) VALUES (1, 'docs/a.pdf', 9, ?)").run(provenanceHash("c"));
+  db.query("INSERT INTO dinero_import_attempts (id, inventory_id, source_id, source_raw_sha256, parser_contract, actor, cutover_date, outcome, result_sha256) VALUES (1, 1, 1, ?, 'v1', 'agent:test', '2025-01-01', 'accepted', ?)").run(provenanceHash("a"), provenanceHash("e"));
+  db.query("INSERT INTO dinero_import_document_links (attempt_id, inventory_id, entry_path, entry_sha256, document_id, disposition) VALUES (1, 1, 'docs/a.pdf', ?, 1, 'linked')").run(provenanceHash("c"));
+}
+
 describe("system restore", () => {
   test("migrates a signed genuine pre-v1 snapshot in staging before validation and stamping", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-restore-pre-v1-"));
@@ -347,6 +358,32 @@ describe("system restore", () => {
     // The intact source file must not have been consulted as a fallback.
     expect(sha256File(ingested.storedPath!)).toBe(sourceEvidenceHash);
 
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("rejects a re-signed v4 backup whose linked document digest no longer matches its source entry", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-restore-v4-provenance-tamper-"));
+    const companyRoot = join(root, "company");
+    const restoredRoot = join(root, "restored-company");
+    const db = openDb(ensureCompanyDirs(companyRoot).db);
+    migrate(db);
+    seedV4Provenance(db);
+    const backup = createSystemBackup(db, companyRoot, { createdAt: "2026-05-17T02:39:00.000Z" });
+    db.close();
+    expect(backup.ok).toBe(true);
+
+    const snapshotPath = join(backup.backupDir!, "ledger.sqlite");
+    const snapshot = openDb(snapshotPath, { journalMode: "DELETE" });
+    snapshot.exec("PRAGMA foreign_keys = OFF; DROP TRIGGER dinero_import_document_links_no_update;");
+    snapshot.query("UPDATE dinero_import_document_links SET entry_sha256 = ? WHERE id = 1").run(provenanceHash("d"));
+    snapshot.close();
+    signChangedSnapshot(companyRoot, backup.backupDir!);
+
+    const restored = restoreSystemBackup({ backupDir: backup.backupDir!, targetCompanyRoot: restoredRoot });
+    expect(restored.ok).toBe(false);
+    expect(restored.errors.join(" ")).toContain("FK violations");
+    expect(existsSync(join(restoredRoot, "data", "ledger.sqlite"))).toBe(false);
+    expect(restoreStagingEntries(root)).toEqual([]);
     rmSync(root, { recursive: true, force: true });
   });
 

@@ -4,7 +4,7 @@ import type { Database } from "bun:sqlite";
 import { insertAuditLog } from "./actor";
 import { normalizeEanNumber } from "./ean";
 import type { InvoicePayload } from "./invoice";
-import { formatAmount } from "./money";
+import { formatAmount, roundDkk, sumDkk } from "./money";
 import { projectVatLines } from "./vat-lines";
 
 const RULE_ID = "DK-INVOICE-PUBLIC-EXPORT-001";
@@ -298,6 +298,22 @@ function validateOioUblPayload(invoiceNumber: string, payload: InvoicePayload, e
       if (typeof line.lineTotalExVat !== "number") errors.push(`invoice ${invoiceNumber} line ${index + 1} is missing lineTotalExVat required for OIOUBL handoff`);
     });
   }
+
+  // This is an export trust boundary: historical rows may predate the invoice
+  // validator, so never render contradictory OIOUBL tax totals from a legacy
+  // payload. Re-project the rounded line tax amounts independently here.
+  if (!isReverseCharge && Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number")) {
+    const projection = projectVatLines(payload.lines, "standard", payload.totals?.vatRate);
+    errors.push(...projection.errors.map((error) => `invoice ${invoiceNumber} ${error}`));
+    const netAmount = roundDkk(Number(payload.totals?.netAmount));
+    const vatAmount = roundDkk(Number(payload.totals?.vatAmount));
+    const grossAmount = roundDkk(Number(payload.totals?.grossAmount));
+    if (netAmount !== projection.netAmount) errors.push(`invoice ${invoiceNumber} totals.netAmount must equal rounded OIOUBL taxable line bases (${projection.netAmount})`);
+    if (vatAmount !== projection.vatAmount) errors.push(`invoice ${invoiceNumber} totals.vatAmount must equal rounded OIOUBL line VAT amounts (${projection.vatAmount})`);
+    if (grossAmount !== projection.grossAmount) errors.push(`invoice ${invoiceNumber} totals.grossAmount must equal rounded OIOUBL line totals (${projection.grossAmount})`);
+    const expectedGross = sumDkk([netAmount, vatAmount]);
+    if (grossAmount !== expectedGross) errors.push(`invoice ${invoiceNumber} totals.grossAmount must equal totals.netAmount + totals.vatAmount (${expectedGross})`);
+  }
   return errors;
 }
 
@@ -321,11 +337,15 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
   const vatAmountForXml =
     formatAmount(payload.totals?.vatAmount) ?? "0.00";
   const lines = payload.lines ?? [];
-  const taxSubtotalXml = ["taxable", "exempt", "reverse_charge"].map((classification) => {
-    const selected = taxLines.filter((line) => line.taxClassification === classification);
-    if (selected.length === 0) return "";
-    const base = selected.reduce((sum, line) => sum + line.vatBase, 0);
-    const vat = selected.reduce((sum, line) => sum + line.vatAmount, 0);
+  const taxSubtotalGroups = new Map<string, typeof taxLines>();
+  for (const line of taxLines) {
+    const key = `${line.taxClassification}:${line.vatRate}`;
+    taxSubtotalGroups.set(key, [...(taxSubtotalGroups.get(key) ?? []), line]);
+  }
+  const taxSubtotalXml = [...taxSubtotalGroups.values()].map((selected) => {
+    const classification = selected[0].taxClassification;
+    const base = sumDkk(selected.map((line) => line.vatBase));
+    const vat = sumDkk(selected.map((line) => line.vatAmount));
     const rate = selected[0].vatRate;
     const category = classification === "taxable" ? "StandardRated" : classification === "reverse_charge" ? "ReverseCharge" : "ZeroRated";
     return [

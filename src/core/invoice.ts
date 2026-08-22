@@ -1,5 +1,5 @@
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { normalizeCurrency, roundDkk, roundRate6 } from "./money";
+import { normalizeCurrency, roundDkk, roundRate6, sumDkk } from "./money";
 import { normalizeEanNumber } from "./ean";
 import { projectVatLines, type VatLineClassification } from "./vat-lines";
 export type InvoiceType = "full" | "simplified";
@@ -228,7 +228,7 @@ export function validateInvoice(payload: InvoicePayload): InvoiceValidationResul
   errors.push(...taxProjection.errors);
 
   const lineSum = Array.isArray(payload.lines)
-    ? roundDkk(payload.lines.reduce((sum, line) => sum + Number(line.lineTotalExVat ?? 0), 0))
+    ? sumDkk(payload.lines.map((line) => line.lineTotalExVat))
     : 0;
   const netAmount = roundDkk(Number(payload.totals?.netAmount ?? 0));
   const vatAmount = roundDkk(Number(payload.totals?.vatAmount ?? 0));
@@ -241,7 +241,16 @@ export function validateInvoice(payload: InvoicePayload): InvoiceValidationResul
   if (invoiceType === "full" && Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number")) {
     if (netAmount !== lineSum) errors.push(`totals.netAmount must equal sum of lineTotalExVat (${lineSum})`);
   }
-  if (hasExplicitTaxLines) {
+  // Standard VAT is calculated per rounded line, not from a document-level
+  // multiplication. This makes both mixed rates and øre boundaries auditable:
+  // the rounded taxable bases, VAT amounts, and gross must all reconcile to
+  // their supplied document totals.
+  const hasCompleteLineAmounts = Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number");
+  if (vatTreatment === "standard" && hasCompleteLineAmounts) {
+    if (netAmount !== taxProjection.netAmount) errors.push(`totals.netAmount must equal rounded VAT line bases (${taxProjection.netAmount})`);
+    if (vatAmount !== taxProjection.vatAmount) errors.push(`totals.vatAmount must equal rounded VAT line amounts (${taxProjection.vatAmount})`);
+    if (grossAmount !== taxProjection.grossAmount) errors.push(`totals.grossAmount must equal rounded VAT line totals (${taxProjection.grossAmount})`);
+  } else if (hasExplicitTaxLines) {
     if (netAmount !== taxProjection.netAmount) errors.push(`totals.netAmount must equal explicit VAT line bases (${taxProjection.netAmount})`);
     if (vatAmount !== taxProjection.vatAmount) errors.push(`totals.vatAmount must equal explicit VAT line amounts (${taxProjection.vatAmount})`);
     if (grossAmount !== taxProjection.grossAmount) errors.push(`totals.grossAmount must equal explicit VAT line totals (${taxProjection.grossAmount})`);

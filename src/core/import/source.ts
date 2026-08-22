@@ -11,10 +11,10 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ArchiveIntegrityEvidence, ImportArtifact, MultiArtifactSource } from "./types";
+import type { ArchiveIntegrityEvidence, ImportArtifact, MultiArtifactSource, SourceEvidence, SourceEvidenceEntry } from "./types";
 import { removePathWithRetry } from "../fs-cleanup";
 
 /** Strips a leading UTF-8 BOM (U+FEFF) from a decoded string. */
@@ -27,6 +27,33 @@ function stripBom(text: string): string {
  * `rootDir` using forward slashes. Directory entries are visited in sorted
  * order so the walk is deterministic regardless of filesystem ordering.
  */
+function normalizeEntryPath(path: string): string {
+  const slashPath = path.replace(/\\/g, "/");
+  if (!slashPath || slashPath.startsWith("/") || /^[A-Za-z]:\//.test(slashPath)) {
+    throw new Error(`unsafe import entry path '${sanitizeForErrorMessage(path)}'`);
+  }
+  const parts = slashPath.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`unsafe import entry path '${sanitizeForErrorMessage(path)}'`);
+  }
+  return parts.join("/");
+}
+
+function assertUniquePaths(names: readonly string[]): void {
+  const exact = new Set<string>();
+  const folded = new Map<string, string>();
+  for (const name of names) {
+    if (exact.has(name)) throw new Error(`duplicate import entry path '${sanitizeForErrorMessage(name)}'`);
+    exact.add(name);
+    const key = name.toLocaleLowerCase("en-US");
+    const prior = folded.get(key);
+    if (prior !== undefined && prior !== name) {
+      throw new Error(`case-colliding import entry paths '${sanitizeForErrorMessage(prior)}' and '${sanitizeForErrorMessage(name)}'`);
+    }
+    folded.set(key, name);
+  }
+}
+
 function collect(rootDir: string, dir: string, into: Record<string, ImportArtifact>): void {
   const entries = readdirSync(dir).sort();
   for (const entry of entries) {
@@ -37,8 +64,10 @@ function collect(rootDir: string, dir: string, into: Record<string, ImportArtifa
       continue;
     }
     if (!stat.isFile()) continue;
-    const rel = abs.slice(rootDir.length).replace(/^[/\\]/, "").split(/[/\\]/).join("/");
+    const rel = normalizeEntryPath(abs.slice(rootDir.length).replace(/^[/\\]/, "").split(/[/\\]/).join("/"));
+    if (into[rel]) throw new Error(`duplicate import entry path '${sanitizeForErrorMessage(rel)}'`);
     const bytes = new Uint8Array(readFileSync(abs));
+    if (bytes.length !== stat.size) throw new Error(`import entry changed while reading '${sanitizeForErrorMessage(rel)}'`);
     into[rel] = {
       name: rel,
       path: abs,
@@ -46,6 +75,24 @@ function collect(rootDir: string, dir: string, into: Record<string, ImportArtifa
       text: stripBom(new TextDecoder("utf-8").decode(bytes)),
     };
   }
+}
+
+function inventoryEvidence(sourceKind: SourceEvidence["sourceKind"], files: Record<string, ImportArtifact>): SourceEvidence {
+  const names = Object.keys(files).sort();
+  assertUniquePaths(names);
+  const entries: SourceEvidenceEntry[] = names.map((path) => ({
+    path,
+    size: files[path]!.bytes.length,
+    sha256: sha256(files[path]!.bytes),
+  }));
+  const canonicalInventorySha256 = sha256(entries.map((entry) => `${entry.path}\t${entry.size}\t${entry.sha256}`).join("\n"));
+  return {
+    sourceKind,
+    canonicalInventorySha256,
+    entries,
+    importedEntryCount: entries.length,
+    totalUncompressedBytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+  };
 }
 
 /** True when `path` names a `.zip` file (case-insensitive). */
@@ -107,8 +154,9 @@ function listArchiveEntries(zipPath: string, safeZipPath: string): { names: stri
         (detail ? `: ${detail}` : ""),
     );
   }
-  const names = decodeArchiveListing(new Uint8Array(listed.stdout ?? []));
+  const names = decodeArchiveListing(new Uint8Array(listed.stdout ?? [])).map(normalizeEntryPath);
   if (names.length === 0) throw new Error(`ZIP archive '${safeZipPath}' has no file entries`);
+  assertUniquePaths(names);
   return { names, sha256: sha256(names.join("\n")) };
 }
 
@@ -120,14 +168,21 @@ function listArchiveEntries(zipPath: string, safeZipPath: string): { names: stri
  * count discrepancy fails closed. A partial extraction is never an importable
  * source, even when the skipped file is not required by the selected parser.
  */
-function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: Omit<ArchiveIntegrityEvidence, "importedEntryCount"> } {
+function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: Omit<ArchiveIntegrityEvidence, "importedEntryCount">; sourceEvidence: SourceEvidence } {
   const dest = mkdtempSync(join(tmpdir(), "rentemester-import-"));
   // Sanitize the user-controlled zipPath once: every error message below
   // interpolates the safe variant so a malicious filename cannot inject
   // ANSI/OSC terminal escapes (or newlines) into CLI output.
   const safeZipPath = sanitizeForErrorMessage(zipPath);
+  const snapshotDir = mkdtempSync(join(tmpdir(), "rentemester-import-snapshot-"));
+  const snapshotPath = join(snapshotDir, "source.zip");
   try {
-    const listing = listArchiveEntries(zipPath, safeZipPath);
+    // Read once, then all integrity work uses this private 0700 snapshot. This
+    // prevents a path replacement from combining a hash of one archive with
+    // entries extracted from another.
+    const rawBytes = new Uint8Array(readFileSync(zipPath));
+    writeFileSync(snapshotPath, rawBytes, { mode: 0o600 });
+    const listing = listArchiveEntries(snapshotPath, safeZipPath);
     // #199 — Dinero-exports carry some entry names i CP437 (legacy DOS-encoding),
     // især `Ikke-bogførte-bilag/`-mappen. På Info-ZIP-builds (Linux) tager
     // `-O CP437` flaget den encoding og transcoder til filesystem-locale — så
@@ -144,7 +199,7 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
     // partial tree is cleared before the plain fallback gets a clean attempt.
     const tryWithCharset = spawnSync(
       "unzip",
-      ["-q", "-O", "CP437", "-o", zipPath, "-d", dest],
+      ["-q", "-O", "CP437", "-o", snapshotPath, "-d", dest],
       { encoding: "utf8" },
     );
     const cp437Stderr = (tryWithCharset.stderr ?? "").trim();
@@ -174,7 +229,7 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
           );
         }
       }
-      result = spawnSync("unzip", ["-q", "-o", zipPath, "-d", dest], { encoding: "utf8" });
+      result = spawnSync("unzip", ["-q", "-o", snapshotPath, "-d", dest], { encoding: "utf8" });
     }
     if (result.error) {
       throw new Error(
@@ -210,16 +265,30 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
     const extracted: Record<string, ImportArtifact> = {};
     collect(dest, dest, extracted);
     const extractedNames = Object.keys(extracted).sort();
-    if (listing.names.length !== extractedNames.length) {
+    if (listing.names.length !== extractedNames.length || listing.names.some((name, index) => name !== extractedNames[index])) {
       throw new Error(
-        `ZIP archive integrity check failed for '${safeZipPath}': archive lists ${listing.names.length} file entries but extraction produced ${extractedNames.length}`,
+        `ZIP archive integrity check failed for '${safeZipPath}': archive listing does not match extraction`,
       );
     }
-    const extractedManifest = extractedNames.map((name) => `${name}:${sha256(extracted[name]!.bytes)}`);
+    const evidence = inventoryEvidence("zip", extracted);
+    if (evidence.importedEntryCount !== listing.names.length || evidence.entries.some((entry) => extracted[entry.path]!.bytes.length !== entry.size)) {
+      throw new Error(`ZIP archive integrity check failed for '${safeZipPath}': incomplete or inconsistent extracted entries`);
+    }
+    const rawSha256 = sha256(rawBytes);
+    const sourceEvidence: SourceEvidence = {
+      ...evidence,
+      rawSha256,
+      rawSize: rawBytes.length,
+      canonicalListingSha256: listing.sha256,
+      listingEntryCount: listing.names.length,
+      extractedEntryCount: extractedNames.length,
+    };
+    const extractedManifest = evidence.entries.map((entry) => `${entry.path}:${entry.sha256}`);
     return {
       rootDir: dest,
+      sourceEvidence,
       archiveIntegrity: {
-        archiveSha256: sha256(new Uint8Array(readFileSync(zipPath))),
+        archiveSha256: rawSha256,
         archiveEntryCount: listing.names.length,
         extractedEntryCount: extractedNames.length,
         archiveListingSha256: listing.sha256,
@@ -234,6 +303,10 @@ function unzipToTempDir(zipPath: string): { rootDir: string; archiveIntegrity: O
     // Windows locks are retried by removePathWithRetry.
     removePathWithRetry(dest);
     throw err;
+  } finally {
+    // The returned artifacts already own their bytes; retaining the private
+    // snapshot is unnecessary and would leak original exports in /tmp.
+    removePathWithRetry(snapshotDir);
   }
 }
 
@@ -250,7 +323,7 @@ export function resolveSource(path: string): MultiArtifactSource {
   if (stat.isDirectory()) {
     const files: Record<string, ImportArtifact> = {};
     collect(path, path, files);
-    return { rootDir: path, files };
+    return { rootDir: path, files, sourceEvidence: inventoryEvidence("directory", files) };
   }
   if (stat.isFile() && isZipPath(path)) {
     const extracted = unzipToTempDir(path);
@@ -265,22 +338,25 @@ export function resolveSource(path: string): MultiArtifactSource {
     return {
       rootDir: extracted.rootDir,
       files,
+      sourceEvidence: extracted.sourceEvidence,
       archiveIntegrity: { ...extracted.archiveIntegrity, importedEntryCount },
     };
   }
   // A single file: expose it under its basename.
   const name = path.split(/[/\\]/).pop() ?? path;
   const bytes = new Uint8Array(readFileSync(path));
+  const files = {
+    [normalizeEntryPath(name)]: {
+      name: normalizeEntryPath(name),
+      path,
+      bytes,
+      text: stripBom(new TextDecoder("utf-8").decode(bytes)),
+    },
+  };
   return {
     rootDir: path.slice(0, path.length - name.length).replace(/[/\\]$/, "") || ".",
-    files: {
-      [name]: {
-        name,
-        path,
-        bytes,
-        text: stripBom(new TextDecoder("utf-8").decode(bytes)),
-      },
-    },
+    files,
+    sourceEvidence: inventoryEvidence("file", files),
   };
 }
 

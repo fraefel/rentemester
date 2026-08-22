@@ -165,6 +165,8 @@ export type ImportArtifact = {
 export type MultiArtifactSource = {
   rootDir: string;
   files: Record<string, ImportArtifact>;
+  /** Immutable, canonical evidence for the exact resolved input. */
+  sourceEvidence: SourceEvidence;
   /**
    * Present for a ZIP source after its complete archive listing and extraction
    * have been verified. The three counts must agree before parsing can begin.
@@ -180,6 +182,36 @@ export type ArchiveIntegrityEvidence = {
   importedEntryCount: number;
   archiveListingSha256: string;
   extractedManifestSha256: string;
+};
+
+/** One canonical file record in a resolved import source. */
+export type SourceEvidenceEntry = {
+  path: string;
+  size: number;
+  sha256: string;
+};
+
+/**
+ * Immutable evidence for a resolved import source. ZIP raw bytes are recorded
+ * only for ZIP inputs; directory and file inputs deliberately expose only
+ * their canonical file inventory.
+ */
+export type SourceEvidence = {
+  sourceKind: "zip" | "directory" | "file";
+  canonicalInventorySha256: string;
+  entries: SourceEvidenceEntry[];
+  importedEntryCount: number;
+  totalUncompressedBytes: number;
+  /** Present only for a ZIP's private immutable snapshot. */
+  rawSha256?: string;
+  /** Present only for a ZIP's private immutable snapshot. */
+  rawSize?: number;
+  /** Present only for ZIP file entries after strict path normalization. */
+  canonicalListingSha256?: string;
+  /** Present only for ZIP file entries after strict path normalization. */
+  listingEntryCount?: number;
+  /** Present only for ZIP sources. */
+  extractedEntryCount?: number;
 };
 
 /**

@@ -30,7 +30,7 @@ const DEMO_DIR = resolve(
 );
 
 const TMP_ROOT = mkdtempSync(join(tmpdir(), "rentemester-agent-demo-test-"));
-const COMPANY = join(TMP_ROOT, "company");
+const COMPANY = TMP_ROOT;
 
 afterAll(() => {
   rmSync(TMP_ROOT, { recursive: true, force: true });

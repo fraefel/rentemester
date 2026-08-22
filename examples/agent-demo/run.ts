@@ -310,7 +310,7 @@ async function preSeedViesValidations(company: string, inbox: InboxItem[]) {
     eu.add(vat);
   }
   for (const vat of eu) {
-    const proc = Bun.spawn(["bun", SEED_VIES_PATH, company, vat], {
+    const proc = Bun.spawn(["bun", SEED_VIES_PATH, company, vat, "--unsafe-demo"], {
       stdout: "pipe",
       stderr: "pipe",
     });

@@ -33,8 +33,6 @@ function cacheVies(db: ReturnType<typeof openDb>) {
   storeViesValidation(db, {
     vatOrCvr: "DE123456789",
     valid: true,
-    validatedAt: "2026-05-15T00:00:00.000Z",
-    expiresAt: "2026-08-15T00:00:00.000Z",
     rawResponse: JSON.stringify({ valid: true }),
   });
 }

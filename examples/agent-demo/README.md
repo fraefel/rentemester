@@ -15,7 +15,7 @@ Ingen API-keys, ingen netværk. Alt kører lokalt over JSON-RPC mod
 ## Kør den
 
 ```
-bun examples/agent-demo/run.ts --company /tmp/agent-demo --mode rule-based
+bun examples/agent-demo/run.ts --company /tmp/rentemester-agent-demo --mode rule-based
 ```
 
 Tilgængelige flag:
@@ -26,7 +26,14 @@ Tilgængelige flag:
 | `--mode` | `rule-based` | `rule-based` (deterministisk) eller `claude` (Anthropic API hvis `ANTHROPIC_API_KEY` er sat — ellers fallback til rule-based). |
 | `--demo-dir` | `examples/agent-demo/` | Hvor inbox/metadata/bank.csv ligger. |
 
-Kortere: `bun run agent-demo --company /tmp/agent-demo`.
+Kortere: `bun run agent-demo --company /tmp/rentemester-agent-demo`.
+
+Offline VIES-seedet er kun til denne bortskaffelige demo eller `bun run smoke`.
+Seed-scriptet kræver den eksplicitte kvittering `--unsafe-demo`, en kanonisk
+sti direkte under systemets temp-mappe og en ny, uregistreret standard-ledger
+med Rentemesters init-auditspor. Det afviser symlinks, vilkårlige mapper og
+ledgers med virksomhedsidentitet. Brug den rigtige VIES-validering i alle
+andre miljøer.
 
 ## Hvad demoen indeholder
 
@@ -57,11 +64,11 @@ opfundet til demoen.
 Rentemester agent-demo
 ======================
 mode:        rule-based
-company:     /tmp/agent-demo
+company:     /tmp/rentemester-agent-demo
 demo-dir:    examples/agent-demo
 
 — Initialiserer frisk virksomhedsmappe —
-  ✓ company init OK (/tmp/agent-demo)
+  ✓ company init OK (/tmp/rentemester-agent-demo)
 
 — Spawner MCP-server —
   ✓ MCP klar — 81 tools registered
@@ -163,9 +170,9 @@ kører den samme idé deterministisk og replaybart. Den kræver en
 (modsat denne demo, der spinner en frisk mappe op). Kør `init` først:
 
 ```
-rentemester init --company /tmp/agent-demo
+rentemester init --company /tmp/rentemester-agent-demo
 rentemester agent run \
-  --company /tmp/agent-demo \
+  --company /tmp/rentemester-agent-demo \
   --as-of 2026-05-20 \
   --inbox examples/agent-demo/inbox \
   --metadata-dir examples/agent-demo/metadata \
@@ -200,5 +207,5 @@ Hvis du vil optage en asciinema af kørslen og committe den:
 
 ```
 asciinema rec assets/agent-demo.cast \
-  --command "bun examples/agent-demo/run.ts --company /tmp/agent-demo"
+  --command "bun examples/agent-demo/run.ts --company /tmp/rentemester-agent-demo"
 ```

@@ -128,6 +128,38 @@ describe("invoice validator", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("accepts a simplified invoice without totals.netAmount when complete lines reconcile it", () => {
+    const result = validateInvoice({
+      invoiceType: "simplified",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0046-LINES",
+      seller: { name: "Rentemester ApS", address: "Testvej 1, 2100 København Ø", vatOrCvr: "DK12345678" },
+      lines: [{ description: "Kontant salg", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { grossAmount: 1250, vatRate: 0.25, vatAmount: 250 },
+      currency: "DKK",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  test("rejects a simplified invoice with complete lines and contradictory totals", () => {
+    const result = validateInvoice({
+      invoiceType: "simplified",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0046-LINES-BAD",
+      seller: { name: "Rentemester ApS", address: "Testvej 1, 2100 København Ø", vatOrCvr: "DK12345678" },
+      lines: [{ description: "Kontant salg", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { grossAmount: 1200, vatRate: 0.25, vatAmount: 250 },
+      currency: "DKK",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("totals.grossAmount must equal rounded VAT line totals (1250)");
+  });
+
   test("accepts a simplified invoice whose canonical 20%-of-gross VAT lands on an øre-rounding boundary", () => {
     // gross 100,07 incl. 25% VAT — the VAT contained is roundDkk(100,07 × 0,20)
     // = 20,01. A net-first round-trip (roundDkk((gross−vat) × 0,25)) double-

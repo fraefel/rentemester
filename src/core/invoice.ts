@@ -247,13 +247,31 @@ export function validateInvoice(payload: InvoicePayload): InvoiceValidationResul
   // their supplied document totals.
   const hasCompleteLineAmounts = Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number");
   if (vatTreatment === "standard" && hasCompleteLineAmounts) {
-    if (netAmount !== taxProjection.netAmount) errors.push(`totals.netAmount must equal rounded VAT line bases (${taxProjection.netAmount})`);
+    // A simplified invoice may omit a document-level net amount. When its
+    // line amounts are complete, the line projection is the authoritative
+    // net basis; requiring a redundant total here would reject an otherwise
+    // fully auditable invoice. A supplied net amount remains strict.
+    if (payload.totals?.netAmount !== undefined && netAmount !== taxProjection.netAmount) errors.push(`totals.netAmount must equal rounded VAT line bases (${taxProjection.netAmount})`);
     if (vatAmount !== taxProjection.vatAmount) errors.push(`totals.vatAmount must equal rounded VAT line amounts (${taxProjection.vatAmount})`);
     if (grossAmount !== taxProjection.grossAmount) errors.push(`totals.grossAmount must equal rounded VAT line totals (${taxProjection.grossAmount})`);
   } else if (hasExplicitTaxLines) {
     if (netAmount !== taxProjection.netAmount) errors.push(`totals.netAmount must equal explicit VAT line bases (${taxProjection.netAmount})`);
     if (vatAmount !== taxProjection.vatAmount) errors.push(`totals.vatAmount must equal explicit VAT line amounts (${taxProjection.vatAmount})`);
     if (grossAmount !== taxProjection.grossAmount) errors.push(`totals.grossAmount must equal explicit VAT line totals (${taxProjection.grossAmount})`);
+  }
+
+  // Reverse-charge documents carry zero seller VAT, but their net and gross
+  // still have to reconcile to the same line-level evidence as a standard
+  // invoice. In particular, old payloads without explicit classifications
+  // default to reverse_charge lines; do not let that legacy shape bypass the
+  // arithmetic trust boundary.
+  if (
+    (vatTreatment === "domestic_reverse_charge" || vatTreatment === "foreign_reverse_charge") &&
+    hasCompleteLineAmounts
+  ) {
+    if (netAmount !== taxProjection.netAmount) errors.push(`totals.netAmount must equal rounded reverse-charge line bases (${taxProjection.netAmount})`);
+    if (taxProjection.vatAmount !== 0) errors.push("reverse-charge invoice lines must not include VAT");
+    if (grossAmount !== taxProjection.grossAmount) errors.push(`totals.grossAmount must equal rounded reverse-charge line totals (${taxProjection.grossAmount})`);
   }
 
   if (vatTreatment === "standard" && !hasExplicitTaxLines && (invoiceType === "full" || payload.totals?.netAmount !== undefined)) {

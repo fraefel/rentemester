@@ -353,6 +353,34 @@ describe("public e-invoice OIOUBL 2.02 conformance", () => {
     expect(exported.xml).toContain("<cbc:TaxExemptionReason>");
     expect(exported.xml).toContain("DK_MOMSLOVEN_§46_STK_1_NR_6");
 
+    // Historical reverse-charge rows without line classifications are still
+    // subject to the OIOUBL arithmetic boundary. They must not be exported
+    // merely because the seller VAT is zero.
+    const legacyPayload = JSON.parse(
+      (db.query("SELECT payload_json FROM documents WHERE id = ?").get(issued.documentId) as { payload_json: string }).payload_json,
+    );
+    legacyPayload.invoiceNumber = "2026-RC-LEGACY-BAD";
+    legacyPayload.totals = { ...legacyPayload.totals, netAmount: 1000, grossAmount: 1000 };
+    db.run(
+      `INSERT INTO documents (source, sha256_hash, invoice_no, invoice_date, document_type, payload_json)
+       VALUES ('test', ?, ?, ?, 'issued_invoice', ?)`,
+      "jur9-rc-legacy-bad",
+      legacyPayload.invoiceNumber,
+      legacyPayload.issueDate,
+      JSON.stringify(legacyPayload),
+    );
+    const contradictoryDocumentId = Number(
+      (db.query("SELECT last_insert_rowid() AS id").get() as { id: number }).id,
+    );
+    const contradictory = exportPublicEInvoiceOioUbl(db, { invoiceDocumentId: contradictoryDocumentId });
+    expect(contradictory.ok).toBe(false);
+    expect(contradictory.errors).toContain(
+      "invoice 2026-RC-LEGACY-BAD totals.netAmount must equal rounded OIOUBL line bases (1500)",
+    );
+    expect(contradictory.errors).toContain(
+      "invoice 2026-RC-LEGACY-BAD totals.grossAmount must equal rounded OIOUBL line totals (1500)",
+    );
+
     db.close();
     rmSync(root, { recursive: true, force: true });
   });
@@ -368,7 +396,6 @@ describe("public e-invoice OIOUBL 2.02 conformance", () => {
     // reads id/invoice_no/invoice_date/document_type/payload_json.
     const payload = {
       invoiceNumber: "2026-EXEMPT",
-      vatTreatment: "standard",
       issueDate: "2026-05-20",
       dueDate: "2026-06-19",
       currency: "DKK",

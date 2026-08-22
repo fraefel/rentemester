@@ -165,7 +165,7 @@ function deriveUblTaxCategory(
  */
 function projectOioUblVatLines(payload: InvoicePayload) {
   const isLegacyExempt =
-    payload.vatTreatment === "standard" &&
+    (payload.vatTreatment ?? "standard") === "standard" &&
     payload.totals?.vatRate === 0 &&
     payload.totals?.vatAmount === 0 &&
     (payload.lines ?? []).every((line) => !line.taxClassification);
@@ -325,13 +325,16 @@ function validateOioUblPayload(invoiceNumber: string, payload: InvoicePayload, e
   // This is an export trust boundary: historical rows may predate the invoice
   // validator, so never render contradictory OIOUBL tax totals from a legacy
   // payload. Re-project the rounded line tax amounts independently here.
-  if (!isReverseCharge && Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number")) {
+  if (Array.isArray(payload.lines) && payload.lines.every((line) => typeof line.lineTotalExVat === "number")) {
     const projection = projectOioUblVatLines(payload);
     errors.push(...projection.errors.map((error) => `invoice ${invoiceNumber} ${error}`));
-    const netAmount = roundDkk(Number(payload.totals?.netAmount));
-    const vatAmount = roundDkk(Number(payload.totals?.vatAmount));
-    const grossAmount = roundDkk(Number(payload.totals?.grossAmount));
-    if (netAmount !== projection.netAmount) errors.push(`invoice ${invoiceNumber} totals.netAmount must equal rounded OIOUBL taxable line bases (${projection.netAmount})`);
+    // Required-total errors are collected above. Use zero only as a safe
+    // comparison sentinel here so a missing legacy field produces validation
+    // errors instead of throwing while we check the remaining evidence.
+    const netAmount = roundDkk(Number(payload.totals?.netAmount ?? 0));
+    const vatAmount = roundDkk(Number(payload.totals?.vatAmount ?? 0));
+    const grossAmount = roundDkk(Number(payload.totals?.grossAmount ?? 0));
+    if (netAmount !== projection.netAmount) errors.push(`invoice ${invoiceNumber} totals.netAmount must equal rounded OIOUBL line bases (${projection.netAmount})`);
     if (vatAmount !== projection.vatAmount) errors.push(`invoice ${invoiceNumber} totals.vatAmount must equal rounded OIOUBL line VAT amounts (${projection.vatAmount})`);
     if (grossAmount !== projection.grossAmount) errors.push(`invoice ${invoiceNumber} totals.grossAmount must equal rounded OIOUBL line totals (${projection.grossAmount})`);
     const expectedGross = sumDkk([netAmount, vatAmount]);

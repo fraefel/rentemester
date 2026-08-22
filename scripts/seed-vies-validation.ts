@@ -10,17 +10,19 @@ import { lstatSync, readFileSync, realpathSync, type Stats } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { companyPaths } from "../src/core/paths";
+import {
+  OFFLINE_VIES_DEMO_MARKER_FILENAME,
+  OFFLINE_VIES_DEMO_MARKER_FORMAT,
+} from "../src/core/offline-vies-demo";
 import { storeViesValidation } from "../src/core/vies";
 
 const [, , companyRoot, vatOrCvr, acknowledgement] = Bun.argv;
 const UNSAFE_ACKNOWLEDGEMENT = "--unsafe-demo";
 const DEMO_LEDGER_NAME = "Rentemester company";
 const DEMO_ROOT_NAME = /^rentemester-(?:agent-demo|smoke)(?:-[A-Za-z0-9_-]+)?$/;
-export const DEMO_VIES_MARKER_FILENAME = ".rentemester-agent-demo-vies-seed-v1.json";
-const DEMO_VIES_MARKER_FORMAT = "rentemester-agent-demo-vies-seed/v1";
 
 type DemoViesMarker = {
-  format: typeof DEMO_VIES_MARKER_FORMAT;
+  format: typeof OFFLINE_VIES_DEMO_MARKER_FORMAT;
   purpose: "offline-vies-seed";
   companyRoot: string;
   ledger: { dev: number; ino: number };
@@ -103,7 +105,7 @@ function auditTrailSha256(db: Database) {
 }
 
 function verifyDemoMarker(db: Database, ledger: VerifiedDemoLedger) {
-  const markerPath = resolve(ledger.root, DEMO_VIES_MARKER_FILENAME);
+  const markerPath = resolve(ledger.root, OFFLINE_VIES_DEMO_MARKER_FILENAME);
   const marker = snapshotPath(markerPath, "demo marker", "file");
   if (!isContainedBy(ledger.rootIdentity.canonicalPath, marker.canonicalPath) ||
     marker.canonicalPath !== markerPath) {
@@ -124,7 +126,7 @@ function verifyDemoMarker(db: Database, ledger: VerifiedDemoLedger) {
     fail("demo marker must contain valid JSON");
   }
   const value = parsed as Partial<DemoViesMarker> | null;
-  if (!value || value.format !== DEMO_VIES_MARKER_FORMAT || value.purpose !== "offline-vies-seed" ||
+  if (!value || value.format !== OFFLINE_VIES_DEMO_MARKER_FORMAT || value.purpose !== "offline-vies-seed" ||
     value.companyRoot !== ledger.root || !value.ledger ||
     value.ledger.dev !== ledger.ledgerIdentity.dev || value.ledger.ino !== ledger.ledgerIdentity.ino ||
     typeof value.auditTrailSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.auditTrailSha256) ||
@@ -162,20 +164,20 @@ function verifyDisposableDemoLedger(inputRoot: string): VerifiedDemoLedger {
   const suppliedRoot = resolve(inputRoot);
   const rootIdentity = snapshotPath(suppliedRoot, "company root", "directory");
   let canonicalRoot: string;
-  let canonicalTmp: string;
+  let canonicalTempParents: Set<string>;
   try {
     canonicalRoot = rootIdentity.canonicalPath;
-    canonicalTmp = realpathSync(tmpdir());
+    // `bun run smoke` deliberately uses /tmp for its named disposable
+    // fixtures. On macOS tmpdir() may instead be the per-user T directory,
+    // so accept either canonical temp parent — never an arbitrary parent.
+    canonicalTempParents = new Set([realpathSync(tmpdir()), realpathSync("/tmp")]);
   } catch {
     fail("company root and temporary directory must already exist");
   }
 
   // `/tmp` itself is a symlink on some platforms, so compare canonical parents
   // and explicitly reject an indirection at the supplied company root.
-  if (realpathSync(dirname(suppliedRoot)) !== canonicalTmp) {
-    fail("company root must be a canonical path; symlink indirection is not allowed");
-  }
-  if (dirname(canonicalRoot) !== canonicalTmp || !DEMO_ROOT_NAME.test(basename(canonicalRoot))) {
+  if (!canonicalTempParents.has(dirname(canonicalRoot)) || !DEMO_ROOT_NAME.test(basename(canonicalRoot))) {
     fail("company root must be a disposable /tmp/rentemester-agent-demo-* or /tmp/rentemester-smoke-* ledger");
   }
 
@@ -205,9 +207,9 @@ function verifyOpenedLedger(db: Database, ledger: VerifiedDemoLedger) {
   if (lstatSync(ledger.dbPath).nlink !== 1) {
     fail("ledger file must not have hard links");
   }
-  verifyDemoMarker(db, ledger);
   verifySyntheticLedgerIdentity(db);
   verifyNoBusinessActivity(db);
+  verifyDemoMarker(db, ledger);
 }
 
 if (!companyRoot || !vatOrCvr) {

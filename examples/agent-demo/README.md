@@ -41,6 +41,10 @@ den allerede åbnede database igen i samme transaktion, så seedet ikke kan skif
 til en anden fil mellem kontrol og skrivning. Brug den rigtige VIES-validering i
 alle andre miljøer.
 
+`bun run smoke` følger samme rækkefølge: `init` → fælles marker-forberedelse
+→ offline VIES-seed → første forretningsmutation. Seedet kan derfor ikke
+genbruges senere i smoke-forløbet eller mod en aktiv ledger.
+
 ## Hvad demoen indeholder
 
 ```

@@ -25,23 +25,10 @@
  * Eksekverbar uden API-key, uden netværk.
  */
 
-import {
-  chmodSync,
-  closeSync,
-  existsSync,
-  lstatSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { createHash, randomUUID } from "node:crypto";
-import { Database } from "bun:sqlite";
+import { readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeOfflineViesDemoMarker } from "../../src/core/offline-vies-demo";
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -100,7 +87,6 @@ const CLI_PATH = resolve(
 const SEED_VIES_PATH = resolve(
   fileURLToPath(new URL("../../scripts/seed-vies-validation.ts", import.meta.url)),
 );
-const DEMO_VIES_MARKER_FILENAME = ".rentemester-agent-demo-vies-seed-v1.json";
 
 class McpClient {
   private proc: ReturnType<typeof Bun.spawn>;
@@ -308,53 +294,6 @@ async function ensureCompanyInitialized(company: string) {
     throw new Error(`CLI init failed (exit ${init.exitCode}): ${stderr}`);
   }
   writeOfflineViesDemoMarker(company);
-}
-
-/**
- * Binds the deliberately unsafe offline VIES seed to this exact fresh ledger.
- * It is intentionally written only by the demo's init flow, before any MCP
- * mutation. The seeder checks the exact root + device/inode binding, shape,
- * link count and read-only mode, and rejects any later business activity.
- */
-function writeOfflineViesDemoMarker(company: string) {
-  const root = realpathSync(resolve(company));
-  const ledgerPath = join(root, "data", "ledger.sqlite");
-  const ledger = lstatSync(ledgerPath);
-  if (!ledger.isFile() || ledger.isSymbolicLink() || ledger.nlink !== 1) {
-    throw new Error("fresh demo ledger is not a regular unlinked file");
-  }
-  const target = join(root, DEMO_VIES_MARKER_FILENAME);
-  const temporary = `${target}.${randomUUID()}.tmp`;
-  let fd: number | undefined;
-  try {
-    // `wx` prevents replacement of a pre-existing marker; rename gives the
-    // reader an all-or-nothing file once the complete JSON has been flushed.
-    fd = openSync(temporary, "wx", 0o600);
-    const db = new Database(ledgerPath, { readonly: true });
-    let auditTrailSha256: string;
-    try {
-      const auditRows = db.query(
-        "SELECT id, event_type, entity_type, entity_id, message, actor FROM audit_log ORDER BY id",
-      ).all();
-      auditTrailSha256 = createHash("sha256").update(JSON.stringify(auditRows)).digest("hex");
-    } finally {
-      db.close();
-    }
-    writeFileSync(fd, `${JSON.stringify({
-      format: "rentemester-agent-demo-vies-seed/v1",
-      purpose: "offline-vies-seed",
-      companyRoot: root,
-      ledger: { dev: ledger.dev, ino: ledger.ino },
-      auditTrailSha256,
-      nonce: randomUUID(),
-    })}\n`);
-    closeSync(fd);
-    fd = undefined;
-    renameSync(temporary, target);
-    chmodSync(target, 0o400);
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-  }
 }
 
 /**

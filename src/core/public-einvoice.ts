@@ -463,7 +463,7 @@ function buildPublicEInvoiceOioUblXml(invoiceNumber: string, payload: InvoicePay
     "  </cac:TaxTotal>",
     "  <cac:LegalMonetaryTotal>",
     xmlTagWithAttrs("cbc:LineExtensionAmount", { currencyID: currency }, formatAmount(payload.totals?.netAmount), "    "),
-    xmlTagWithAttrs("cbc:TaxExclusiveAmount", { currencyID: currency }, vatAmountForXml, "    "),
+    xmlTagWithAttrs("cbc:TaxExclusiveAmount", { currencyID: currency }, formatAmount(payload.totals?.netAmount), "    "),
     xmlTagWithAttrs("cbc:TaxInclusiveAmount", { currencyID: currency }, formatAmount(payload.totals?.grossAmount), "    "),
     xmlTagWithAttrs("cbc:PayableAmount", { currencyID: currency }, formatAmount(payload.totals?.grossAmount), "    "),
     "  </cac:LegalMonetaryTotal>",

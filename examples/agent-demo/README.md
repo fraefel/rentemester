@@ -31,9 +31,12 @@ Kortere: `bun run agent-demo --company /tmp/rentemester-agent-demo`.
 Offline VIES-seedet er kun til denne bortskaffelige demo eller `bun run smoke`.
 Seed-scriptet kræver den eksplicitte kvittering `--unsafe-demo`, en kanonisk
 sti direkte under systemets temp-mappe og en ny, uregistreret standard-ledger
-med Rentemesters init-auditspor. Det afviser symlinks, vilkårlige mapper og
-ledgers med virksomhedsidentitet. Brug den rigtige VIES-validering i alle
-andre miljøer.
+med Rentemesters init-auditspor. Det afviser symlinks til rod-, `data`- og
+ledger-stien, hardlinks til ledger-filen, vilkårlige mapper og ledgers med
+virksomhedsidentitet. Før indsættelsen kontrolleres den allerede åbnede
+database igen i samme transaktion, så seedet ikke kan skifte til en anden fil
+mellem kontrol og skrivning. Brug den rigtige VIES-validering i alle andre
+miljøer.
 
 ## Hvad demoen indeholder
 

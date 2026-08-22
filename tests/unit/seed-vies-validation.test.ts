@@ -1,6 +1,6 @@
 // Tests: scripts/seed-vies-validation.ts (unsafe offline fixture boundary)
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { linkSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,11 +76,60 @@ describe("offline VIES seed boundary", () => {
     expect(result.stderr).toContain("symlink");
   });
 
-  test("rejects a production-like ledger identity in a smoke-named directory", async () => {
+  test("rejects a symlinked inner data directory", async () => {
+    const root = disposableRoot();
+    const outside = mkdtempSync(join(tmpdir(), "rentemester-vies-outside-"));
+    roots.push(outside);
+    const data = companyPaths(root).data;
+    renameSync(data, `${data}-original`);
+    symlinkSync(outside, data);
+    const result = await seed(root, "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("data directory");
+    expect(result.stderr).toContain("symlink");
+  });
+
+  test("rejects a symlinked ledger file", async () => {
+    const root = disposableRoot();
+    const outside = join(mkdtempSync(join(tmpdir(), "rentemester-vies-outside-")), "ledger.sqlite");
+    roots.push(resolve(outside, ".."));
+    const ledger = companyPaths(root).db;
+    renameSync(ledger, `${ledger}-original`);
+    symlinkSync(`${ledger}-original`, ledger);
+    const result = await seed(root, "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("ledger file");
+    expect(result.stderr).toContain("symlink");
+  });
+
+  test("rejects a hard-linked ledger file", async () => {
+    const root = disposableRoot();
+    const hardLink = join(tmpdir(), `rentemester-vies-hard-link-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    linkSync(companyPaths(root).db, hardLink);
+    roots.push(hardLink);
+    const result = await seed(root, "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("hard links");
+  });
+
+  test("rejects a wrong ledger identity in a smoke-named directory", async () => {
     const root = disposableRoot();
     const db = openDb(companyPaths(root).db);
     try {
-      db.run("UPDATE companies SET name = ?, cvr = ? WHERE id = 1", ["Production ApS", "DK12345678"]);
+      db.run("UPDATE companies SET name = ? WHERE id = 1", ["Different synthetic company"]);
+    } finally {
+      db.close();
+    }
+    const result = await seed(root, "--unsafe-demo");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("ledger identity");
+  });
+
+  test("rejects a registered or otherwise active ledger in a smoke-named directory", async () => {
+    const root = disposableRoot();
+    const db = openDb(companyPaths(root).db);
+    try {
+      db.run("UPDATE companies SET cvr = ? WHERE id = 1", ["12345678"]);
     } finally {
       db.close();
     }

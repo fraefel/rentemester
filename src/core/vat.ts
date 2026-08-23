@@ -637,6 +637,7 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     legacyEvidence.inferredVatCodeByLineId,
   );
   const trustedDineroInputLineIds = new Set<number>();
+  const legacyRepresentationBaseByLineId = new Map<number, number>();
   const legacyReverseChargeToleranceByEntry = new Map(
     legacyEvidence.reverseChargeToleranceByEntry,
   );
@@ -700,9 +701,22 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
 
     const expenseRows = entryRows.filter((row) => row.account_type === "expense");
     const explicitCode = (row: (typeof rows)[number]): string => row.vat_code?.trim() || "";
+    const reverseChargeCodes = new Set([
+      "EU_SERVICE_REVERSE_CHARGE",
+      "NON_EU_SERVICE_REVERSE_CHARGE",
+    ]);
     let baseRows = expenseRows.filter(
-      (row) => explicitCode(row) === "EU_SERVICE_REVERSE_CHARGE",
+      (row) => reverseChargeCodes.has(explicitCode(row)),
     );
+    const explicitReverseChargeCodes = new Set(
+      baseRows.map((row) => explicitCode(row)),
+    );
+    if (explicitReverseChargeCodes.size > 1) {
+      errors.push(
+        `journal entry ${entryId} mixes EU and non-EU reverse-charge bases; human resolution is required`,
+      );
+      continue;
+    }
     if (baseRows.length === 0) {
       // An explicit historical line code wins. Account defaults are not
       // source-line evidence and may be overridden only by this exact,
@@ -763,6 +777,68 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     legacyReverseChargeToleranceByEntry.set(
       entryId,
       oreDifference(percentOfDkk(classifiedBase, 25), outputControl),
+    );
+  }
+
+  // Dinero's historical representation vouchers can collapse the net expense
+  // and the 75% non-deductible VAT into one REPRESENTATION_SPECIAL expense
+  // line. Rentemester's native shape keeps those amounts on two lines. Recover
+  // the net base only for the exact trusted import shape: one representation
+  // expense, one input-VAT control, no other P/L line, and the statutory
+  // 25%-of-VAT deduction reconciling within one øre. Anything else continues
+  // through the ordinary mismatch gate instead of being guessed.
+  for (const [entryId, entryRows] of historicalRowsByEntry) {
+    const representationRows = entryRows.filter(
+      (row) =>
+        row.account_type === "expense" &&
+        row.vat_code?.trim() === "REPRESENTATION_SPECIAL",
+    );
+    const hasSeparateNonDeductibleLine = entryRows.some(
+      (row) => row.vat_code?.trim() === "REPRESENTATION_NON_DEDUCTIBLE_VAT",
+    );
+    if (representationRows.length === 0 || hasSeparateNonDeductibleLine) continue;
+    const otherProfitLossRows = entryRows.filter(
+      (row) =>
+        (row.account_type === "expense" || row.account_type === "income") &&
+        !representationRows.some((candidate) => candidate.line_id === row.line_id),
+    );
+    const inputRows = entryRows.filter(
+      (row) => vatAmountSideByAccountNo.get(row.account_no) === "input",
+    );
+    if (
+      representationRows.length !== 1 ||
+      otherProfitLossRows.length > 0 ||
+      inputRows.length !== 1
+    ) continue;
+
+    const expense = roundDkk(
+      Number(representationRows[0]!.debit_amount ?? 0) -
+        Number(representationRows[0]!.credit_amount ?? 0),
+    );
+    const bookedInput = roundDkk(
+      Number(inputRows[0]!.debit_amount ?? 0) -
+        Number(inputRows[0]!.credit_amount ?? 0),
+    );
+    if (expense <= 0 || bookedInput <= 0) continue;
+    const recoveredNet = roundDkk(addDkk(expense, bookedInput) / 1.25);
+    const fullVat = percentOfDkk(recoveredNet, 25);
+    const expectedInput = percentOfDkk(fullVat, 25);
+    const expectedExpense = addDkk(
+      recoveredNet,
+      subtractDkk(fullVat, expectedInput),
+    );
+    if (
+      oreDifference(expectedInput, bookedInput) > 1 ||
+      oreDifference(expectedExpense, expense) > 1
+    ) {
+      errors.push(
+        `journal entry ${entryId} has a collapsed Dinero representation purchase that does not reconcile to the statutory partial VAT deduction; human resolution is required`,
+      );
+      continue;
+    }
+    legacyRepresentationBaseByLineId.set(
+      representationRows[0]!.line_id,
+      recoveredNet,
     );
   }
 
@@ -996,7 +1072,8 @@ export function buildVatReport(db: Database, periodStart: string, periodEnd: str
     }
     if (isVatBaseLine && effectiveVatCode === "REPRESENTATION_SPECIAL") {
       markClassified(row.entry_id, trustedHistoricalImport);
-      representationPurchaseBase += debit - credit;
+      representationPurchaseBase +=
+        legacyRepresentationBaseByLineId.get(row.line_id) ?? debit - credit;
       inputVatBaseLines += 1;
       if (isForeignCurrencyEntry) foreignInputVatBaseLines += 1;
     }

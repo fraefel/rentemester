@@ -317,6 +317,55 @@ test("normalized Dinero VAT controls classify a blank-Momstype reverse-charge vo
   db.close(); rmSync(root, { recursive: true, force: true });
 });
 
+test("normalized Dinero VAT controls preserve an explicit non-EU service classification end to end", () => {
+  const { root, db } = freshDb();
+  db.run("INSERT INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES ('3090','Imported service','expense','debit','DK_PURCHASE_25'),('64040','Dinero reverse','vat','credit',NULL),('64060','Dinero input','vat','debit',NULL)");
+  const imported = postDineroPostings(db, [{
+    transactionDate: "2026-05-06",
+    text: "Normalized Dinero non-EU reverse charge",
+    voucherRef: "D-RC-NON-EU",
+    lines: [
+      { accountNo: "3090", debitAmount: 100.03, vatCode: "NON_EU_SERVICE_REVERSE_CHARGE" },
+      { accountNo: "64060", debitAmount: 25.01, vatCode: "NON_EU_SERVICE_REVERSE_CHARGE" },
+      { accountNo: "2000", creditAmount: 100.03 },
+      { accountNo: "64040", creditAmount: 25.01, vatCode: "NON_EU_SERVICE_REVERSE_CHARGE" },
+    ],
+  }], new Set(["3090", "64060", "2000", "64040"]));
+  expect(imported.ok).toBe(true);
+  const report = buildVatReport(db, "2026-05-01", "2026-05-31");
+  expect(report.ok).toBe(true);
+  expect(report.reverseChargePurchaseBase).toBe(0);
+  expect(report.nonEuServiceReverseChargePurchaseBase).toBe(100.03);
+  expect(report.rubrikker).toMatchObject({
+    rubrikA: 0,
+    momsAfYdelseskobUdland: 25.01,
+    kobsmoms: 25.01,
+  });
+  db.close(); rmSync(root, { recursive: true, force: true });
+});
+
+test("report recovers the net base from Dinero's collapsed representation shape", () => {
+  const { root, db } = freshDb();
+  db.run("INSERT INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES ('4140','Imported representation','expense','debit','REPRESENTATION_SPECIAL'),('64060','Dinero input','vat','debit',NULL)");
+  const imported = postDineroPostings(db, [{
+    transactionDate: "2026-05-22",
+    text: "Dinero collapsed representation purchase",
+    voucherRef: "D-REP-COLLAPSED",
+    lines: [
+      { accountNo: "4140", debitAmount: 286.90, vatCode: "REPRESENTATION_SPECIAL" },
+      { accountNo: "64060", debitAmount: 15.10, vatCode: "REPRESENTATION_SPECIAL" },
+      { accountNo: "2000", creditAmount: 302 },
+    ],
+  }], new Set(["4140", "64060", "2000"]));
+  expect(imported.ok).toBe(true);
+  const report = buildVatReport(db, "2026-05-01", "2026-05-31");
+  expect(report.ok).toBe(true);
+  expect(report.inputVat).toBe(15.10);
+  expect(report.representationPurchaseBase).toBe(241.60);
+  expect(report.rubrikker.kobsmoms).toBe(15.10);
+  db.close(); rmSync(root, { recursive: true, force: true });
+});
+
 test("Dinero control pairs reject explicit conflicts and two-øre drift at import and report time", () => {
   for (const shape of [
     { label: "normalized", outputType: "vat", inputType: "vat", inputBalance: "debit" },

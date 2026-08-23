@@ -498,7 +498,7 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
     return { ok: false, appliedRules: [PAYMENT_RULE_ID], errors: [`bank transaction ${input.bankTransactionId} is not in DKK — foreign-currency payable settlement is out of scope for this slice`] };
   }
 
-  const existingJournal = db.query(`SELECT id FROM journal_entries WHERE source_bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
+  const existingJournal = db.query(`SELECT journal_entry_id AS id FROM bank_journal_reconciliations WHERE bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
   if (existingJournal) return { ok: false, appliedRules: [PAYMENT_RULE_ID], errors: [`bank transaction ${bank.id} is already linked to journal entry ${existingJournal.id}`] };
   const existingPayment = db.query(`SELECT id FROM payable_payments WHERE bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
   if (existingPayment) return { ok: false, appliedRules: [PAYMENT_RULE_ID], errors: [`bank transaction ${bank.id} is already applied to payable payment ${existingPayment.id}`] };

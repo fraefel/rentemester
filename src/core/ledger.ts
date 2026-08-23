@@ -452,6 +452,10 @@ function validateJournalEntryWithPolicy(
   if (payload.sourceBankTransactionId) {
     const bank = db.query("SELECT id FROM bank_transactions WHERE id = ?").get(payload.sourceBankTransactionId) as { id: number } | null;
     if (!bank) errors.push(`sourceBankTransactionId ${payload.sourceBankTransactionId} does not exist`);
+    const historicalLink = db.query(
+      "SELECT journal_entry_id FROM bank_journal_reconciliation_links WHERE bank_transaction_id = ?",
+    ).get(payload.sourceBankTransactionId) as { journal_entry_id: number } | null;
+    if (historicalLink) errors.push(`sourceBankTransactionId ${payload.sourceBankTransactionId} is already reconciled to journal entry ${historicalLink.journal_entry_id}`);
   }
 
   return { ok: errors.length === 0, appliedRules, errors };
@@ -1174,6 +1178,44 @@ export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions 
   const foreignKeyErrors = db.query("PRAGMA foreign_key_check").all() as Array<{ table: string; rowid: number; parent: string; fkid: number }>;
   for (const fk of foreignKeyErrors) {
     errors.push(`foreign key violation: ${fk.table} row ${fk.rowid} references missing ${fk.parent}`);
+  }
+
+  const bankJournalLinks = db.query(
+    `SELECT link.id, link.bank_transaction_id, link.journal_entry_id,
+            bt.amount, bt.amount_dkk, bt.currency,
+            ba.ledger_account_no,
+            je.status, je.reversal_of_entry_id, je.source_bank_transaction_id,
+            EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id = je.id) AS has_reversal,
+            COALESCE(SUM(CASE WHEN a.account_no = ba.ledger_account_no THEN jl.debit_amount - jl.credit_amount ELSE 0 END), 0) AS journal_bank_movement,
+            EXISTS(SELECT 1 FROM journal_entries direct WHERE direct.source_bank_transaction_id = bt.id) AS has_direct_link
+       FROM bank_journal_reconciliation_links link
+       JOIN bank_transactions bt ON bt.id = link.bank_transaction_id
+       LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+       JOIN journal_entries je ON je.id = link.journal_entry_id
+       LEFT JOIN journal_lines jl ON jl.journal_entry_id = je.id
+       LEFT JOIN accounts a ON a.id = jl.account_id
+      GROUP BY link.id
+      ORDER BY link.id`,
+  ).all() as Array<{
+    id: number; bank_transaction_id: number; journal_entry_id: number;
+    amount: number; amount_dkk: number | null; currency: string;
+    ledger_account_no: string | null; status: string; reversal_of_entry_id: number | null;
+    source_bank_transaction_id: number | null; has_reversal: number;
+    journal_bank_movement: number; has_direct_link: number;
+  }>;
+  for (const link of bankJournalLinks) {
+    const label = `bank-journal reconciliation link ${link.id}`;
+    if (!link.ledger_account_no) errors.push(`${label}: bank transaction has no mapped ledger account`);
+    if (link.status !== "posted" || link.reversal_of_entry_id != null || Number(link.has_reversal) !== 0) {
+      errors.push(`${label}: journal entry ${link.journal_entry_id} is not an active original posted entry`);
+    }
+    if (link.source_bank_transaction_id != null || Number(link.has_direct_link) !== 0) {
+      errors.push(`${label}: conflicts with a direct bank link`);
+    }
+    const bankDkk = String(link.currency).trim().toUpperCase() === "DKK" ? Number(link.amount) : Number(link.amount_dkk);
+    if (!Number.isFinite(bankDkk) || compareDkk(Number(link.journal_bank_movement), bankDkk) !== 0) {
+      errors.push(`${label}: journal bank movement does not reconcile exactly to the bank amount in DKK`);
+    }
   }
 
   const orphanLines = db.query(

@@ -521,7 +521,16 @@ function fetchDocuments(db: Database, journalEntries: JournalEntryRecord[], peri
 }
 
 function fetchBankTransactions(db: Database, journalEntries: JournalEntryRecord[], periodStart: string, periodEnd: string): BankTransactionRecord[] {
-  const linkedIds = uniqueIds(journalEntries.map((entry) => entry.sourceBankTransactionId));
+  const journalIds = uniqueIds(journalEntries.map((entry) => entry.id));
+  const indirectLinkedIds = journalIds.length === 0 ? [] : (db.query(
+    `SELECT bank_transaction_id AS id
+       FROM bank_journal_reconciliations
+      WHERE journal_entry_id IN (${journalIds.map(() => "?").join(",")})`,
+  ).all(...journalIds) as Array<{ id: number }>).map((row) => row.id);
+  const linkedIds = uniqueIds([
+    ...journalEntries.map((entry) => entry.sourceBankTransactionId),
+    ...indirectLinkedIds,
+  ]);
   const linked = linkedIds.length === 0 ? [] : db.query(
     `SELECT id, transaction_date, booking_date, text, amount, currency, amount_dkk, fx_rate_to_dkk, reference, import_batch_id, status, retain_until
      FROM bank_transactions WHERE id IN (${linkedIds.map(() => "?").join(",")})`
@@ -656,6 +665,7 @@ function buildExportReadme(input: {
     "- machine-readable/trial-balance.csv — saldobalance for perioden (debet/kredit/saldo pr. konto) som CSV",
     "- machine-readable/documents.json — knyttede eller udstedte bilag plus stier til de eksporterede læselige filer",
     "- machine-readable/bank-transactions.json — knyttede eller periodefiltrerede banktransaktioner",
+    "- machine-readable/bank-journal-reconciliation-links.json — append-only afstemningskoblinger til allerede bogførte journalposter",
     "- machine-readable/audit-log.json — revisionsspor (audit-events) i perioden",
     "- machine-readable/exceptions.json — undtagelser i perioden plus tidligere stadig-åbne undtagelser",
     "- machine-readable/accounts.json — fuld kontoplan-kontekst",
@@ -699,6 +709,16 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   );
   if (invalidPurchaseSplits.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: invalidPurchaseSplits };
   const bankTransactions = fetchBankTransactions(db, journalEntries, input.periodStart, input.periodEnd);
+  const bankJournalReconciliationLinks = db.query(
+    `SELECT link.id, link.bank_transaction_id, link.journal_entry_id, link.match_method,
+            link.source_reference, link.note, link.created_by, link.created_by_program, link.created_at
+       FROM bank_journal_reconciliation_links link
+       JOIN bank_transactions bt ON bt.id = link.bank_transaction_id
+       JOIN journal_entries je ON je.id = link.journal_entry_id
+      WHERE COALESCE(bt.booking_date, bt.transaction_date) BETWEEN ? AND ?
+         OR je.transaction_date BETWEEN ? AND ?
+      ORDER BY link.id`,
+  ).all(input.periodStart, input.periodEnd, input.periodStart, input.periodEnd);
   const auditLog = fetchAuditLog(db, input.periodStart, input.periodEnd);
   const exceptions = fetchExceptions(db, input.periodStart, input.periodEnd);
   const accounts = fetchAccounts(db);
@@ -717,6 +737,7 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
     exportedReadablePath: document.storedPath ? join("documents-readable", exportFileName(document)).replace(/\\/g, "/") : null,
   })), outputs);
   writeExportJson(exportDir, join(machineReadableDir, "bank-transactions.json"), bankTransactions, outputs);
+  writeExportJson(exportDir, join(machineReadableDir, "bank-journal-reconciliation-links.json"), bankJournalReconciliationLinks, outputs);
   writeExportJson(exportDir, join(machineReadableDir, "audit-log.json"), auditLog.map((row: any) => ({
     id: row.id,
     eventType: row.event_type,
@@ -815,6 +836,7 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
       trialBalanceCsv: "machine-readable/trial-balance.csv",
       documents: "machine-readable/documents.json",
       bankTransactions: "machine-readable/bank-transactions.json",
+      bankJournalReconciliationLinks: "machine-readable/bank-journal-reconciliation-links.json",
       auditLog: "machine-readable/audit-log.json",
       exceptions: "machine-readable/exceptions.json",
       accounts: "machine-readable/accounts.json",
@@ -827,6 +849,7 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
     counts: {
       journalEntries: journalEntries.length,
       bankTransactions: bankTransactions.length,
+      bankJournalReconciliationLinks: bankJournalReconciliationLinks.length,
       documents: documents.length,
       auditLog: auditLog.length,
       exceptions: exceptions.length,

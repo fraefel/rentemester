@@ -427,14 +427,12 @@ export function syncUnmatchedBankTransactionExceptions(db: Database) {
     `SELECT bt.id, bt.transaction_date, bt.booking_date, bt.text, bt.amount, bt.currency, bt.reference, bt.import_batch_id,
             ex.id AS exception_id, ex.message AS exception_message, ex.required_action AS exception_required_action
      FROM bank_transactions bt
-     LEFT JOIN journal_entries je
-       ON je.source_bank_transaction_id = bt.id
-      AND je.status = 'posted'
+     LEFT JOIN bank_journal_reconciliations br ON br.bank_transaction_id = bt.id
      LEFT JOIN exceptions ex
        ON ex.related_bank_transaction_id = bt.id
       AND ex.type = 'UNMATCHED_BANK_TRANSACTION'
       AND ex.status = 'open'
-     WHERE je.id IS NULL
+     WHERE br.journal_entry_id IS NULL
      ORDER BY bt.transaction_date ASC, bt.id ASC`
   ).all() as Array<any>;
 

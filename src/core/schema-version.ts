@@ -44,6 +44,13 @@ export const MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM = createHash("sha256")
   .update(MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT)
   .digest("hex");
 export const MIGRATION_OPEN_ITEMS_MIGRATION_NAME = "rentemester-migration-open-items-v5";
+const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0006-bank-journal-reconciliation-links.json"),
+);
+export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME = "rentemester-bank-journal-reconciliation-links-v6";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -71,6 +78,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM },
   { id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM },
   { id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM },
+  { id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -266,6 +274,7 @@ export function applySchemaMigrations(db: Database): void {
     { id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM, artifact: RECURRING_AUTOMATION_MIGRATION_ARTIFACT },
     { id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM, artifact: DINERO_IMPORT_PROVENANCE_MIGRATION_ARTIFACT },
     { id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM, artifact: MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT },
+    { id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM, artifact: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -305,7 +314,7 @@ export function applySchemaMigrations(db: Database): void {
         // committed tables and guards remain. The migration is deliberately
         // replay-safe: remove only its canonical trigger names, then let the
         // IF NOT EXISTS table definitions preserve the recorded evidence.
-        if (migration.id === 4 || migration.id === 5) {
+        if (migration.id === 4 || migration.id === 5 || migration.id === 6) {
           const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
           for (const statement of triggerStatements) {
             const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
@@ -370,6 +379,19 @@ export function applySchemaMigrations(db: Database): void {
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 5").get()) {
     const parsed = JSON.parse(MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => {
+      for (const statement of triggerStatements) {
+        const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
+        if (!name) continue;
+        db.exec(`DROP TRIGGER IF EXISTS ${name};`);
+        db.exec(statement);
+      }
+    }, { immediate: true })();
+  }
+
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 6").get()) {
+    const parsed = JSON.parse(BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {

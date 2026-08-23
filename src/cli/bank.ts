@@ -9,6 +9,7 @@ import { renderHumanReport, formatKroner } from "../cli-format";
 import { ledgerStatusDa } from "../core/messages";
 import type { Database } from "bun:sqlite";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
+import { linkBankTransactionToJournal, type BankJournalMatchMethod } from "../core/bank-journal-reconciliation";
 
 // ===== BANK CLUSTER (#187) =====
 // Resolves an optional `--account <id|slug>` filter to a numeric bank-account
@@ -152,6 +153,33 @@ export function register(dispatch: CommandDispatch): void {
     }
     db.close();
     if (!result.ok) process.exit(1);
+  });
+
+  dispatch.on("bank", "link-journal", (ctx) => {
+    if (ctx.arg("--confirm") !== "yes") {
+      ctx.fatal("bank link-journal requires the exact confirmation --confirm yes");
+    }
+    const bankId = ctx.parseOptionalNumber("--bank-transaction-id");
+    const journalId = ctx.parseOptionalNumber("--journal-entry-id");
+    if (!bankId.ok) ctx.fatal(bankId.error);
+    if (!journalId.ok) ctx.fatal(journalId.error);
+    if (bankId.value === undefined) ctx.fatal("Missing required --bank-transaction-id <n>");
+    if (journalId.value === undefined) ctx.fatal("Missing required --journal-entry-id <n>");
+    const matchMethod = ctx.trimToNull(ctx.arg("--match-method")) as BankJournalMatchMethod | null;
+    if (!matchMethod) ctx.fatal("Missing required --match-method <method>");
+    const db = openCommandDb(ctx);
+    migrate(db);
+    const result = linkBankTransactionToJournal(db, {
+      bankTransactionId: bankId.value,
+      journalEntryId: journalId.value,
+      matchMethod,
+      sourceReference: ctx.trimToNull(ctx.arg("--source-reference")) ?? undefined,
+      note: ctx.trimToNull(ctx.arg("--note")) ?? undefined,
+      createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined,
+      createdByProgram: "rentemester-cli",
+    });
+    ctx.emitResult(result as Record<string, unknown>);
+    db.close();
   });
 
   dispatch.on("reconcile", "bank", (ctx) => {

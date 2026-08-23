@@ -18,6 +18,8 @@ import {
   DINERO_IMPORT_PROVENANCE_MIGRATION_NAME,
   MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM,
   MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
+  BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM,
+  BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -109,6 +111,7 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM }),
     ]);
     db.close();
   });
@@ -124,7 +127,7 @@ describe("schema version compatibility", () => {
     db.close();
   });
 
-  test("upgrades an isolated v3 schema through v5 without touching a live ledger", () => {
+  test("upgrades an isolated v3 schema through the current version without touching a live ledger", () => {
     const db = new Database(":memory:");
     db.exec("PRAGMA foreign_keys = ON");
     migrate(db);

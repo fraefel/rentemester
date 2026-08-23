@@ -105,10 +105,8 @@ function unmatchedBankTransactions(db: Database, bankTransactionId?: number) {
     `SELECT bt.id, bt.transaction_date, bt.text, bt.amount, bt.currency, bt.reference,
             bt.counterparty_name, bt.counterparty_account, bt.message
      FROM bank_transactions bt
-     LEFT JOIN journal_entries je
-       ON je.source_bank_transaction_id = bt.id
-      AND je.status = 'posted'
-     WHERE je.id IS NULL
+     LEFT JOIN bank_journal_reconciliations br ON br.bank_transaction_id = bt.id
+     WHERE br.journal_entry_id IS NULL
        AND (? IS NULL OR bt.id = ?)
      ORDER BY bt.transaction_date DESC, bt.id DESC`
   ).all(bankTransactionId ?? null, bankTransactionId ?? null) as Array<{

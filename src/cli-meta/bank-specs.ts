@@ -23,6 +23,17 @@ export const bankSpecs: CommandSpec[] = [
   },
   { key: "bank list", usage: "bank list --company <path> [--status all|matched|unmatched] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--text-match <text>] [--amount <n>] [--account <id|slug>]", description: "Lister importerede banktransaktioner med filtre for afstemningsstatus.", allowedFlags: ["--company", "--status", "--from", "--to", "--text-match", "--amount", "--account"] },
   { key: "bank suggest-matches", usage: "bank suggest-matches --company <path> [--bank-transaction-id <n>] [--max <n>]", description: "Foreslår deterministiske match mellem uafstemte banktransaktioner og fakturaer/bilag.", allowedFlags: ["--company", "--bank-transaction-id", "--max"] },
+  {
+    key: "bank link-journal",
+    usage: "bank link-journal --company <path> --bank-transaction-id <n> --journal-entry-id <n> --match-method exact-date-amount|settlement-lag-amount|source-reference|manual-review --confirm yes [--source-reference <ref>] [--note <text>]",
+    description: "Afstemmer append-only en bankpostering mod en allerede bogført journalpost uden at oprette eller ændre finansposteringer.",
+    allowedFlags: ["--company", "--bank-transaction-id", "--journal-entry-id", "--match-method", "--source-reference", "--note", "--confirm"],
+    inputNotes: [
+      "Kræver actor og den ordrette bekræftelse --confirm yes.",
+      "Database-gaten kræver, at bankkontoens ledger-konto er kendt, og at journalens netto-bevægelse på denne konto svarer nøjagtigt til bankbeløbet i DKK.",
+      "Koblingen er append-only og er beregnet til verificerede migrerede journalposter; den opretter ingen ny bogføring.",
+    ],
+  },
   { key: "reconcile bank", usage: "reconcile bank --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> [--status all|matched|unmatched] [--text-match <text>] [--amount <n>] [--account <id|slug>]", description: "Viser afstemte og uafstemte banktransaktioner med filtre.", allowedFlags: ["--company", "--from", "--to", "--status", "--text-match", "--amount", "--account"] },
   // ===== END BANK CLUSTER (#186-189) =====
 ];

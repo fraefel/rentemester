@@ -71,7 +71,7 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
     return { ok: false, appliedRules: [RULE_ID], errors: [`refusion af faktura ${invoice.invoice_no} i fremmed valuta understøttes ikke endnu — refusionsstien er ikke valuta-bevidst (foreign-currency invoice refunds are not supported)`] };
   }
 
-  const existingJournal = db.query(`SELECT id FROM journal_entries WHERE source_bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
+  const existingJournal = db.query(`SELECT journal_entry_id AS id FROM bank_journal_reconciliations WHERE bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
   if (existingJournal) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} is already linked to journal entry ${existingJournal.id}`] };
 
   if (db.query(`SELECT id FROM invoice_refunds WHERE bank_transaction_id = ? LIMIT 1`).get(bank.id)) {

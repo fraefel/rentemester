@@ -376,8 +376,8 @@ export function buildDocumentBookingOptions(
            FROM bank_transactions bt
           WHERE bt.amount < 0
             AND NOT EXISTS (
-              SELECT 1 FROM journal_entries je
-               WHERE je.source_bank_transaction_id = bt.id
+              SELECT 1 FROM bank_journal_reconciliations br
+               WHERE br.bank_transaction_id = bt.id
             )
           ORDER BY bt.transaction_date DESC, bt.id DESC
           LIMIT 200`,

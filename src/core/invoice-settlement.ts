@@ -93,7 +93,7 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
   if (!invoice) return { ok: false, appliedRules: [RULE_ID], errors: [`invoice document ${input.invoiceDocumentId} is not an issued invoice`] };
 
   const existingJournal = db.query(
-    `SELECT id FROM journal_entries WHERE source_bank_transaction_id = ? LIMIT 1`
+    `SELECT journal_entry_id AS id FROM bank_journal_reconciliations WHERE bank_transaction_id = ? LIMIT 1`
   ).get(bank.id) as { id: number } | null;
   if (existingJournal) return { ok: false, appliedRules: [RULE_ID], errors: [`bank transaction ${bank.id} is already linked to journal entry ${existingJournal.id}`] };
 

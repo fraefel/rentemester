@@ -618,10 +618,8 @@ function matchPayables(db: Database, report: AgentRunReport): void {
   const bankRows = db.query(
     `SELECT bt.id, bt.amount, bt.currency, bt.text, bt.reference, bt.counterparty_name, bt.message
        FROM bank_transactions bt
-       LEFT JOIN journal_entries je
-         ON je.source_bank_transaction_id = bt.id
-        AND je.status = 'posted'
-      WHERE je.id IS NULL
+       LEFT JOIN bank_journal_reconciliations br ON br.bank_transaction_id = bt.id
+      WHERE br.journal_entry_id IS NULL
         AND bt.amount < 0
       ORDER BY bt.id ASC`,
   ).all() as Array<{

@@ -72,11 +72,9 @@ export function buildCompanyBank(
                 bt.text          AS text,
                 bt.amount        AS amount,
                 bt.balance_after AS runningBalance,
-                je.entry_no      AS journalEntryNo
+                br.journal_entry_no AS journalEntryNo
            FROM bank_transactions bt
-           LEFT JOIN journal_entries je
-             ON je.source_bank_transaction_id = bt.id
-            AND je.status = 'posted'
+           LEFT JOIN bank_journal_reconciliations br ON br.bank_transaction_id = bt.id
           WHERE bt.transaction_date >= ? AND bt.transaction_date <= ?
           ORDER BY bt.transaction_date ASC, bt.id ASC`,
       )

@@ -23,6 +23,8 @@ import {
   DINERO_IMPORT_PROVENANCE_MIGRATION_NAME,
   MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM,
   MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
+  BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM,
+  BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME,
   CURRENT_SCHEMA_VERSION,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
@@ -141,6 +143,12 @@ describe("system restore", () => {
         id: 5,
         name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
         checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
+      expect.objectContaining({
+        id: 6,
+        name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME,
+        checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM,
         applied_by_version: expect.any(String),
       }),
     ]);

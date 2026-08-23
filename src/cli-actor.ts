@@ -57,6 +57,7 @@ export const MUTATING_COMMANDS = new Set([
   "invoice post-compensation",
   "documents ingest",
   "bank import",
+  "bank link-journal",
   // ===== BANK CLUSTER (#187) =====
   "bank-account add",
   "bank-account update",

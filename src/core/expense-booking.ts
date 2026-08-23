@@ -263,7 +263,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   if (!bank) return { ok: false, appliedRules: [], errors: [`bank transaction ${input.bankTransactionId} does not exist`] };
   if (!(Number(bank.amount) < 0)) return { ok: false, appliedRules: [], errors: [`bank transaction ${input.bankTransactionId} is not an outgoing payment`] };
 
-  const existingJournal = db.query(`SELECT id FROM journal_entries WHERE source_bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
+  const existingJournal = db.query(`SELECT journal_entry_id AS id FROM bank_journal_reconciliations WHERE bank_transaction_id = ? LIMIT 1`).get(bank.id) as { id: number } | null;
   if (existingJournal) return { ok: false, appliedRules: [], errors: [`bank transaction ${bank.id} is already linked to journal entry ${existingJournal.id}`] };
 
   const companySettings = getCompanySettings(db);

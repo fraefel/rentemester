@@ -43,11 +43,17 @@ function bank(db: Database, id: number, amount: number) {
 }
 
 describe("migration open items v5", () => {
-  test("migrates a fresh database to v5 and preserves v4 provenance when upgrading", () => {
+  test("migrates a fresh database through the current schema and preserves v4 provenance when upgrading", () => {
     const db = setup();
-    expect(CURRENT_SCHEMA_VERSION).toBe(5);
-    expect(readSchemaMigrations(db).at(-1)).toEqual(expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME }));
+    expect(CURRENT_SCHEMA_VERSION).toBe(6);
+    expect(readSchemaMigrations(db)).toContainEqual(expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME }));
     db.exec(`
+      DROP VIEW bank_journal_reconciliations;
+      DROP TRIGGER bank_journal_reconciliation_links_guard_insert;
+      DROP TRIGGER bank_journal_reconciliation_links_no_update;
+      DROP TRIGGER bank_journal_reconciliation_links_no_delete;
+      DROP TRIGGER journal_entries_bank_reconciliation_link_conflict;
+      DROP TABLE bank_journal_reconciliation_links;
       DROP TRIGGER migration_open_item_batches_no_update;
       DROP TRIGGER migration_open_item_batches_no_delete;
       DROP TRIGGER migration_open_items_no_update;
@@ -57,7 +63,7 @@ describe("migration open items v5", () => {
       DROP TABLE migration_open_item_applications;
       DROP TABLE migration_open_items;
       DROP TABLE migration_open_item_batches;
-      DELETE FROM schema_migrations WHERE id = 5;
+      DELETE FROM schema_migrations WHERE id >= 5;
     `);
     expect(readSchemaMigrations(db).at(-1)?.id).toBe(4);
     migrate(db);

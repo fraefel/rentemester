@@ -6,7 +6,7 @@ import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 import type { InvoicePayload } from "./invoice";
 import { companyPaths } from "./paths";
 import { insertAuditLog } from "./actor";
-import { promoteTempFile, removeIfExists, writeTempFileFor } from "./atomic-file";
+import { promoteTempFileExclusive, removeIfExists, writeTempFileFor } from "./atomic-file";
 import { formatAmount } from "./money";
 
 const RULE_ID = "DK-INVOICE-ISSUE-001";
@@ -758,13 +758,101 @@ export function renderIssuedInvoicePdf(db: Database, companyRoot: string, input:
   if (!invoice) return { ok: false, appliedRules: [RULE_ID], errors: [`invoice document ${input.invoiceDocumentId} does not exist or is not an issued invoice`] };
   if (!invoice.payload_json) return { ok: false, appliedRules: [RULE_ID], errors: [`invoice ${invoice.invoice_no ?? input.invoiceDocumentId} is missing payload_json`] };
 
-  const payload = JSON.parse(invoice.payload_json) as IssuedInvoicePdfPayload;
-  const invoiceNumber = compact(invoice.invoice_no ?? payload.invoiceNumber);
+  // A normal issued invoice has its sequential number in the immutable row.
+  // Do not parse the render payload merely to serve an existing PDF: the PDF
+  // remains independently verifiable evidence even if unrelated legacy JSON
+  // has become unreadable.
+  let payload: IssuedInvoicePdfPayload | undefined;
+  let invoiceNumber = compact(invoice.invoice_no);
+  if (!invoiceNumber) {
+    try {
+      payload = JSON.parse(invoice.payload_json) as IssuedInvoicePdfPayload;
+      invoiceNumber = compact(payload.invoiceNumber);
+    } catch {
+      return { ok: false, appliedRules: [RULE_ID], errors: [`invoice ${input.invoiceDocumentId} has invalid payload_json`] };
+    }
+  }
   if (!invoiceNumber) return { ok: false, appliedRules: [RULE_ID], errors: ["issued invoice is missing invoice number"] };
 
   const paths = companyPaths(companyRoot);
-  mkdirSync(paths.invoicesIssued, { recursive: true });
   const storedPath = join(paths.invoicesIssued, `${invoiceNumber}.pdf`);
+
+  // An issued PDF is accounting evidence, not a view derived from today's
+  // master data.  In particular, a later bank-account or payment-term change
+  // must never replace the bytes the customer received.  Look it up before
+  // building anything: the successful path below is deliberately read-only.
+  const existing = db.query(
+    `SELECT id, sha256_hash, stored_path, payload_json FROM documents
+       WHERE document_type = ? AND invoice_no = ?
+       ORDER BY id ASC`,
+  ).all(PDF_DOCUMENT_TYPE, invoiceNumber) as Array<{ id: number; sha256_hash: string; stored_path: string | null; payload_json: string | null }>;
+
+  if (existing.length > 1) {
+    return {
+      ok: false,
+      appliedRules: [RULE_ID],
+      errors: [`issued invoice PDF evidence for ${invoiceNumber} is ambiguous; refusing to render or replace it`],
+    };
+  }
+
+  if (existing.length === 1) {
+    const evidence = existing[0]!;
+    if (evidence.payload_json !== invoice.payload_json) {
+      return {
+        ok: false,
+        appliedRules: [RULE_ID],
+        errors: [`issued invoice PDF evidence for ${invoiceNumber} is not bound to the immutable invoice snapshot; refusing to repair it`],
+      };
+    }
+    // `stored_path` is evidence metadata too.  Accept only the canonical path
+    // this renderer owns, so a tampered legacy row cannot make a render read
+    // arbitrary bytes elsewhere on disk.
+    if (evidence.stored_path !== storedPath) {
+      return {
+        ok: false,
+        appliedRules: [RULE_ID],
+        errors: [`issued invoice PDF evidence for ${invoiceNumber} has a non-canonical stored path; refusing to repair it`],
+      };
+    }
+    try {
+      const existingBytes = readFileSync(storedPath);
+      const existingHash = sha256(existingBytes);
+      if (existingHash !== evidence.sha256_hash || !existingBytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+        return {
+          ok: false,
+          appliedRules: [RULE_ID],
+          errors: [`issued invoice PDF evidence for ${invoiceNumber} is missing or fails integrity verification; refusing to repair it`],
+        };
+      }
+      return {
+        ok: true,
+        renderDocumentId: evidence.id,
+        invoiceNumber,
+        storedPath,
+        sha256: evidence.sha256_hash,
+        appliedRules: [RULE_ID],
+        errors: [],
+      };
+    } catch {
+      return {
+        ok: false,
+        appliedRules: [RULE_ID],
+        errors: [`issued invoice PDF evidence for ${invoiceNumber} is missing or fails integrity verification; refusing to repair it`],
+      };
+    }
+  }
+
+  // Older ledgers can contain an issued invoice without a PDF evidence row.
+  // That is the only case in which this command may create one.  It publishes
+  // to an absent path exclusively and never replaces an existing file.
+  mkdirSync(paths.invoicesIssued, { recursive: true });
+  if (!payload) {
+    try {
+      payload = JSON.parse(invoice.payload_json) as IssuedInvoicePdfPayload;
+    } catch {
+      return { ok: false, appliedRules: [RULE_ID], errors: [`invoice ${invoiceNumber} has invalid payload_json`] };
+    }
+  }
   // Payment details from the payload win; otherwise pull them from the ledger.
   const currency = (payload.currency ?? "DKK").trim().toUpperCase();
   const payment = payload.payment ?? resolvePaymentDetails(db, currency);
@@ -779,35 +867,14 @@ export function renderIssuedInvoicePdf(db: Database, companyRoot: string, input:
 
   try {
     const result = db.transaction(() => {
-      const existing = db.query(
-        `SELECT id, sha256_hash, stored_path FROM documents
-         WHERE document_type = ? AND invoice_no = ?
-         ORDER BY id DESC LIMIT 1`
-      ).get(PDF_DOCUMENT_TYPE, invoiceNumber) as { id: number; sha256_hash: string; stored_path: string | null } | null;
+      const concurrentEvidence = db.query(
+        `SELECT id FROM documents WHERE document_type = ? AND invoice_no = ? ORDER BY id ASC`,
+      ).all(PDF_DOCUMENT_TYPE, invoiceNumber) as Array<{ id: number }>;
+      if (concurrentEvidence.length > 0) {
+        throw new Error(`issued invoice PDF evidence for ${invoiceNumber} appeared concurrently; retry to verify it`);
+      }
 
       tempPath = writeTempFileFor(storedPath, bytes);
-
-      if (existing && existing.sha256_hash === hash) {
-        return { renderDocumentId: existing.id };
-      }
-
-      // A prior PDF document row already exists (created at issue time or by an
-      // earlier render) but its bytes differ — e.g. payment details were added
-      // to the ledger after issuance. Update that row in place: the PDF
-      // `document_no` (`<invoice>-pdf`) is unique, so a fresh INSERT would hit
-      // the unique constraint.
-      if (existing) {
-        db.query(
-          `UPDATE documents SET sha256_hash = ?, stored_path = ? WHERE id = ?`,
-        ).run(hash, storedPath, existing.id);
-        insertAuditLog(db, {
-          eventType: "invoice_render_pdf",
-          entityType: "document",
-          entityId: existing.id,
-          message: `Re-rendered invoice PDF ${invoiceNumber}`,
-        });
-        return { renderDocumentId: existing.id };
-      }
 
       const inserted = db.query(
         `INSERT INTO documents (
@@ -856,9 +923,9 @@ export function renderIssuedInvoicePdf(db: Database, companyRoot: string, input:
       });
 
       return { renderDocumentId: inserted.id };
-    }, { immediate: true })();
+    }).immediate();
 
-    promoteTempFile(tempPath!, storedPath);
+    promoteTempFileExclusive(tempPath!, storedPath);
     return { ok: true, renderDocumentId: result.renderDocumentId, invoiceNumber, storedPath, sha256: hash, appliedRules: [RULE_ID], errors: [] };
   } catch (error) {
     if (tempPath) removeIfExists(tempPath);

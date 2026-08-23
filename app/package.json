@@ -2,33 +2,37 @@
   "name": "rentemester-cockpit",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "bun": "1.4.0"
+  },
   "type": "module",
   "description": "Interactive cockpit (control panel) for the Rentemester workspace API (#171).",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest --config vitest.config.ts"
+    "dev": "bun --hot scripts/serve.ts",
+    "build": "tsc --noEmit && bun run scripts/build.ts",
+    "preview": "bun run scripts/serve.ts --preview",
+    "test": "bun test --isolate",
+    "test:watch": "bun test --watch --isolate"
   },
   "dependencies": {
+    "better-auth": "1.7.1",
     "chart.js": "^4.5.1",
     "react": "^18.3.1",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.0"
+    "react-router-dom": "7.18.2"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "20.11.6",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/bun": "1.4.0",
+    "@types/node": "^22.0.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@types/node": "^22.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "happy-dom": "^15.11.7",
-    "typescript": "^5.7.3",
-    "vite": "^6.0.7",
-    "vitest": "^2.1.8"
+    "happy-dom": "20.11.6",
+    "typescript": "^5.7.3"
   }
 }

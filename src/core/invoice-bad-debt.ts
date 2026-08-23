@@ -386,7 +386,7 @@ export function writeOffInvoiceBadDebt(db: Database, input: WriteOffInvoiceBadDe
         claimOpenBalance: after.claimOpenBalance,
         appliedRules: [...new Set([RULE_ID, VAT_RULE_ID, ...(journal.appliedRules ?? [])])],
       };
-    }, { immediate: true })();
+    }).immediate();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

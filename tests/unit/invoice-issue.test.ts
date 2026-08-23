@@ -1,6 +1,6 @@
 // Tests: src/core/issued-invoices.ts
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs, companyPaths } from "../../src/core/paths";
@@ -11,6 +11,7 @@ import { seedAccounts } from "../../src/core/ledger";
 import { storeViesValidation } from "../../src/core/vies";
 import { readIssuedInvoicePdfText, renderIssuedInvoicePdf } from "../../src/core/invoice-pdf";
 import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
+import { addBankAccount } from "../../src/core/bank";
 
 function failingDocumentInsertDb(realDb: any) {
   return new Proxy(realDb, {
@@ -114,6 +115,46 @@ describe("invoice issue", () => {
     expect(rerender.sha256).toBe(result.pdfSha256);
 
     expect(() => db.run("UPDATE documents SET status = 'changed' WHERE id = ?", result.documentId!)).toThrow();
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("never regenerates or replaces issued PDF evidence after master-data changes or tampering", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-issued-pdf-immutable-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Kunde A/S", address: "Købervej 9" },
+      lines: [{ description: "Bogføring", quantity: 1, unitPriceExVat: 1000, lineTotalExVat: 1000 }],
+      totals: { netAmount: 1000, vatRate: 0.25, vatAmount: 250, grossAmount: 1250 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    const originalBytes = readFileSync(issued.pdfStoredPath!);
+    const before = db.query("SELECT sha256_hash, stored_path FROM documents WHERE id = ?").get(issued.pdfDocumentId!) as { sha256_hash: string; stored_path: string };
+
+    // Later payment master data must not change the customer-facing evidence.
+    expect(addBankAccount(db, { name: "New bank details", accountNo: "9999999999", currency: "DKK" }).ok).toBe(true);
+    const rerender = renderIssuedInvoicePdf(db, root, { invoiceDocumentId: issued.documentId! });
+    expect(rerender).toMatchObject({ ok: true, renderDocumentId: issued.pdfDocumentId, sha256: before.sha256_hash });
+    expect(readFileSync(issued.pdfStoredPath!)).toEqual(originalBytes);
+    expect(db.query("SELECT sha256_hash, stored_path FROM documents WHERE id = ?").get(issued.pdfDocumentId!)).toEqual(before);
+    expect(() => db.run("UPDATE documents SET sha256_hash = 'changed' WHERE id = ?", issued.pdfDocumentId!)).toThrow("immutable");
+
+    // A hash mismatch is evidence of tampering, not an instruction to silently
+    // regenerate a friendlier PDF from the current master data.
+    writeFileSync(issued.pdfStoredPath!, Buffer.from("tampered PDF bytes"));
+    const tampered = renderIssuedInvoicePdf(db, root, { invoiceDocumentId: issued.documentId! });
+    expect(tampered.ok).toBe(false);
+    expect(tampered.errors.join(" ")).toContain("refusing to repair");
+    expect(readFileSync(issued.pdfStoredPath!)).toEqual(Buffer.from("tampered PDF bytes"));
+    expect(db.query("SELECT sha256_hash, stored_path FROM documents WHERE id = ?").get(issued.pdfDocumentId!)).toEqual(before);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

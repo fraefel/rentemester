@@ -93,7 +93,7 @@ export async function handleCompanyCreate(
   const body = await readJsonBody(request);
   const name = requireString(body, "name");
   const payment = parseCreatePayment(body);
-  let result;
+  let result: ReturnType<typeof createCompany>;
   try {
     result = createCompany(config.workspaceRoot, {
       name,

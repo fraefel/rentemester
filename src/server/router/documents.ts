@@ -2,12 +2,14 @@
 
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
+import { recordHostedDocumentAccess } from "../document-access-audit";
 import {
   buildCompanyDocuments,
   buildDocumentBookingOptions,
   resolveCompanyDocumentFile,
 } from "../data";
 import { okResponse } from "./_shared";
+import { responseBodyFromBytes } from "../response-body";
 
 export function handleCompanyDocuments(config: ServerConfig, slug: string): Response {
   const data = buildCompanyDocuments(config.workspaceRoot, slug);
@@ -49,16 +51,21 @@ export function handleCompanyDocumentFile(
     throw ApiError.badRequest("document id must be a positive integer");
   }
   const file = resolveCompanyDocumentFile(config.workspaceRoot, slug, id);
-  // PDFs and images render safely inline; anything else (txt/json/unknown) is
-  // sent as a download so the browser never renders it inside the cockpit's
-  // own origin. `nosniff` stops the browser re-sniffing the body as HTML.
-  // `filename*` carries the (possibly non-ASCII) name per RFC 5987.
-  const inline =
-    file.mimeType === "application/pdf" || file.mimeType.startsWith("image/");
-  return new Response(Bun.file(file.path), {
+  recordHostedDocumentAccess(config, {
+    companySlug: slug,
+    resourceType: "document_file",
+    resourceId: id,
+    outcome: "served",
+    reasonCode: "authorized",
+  });
+  // Stored filenames never cross this boundary.  The resolver returns a
+  // verified fd-backed byte snapshot and a generated safe name; all source
+  // documents are attachments so untrusted document bytes cannot render in
+  // the cockpit origin.
+  return new Response(responseBodyFromBytes(file.bytes), {
     headers: {
       "content-type": file.mimeType,
-      "content-disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+      "content-disposition": `attachment; filename=\"${file.filename}\"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
       "x-content-type-options": "nosniff",
       "cache-control": "private, no-store",
     },

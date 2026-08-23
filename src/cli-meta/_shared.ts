@@ -48,4 +48,5 @@ export const SIDE_EFFECTING_COMMANDS = new Set([
   "company add",
   "company set-profile",
   "import contacts",
+  "local start",
 ]);

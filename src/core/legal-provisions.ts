@@ -103,9 +103,11 @@ function tokenize(xml: string): Token[] {
       const name = nameMatch ? nameMatch[1] : body;
       const attrs: Record<string, string> = {};
       const attrRe = /([^\s=]+)\s*=\s*("([^"]*)"|'([^']*)')/g;
-      let m: RegExpExecArray | null;
-      while ((m = attrRe.exec(body.slice(name.length))) !== null) {
+      const attributeText = body.slice(name.length);
+      let m = attrRe.exec(attributeText);
+      while (m !== null) {
         attrs[m[1]] = decodeEntities(m[3] ?? m[4] ?? "");
+        m = attrRe.exec(attributeText);
       }
       tokens.push({ type: "open", name, attrs, selfClosing });
       continue;

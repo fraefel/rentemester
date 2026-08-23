@@ -18,7 +18,7 @@ export function ErrorState({
         {message}
       </p>
       {onRetry && (
-        <button className="btn secondary" onClick={onRetry}>
+        <button className="btn secondary" type="button" onClick={onRetry}>
           Prøv igen
         </button>
       )}

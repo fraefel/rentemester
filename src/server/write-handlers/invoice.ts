@@ -1,6 +1,6 @@
 // Invoice write handlers (#213 slice 4, #412, #428, #429, #434, #440).
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   computeInvoiceAmounts,
@@ -18,6 +18,7 @@ import { resolveInvoiceMasterData } from "../../core/master-data";
 import {
   resumePublicEInvoicePeppolSubmission,
   transmitPublicEInvoicePeppol,
+  type SubmitPublicEInvoicePeppolResult,
 } from "../../core/public-einvoice";
 import {
   digisenseAccessPointIdentity,
@@ -39,11 +40,12 @@ import {
   companyRootForSlug,
   findWorkspaceCompany,
 } from "../../core/workspace";
-import { authMiddleware } from "../auth";
 import type { ServerConfig } from "../config";
+import { responseBodyFromBytes } from "../response-body";
 import { ApiError } from "../errors";
 import { withCockpitActor } from "../actor";
 import { withCompanyMutation } from "../mutations";
+import { assertLocalhostWriteAllowed } from "../mutations";
 import {
   okResponse,
   optionalBodyBoolean,
@@ -201,29 +203,9 @@ export async function handleInvoicePreview(
   request: Request,
   slug: string,
 ): Promise<Response> {
-  // Phase-1 localhost trust + the auth seam — kept identical to the write
-  // pipeline so the preview cannot be probed by a non-loopback client.
-  authMiddleware(request, config);
-  if (!config.authRequired) {
-    const hostHeader = (request.headers.get("host") ?? "").trim().toLowerCase();
-    const host = hostHeader.startsWith("[")
-      ? hostHeader.slice(
-          1,
-          hostHeader.indexOf("]") === -1 ? undefined : hostHeader.indexOf("]"),
-        )
-      : (hostHeader.split(":")[0] ?? "");
-    const isLoopback =
-      host === "127.0.0.1" ||
-      host === "localhost" ||
-      host === "::1" ||
-      host === "0:0:0:0:0:0:0:1";
-    if (!isLoopback) {
-      throw ApiError.unauthorized(
-        "Forhåndsvisning fra Cockpit er kun tilladt fra localhost, " +
-          "medmindre godkendelse er slået til.",
-      );
-    }
-  }
+  // Auth already ran in the router. Preview is read-only, but Phase-1
+  // localhost trust still applies to this potentially sensitive render path.
+  assertLocalhostWriteAllowed(request, config);
 
   if (!findWorkspaceCompany(config.workspaceRoot, slug)) {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
@@ -302,7 +284,7 @@ export async function handleInvoicePreview(
     // PDF bytes inline — same Content-Type / cache headers as the real
     // `GET .../invoices/:id/pdf` route so the cockpit can open the response
     // in a new tab via window.open()/URL.createObjectURL.
-    return new Response(preview.pdfBytes, {
+    return new Response(responseBodyFromBytes(preview.pdfBytes), {
       status: 200,
       headers: {
         "content-type": "application/pdf",
@@ -547,11 +529,15 @@ export async function handleInvoiceSendPublic(
     request,
     config,
     slug,
-    async (ctx, body) => {
+    async (ctx, body): Promise<SubmitPublicEInvoicePeppolResult> => {
       void ctx.actor;
       const invoiceDocumentId = requireBodyPositiveInt(body, "invoiceDocumentId");
       const resolved = invoiceDigisenseDependencies.resolveTransmitter(ctx.db, ctx.companyRoot);
-      if (!resolved.ok) return { ok: false, errors: resolved.errors };
+      if (!resolved.ok) return {
+        ok: false,
+        errors: resolved.errors,
+        appliedRules: [],
+      };
       const submitted = await transmitPublicEInvoicePeppol(
         ctx.db,
         { invoiceDocumentId, accessPoint: digisenseAccessPointIdentity(resolved.companyKey) },
@@ -560,6 +546,7 @@ export async function handleInvoiceSendPublic(
       return {
         ok: submitted.ok,
         errors: submitted.errors,
+        appliedRules: submitted.appliedRules,
         invoiceNumber: submitted.invoiceNumber,
         submissionReference: submitted.submissionReference,
         status: submitted.status,
@@ -599,11 +586,15 @@ export async function handleInvoiceSendPublicStatus(
     request,
     config,
     slug,
-    async (ctx, body) => {
+    async (ctx, body): Promise<SubmitPublicEInvoicePeppolResult> => {
       void ctx.actor;
       const invoiceDocumentId = requireBodyPositiveInt(body, "invoiceDocumentId");
       const resolved = invoiceDigisenseDependencies.resolveStatusChecker(ctx.db, ctx.companyRoot);
-      if (!resolved.ok) return { ok: false, errors: resolved.errors };
+      if (!resolved.ok) return {
+        ok: false,
+        errors: resolved.errors,
+        appliedRules: [],
+      };
       const submission = await resumePublicEInvoicePeppolSubmission(
         ctx.db,
         { invoiceDocumentId, accessPoint: digisenseAccessPointIdentity(resolved.companyKey) },

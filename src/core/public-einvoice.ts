@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
@@ -799,7 +800,7 @@ function recordSubmissionEvent(
   eventType: PeppolSubmissionEventRow["event_type"],
   args: { documentId?: string; status?: string; observedAt?: string; message?: string; publicUrl?: string | null } = {},
 ): void {
-  db.run(
+  runSql(db,
     `INSERT INTO peppol_submission_events
        (submission_id, event_type, document_id, status, observed_at, message, public_url)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -906,8 +907,9 @@ function deriveSubmissionIdentity(
   const endpointMatch = oioubl.xml?.match(
     new RegExp(`<cbc:EndpointID schemeID="${BUYER_ENDPOINT_SCHEME_ID}">([^<]+)</cbc:EndpointID>`),
   );
-  const receiver = endpointMatch
-    ? `${BUYER_ENDPOINT_SCHEME_ID}:${endpointMatch[1]}`
+  const endpointValue = endpointMatch?.[1];
+  const receiver = endpointValue
+    ? `${BUYER_ENDPOINT_SCHEME_ID}:${endpointValue}`
     : `${BUYER_ENDPOINT_SCHEME_ID}:unknown`;
   const idempotencyKey = createHash("sha256")
     .update(
@@ -974,7 +976,6 @@ export function submitPublicEInvoicePeppol(
     input.invoiceDocumentId,
     input.accessPoint,
   );
-
   // Idempotent fast-path: an identical submission already exists.
   const existing = db
     .query(
@@ -1002,7 +1003,7 @@ export function submitPublicEInvoicePeppol(
   });
   const envelopeSha256 = createHash("sha256").update(envelope).digest("hex");
 
-  db.run(
+  runSql(db,
     `INSERT INTO peppol_submissions
        (invoice_document_id, invoice_no, idempotency_key, submission_reference,
         access_point_id, receiver_endpoint_id, oioubl_sha256, envelope_sha256,
@@ -1192,7 +1193,7 @@ export async function resumePublicEInvoicePeppolSubmission(
   }
   if (!observed.ok) return { ok: false, invoiceNumber, submissionReference: row.submission_reference, idempotencyKey, status: "prepared", transmissionId: queuedDocumentId, appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [observed.error ?? "PEPPOL document-status failed"] };
   const observedAt = observed.observedAt ?? new Date().toISOString();
-  db.run(
+  runSql(db,
     `INSERT INTO peppol_submission_events
        (submission_id, event_type, document_id, status, observed_at, message, public_url)
      VALUES (?, 'status_observed', ?, ?, ?, ?, ?)`,
@@ -1258,19 +1259,20 @@ export async function transmitPublicEInvoicePeppol(
     input.invoiceDocumentId,
     input.accessPoint,
   );
+  const oioublSha256 = oioubl.sha256;
 
   // Reserve the stable key in SQLite before yielding to any external transport.
   // The append-only event tells a concurrent caller whether it is in progress,
   // retryable after a pre-acceptance failure, or already queued at Digisense.
   const reservation = db.transaction(() => {
     const reference = `PEPPOL-${invoiceNumber}-${idempotencyKey.slice(0, 12)}`;
-    const envelope = buildPeppolSubmissionEnvelope({ submissionReference: reference, idempotencyKey, invoiceNumber, accessPoint: input.accessPoint, receiverEndpointId: receiver, oioublSha256: oioubl.sha256, status: "prepared" });
-    db.run(
+    const envelope = buildPeppolSubmissionEnvelope({ submissionReference: reference, idempotencyKey, invoiceNumber, accessPoint: input.accessPoint, receiverEndpointId: receiver, oioublSha256, status: "prepared" });
+    runSql(db,
       `INSERT OR IGNORE INTO peppol_submissions
          (invoice_document_id, invoice_no, idempotency_key, submission_reference, access_point_id, receiver_endpoint_id, oioubl_sha256, envelope_sha256, envelope_xml, status, transmission_id, acknowledged_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', NULL, NULL)`,
       input.invoiceDocumentId, invoiceNumber, idempotencyKey, reference, input.accessPoint.accessPointId.trim(), receiver,
-      oioubl.sha256, createHash("sha256").update(envelope).digest("hex"), envelope,
+      oioublSha256, createHash("sha256").update(envelope).digest("hex"), envelope,
     );
     const row = db.query(
       `SELECT id, invoice_document_id, invoice_no, idempotency_key, submission_reference, access_point_id, receiver_endpoint_id, oioubl_sha256, envelope_sha256, envelope_xml, status, transmission_id, acknowledged_at FROM peppol_submissions WHERE idempotency_key = ?`,
@@ -1291,7 +1293,7 @@ export async function transmitPublicEInvoicePeppol(
     // remote id, so it is safe to create a new attempt rather than deadlock it.
     recordSubmissionEvent(db, row.id, "delivery_reserved", { message: "Reserved deterministic PEPPOL delivery attempt" });
     return { row, action: "deliver" as const };
-  }, { immediate: true })();
+  }).immediate();
   if (reservation.action === "acknowledged") return { ...rowToSubmissionResult(db, reservation.row, invoiceNumber, true), status: "acknowledged", transmissionId: reservation.documentId ?? undefined };
   if (reservation.action === "accepted") return { ok: true, invoiceNumber, submissionReference: reservation.row.submission_reference, idempotencyKey, status: isTerminalAcceptedFailure(reservation.acceptedStatus) ? "failed" : "prepared", duplicate: true, transmissionId: reservation.documentId, appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [] };
   if (reservation.action === "uncertain") return { ok: true, invoiceNumber, submissionReference: reservation.row.submission_reference, idempotencyKey, status: "uncertain", duplicate: true, appliedRules: [PEPPOL_SUBMIT_RULE_ID], errors: [] };

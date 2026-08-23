@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { DocumentBookExpenseModal } from "./DocumentBookExpenseModal";
 import { mockFetch } from "../test/fixtures";

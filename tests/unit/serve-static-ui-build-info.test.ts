@@ -24,7 +24,7 @@ describe("describeStaticUiBuild (EJER-5)", () => {
       expect(info.staticRoot).toBe(root);
       expect(info.builtAt).toBe("2026-05-23T07:25:00.000Z");
       // The operator-facing hint explains how to refresh a stale build.
-      expect(info.rebuildHint).toContain("cd app && bun run build");
+      expect(info.rebuildHint).toContain("bun run cockpit:build");
     }
 
     rmSync(root, { recursive: true, force: true });
@@ -37,7 +37,7 @@ describe("describeStaticUiBuild (EJER-5)", () => {
     expect(info.present).toBe(false);
     if (!info.present) {
       expect(info.staticRoot).toBe(root);
-      expect(info.hint).toContain("cd app && bun run build");
+      expect(info.hint).toContain("bun run cockpit:build");
     }
 
     rmSync(root, { recursive: true, force: true });
@@ -48,7 +48,7 @@ describe("describeStaticUiBuild (EJER-5)", () => {
     expect(info.present).toBe(false);
     if (!info.present) {
       expect(info.staticRoot).toBeNull();
-      expect(info.hint).toContain("cd app && bun run build");
+      expect(info.hint).toContain("bun run cockpit:build");
     }
   });
 });

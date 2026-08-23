@@ -16,11 +16,20 @@ export class ApiError extends Error {
   }
 }
 
+/** Raised once for an expired hosted browser session.  The app shell listens
+ * for this event so an old view is never left visible after a 401. */
+function signalAuthExpired(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("rentemester:auth-expired"));
+  }
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       ...init,
+      credentials: "same-origin",
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
   } catch {
@@ -35,6 +44,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     body = await res.json();
   } catch {
+    if (res.status === 401) {
+      signalAuthExpired();
+      throw new ApiError("unauthorized", "Din session er udløbet. Log ind igen.", 401);
+    }
     throw new ApiError("internal", "Serveren gav et ugyldigt svar.", res.status);
   }
 
@@ -49,9 +62,14 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
       : [];
     const code = typeof env.code === "string" ? env.code : "internal";
     const message = errors[0] ?? "Ukendt serverfejl.";
-    throw new ApiError(code, message, res.status);
+    if (res.status === 401 || code === "unauthorized") signalAuthExpired();
+    throw new ApiError(res.status === 401 ? "unauthorized" : code, message, res.status);
   }
   if (!res.ok) {
+    if (res.status === 401) {
+      signalAuthExpired();
+      throw new ApiError("unauthorized", "Din session er udløbet. Log ind igen.", 401);
+    }
     throw new ApiError("internal", `HTTP ${res.status}`, res.status);
   }
   return body as T;

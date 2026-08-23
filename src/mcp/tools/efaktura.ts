@@ -124,7 +124,9 @@ export function registerEfakturaTools(server: McpServer): void {
       const config = loadDigisenseSecretConfig(args.company);
       if (!config) return errorEnvelope("Digisense is not configured");
       const result = await onboardDigisenseCompany(db, args.company, createDigisenseClient(config), actor);
-      return result.ok ? successEnvelope({ companyKey: result.companyKey, status: result.status }) : errorEnvelope(result.errors, { status: result.status });
+      return result.ok
+        ? successEnvelope({ companyKey: result.companyKey, status: result.status })
+        : errorEnvelope(result.errors);
     }),
   );
   server.registerTool(

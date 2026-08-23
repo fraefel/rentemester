@@ -201,7 +201,7 @@ export function setBudget(db: Database, input: SetBudgetInput): SetBudgetResult 
       createdByProgram: input.createdByProgram,
     });
     return row;
-  }, { immediate: true })();
+  }).immediate();
 
   return {
     ok: true,

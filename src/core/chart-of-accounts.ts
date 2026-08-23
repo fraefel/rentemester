@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import { insertAuditLog, type ResolveActorInput } from "./actor";
 import { trimToNull } from "./ean";
@@ -151,7 +152,7 @@ export function createAccount(
         duplicate = true;
         return;
       }
-      db.run(
+      runSql(db,
         `INSERT INTO accounts (account_no, name, type, normal_balance, default_vat_code, allow_direct_posting)
          VALUES (?, ?, ?, ?, ?, ?)`,
         [accountNo, name, type, normalBalance, defaultVatCode, allowDirectPosting],
@@ -164,7 +165,7 @@ export function createAccount(
         createdBy: options.createdBy,
         createdByProgram: options.createdByProgram,
       });
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     // A separate connection can still win between process scheduling and
     // BEGIN IMMEDIATE. Keep that database-level safeguard, but translate it

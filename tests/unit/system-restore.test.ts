@@ -25,6 +25,12 @@ import {
   MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
   BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM,
   BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME,
+  DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM,
+  DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME,
+  ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM,
+  ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME,
+  ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM,
+  ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME,
   CURRENT_SCHEMA_VERSION,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
@@ -149,6 +155,24 @@ describe("system restore", () => {
         id: 6,
         name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME,
         checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
+      expect.objectContaining({
+        id: 7,
+        name: DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME,
+        checksum: DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
+      expect.objectContaining({
+        id: 8,
+        name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME,
+        checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
+      expect.objectContaining({
+        id: 9,
+        name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME,
+        checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM,
         applied_by_version: expect.any(String),
       }),
     ]);

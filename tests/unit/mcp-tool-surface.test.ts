@@ -295,9 +295,10 @@ function countToolRows(content: string): number {
 function extractToolNames(content: string): string[] {
   const names = new Set<string>();
   const re = /^\s*\|\s*`([a-z][a-z0-9_]*)`\s*\|/gm;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(content)) !== null) {
+  let match = re.exec(content);
+  while (match !== null) {
     names.add(match[1]!);
+    match = re.exec(content);
   }
   return [...names];
 }

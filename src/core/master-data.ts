@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import type { InvoicePayload } from "./invoice";
 import type { DocumentMetadata } from "./documents";
@@ -75,7 +76,7 @@ function normalizeCurrency(value: string | null | undefined) {
   return (trimToNull(value) ?? "DKK").toUpperCase();
 }
 
-export function createCustomer(db: Database, input: CreateCustomerInput) {
+export function createCustomer(db: Database, input: Partial<CreateCustomerInput>) {
   const name = trimToNull(input.name);
   if (!name) return { ok: false, errors: ["name is required"] };
   const vatOrCvr = trimToNull(input.vatOrCvr);
@@ -130,7 +131,7 @@ export function createCustomer(db: Database, input: CreateCustomerInput) {
     });
 
     return row;
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, customerId: inserted.id, appliedRules: ["DK-MASTER-DATA-CUSTOMER-001"], errors: [] };
 }
@@ -167,7 +168,7 @@ export function listCustomers(db: Database, options: { archived?: boolean } = {}
   };
 }
 
-export function createVendor(db: Database, input: CreateVendorInput) {
+export function createVendor(db: Database, input: Partial<CreateVendorInput>) {
   const name = trimToNull(input.name);
   if (!name) return { ok: false, errors: ["name is required"] };
   const identity = input.countryCode !== undefined || input.identifierKind !== undefined
@@ -209,7 +210,7 @@ export function createVendor(db: Database, input: CreateVendorInput) {
     });
 
     return row;
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, vendorId: inserted.id, appliedRules: ["DK-MASTER-DATA-VENDOR-001"], errors: [] };
 }
@@ -336,7 +337,7 @@ export function updateCustomer(
   const nextNotes = input.notes !== undefined ? trimToNull(input.notes) : existing.notes;
 
   db.transaction(() => {
-    db.run(
+    runSql(db,
       `UPDATE customers
          SET name = ?, address = ?, vat_or_cvr = ?, email = ?, phone = ?,
              website = ?, ean_number = ?, payment_terms_days = ?,
@@ -368,7 +369,7 @@ export function updateCustomer(
       entityId: id,
       message: `Updated customer ${nextName}`,
     });
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, customerId: id, appliedRules: ["DK-MASTER-DATA-CUSTOMER-001"], errors: [] };
 }
@@ -413,7 +414,9 @@ function findOpenIssuedInvoicesForCustomer(
     if (!row.payload_json) continue;
     let payload: { buyer?: { name?: string; vatOrCvr?: string } } | null = null;
     try {
-      payload = JSON.parse(row.payload_json) as typeof payload;
+      payload = JSON.parse(row.payload_json) as {
+        buyer?: { name?: string; vatOrCvr?: string };
+      };
     } catch {
       continue;
     }
@@ -489,14 +492,14 @@ export function deleteCustomer(db: Database, id: number) {
   }
 
   db.transaction(() => {
-    db.run(`DELETE FROM customers WHERE id = ?`, id);
+    runSql(db, `DELETE FROM customers WHERE id = ?`, id);
     insertAuditLog(db, {
       eventType: "customer_delete",
       entityType: "customer",
       entityId: id,
       message: `Deleted customer ${existing.name}`,
     });
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, customerId: id, errors: [] };
 }
@@ -538,14 +541,14 @@ export function deleteVendor(db: Database, id: number) {
   }
 
   db.transaction(() => {
-    db.run(`DELETE FROM vendors WHERE id = ?`, id);
+    runSql(db, `DELETE FROM vendors WHERE id = ?`, id);
     insertAuditLog(db, {
       eventType: "vendor_delete",
       entityType: "vendor",
       entityId: id,
       message: `Deleted vendor ${existing.name}`,
     });
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, vendorId: id, errors: [] };
 }
@@ -586,7 +589,7 @@ export function updateVendor(
   const resolvedVatOrCvr = identity?.ok ? identity.identifier : nextVatOrCvr;
 
   db.transaction(() => {
-    db.run(
+    runSql(db,
       `UPDATE vendors
          SET name = ?, address = ?, vat_or_cvr = ?, country_code = ?, identifier_kind = ?, identity_status = ?, email = ?, phone = ?,
              website = ?, default_expense_account = ?, default_vat_treatment = ?,
@@ -620,7 +623,7 @@ export function updateVendor(
       entityId: id,
       message: `Updated vendor ${nextName}`,
     });
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, vendorId: id, appliedRules: ["DK-MASTER-DATA-VENDOR-001"], errors: [] };
 }
@@ -658,7 +661,11 @@ function companyDefaultPaymentTermsDays(db: Database): number | null {
   }
 }
 
-export function resolveInvoiceMasterData(db: Database, payload: InvoicePayload, options: { customerId?: number | null }) {
+export function resolveInvoiceMasterData(
+  db: Database,
+  payload: InvoicePayload,
+  options: { customerId?: number | null },
+): { ok: true; payload: InvoicePayload; notes?: string[] } | { ok: false; errors: string[] } {
   if (!options.customerId) return { ok: true, payload };
   const customer = getCustomerById(db, options.customerId);
   if (!customer || customer.archived) return { ok: false, errors: [`customer ${options.customerId} does not exist`] };
@@ -730,7 +737,7 @@ export type CvrAutofillResult<T> =
 export async function customerInputFromCvr(
   db: Database,
   cvrInput: string,
-  base: CreateCustomerInput,
+  base: Partial<CreateCustomerInput>,
   options: CvrLookupOptions = {},
 ): Promise<CvrAutofillResult<CreateCustomerInput>> {
   const lookup = await lookupCvrCompany(db, cvrInput, options);
@@ -758,7 +765,7 @@ export async function customerInputFromCvr(
 export async function vendorInputFromCvr(
   db: Database,
   cvrInput: string,
-  base: CreateVendorInput,
+  base: Partial<CreateVendorInput>,
   options: CvrLookupOptions = {},
 ): Promise<CvrAutofillResult<CreateVendorInput>> {
   const lookup = await lookupCvrCompany(db, cvrInput, options);
@@ -779,7 +786,11 @@ export async function vendorInputFromCvr(
   };
 }
 
-export function resolveDocumentMasterData(db: Database, metadata: DocumentMetadata, options: { vendorId?: number | null }) {
+export function resolveDocumentMasterData(
+  db: Database,
+  metadata: DocumentMetadata,
+  options: { vendorId?: number | null },
+): { ok: true; metadata: DocumentMetadata } | { ok: false; errors: string[] } {
   if (!options.vendorId) return { ok: true, metadata };
   const vendor = getVendorById(db, options.vendorId);
   if (!vendor || vendor.archived) return { ok: false, errors: [`vendor ${options.vendorId} does not exist`] };

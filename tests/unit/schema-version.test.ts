@@ -20,6 +20,12 @@ import {
   MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
   BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM,
   BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME,
+  DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM,
+  DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME,
+  ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM,
+  ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME,
+  ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM,
+  ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -112,7 +118,41 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 7, name: DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME, checksum: DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM }),
     ]);
+    db.close();
+  });
+
+  test("makes issued invoice PDF evidence append-only and reasserts its guards", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    db.run("INSERT INTO documents (source, sha256_hash, document_type, invoice_no) VALUES ('test', 'pdf-evidence', 'issued_invoice_pdf', '2026-0001')");
+    const row = db.query("SELECT id FROM documents WHERE document_type = 'issued_invoice_pdf'").get() as { id: number };
+    expect(() => db.run("UPDATE documents SET sha256_hash = 'changed' WHERE id = ?", row.id)).toThrow("immutable");
+    expect(() => db.run("DELETE FROM documents WHERE id = ?", row.id)).toThrow("immutable");
+    db.exec("DROP TRIGGER issued_invoice_pdf_no_update; DROP TRIGGER issued_invoice_pdf_no_delete;");
+    migrate(db);
+    expect(() => db.run("UPDATE documents SET sha256_hash = 'changed' WHERE id = ?", row.id)).toThrow("immutable");
+    db.close();
+  });
+
+  test("reasserts accounting-draft append-only guards on every open", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    db.run(
+      `INSERT INTO accounting_draft_events
+       (id,draft_id,version,event_type,payload_hash,canonical_payload,actor_id,actor_program,event_hash,created_at)
+       VALUES (1,'synthetic-draft',1,'created',?,?,'agent:test','unit-test',?,'2026-08-23T00:00:00.000Z')`,
+      "a".repeat(64),
+      "{}",
+      "b".repeat(64),
+    );
+    db.exec("DROP TRIGGER accounting_draft_events_no_update; DROP TRIGGER accounting_draft_events_no_delete;");
+    migrate(db);
+    expect(() => db.run("UPDATE accounting_draft_events SET actor_id = 'agent:changed' WHERE id = 1")).toThrow("append-only");
+    expect(() => db.run("DELETE FROM accounting_draft_events WHERE id = 1")).toThrow("append-only");
     db.close();
   });
 

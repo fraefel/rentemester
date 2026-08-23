@@ -428,7 +428,7 @@ export function registerAccrual(
         periodAmount: schedule[0]?.amount,
         appliedRules: [...new Set([ACCRUAL_RULE_ID, ...(journal.appliedRules ?? [])])],
       };
-    }, { immediate: true })();
+    }).immediate();
     return result;
   } catch (error) {
     const parsed = parseTransactionError(error);
@@ -613,7 +613,7 @@ export function recognizeAccrualPeriod(
         fullyRecognized: Number(recognizedPeriods.n) === schedule.length,
         appliedRules: [...new Set([ACCRUAL_RULE_ID, ...(journal.appliedRules ?? [])])],
       };
-    }, { immediate: true })();
+    }).immediate();
     return result;
   } catch (error) {
     const parsed = parseTransactionError(error);

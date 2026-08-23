@@ -139,7 +139,7 @@ export function resolveInvoiceReceivableAccount(
   }
   if (
     currency !== "DKK" &&
-    (!Number.isFinite(expectedFxRate) || !(expectedFxRate > 0) ||
+    (expectedFxRate == null || !Number.isFinite(expectedFxRate) || !(expectedFxRate > 0) ||
       Math.abs(Number(booking.fx_rate_to_dkk ?? 0) - expectedFxRate) > 0.0000005)
   ) {
     return { ok: false, error: `invoice document ${input.invoiceDocumentId} booking ${booking.id} FX rate metadata does not match the invoice` };

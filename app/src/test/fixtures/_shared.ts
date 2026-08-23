@@ -1,6 +1,7 @@
 // Shared constants + the `mockFetch` helper used by every fixture file.
 
-import { vi } from "vitest";
+import { vi } from "bun:test";
+import { stubGlobal } from "../globals";
 
 export const MONTHS = [
   "jan", "feb", "mar", "apr", "maj", "jun",
@@ -44,7 +45,7 @@ type RouteMap = Record<string, unknown>;
  * the route fail with the cockpit error envelope.
  */
 export function mockFetch(routes: RouteMap) {
-  vi.stubGlobal(
+  stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -56,6 +57,12 @@ export function mockFetch(routes: RouteMap) {
           return m === method && path === p;
         }) ?? `${method} ${path}`;
       const payload = routes[key];
+      if (payload === undefined && method === "GET" && path === "/api/health") {
+        return jsonResponse({
+          ok: true, service: "rentemester-cockpit", workspace: "/test", authRequired: false,
+          deploymentProfile: "local", build: {}, provenance: {}, routes: [],
+        });
+      }
       if (payload === undefined) {
         throw new Error(`Unexpected fetch request: ${method} ${path}`);
       }

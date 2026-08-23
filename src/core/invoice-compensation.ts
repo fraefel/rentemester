@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { getInvoiceStatus } from "./invoice-payments";
@@ -307,10 +308,10 @@ export function postInvoiceLateCompensationToLedger(db: Database, input: PostInv
         return { ...journal, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, compensationAmountDkk: amount, appliedRules: [...new Set([...(journal.appliedRules ?? []), BOOKKEEPING_RULE_ID])] };
       }
 
-      db.run(
+      runSql(db,
         `INSERT INTO invoice_compensation_postings (compensation_claim_id, journal_entry_id) VALUES (?, ?)`,
         claim.id,
-        journal.entryId,
+        journal.entryId ?? null,
       );
 
       insertAuditLog(db, {

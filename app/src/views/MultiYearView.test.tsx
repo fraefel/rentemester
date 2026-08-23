@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { screen, within } from "@testing-library/react";
 import { MultiYearView } from "./MultiYearView";
 import { renderAt } from "../test/render";

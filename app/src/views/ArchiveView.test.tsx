@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { render, screen, within } from "@testing-library/react";
 import { ArchiveView } from "./ArchiveView";
 import { ArchivedBanner } from "../components/ArchivedBanner";

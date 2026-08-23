@@ -21,7 +21,8 @@ betragtes som en Digisense-godkendelse.
 1. Vælg næste SemVer efter `docs/versioning.md`.
 2. Opdatér `package.json` og `app/package.json` til samme version.
 3. Flyt punkter fra `[Unreleased]` til en dateret sektion i `CHANGELOG.md`.
-4. Kør `bun run version:check`, alle tests, smoke og builds.
+4. Kør `bun run version:check`, `bun run typecheck:runtime`, alle tests, smoke
+   og builds.
 5. Merge ændringen til `main`. Opret ikke Git-tag manuelt.
 
 ## 2. Byg release candidate
@@ -34,11 +35,18 @@ Workflowet:
 
 - validerer version/commit og bruger commit-tidspunktet som reproducerbar
   buildtid;
-- kører root-tests, smoke og cockpit-test/build; `www` har sit eget uafhængige
+- kører strict runtime-typecheck, root-tests, smoke og cockpit-test/build; `www` har sit eget uafhængige
   workflow og kan hverken blokere eller ændre produktimaget;
+- bygger to rene, timestamp-normaliserede OCI-exports og kræver identisk
+  manifestdigest og arkiv-SHA-256;
+- kører containeren non-root mod en ny persistent volume, kræver grøn
+  readiness og verificerer en idempotent genstart;
 - bygger ét `linux/amd64` Docker-image og pusher kun kandidat-tagget;
 - attesterer image-proveniens, før evidensartefaktet publiceres;
-- uploader `release-manifest.json`, dets SHA-256 og approval-schemaet.
+- publicerer en BuildKit-genereret SPDX-SBOM som OCI-attestation bundet til
+  kandidatens immutable digest;
+- udtrækker den samme SBOM til `sbom.spdx.json`, uploader den med egen SHA-256
+  og binder checksummen ind i release-manifestet sammen med approval-schemaet.
 
 Manifestet binder version, commit, OCI-digest, schema-checksum og regelsæt-digest
 sammen med GitHub run-id og run-attempt. Digisense skal hente
@@ -68,12 +76,12 @@ udføre de schema-migrationer, som kandidaten indeholder. Før afprøvning mod e
 kopi af eksisterende data skal den aktuelle release derfor have produceret en
 signeret backup, som også er restore-testet.
 
-Compose-eksemplet bruger nye Docker-volumes og gør cockpittet tilgængeligt uden
-login på hostens loopback (`127.0.0.1`). Det må ikke eksponeres på et LAN eller
-internettet. Imaget selv starter fail-closed med token-auth; en
-netværksdeployment kræver en autentificerende reverse proxy eller en fremtidig
-cockpit-loginløsning. Indlæsning af eksisterende data i kandidatens volume skal
-være en bevidst operation efter backupkontrollen ovenfor.
+Compose-eksemplet bruger nye Docker-volumes og kan køre den eksplicitte lokale
+profil uden login på hostens loopback (`127.0.0.1`). Den profil må ikke
+eksponeres på LAN eller internet. En hosted deployment bruger Better Auth,
+individuelle brugere, MFA og virksomhedsspecifik RBAC og kræver samtidig den
+dokumenterede TLS/reverse-proxy-kontrakt. Indlæsning af eksisterende data i
+kandidatens volume skal være en bevidst operation efter backupkontrollen ovenfor.
 
 ## 3. Indhent Digisense-godkendelse
 
@@ -106,6 +114,10 @@ Release-manifest, checksum og Digisense-approval vedhæftes GitHub-releasen.
 Workflowet afviser et eksisterende Git-tag/GitHub release eller et versioneret
 image med en anden digest. Release-workflows bruger commit-pinnede actions; en
 opgradering af en action er derfor en eksplicit, reviewbar kodeændring.
+
+Promotion bygger ikke igen. Den sætter kun et læsbart versionstag på samme
+digest, så den digest-bundne SPDX-SBOM fra kandidaten bevarer præcis sit
+oprindelige scope.
 
 Git- og OCI-tags er navne, som en privilegeret administrator teknisk kan ændre
 eller slette. Releaseprocessens preflight og publisher-politik forbyder det, men

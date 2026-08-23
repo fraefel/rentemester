@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { screen, within } from "@testing-library/react";
 import { RetentionView } from "./RetentionView";
 import { renderAt } from "../test/render";

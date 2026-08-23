@@ -237,7 +237,7 @@ export function DocumentBookExpenseModal({
                     </p>
                   )}
                   {doc.purchaseVatLines && doc.purchaseVatLines.length > 0 && (
-                    <div className="muted" aria-label="Momsfordeling">
+                    <div className="muted" role="group" aria-label="Momsfordeling">
                       Momsfordeling: {doc.purchaseVatLines.map((line) => `${line.classification}: ${formatKroner(line.netAmount, currency)} + ${formatKroner(line.vatAmount ?? 0, currency)}`).join(" · ")}
                     </div>
                   )}

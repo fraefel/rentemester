@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 /** Scheduler-facing recurring-invoice runner. It owns no clock or credentials. */
 import type { Database } from "bun:sqlite";
 import { isValidIsoDate } from "./dates";
@@ -134,7 +135,7 @@ function appendDeliveryEvent(
   message: string,
   providerId?: string,
 ): void {
-  db.run(
+  runSql(db,
     `INSERT INTO recurring_invoice_delivery_events
        (generation_id, channel, event_type, provider_id, message)
      VALUES (?, ?, ?, ?, ?)`,
@@ -293,7 +294,7 @@ export async function runRecurringInvoices(db: Database, input: RunRecurringInvo
     const reserved = db.transaction(() => db.query(
       `INSERT INTO recurring_invoice_delivery_events (generation_id, channel, event_type)
        VALUES (?, ?, 'attempted') ON CONFLICT DO NOTHING`,
-    ).run(generation.id, generation.delivery_channel).changes > 0, { immediate: true })();
+    ).run(generation.id, generation.delivery_channel).changes > 0).immediate();
     if (!reserved) continue;
     attempted += 1;
     try {

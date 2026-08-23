@@ -7,7 +7,7 @@
 // `modal-*` classes used in `className` literals and asserts each one is
 // actually defined as a selector in styles.css, so an undefined modal class
 // can never silently ship again.
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 

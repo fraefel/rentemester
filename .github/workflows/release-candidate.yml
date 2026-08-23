@@ -23,7 +23,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BUN_VERSION: 1.3.14
+  BUN_VERSION: 1.4.0
+  BUN_BASE_IMAGE_DIGEST: sha256:e0ee68d16ccb9927bf02aa7dd8fd4bf3369ee6d46da04faa72b05ce8bfd135f6
   REGISTRY_IMAGE: ghcr.io/mikkelkrogsholm/rentemester
 
 jobs:
@@ -79,12 +80,27 @@ jobs:
           echo "source_date_epoch=$source_date_epoch" >> "$GITHUB_OUTPUT"
           echo "candidate_tag=$candidate_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Install root dependencies
+      - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install cockpit dependencies
-        working-directory: app
-        run: bun install --frozen-lockfile
+      - name: Typecheck runtime and release scripts
+        run: bun run typecheck:runtime
+
+      - name: Lint TypeScript and React sources
+        run: bun run lint
+
+      - name: Refuse vulnerable dependencies
+        run: bun run supply-chain:audit
+
+      - name: Verify production dependency licenses
+        run: bun run supply-chain:licenses
+
+      - name: Create lockfile-bound supply-chain evidence
+        id: supply_chain
+        run: |
+          bun run supply-chain:evidence > supply-chain-evidence.json
+          sha256sum supply-chain-evidence.json > supply-chain-evidence.json.sha256
+          echo "sha256=sha256:$(cut -d " " -f 1 supply-chain-evidence.json.sha256)" >> "$GITHUB_OUTPUT"
 
       - name: Test product runtime
         run: bun test
@@ -93,7 +109,7 @@ jobs:
         run: bun run smoke
 
       - name: Test and build cockpit
-        run: bun run --cwd app test && bun run --cwd app build
+        run: bun run cockpit:test && bun run cockpit:build
 
       - name: Login to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -104,6 +120,28 @@ jobs:
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+
+      - name: Verify reproducible OCI export
+        env:
+          RELEASE_VERSION: ${{ steps.identity.outputs.version }}
+          RELEASE_GIT_COMMIT: ${{ steps.identity.outputs.commit }}
+          RELEASE_BUILT_AT: ${{ steps.identity.outputs.built_at }}
+          SOURCE_DATE_EPOCH: ${{ steps.identity.outputs.source_date_epoch }}
+          RENTEMESTER_BUN_VERSION: ${{ env.BUN_VERSION }}
+          RENTEMESTER_BASE_IMAGE_DIGEST: ${{ env.BUN_BASE_IMAGE_DIGEST }}
+        run: bun run container:reproducibility
+
+      - name: Verify container readiness and persisted restart
+        env:
+          RELEASE_VERSION: ${{ steps.identity.outputs.version }}
+          RELEASE_GIT_COMMIT: ${{ steps.identity.outputs.commit }}
+          RELEASE_BUILT_AT: ${{ steps.identity.outputs.built_at }}
+          SOURCE_DATE_EPOCH: ${{ steps.identity.outputs.source_date_epoch }}
+          RENTEMESTER_BUN_VERSION: ${{ env.BUN_VERSION }}
+          RENTEMESTER_BASE_IMAGE_DIGEST: ${{ env.BUN_BASE_IMAGE_DIGEST }}
+        run: bun run container:test
 
       - name: Refuse to overwrite a candidate tag
         env:
@@ -125,13 +163,17 @@ jobs:
           context: .
           file: Dockerfile
           platforms: linux/amd64
-          push: true
           tags: ${{ env.REGISTRY_IMAGE }}:${{ steps.identity.outputs.candidate_tag }}
+          outputs: type=registry,rewrite-timestamp=true
           build-args: |
             RENTEMESTER_VERSION=${{ steps.identity.outputs.version }}
             RENTEMESTER_GIT_COMMIT=${{ steps.identity.outputs.commit }}
             RENTEMESTER_BUILT_AT=${{ steps.identity.outputs.built_at }}
+            RENTEMESTER_BUN_VERSION=${{ env.BUN_VERSION }}
+            RENTEMESTER_BASE_IMAGE_DIGEST=${{ env.BUN_BASE_IMAGE_DIGEST }}
             SOURCE_DATE_EPOCH=${{ steps.identity.outputs.source_date_epoch }}
+          # BuildKit publishes an SPDX SBOM attestation bound to this OCI digest.
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -140,12 +182,18 @@ jobs:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           EXPECTED_VERSION: ${{ steps.identity.outputs.version }}
           EXPECTED_COMMIT: ${{ steps.identity.outputs.commit }}
+          EXPECTED_BUN_VERSION: ${{ env.BUN_VERSION }}
+          EXPECTED_BASE_IMAGE_DIGEST: ${{ env.BUN_BASE_IMAGE_DIGEST }}
         run: |
           set -euo pipefail
           image="$REGISTRY_IMAGE@$IMAGE_DIGEST"
           docker pull "$image"
           docker image inspect "$image" --format '{{json .Config.Env}}' \
             | jq -e 'index("RENTEMESTER_APP_AUTH=required") != null'
+          docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.base.digest"}}' \
+            | grep -Fx "$EXPECTED_BASE_IMAGE_DIGEST"
+          docker image inspect "$image" --format '{{index .Config.Labels "org.rentemester.runtime.bun.version"}}' \
+            | grep -Fx "$EXPECTED_BUN_VERSION"
           docker run --rm --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             --tmpfs /workspace:rw,nosuid,size=64m \
@@ -153,15 +201,30 @@ jobs:
             -e RENTEMESTER_APP_AUTH=off \
             -e EXPECTED_VERSION \
             -e EXPECTED_COMMIT \
+            -e EXPECTED_BUN_VERSION \
+            -e EXPECTED_BASE_IMAGE_DIGEST \
             --entrypoint sh \
             "$image" \
             -c 'set -eu
                 test "$(id -u)" = 1000
+                test "$(bun --version)" = "$EXPECTED_BUN_VERSION"
                 bun run src/cli.ts --version | grep -F "rentemester $EXPECTED_VERSION commit $EXPECTED_COMMIT"
                 bun run src/cli.ts serve --workspace /workspace --host 127.0.0.1 --port 4319 >/tmp/server.log 2>&1 &
                 server_pid=$!
                 trap "kill $server_pid 2>/dev/null || true" EXIT
-                bun -e '\''let health; for(let i=0;i<100;i++){try{const response=await fetch("http://127.0.0.1:4319/api/health"); if(response.ok){health=await response.json(); break}}catch{} await Bun.sleep(100)} if(!health) throw new Error("server did not become healthy"); if(health.build.version!==process.env.EXPECTED_VERSION||health.build.gitCommit!==process.env.EXPECTED_COMMIT) throw new Error("wrong build identity"); const html=await fetch("http://127.0.0.1:4319/").then(r=>{if(!r.ok) throw new Error(`cockpit index ${r.status}`); return r.text()}); const asset=/src="([^"]+\.js)"/.exec(html)?.[1]; if(!asset) throw new Error("cockpit asset missing"); const js=await fetch(`http://127.0.0.1:4319${asset}`).then(r=>r.text()); if(!js.includes(process.env.EXPECTED_VERSION)) throw new Error("cockpit version missing")'\'''
+                bun -e '\''let health; for(let i=0;i<100;i++){try{const response=await fetch("http://127.0.0.1:4319/api/health"); if(response.ok){health=await response.json(); break}}catch{} await Bun.sleep(100)} if(!health) throw new Error("server did not become healthy"); if(health.build.version!==process.env.EXPECTED_VERSION||health.build.gitCommit!==process.env.EXPECTED_COMMIT||health.build.bunVersion!==process.env.EXPECTED_BUN_VERSION||health.build.baseImageDigest!==process.env.EXPECTED_BASE_IMAGE_DIGEST) throw new Error("wrong build identity"); const html=await fetch("http://127.0.0.1:4319/").then(r=>{if(!r.ok) throw new Error(`cockpit index ${r.status}`); return r.text()}); const asset=/src="([^"]+\.js)"/.exec(html)?.[1]; if(!asset) throw new Error("cockpit asset missing"); const js=await fetch(`http://127.0.0.1:4319${asset}`).then(r=>r.text()); if(!js.includes(process.env.EXPECTED_VERSION)) throw new Error("cockpit version missing")'\'''
+
+      - name: Extract digest-bound SPDX SBOM evidence
+        id: sbom
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          image="$REGISTRY_IMAGE@$IMAGE_DIGEST"
+          docker buildx imagetools inspect "$image" --format '{{ json .SBOM }}' > sbom.spdx.json
+          bun -e 'const value=await Bun.file("sbom.spdx.json").json(); if(!value || typeof value!=="object" || Array.isArray(value)) throw new Error("published image has no object SBOM"); await Bun.write("sbom.spdx.json", `${JSON.stringify(value)}\n`)'
+          sha256sum sbom.spdx.json > sbom.spdx.json.sha256
+          echo "sha256=sha256:$(cut -d " " -f 1 sbom.spdx.json.sha256)" >> "$GITHUB_OUTPUT"
 
       - name: Create digest-bound release manifest
         env:
@@ -174,6 +237,10 @@ jobs:
           RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
           RENTEMESTER_GIT_COMMIT: ${{ steps.identity.outputs.commit }}
           RENTEMESTER_BUILT_AT: ${{ steps.identity.outputs.built_at }}
+          RENTEMESTER_BUN_VERSION: ${{ env.BUN_VERSION }}
+          RENTEMESTER_BASE_IMAGE_DIGEST: ${{ env.BUN_BASE_IMAGE_DIGEST }}
+          RELEASE_SBOM_SHA256: ${{ steps.sbom.outputs.sha256 }}
+          RELEASE_SUPPLY_CHAIN_SHA256: ${{ steps.supply_chain.outputs.sha256 }}
         run: |
           bun run scripts/release/create-manifest.ts > release-manifest.json
           sha256sum release-manifest.json > release-manifest.json.sha256
@@ -194,6 +261,10 @@ jobs:
           path: |
             release-manifest.json
             release-manifest.json.sha256
+            sbom.spdx.json
+            sbom.spdx.json.sha256
+            supply-chain-evidence.json
+            supply-chain-evidence.json.sha256
             docs/release/digisense-approval.schema.json
           if-no-files-found: error
           retention-days: 90
@@ -213,6 +284,8 @@ jobs:
             echo "- Review status: **not reviewed by Digisense**"
             echo "- Candidate: \`$REGISTRY_IMAGE:$CANDIDATE_TAG\`"
             echo "- Immutable digest: \`$REGISTRY_IMAGE@$DIGEST\`"
+            echo "- SPDX SBOM: BuildKit OCI attestation bound to the immutable digest"
+            echo "- Supply chain: clean audit and approved licenses bound to bun.lock"
             echo
             echo "This candidate can be pulled and deployed before review. Pin the digest, not the tag:"
             echo
@@ -223,5 +296,5 @@ jobs:
             echo
             echo "Deploying it does not make it Digisense-approved. Approval later promotes these exact bytes without rebuilding."
             echo
-            echo "Download the release-candidate artifact and send the manifest digest plus image digest to Digisense."
+            echo "Download the release-candidate artifact and send the manifest digest, image digest, checked SPDX SBOM and supply-chain evidence to Digisense."
           } >> "$GITHUB_STEP_SUMMARY"

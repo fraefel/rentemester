@@ -1,3 +1,4 @@
+import { runSql } from "../sqlite";
 // Digisense state-lag (#efaktura) — companyKey↔virksomhed + participant-state.
 //
 // Dette er IKKE secret-data (license-key bor i config/digisense.json, se
@@ -54,7 +55,7 @@ export function saveDigisenseCompany(
   if (!input.companyKey?.trim()) {
     throw new Error("digisense state: companyKey is required");
   }
-  db.run(
+  runSql(db,
     `INSERT INTO digisense_companies (company_key, company_type, participant_id, company_name)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(participant_id) DO UPDATE SET
@@ -148,7 +149,7 @@ export function saveDigisenseParticipant(
   if (!input.companyKey?.trim()) {
     throw new Error("digisense state: companyKey is required");
   }
-  db.run(
+  runSql(db,
     `INSERT INTO digisense_participants
        (company_key, network, direction, participant_type, participant_id,
         webhook_url, registered_on_network, webhook_registered)

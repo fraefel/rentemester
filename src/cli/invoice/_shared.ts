@@ -88,14 +88,14 @@ function findInvoiceDocumentIdByNumber(db: Db, invoiceNumber?: string | null): n
   return row?.id ?? null;
 }
 
-export function withResolvedInvoicePayload<T extends Record<string, unknown>>(
+export function withResolvedInvoicePayload<T extends object>(
   db: Db,
-  payload: T,
-  idKey: keyof T,
-  numberKey: keyof T,
+  payload: Record<string, unknown>,
+  idKey: string,
+  numberKey: string,
 ): T {
-  if (Number.isInteger(payload[idKey] as number) && Number(payload[idKey]) > 0) return payload;
+  if (Number.isInteger(payload[idKey] as number) && Number(payload[idKey]) > 0) return payload as T;
   const resolved = findInvoiceDocumentIdByNumber(db, payload[numberKey] as string | undefined);
-  if (!resolved) return payload;
-  return { ...payload, [idKey]: resolved };
+  if (!resolved) return payload as T;
+  return { ...payload, [idKey]: resolved } as T;
 }

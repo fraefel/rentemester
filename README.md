@@ -28,7 +28,6 @@ Kort for en lokal udviklerinstallation:
 git clone https://github.com/mikkelkrogsholm/rentemester.git
 cd rentemester
 bun install
-(cd app && bun install)
 bun link
 rentemester --version
 command -v rentemester
@@ -205,11 +204,16 @@ bun run src/cli.ts serve --workspace ./min-workspace
 I en anden terminal — start cockpit-UI'en:
 
 ```bash
-cd app && bun install && bun run dev
-# Vite-dev-server på http://localhost:5319
+bun run cockpit:dev
+# Bun-dev-server på http://localhost:5319
 ```
 
-Åbn `http://localhost:5319` i en browser. Vite proxer `/api`-kald videre til backend på port 4319, så cockpittet og CLI'en altid arbejder på den samme ledger.
+Åbn `http://localhost:5319` i en browser. Buns native dev-server proxer
+`/api`-kald videre til backend på port 4319, så cockpittet og CLI'en altid
+arbejder på den samme ledger. `bun run cockpit:build` og
+`bun run cockpit:test` bruger også Bun direkte; Vite og Vitest indgår ikke i
+cockpit-toolchainen. Root og cockpit er ét Bun-workspace med én installation
+og én lockfile.
 
 > Alt cockpittet kan, kan CLI'en også — og omvendt. Samme regler, samme audit-trail, samme append-only historik. Cockpittet er en blødere indgang; CLI'en er en hårdere én.
 
@@ -225,18 +229,23 @@ docker compose -f docker-compose.example.yml up -d
 ```
 
 Afprøv en ikke-reviewet kandidat mod et nyt workspace eller en verificeret
-datakopi, aldrig den eneste live-ledger. Selve imaget kræver autentifikation som
-standard. Compose-eksemplet slår den eksplicit fra, fordi cockpit endnu ikke har
-en login-skærm, og binder derfor porten strengt til `127.0.0.1`. Eksponér ikke
-den konfiguration på netværket. Eksemplet bruger Docker-volumes, som initialiseres
-med den korrekte non-root-ejer; eksisterende data skal importeres som en bevidst,
-separat operation.
+datakopi, aldrig den eneste live-ledger. Hosted-profilen har individuelt Better
+Auth-login, MFA og server-side RBAC. Compose-eksemplet vælger i stedet eksplicit
+`local-container`: en enkel no-login profil, der binder inde i containeren, men
+kun må publiceres på værtens `127.0.0.1` som i den checkede Compose-fil. Den
+profil må aldrig eksponeres på LAN eller internet. Eksemplet bruger
+Docker-volumes, som initialiseres med den korrekte non-root-ejer; eksisterende
+data skal importeres som en bevidst, separat operation.
 
 Image og cockpit versioneres samlet. Det offentlige `www/`-site har derimod
 egen CI og deploy-livscyklus og er ikke en del af containeren. Se
 [`docs/versioning.md`](docs/versioning.md), [`CHANGELOG.md`](CHANGELOG.md) og
 [`docs/release/README.md`](docs/release/README.md) for versions- og
-Digisense-godkendelsesflowet.
+Digisense-godkendelsesflowet. Vurderingen af Bun 1.4, de funktioner Rentemester
+bør udnytte, og den videre container-/complianceplan står i
+[`docs/bun-1.4-assessment.md`](docs/bun-1.4-assessment.md). De to anbefalede
+driftsprofiler—enkel lokal enkeltvirksomhed og isoleret hosted flerfirma—er
+beskrevet i [`docs/deployment-modes.md`](docs/deployment-modes.md).
 
 ---
 

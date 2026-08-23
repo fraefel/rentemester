@@ -34,3 +34,6 @@ export * from "./types/gdpr";
 export * from "./types/accruals";
 export * from "./types/annual-report";
 export * from "./types/bilagsmail";
+export * from "./types/group";
+export * from "./types/accounting-drafts";
+export * from "./types/workspace";

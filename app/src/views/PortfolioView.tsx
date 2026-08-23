@@ -61,7 +61,7 @@ export function PortfolioView() {
       </div>
 
       {rollup && (
-        <div className="rollup-strip" aria-label="Tværgående overblik">
+        <div className="rollup-strip" role="group" aria-label="Tværgående overblik">
           <div
             className={`rollup-cell ${rollup.resultat < 0 ? "neg" : "pos"}`}
           >

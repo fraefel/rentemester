@@ -21,9 +21,10 @@ function pdfStrings(pdf: Uint8Array | Buffer): string[] {
   const text = Buffer.from(pdf).toString("latin1");
   const out: string[] = [];
   const re = /\(((?:[^()\\]|\\.)*)\) Tj/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) {
+  let match = re.exec(text);
+  while (match !== null) {
     out.push(match[1].replace(/\\([()\\])/g, "$1"));
+    match = re.exec(text);
   }
   return out;
 }

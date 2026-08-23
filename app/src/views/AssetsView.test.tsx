@@ -5,12 +5,13 @@
 // one-click depreciation flow posts. Depreciation arithmetic itself is
 // covered by the server-side tests; the frontend never re-implements it.
 
-import { describe, expect, test, vi } from "vitest";
-import { screen, within, fireEvent } from "@testing-library/react";
+import { describe, expect, test, vi } from "bun:test";
+import { screen, within, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AssetsView } from "./AssetsView";
 import { renderAt } from "../test/render";
 import { assets, documents, mockFetch } from "../test/fixtures";
+import { stubGlobal } from "../test/globals";
 
 function route(over = {}) {
   return {
@@ -129,7 +130,7 @@ describe("AssetsView — Anlægskartotek (#336)", () => {
         headers: { "content-type": "application/json" },
       });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    stubGlobal("fetch", fetchMock);
 
     renderView();
     const row = (await screen.findByText("MacBook Pro")).closest("tr")!;
@@ -148,7 +149,7 @@ describe("AssetsView — Anlægskartotek (#336)", () => {
     });
     await userEvent.click(confirmBtn);
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const calls = fetchMock.mock.calls;
       const posted = calls.some(([url, init]) => {
         const u = typeof url === "string" ? url : url.toString();

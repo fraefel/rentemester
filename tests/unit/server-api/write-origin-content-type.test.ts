@@ -15,7 +15,7 @@
 //      tillades fortsat — det er CLI/curl/ikke-browser-klienter.
 //   2. Origin-gate: en mutation med en Origin-header kræver en loopback-
 //      origin (http(s)://localhost|127.0.0.1|[::1], vilkårlig port — dækker
-//      vite-dev på 5319, jf. app/vite.config.ts). Manglende Origin tillades
+//      Bun-dev på 5319, jf. app/scripts/serve.ts). Manglende Origin tillades
 //      (ikke-browser-klienter sender ingen). Alt andet afvises med stabil
 //      subcode FORBIDDEN_ORIGIN. Gaten træder til side når authRequired er
 //      sat — dér er bearer-tokenet gaten (et cross-site angreb kan ikke
@@ -148,8 +148,8 @@ describe("Cockpit write — Origin-gate (SEC-1)", () => {
     }
   });
 
-  test("(c) Origin: http://localhost:5319 (vite-dev) tillades", async () => {
-    const { ws, path } = makeCase("csrf-vite-origin");
+  test("(c) Origin: http://localhost:5319 (Bun-dev) tillades", async () => {
+    const { ws, path } = makeCase("csrf-bun-origin");
     try {
       const res = await post(
         ws,

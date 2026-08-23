@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import { formatKronerDa, normalizeCurrency } from "./money";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
@@ -197,7 +198,7 @@ export function resolveException(db: Database, input: ResolveExceptionInput) {
   if (!row) return { ok: false, resolved: false, errors: [`exception ${input.id} does not exist`] };
   if (row.status === "resolved") return { ok: true, resolved: false, errors: [] };
 
-  db.run(
+  runSql(db,
     `UPDATE exceptions
      SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = ?, resolution_note = ?
      WHERE id = ?`,
@@ -220,7 +221,7 @@ export function resolveOpenExceptionsForBankTransaction(db: Database, bankTransa
   ).all(bankTransactionId) as Array<{ id: number }>;
 
   for (const row of openRows) {
-    db.run(
+    runSql(db,
       `UPDATE exceptions
        SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = ?, resolution_note = ?
        WHERE id = ?`,

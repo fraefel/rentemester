@@ -1,4 +1,4 @@
-import { renameSync, rmSync, type RmDirOptions } from "node:fs";
+import { renameSync, rmSync, type RmOptions } from "node:fs";
 
 export type ClosableResource = { close(): void };
 
@@ -39,7 +39,7 @@ export function retryTransientCleanup<T>(operation: () => T, options: CleanupRet
 }
 
 /** Removes exactly `path`; it never expands the caller's deletion target. */
-export function removePathWithRetry(path: string, options: RmDirOptions = { recursive: true, force: true }): void {
+export function removePathWithRetry(path: string, options: RmOptions = { recursive: true, force: true }): void {
   retryTransientCleanup(() => rmSync(path, options));
 }
 
@@ -54,6 +54,6 @@ export function closeThenCleanup(resource: ClosableResource | undefined, cleanup
   cleanup();
 }
 
-export function closeThenRemovePath(resource: ClosableResource | undefined, path: string, options: RmDirOptions = { recursive: true, force: true }): void {
+export function closeThenRemovePath(resource: ClosableResource | undefined, path: string, options: RmOptions = { recursive: true, force: true }): void {
   closeThenCleanup(resource, () => removePathWithRetry(path, options));
 }

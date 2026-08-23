@@ -68,6 +68,7 @@ export function PayableRegisterModal({
     docs.length > 0 ? docs[0]!.id : "",
   );
   const selected = docs.find((d) => d.id === documentId);
+  const selectedInvoiceDate = selected?.invoiceDate;
   const [billDate, setBillDate] = useState<string>(
     selected?.invoiceDate ?? todayIso(),
   );
@@ -88,12 +89,11 @@ export function PayableRegisterModal({
   // When the document picker changes, refresh the prefilled bill/due dates so
   // a freshly-picked bilag shows the right window without a manual edit.
   useEffect(() => {
-    if (!selected) return;
-    if (selected.invoiceDate) {
-      setBillDate(selected.invoiceDate);
-      setDueDate(addDays(selected.invoiceDate, 30));
+    if (selectedInvoiceDate) {
+      setBillDate(selectedInvoiceDate);
+      setDueDate(addDays(selectedInvoiceDate, 30));
     }
-  }, [selected?.id]);
+  }, [selectedInvoiceDate]);
 
   // Basic modal hygiene: focus + Escape-to-close.
   useEffect(() => {

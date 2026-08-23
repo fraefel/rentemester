@@ -60,8 +60,8 @@ function resolveSafe(staticRoot: string, requestPath: string): string | null {
  *
  * `app/dist` is gitignored and never rebuilt by `serve` itself, so the served
  * UI is whatever local build happens to exist — possibly weeks older than
- * `app/src`. There is no Vite build manifest by default, so the simplest
- * robust signal is the mtime of `index.html` (Vite rewrites it on every
+ * `app/src`. The Bun build has no separate manifest, so the simplest
+ * robust signal is the mtime of `index.html` (Bun rewrites it on every
  * build). `serve` reports this timestamp at startup so a stale UI is visible
  * instead of silently served; when no build exists the hint says exactly how
  * to produce one.
@@ -70,7 +70,7 @@ export type StaticUiBuildInfo =
   | { present: true; staticRoot: string; builtAt: string; rebuildHint: string }
   | { present: false; staticRoot: string | null; hint: string };
 
-const REBUILD_COMMAND = "cd app && bun run build";
+const REBUILD_COMMAND = "bun run cockpit:build";
 
 export function describeStaticUiBuild(staticRoot: string | undefined): StaticUiBuildInfo {
   const indexPath = staticRoot ? join(staticRoot, "index.html") : null;

@@ -64,7 +64,7 @@ function preflightWorkspaceTargets(targets: WorkspaceTarget[], actor: string): v
     // readonly handle directly and defer openDb/migrate to the execution pass.
     const db = new Database(companyPaths(target.root).db, { readonly: true });
     try {
-      let lock;
+      let lock: ReturnType<typeof evaluateBackupLock>;
       try {
         lock = evaluateBackupLock(db, target.root);
       } catch {
@@ -84,7 +84,7 @@ export async function pollWorkspaceDigisenseInbound(
   options: WorkspaceDigisensePollOptions,
 ): Promise<WorkspaceDigisensePollResult> {
   const { targets, skipped } = activeInitializedTargets(workspaceRoot);
-  preflightWorkspaceTargets(targets, options.actor.createdBy);
+  preflightWorkspaceTargets(targets, options.actor.createdBy ?? "");
   const companies: WorkspaceDigisensePollResult["companies"] = [...skipped];
   for (const target of targets) {
     const db = openDb(companyPaths(target.root).db);

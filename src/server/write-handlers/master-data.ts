@@ -56,13 +56,6 @@ function parseCreateCustomerBody(body: Record<string, unknown>): CreateCustomerI
   if (address !== undefined) input.address = address;
   const vatOrCvr = readNullableString(body, "vatOrCvr");
   if (vatOrCvr !== undefined) input.vatOrCvr = vatOrCvr;
-  const countryCode = readNullableString(body, "countryCode");
-  if (countryCode !== undefined) input.countryCode = countryCode;
-  const identifierKind = readNullableString(body, "identifierKind");
-  if (identifierKind !== undefined) {
-    if (!["dk_cvr", "eu_vat", "non_eu"].includes(identifierKind)) throw ApiError.badRequest("'identifierKind' must be dk_cvr, eu_vat or non_eu when present");
-    input.identifierKind = identifierKind as CreateVendorInput["identifierKind"];
-  }
   const email = readNullableString(body, "email");
   if (email !== undefined) input.email = email;
   const phone = readNullableString(body, "phone");

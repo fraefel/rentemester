@@ -77,7 +77,7 @@ export async function runWorkspaceRecurringInvoices(workspaceRoot: string, optio
   for (const target of selected.active) {
     // A bad policy/backup state is confined to this company; the next
     // manifest target still runs. No database is opened read-write first.
-    if (!preflightTarget(target, options.actor.createdBy)) {
+    if (!preflightTarget(target, options.actor.createdBy ?? "")) {
       companies.push({ slug: target.slug, status: "failed", reason: "run failed" });
       continue;
     }
@@ -92,8 +92,8 @@ export async function runWorkspaceRecurringInvoices(workspaceRoot: string, optio
             adapter: options.adapterForCompany
               ? options.adapterForCompany({ db, companyRoot: target.root, slug: target.slug })
               : resolveRecurringDeliveryAdapter(db, target.root),
-            createdBy: options.actor.createdBy,
-            createdByProgram: options.actor.createdByProgram,
+            createdBy: options.actor.createdBy ?? undefined,
+            createdByProgram: options.actor.createdByProgram ?? undefined,
             maxGenerations: options.maxGenerations,
           });
       companies.push(result.ok

@@ -1,0 +1,5 @@
+{
+  "id": 8,
+  "name": "rentemester-issued-invoice-pdf-immutability-v8",
+  "sql": "CREATE TRIGGER issued_invoice_pdf_no_update BEFORE UPDATE ON documents WHEN OLD.document_type = 'issued_invoice_pdf' BEGIN SELECT RAISE(ABORT, 'issued invoice PDF evidence is immutable and cannot be updated'); END;\nCREATE TRIGGER issued_invoice_pdf_no_delete BEFORE DELETE ON documents WHEN OLD.document_type = 'issued_invoice_pdf' BEGIN SELECT RAISE(ABORT, 'issued invoice PDF evidence is immutable and cannot be deleted'); END;\n"
+}

@@ -33,6 +33,7 @@ import { register as registerBankAccount } from "./cli/bank-account";
 // ===== END BANK CLUSTER (#187) =====
 import { register as registerVat } from "./cli/vat";
 import { register as registerJournal } from "./cli/journal";
+import { register as registerAccountingDraft } from "./cli/accounting-draft";
 import { register as registerSystem } from "./cli/system";
 import { register as registerCustomer } from "./cli/customer";
 import { register as registerVendor } from "./cli/vendor";
@@ -59,6 +60,10 @@ import { register as registerAsset } from "./cli/asset";
 import { register as registerCompany } from "./cli/company";
 // ===== COCKPIT BACKEND (#170) =====
 import { register as registerServe } from "./cli/serve";
+import { register as registerLocal } from "./cli/local";
+import { register as registerWorkspaceAccess } from "./cli/workspace-access";
+import { register as registerGroup } from "./cli/group";
+import { register as registerWorkspaceSnapshot } from "./cli/workspace-snapshot";
 // ===== FINANCIAL STATEMENTS (#176) =====
 import { register as registerReport } from "./cli/report";
 // ===== END FINANCIAL STATEMENTS (#176) =====
@@ -96,9 +101,11 @@ import { register as registerBudget } from "./cli/budget";
 import { register as registerPayable } from "./cli/payable";
 // ===== END PAYABLES / KREDITORSTYRING =====
 import {
+  findWorkspaceCompany,
   isValidSlug,
   resolveConfiguredWorkspaceRoot,
   resolveWorkspaceSlug,
+  resolveWorkspaceRoot,
 } from "./core/workspace";
 import { migrate, openDb } from "./core/db";
 import { companyPaths } from "./core/paths";
@@ -182,6 +189,31 @@ function resolveCompanyRoot(): string {
   return resolved;
 }
 
+/** The bootstrap policy is deliberately the explicitly selected manifest company. */
+function resolveWorkspaceAccessPolicyRoot(): string {
+  const workspaceRaw = trimToNull(parsedArgs.flags.get("--workspace") as string | undefined);
+  const slug = trimToNull(parsedArgs.flags.get("--company") as string | undefined);
+  if (!workspaceRaw || !slug || !isValidSlug(slug)) {
+    fatal("workspace-access bootstrap-first requires --workspace <dir> and a registered --company <slug>");
+  }
+  const workspace = resolveWorkspaceRoot(workspaceRaw);
+  const companyRoot = resolveWorkspaceSlug(workspace, slug);
+  if (!companyRoot) fatal("workspace-access bootstrap-first requires a registered initial company");
+  return companyRoot;
+}
+
+function resolveGroupPolicyRoot(): string {
+  const workspaceRaw = trimToNull(parsedArgs.flags.get("--workspace") as string | undefined);
+  const slug = trimToNull(parsedArgs.flags.get("--policy-company") as string | undefined);
+  if (!workspaceRaw || !slug || !isValidSlug(slug)) fatal("group apply-manifest requires --workspace <dir> and --policy-company <slug>");
+  const workspace = resolveWorkspaceRoot(workspaceRaw);
+  const entry = findWorkspaceCompany(workspace, slug);
+  if (!entry || entry.archived) fatal("group apply-manifest requires an active registered --policy-company");
+  const companyRoot = resolveWorkspaceSlug(workspace, slug);
+  if (!companyRoot) fatal("group apply-manifest requires a registered --policy-company");
+  return companyRoot;
+}
+
 const parsedArgs = parseCliArgs(Bun.argv);
 const [cmd, sub] = parsedArgs.positionals;
 const commandSpec = getCommandSpec(cmd, sub);
@@ -247,6 +279,7 @@ for (const registerFn of [
   // ===== END BANK CLUSTER (#187) =====
   registerVat,
   registerJournal,
+  registerAccountingDraft,
   registerSystem,
   registerCustomer,
   registerVendor,
@@ -270,8 +303,12 @@ for (const registerFn of [
   // Fixed assets (#124, #125)
   registerAsset,
   registerCompany,
+  registerWorkspaceAccess,
+  registerWorkspaceSnapshot,
+  registerGroup,
   // ===== COCKPIT BACKEND (#170) =====
   registerServe,
+  registerLocal,
   // ===== FINANCIAL STATEMENTS (#176) =====
   registerReport,
   // ===== END FINANCIAL STATEMENTS (#176) =====
@@ -335,7 +372,16 @@ if (!cmd || cmd === "help") {
       // The workspace handler performs an all-target actor + backup preflight
       // before any network/write. A synthetic --company must not substitute
       // for those actual target ledgers here.
-      : commandKey === "efaktura modtag-workspace" || commandKey === "recurring-invoice run-workspace"
+      : commandKey === "workspace-access bootstrap-first"
+        ? resolveWorkspaceAccessPolicyRoot()
+        : commandKey === "workspace snapshot" || commandKey === "workspace restore"
+          ? null
+        : commandKey === "group apply-manifest"
+          ? resolveGroupPolicyRoot()
+        : commandKey === "efaktura modtag-workspace" || commandKey === "recurring-invoice run-workspace" ||
+          commandKey === "group propose-mapping" || commandKey === "group approve-mapping" || commandKey === "group revoke-mapping"
+          || commandKey === "group propose-elimination" || commandKey === "group approve-elimination" || commandKey === "group reject-elimination" || commandKey === "group apply-elimination" || commandKey === "group reverse-elimination"
+          || commandKey === "group propose-profile" || commandKey === "group approve-profile" || commandKey === "group revoke-profile"
         ? null
         : ctx.companyRoot();
     if (mutationRoot) {

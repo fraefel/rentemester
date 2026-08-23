@@ -23,12 +23,16 @@ export function register(dispatch: CommandDispatch): void {
     const vendorIdRaw = ctx.arg("--vendor-id");
     const vendorId = vendorIdRaw === undefined ? undefined : Number(vendorIdRaw);
     const resolved = resolveDocumentMasterData(db, metadata, {
-      vendorId: Number.isInteger(vendorId) && vendorId > 0 ? vendorId : undefined,
+      vendorId:
+        typeof vendorId === "number" && Number.isInteger(vendorId) && vendorId > 0
+          ? vendorId
+          : undefined,
     });
     if (!resolved.ok) {
       ctx.emitResult(resolved as Record<string, unknown>);
       db.close();
       process.exit(1);
+      return;
     }
     const result = ingestDocument(db, root, file, resolved.metadata, {
       forceDuplicateLogicalIdentity: ctx.hasFlag("--force"),

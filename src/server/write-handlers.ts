@@ -25,3 +25,4 @@ export * from "./write-handlers/payables";
 export * from "./write-handlers/budget";
 export * from "./write-handlers/gdpr";
 export * from "./write-handlers/bilagsmail";
+export * from "./write-handlers/accounting-drafts";

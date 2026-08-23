@@ -4,7 +4,7 @@
 // no new bookkeeping path is introduced — only a UI on top of the same core
 // the CLI and MCP use.
 
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BankReconcileModal } from "./BankReconcileModal";
@@ -94,7 +94,7 @@ describe("BankReconcileModal", () => {
     await userEvent.click(screen.getByRole("button", { name: /Bogfør/ }));
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const settleCall = calls.find((c) =>
         String(c[0]).includes("/invoices/settle"),
       );

@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { getInvoiceStatus } from "./invoice-payments";
@@ -212,10 +213,10 @@ export function postInvoiceReminderToLedger(db: Database, input: PostInvoiceRemi
         return { ...journal, reminderId: reminder.id, invoiceDocumentId: reminder.invoice_document_id, invoiceNumber: reminder.invoice_no, reminderDate: reminder.reminder_date, feeAmount: amount, appliedRules: [...new Set([...(journal.appliedRules ?? []), BOOKKEEPING_RULE_ID])] };
       }
 
-      db.run(
+      runSql(db,
         `INSERT INTO invoice_reminder_postings (reminder_id, journal_entry_id) VALUES (?, ?)`,
         reminder.id,
-        journal.entryId,
+        journal.entryId ?? null,
       );
 
       insertAuditLog(db, {

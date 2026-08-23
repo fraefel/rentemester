@@ -133,7 +133,6 @@ export function registerAuditTools(server: McpServer): void {
       });
       return successEnvelope({
         rows: pageRows,
-        total: result.total,
         ...meta,
       });
     }),

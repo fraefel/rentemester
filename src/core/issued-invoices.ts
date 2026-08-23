@@ -404,7 +404,7 @@ export function issueInvoice(
       vatAmount,
       payload.reverseChargeBasis ?? null,
       serialized,
-      retainUntilForDate(db, payload.issueDate),
+      retainUntilForDate(db, payload.issueDate!),
     ) as { id: number };
 
       const pdfInserted = db.query(
@@ -433,7 +433,7 @@ export function issueInvoice(
       payload.buyer?.vatOrCvr ?? null,
       vatAmount,
       serialized,
-      retainUntilForDate(db, payload.issueDate),
+      retainUntilForDate(db, payload.issueDate!),
       ) as { id: number };
 
       strengthenGdprErasureAliasesForIdentity(db, {
@@ -472,7 +472,7 @@ export function issueInvoice(
       pdfStoredPathPromoted = true;
 
       return { ok: true as const, documentId: asDocumentId(inserted.id), invoiceNumber, sha256: hash, pdfDocumentId: asDocumentId(pdfInserted.id), pdfSha256: pdfHash };
-    }, { immediate: true })();
+    }).immediate();
 
     if (!result.ok) return { ok: false, appliedRules, errors: [result.error] };
     return {

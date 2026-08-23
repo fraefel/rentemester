@@ -192,7 +192,7 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      payload: SettleInvoiceFromBankInput & { invoiceNumber?: string };
+      payload: z.infer<typeof bankSettlementPayloadSchema>;
       confirm?: boolean;
     }>(server, "invoice_settle_bank", ({ db, actor, args }) => {
       const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
@@ -228,7 +228,7 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      payload: SettleInvoiceClaimsFromBankInput & { invoiceNumber?: string };
+      payload: z.infer<typeof bankSettlementPayloadSchema>;
       confirm?: boolean;
     }>(server, "invoice_settle_claim_bank", ({ db, actor, args }) => {
       const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
@@ -267,7 +267,7 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      payload: WriteOffInvoiceBadDebtInput & { invoiceNumber?: string };
+      payload: z.infer<typeof badDebtPayloadSchema>;
       confirm?: boolean;
     }>(server, "invoice_write_off_bad_debt", ({ db, actor, args }) => {
       const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
@@ -303,7 +303,7 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      payload: ApplyInvoicePaymentInput & { invoiceNumber?: string };
+      payload: z.infer<typeof applyPaymentPayloadSchema>;
       confirm?: boolean;
     }>(server, "invoice_apply_payment", ({ db, actor, args }) => {
       const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);
@@ -339,7 +339,7 @@ export function registerInvoiceSettlementTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      payload: RefundInvoiceToBankInput & { invoiceNumber?: string };
+      payload: z.infer<typeof refundBankPayloadSchema>;
       confirm?: boolean;
     }>(server, "invoice_refund_bank", ({ db, actor, args }) => {
       const resolution = resolveInvoiceInPayload(db, args.payload as Record<string, unknown>);

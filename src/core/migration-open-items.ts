@@ -224,7 +224,7 @@ export function recordMigrationOpenItemBatch(db: Database, input: RecordMigratio
         ).run(batch.id, item.externalRef.trim(), cleanText(item.counterpartyName), item.issueDate ?? null, item.dueDate ?? null, item.originalAmount, item.openAmountAtImport, item.documentId ?? null, item.sourceRecognitionJournalEntryId ?? null, item.sourceKind, item.resolutionStatus ?? "resolved");
       }
       return { ok: true, batchId: batch.id, errors: [] };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
   }
@@ -278,7 +278,7 @@ export function applyMigrationOpenItem(db: Database, input: ApplyMigrationOpenIt
          RETURNING id`,
       ).get(input.itemId, input.amount, input.applicationDate, journalId, bankId, input.note?.trim() || null) as { id: number };
       return { ok: true, itemId: input.itemId, applicationId: result.id, errors: [] };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
   }

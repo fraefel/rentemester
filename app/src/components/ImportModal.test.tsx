@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ImportModal } from "./ImportModal";
@@ -72,7 +72,7 @@ describe("ImportModal", () => {
     await userEvent.click(screen.getByRole("button", { name: "Importér" }));
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const importCall = calls.find(
         (c) =>
           String(c[0]).endsWith("/import") &&

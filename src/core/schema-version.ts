@@ -51,6 +51,27 @@ export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM = createHash("
   .update(BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT)
   .digest("hex");
 export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME = "rentemester-bank-journal-reconciliation-links-v6";
+const DOCUMENT_SCAN_EVIDENCE_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0007-document-scan-evidence.json"),
+);
+export const DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(DOCUMENT_SCAN_EVIDENCE_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME = "rentemester-document-scan-evidence-v7";
+const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0008-issued-invoice-pdf-immutability.json"),
+);
+export const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME = "rentemester-issued-invoice-pdf-immutability-v8";
+const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0009-accounting-draft-workflow.json"),
+);
+export const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME = "rentemester-accounting-draft-workflow-v9";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -79,6 +100,9 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM },
   { id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM },
   { id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM },
+  { id: 7, name: DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME, checksum: DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM },
+  { id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM },
+  { id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -275,6 +299,9 @@ export function applySchemaMigrations(db: Database): void {
     { id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM, artifact: DINERO_IMPORT_PROVENANCE_MIGRATION_ARTIFACT },
     { id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM, artifact: MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT },
     { id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM, artifact: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT },
+    { id: 7, name: DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME, checksum: DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM, artifact: DOCUMENT_SCAN_EVIDENCE_MIGRATION_ARTIFACT },
+    { id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM, artifact: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT },
+    { id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM, artifact: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -314,7 +341,7 @@ export function applySchemaMigrations(db: Database): void {
         // committed tables and guards remain. The migration is deliberately
         // replay-safe: remove only its canonical trigger names, then let the
         // IF NOT EXISTS table definitions preserve the recorded evidence.
-        if (migration.id === 4 || migration.id === 5 || migration.id === 6) {
+        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9) {
           const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
           for (const statement of triggerStatements) {
             const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
@@ -325,7 +352,7 @@ export function applySchemaMigrations(db: Database): void {
       }
       db.query(`INSERT INTO schema_migrations (id, name, checksum, applied_by_version, applied_by_commit) VALUES (?, ?, ?, ?, ?)`)
         .run(migration.id, migration.name, migration.checksum, build.version, build.gitCommit);
-    }, { immediate: true })();
+    }).immediate();
   }
 
   // `migrate()` restores the immutable v1 trigger catalogue before applying
@@ -358,7 +385,7 @@ export function applySchemaMigrations(db: Database): void {
           ON recurring_invoice_delivery_events(generation_id)
           WHERE event_type = 'attempted';
       `);
-    }, { immediate: true })();
+    }).immediate();
   }
 
   // These tables are intentionally absent from the immutable v1 schema. Their
@@ -374,7 +401,7 @@ export function applySchemaMigrations(db: Database): void {
         db.exec(`DROP TRIGGER IF EXISTS ${name};`);
         db.exec(statement);
       }
-    }, { immediate: true })();
+    }).immediate();
   }
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 5").get()) {
@@ -387,7 +414,7 @@ export function applySchemaMigrations(db: Database): void {
         db.exec(`DROP TRIGGER IF EXISTS ${name};`);
         db.exec(statement);
       }
-    }, { immediate: true })();
+    }).immediate();
   }
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 6").get()) {
@@ -400,6 +427,32 @@ export function applySchemaMigrations(db: Database): void {
         db.exec(`DROP TRIGGER IF EXISTS ${name};`);
         db.exec(statement);
       }
-    }, { immediate: true })();
+    }).immediate();
+  }
+
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 8").get()) {
+    const parsed = JSON.parse(ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => {
+      for (const statement of triggerStatements) {
+        const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
+        if (!name) continue;
+        db.exec(`DROP TRIGGER IF EXISTS ${name};`);
+        db.exec(statement);
+      }
+    }).immediate();
+  }
+
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 9").get()) {
+    const parsed = JSON.parse(ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => {
+      for (const statement of triggerStatements) {
+        const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
+        if (!name) continue;
+        db.exec(`DROP TRIGGER IF EXISTS ${name};`);
+        db.exec(statement);
+      }
+    }).immediate();
   }
 }

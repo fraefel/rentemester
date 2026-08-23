@@ -1,8 +1,9 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CompanyForm } from "./CompanyForm";
 import { mockFetch } from "../test/fixtures";
+import { stubGlobal } from "../test/globals";
 
 describe("CompanyForm", () => {
   test("POSTs the entered company and reports the created slug", async () => {
@@ -50,7 +51,7 @@ describe("CompanyForm", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         ),
     );
-    vi.stubGlobal("fetch", fetchSpy);
+    stubGlobal("fetch", fetchSpy);
 
     render(<CompanyForm onCreated={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/Virksomhedsnavn/i), "Gamma ApS");

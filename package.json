@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
+  "workspaces": ["app"],
+  "engines": {
+    "bun": "1.4.0"
+  },
   "bin": {
     "rentemester": "./bin/rentemester",
     "rentemester-mcp": "./bin/rentemester-mcp"
@@ -10,6 +14,11 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "mcp": "bun run src/mcp/server.ts",
+    "cockpit:dev": "bun run --filter rentemester-cockpit dev",
+    "cockpit:test": "bun run --filter rentemester-cockpit test",
+    "cockpit:build": "bun run --filter rentemester-cockpit build",
+    "lint": "biome lint . --error-on-warnings",
+    "typecheck:runtime": "tsc --noEmit -p tsconfig.runtime.json",
     "test": "bun test",
     "smoke-mcp": "bun run scripts/smoke-mcp.ts",
     "agent-demo": "rm -rf /tmp/rentemester-agent-demo && bun run examples/agent-demo/run.ts --company /tmp/rentemester-agent-demo --mode rule-based",
@@ -18,13 +27,21 @@
     "smoke:budget": "bun run scripts/smoke-with-budget.ts",
     "version:check": "bun run scripts/release/check-version.ts",
     "release:manifest": "bun run scripts/release/create-manifest.ts",
-    "release:verify-approval": "bun run scripts/release/verify-approval.ts"
+    "release:verify-approval": "bun run scripts/release/verify-approval.ts",
+    "container:test": "bun run scripts/release/test-local-container.ts",
+    "container:reproducibility": "bun run scripts/release/verify-container-reproducibility.ts",
+    "supply-chain:audit": "bun audit --audit-level=low",
+    "supply-chain:licenses": "bun run scripts/release/check-production-licenses.ts",
+    "supply-chain:evidence": "bun run scripts/release/create-supply-chain-evidence.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-auth": "1.7.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@biomejs/biome": "2.5.10",
+    "@types/bun": "1.4.0",
+    "typescript": "5.9.3"
   }
 }

@@ -158,7 +158,7 @@ export function linkBankTransactionToJournal(
         appliedRules: [BANK_JOURNAL_RECONCILIATION_RULE],
         errors: [] as string[],
       };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     return { ok: false as const, appliedRules: [BANK_JOURNAL_RECONCILIATION_RULE], errors: [error instanceof Error ? error.message : String(error)] };
   }

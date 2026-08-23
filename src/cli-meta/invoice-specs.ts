@@ -69,7 +69,7 @@ export const invoiceSpecs: CommandSpec[] = [
       "Udelad --invoice-number for automatisk fortløbende nummerering",
     ],
   },
-  { key: "invoice render", usage: "invoice render --company <path> (--document-id <n> | --invoice-number <no>)", description: "Renderer eller genskaber en deterministisk PDF for en udstedt faktura.", allowedFlags: ["--company", "--document-id", "--invoice-number"] },
+  { key: "invoice render", usage: "invoice render --company <path> (--document-id <n> | --invoice-number <no>)", description: "Returnerer og hash-verificerer den immutabelt udstedte PDF; manglende eller manipuleret evidens genskabes aldrig.", allowedFlags: ["--company", "--document-id", "--invoice-number"] },
   { key: "invoice export-public", usage: "invoice export-public --company <path> (--document-id <n> | --invoice-number <no>) --out <file.xml>", description: "Eksporterer en deterministisk preview-artifact til offentlig EAN/GLN e-faktura uden PEPPOL-transport.", allowedFlags: ["--company", "--document-id", "--invoice-number", "--out"] },
   { key: "invoice export-public-oioubl", usage: "invoice export-public-oioubl --company <path> (--document-id <n> | --invoice-number <no>) --out <file.xml>", description: "Eksporterer et deterministisk OIOUBL-handoff-artifact til offentlig e-faktura uden direkte PEPPOL-submission.", allowedFlags: ["--company", "--document-id", "--invoice-number", "--out"] },
   // PEPPOL submission (#128)

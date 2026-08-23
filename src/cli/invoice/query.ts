@@ -5,7 +5,7 @@
  * Split out of `../invoice.ts`. Registration order preserved.
  */
 
-import { openCommandDb } from "../../cli-dispatch";
+import { openCommandDb, optionalNumberOrFatal } from "../../cli-dispatch";
 import { migrate } from "../../core/db";
 import { getInvoiceStatus } from "../../core/invoice-payments";
 import { buildInvoiceList, buildOverdueInvoiceList, findInvoices } from "../../core/invoice-list";
@@ -50,10 +50,8 @@ export function registerQueryCommands(dispatch: CommandDispatch): void {
   });
 
   dispatch.on("invoice", "list", (ctx) => {
-    const minAmount = ctx.parseOptionalNumber("--min-amount");
-    const maxAmount = ctx.parseOptionalNumber("--max-amount");
-    if (!minAmount.ok) ctx.fatal(minAmount.error);
-    if (!maxAmount.ok) ctx.fatal(maxAmount.error);
+    const minAmount = optionalNumberOrFatal(ctx, "--min-amount");
+    const maxAmount = optionalNumberOrFatal(ctx, "--max-amount");
     const db = openCommandDb(ctx);
     migrate(db);
     const result = buildInvoiceList(db, {
@@ -63,8 +61,8 @@ export function registerQueryCommands(dispatch: CommandDispatch): void {
       customerCvr: ctx.arg("--customer-cvr") ?? undefined,
       customer: ctx.arg("--customer") ?? undefined,
       invoiceNumber: ctx.arg("--invoice-number") ?? undefined,
-      minAmount: minAmount.value,
-      maxAmount: maxAmount.value,
+      minAmount,
+      maxAmount,
       asOfDate: ctx.arg("--as-of") ?? undefined,
     });
     if (ctx.outputFormat === "json") {
@@ -80,16 +78,15 @@ export function registerQueryCommands(dispatch: CommandDispatch): void {
   });
 
   dispatch.on("invoice", "find", (ctx) => {
-    const amount = ctx.parseOptionalNumber("--amount");
-    if (!amount.ok) ctx.fatal(amount.error);
+    const amount = optionalNumberOrFatal(ctx, "--amount");
     const db = openCommandDb(ctx);
     migrate(db);
     const result = findInvoices(db, {
       query: ctx.parsedArgs.positionals.slice(2).join(" ") || undefined,
       customer: ctx.arg("--customer") ?? undefined,
       invoiceNumber: ctx.arg("--invoice-number") ?? undefined,
-      minAmount: amount.value,
-      maxAmount: amount.value,
+      minAmount: amount,
+      maxAmount: amount,
       asOfDate: ctx.arg("--as-of") ?? undefined,
     });
     if (ctx.outputFormat === "json") {
@@ -105,13 +102,12 @@ export function registerQueryCommands(dispatch: CommandDispatch): void {
   });
 
   dispatch.on("invoice", "overdue", (ctx) => {
-    const minDays = ctx.parseOptionalNumber("--min-days");
-    if (!minDays.ok) ctx.fatal(minDays.error);
+    const minDays = optionalNumberOrFatal(ctx, "--min-days");
     const db = openCommandDb(ctx);
     migrate(db);
     const result = buildOverdueInvoiceList(db, {
       asOfDate: ctx.arg("--as-of") ?? undefined,
-      minDays: minDays.value,
+      minDays,
     });
     if (ctx.outputFormat === "json") {
       ctx.emitResult(result as Record<string, unknown>);

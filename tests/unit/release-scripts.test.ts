@@ -10,6 +10,10 @@ const repositoryRoot = join(import.meta.dir, "..", "..");
 const commit = "a".repeat(40);
 const imageDigest = `sha256:${"b".repeat(64)}`;
 const builtAt = "2026-07-19T12:00:00.000Z";
+const bunVersion = "1.4.0";
+const baseImageDigest = `sha256:${"d".repeat(64)}`;
+const sbomSha256 = `sha256:${"e".repeat(64)}`;
+const supplyChainSha256 = `sha256:${"f".repeat(64)}`;
 
 function runScript(script: string, args: string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync("bun", ["run", script, ...args], {
@@ -85,6 +89,10 @@ describe("release evidence scripts", () => {
       RELEASE_WORKFLOW_RUN_ATTEMPT: "1",
       RENTEMESTER_GIT_COMMIT: commit,
       RENTEMESTER_BUILT_AT: builtAt,
+      RENTEMESTER_BUN_VERSION: bunVersion,
+      RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
+      RELEASE_SBOM_SHA256: sbomSha256,
+      RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
     });
     expect(created.status).not.toBe(0);
     expect(created.stderr).toContain("invalid release SemVer");
@@ -103,12 +111,18 @@ describe("release evidence scripts", () => {
         RELEASE_WORKFLOW_RUN_ATTEMPT: "1",
         RENTEMESTER_GIT_COMMIT: commit,
         RENTEMESTER_BUILT_AT: builtAt,
+        RENTEMESTER_BUN_VERSION: bunVersion,
+        RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
+        RELEASE_SBOM_SHA256: sbomSha256,
+        RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
       });
       expect(created.status).toBe(0);
       expect(JSON.parse(created.stdout).workflow).toEqual({
         runId: "123456789",
         runAttempt: 1,
       });
+      expect(JSON.parse(created.stdout).runtime).toEqual({ bunVersion, baseImageDigest });
+      expect(JSON.parse(created.stdout).evidence).toEqual({ sbomSha256, supplyChainSha256 });
       const manifestPath = join(directory, "release-manifest.json");
       writeFileSync(manifestPath, created.stdout);
       const releaseManifestDigest = `sha256:${createHash("sha256")
@@ -163,5 +177,65 @@ describe("release evidence scripts", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test("refuses release evidence without an explicit runtime identity", () => {
+    const created = runScript("scripts/release/create-manifest.ts", [], {
+      RELEASE_VERSION: "0.1.0",
+      RELEASE_GIT_COMMIT: commit,
+      RELEASE_BUILT_AT: builtAt,
+      RELEASE_IMAGE_REPOSITORY: "ghcr.io/mikkelkrogsholm/rentemester",
+      RELEASE_IMAGE_DIGEST: imageDigest,
+      RELEASE_WORKFLOW_RUN_ID: "123456789",
+      RELEASE_WORKFLOW_RUN_ATTEMPT: "1",
+      RENTEMESTER_GIT_COMMIT: commit,
+      RENTEMESTER_BUILT_AT: builtAt,
+      RENTEMESTER_BUN_VERSION: "",
+      RENTEMESTER_BASE_IMAGE_DIGEST: "",
+      RELEASE_SBOM_SHA256: sbomSha256,
+      RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
+    });
+    expect(created.status).not.toBe(0);
+    expect(created.stderr).toContain("runtime must declare Bun version and base image digest");
+  });
+
+  test("refuses release evidence without a checksum for the extracted SBOM", () => {
+    const created = runScript("scripts/release/create-manifest.ts", [], {
+      RELEASE_VERSION: "0.1.0",
+      RELEASE_GIT_COMMIT: commit,
+      RELEASE_BUILT_AT: builtAt,
+      RELEASE_IMAGE_REPOSITORY: "ghcr.io/mikkelkrogsholm/rentemester",
+      RELEASE_IMAGE_DIGEST: imageDigest,
+      RELEASE_WORKFLOW_RUN_ID: "123456789",
+      RELEASE_WORKFLOW_RUN_ATTEMPT: "1",
+      RENTEMESTER_GIT_COMMIT: commit,
+      RENTEMESTER_BUILT_AT: builtAt,
+      RENTEMESTER_BUN_VERSION: bunVersion,
+      RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
+      RELEASE_SBOM_SHA256: "",
+      RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
+    });
+    expect(created.status).not.toBe(0);
+    expect(created.stderr).toContain("RELEASE_SBOM_SHA256 is required");
+  });
+
+  test("refuses release evidence without the lockfile-bound supply-chain checksum", () => {
+    const created = runScript("scripts/release/create-manifest.ts", [], {
+      RELEASE_VERSION: "0.1.0",
+      RELEASE_GIT_COMMIT: commit,
+      RELEASE_BUILT_AT: builtAt,
+      RELEASE_IMAGE_REPOSITORY: "ghcr.io/mikkelkrogsholm/rentemester",
+      RELEASE_IMAGE_DIGEST: imageDigest,
+      RELEASE_WORKFLOW_RUN_ID: "123456789",
+      RELEASE_WORKFLOW_RUN_ATTEMPT: "1",
+      RENTEMESTER_GIT_COMMIT: commit,
+      RENTEMESTER_BUILT_AT: builtAt,
+      RENTEMESTER_BUN_VERSION: bunVersion,
+      RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
+      RELEASE_SBOM_SHA256: sbomSha256,
+      RELEASE_SUPPLY_CHAIN_SHA256: "",
+    });
+    expect(created.status).not.toBe(0);
+    expect(created.stderr).toContain("RELEASE_SUPPLY_CHAIN_SHA256 is required");
   });
 });

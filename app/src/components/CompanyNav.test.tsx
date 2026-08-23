@@ -2,7 +2,7 @@
 // per-view filters (Bank's q/from/to/status, a posting account=…) never leak
 // onto sibling tabs.
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { screen } from "@testing-library/react";
 import { CompanyNav } from "./CompanyNav";
 import { renderAt } from "../test/render";

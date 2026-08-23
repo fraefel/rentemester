@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AnnualReportView } from "./AnnualReportView";

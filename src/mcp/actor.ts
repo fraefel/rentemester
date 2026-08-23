@@ -94,10 +94,10 @@ export function deriveMcpActor(clientInfo: Implementation | undefined): McpActor
  * Hjælper der pakker `createdBy` / `createdByProgram` ind i et kerne-payload
  * uden at overskrive eksplicitte kalds-værdier (defensiv).
  */
-export function withActor<T extends { createdBy?: string; createdByProgram?: string }>(
-  payload: T,
+export function withActor<T extends object>(
+  payload: T & { createdBy?: string; createdByProgram?: string },
   actor: McpActor,
-): T {
+): T & { createdBy: string; createdByProgram: string } {
   return {
     ...payload,
     createdBy: payload.createdBy ?? actor.createdBy,

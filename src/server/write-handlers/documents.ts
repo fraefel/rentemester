@@ -3,7 +3,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
-import { ingestDocument, type DocumentMetadata } from "../../core/documents";
+import { ingestDocumentAsync, type DocumentMetadata } from "../../core/documents";
 import { resolveDocumentMasterData } from "../../core/master-data";
 import type { SupplierIdentifierKind } from "../../core/supplier-identity";
 import {
@@ -168,7 +168,7 @@ export async function handleDocumentIngest(
     request,
     config,
     slug,
-    (ctx, body) => {
+    async (ctx, body) => {
       const fileName = requireBodyString(body, "fileName");
       const fileBase64 = requireBodyString(body, "fileBase64");
       const metadata = parseDocumentMetadata(body.metadata);
@@ -207,8 +207,17 @@ export async function handleDocumentIngest(
         if (!resolved.ok) {
           return { ok: false, errors: resolved.errors ?? ["master-data resolution failed"] };
         }
-        const ingested = ingestDocument(ctx.db, ctx.companyRoot, filePath, resolved.metadata, {
+        const ingested = await ingestDocumentAsync(ctx.db, ctx.companyRoot, filePath, resolved.metadata, {
           forceDuplicateLogicalIdentity: force,
+          createdBy: ctx.actor.createdBy,
+          createdByProgram: ctx.actor.createdByProgram,
+          // Hosted composition injects this only after validating the
+          // deployment scanner contract. Local CLI/cockpit remains explicitly
+          // scanner-off; a required policy with no runtime provider fails
+          // closed in the core rather than accepting an unscanned upload.
+          scannerPolicy: config.documentScannerPolicy ?? "off",
+          scanner: config.documentScanner,
+          scannerTimeoutMs: config.hostedDocumentScanning?.provider?.timeoutMs,
         });
         return {
           ok: ingested.ok,

@@ -33,7 +33,7 @@ import {
   verify as cryptoVerify,
 } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import type { Database } from "bun:sqlite";
+import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { effectiveRetainUntil } from "./retention";
 import { insertAuditLog, type ResolveActorInput } from "./actor";
 import { currentUtcIsoDate } from "./sequences";
@@ -1203,7 +1203,7 @@ export function eraseGdprSubject(
     }
 
     if (decisionCount === 0) logDecision(null, "no_matching_records");
-  }, { immediate: true })();
+  }).immediate();
 
   return {
     ok: true,
@@ -1336,7 +1336,7 @@ export function buildGdprAuditExport(
   }
 
   const filters: string[] = ["event_type LIKE 'gdpr_%'"];
-  const params: unknown[] = [];
+  const params: SQLQueryBindings[] = [];
   if (since) {
     filters.push("created_at >= ?");
     params.push(since);

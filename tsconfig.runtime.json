@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "exclude": [
+    "app",
+    "www",
+    "tests",
+    "node_modules",
+    "graphify-out"
+  ]
+}

@@ -32,6 +32,23 @@ export const serveSpec: CommandSpec[] = [
   },
 ];
 
+/** Local single-company launcher. It deliberately has no --host flag. */
+export const localSpecs: CommandSpec[] = [
+  {
+    key: "local start",
+    usage: "local start --workspace <dir> [--company-name <text> --actor <actor> --confirm yes] [--port <n>] [--no-open]",
+    description: "Åbner et lokalt, loopback-bundet cockpit for præcis én aktiv virksomhed. En ny eller tom workspace initialiseres kun med eksplicit virksomhedsnavn, actor og bekræftelse.",
+    allowedFlags: ["--workspace", "--company-name", "--port", "--no-open", "--confirm"],
+    inputNotes: [
+      "--workspace er altid påkrævet; kommandoen vælger aldrig en skjult standardmappe.",
+      "På en ny/tom workspace kræves --company-name, --actor <user:…|agent:…|system:…> og --confirm yes, før filer oprettes.",
+      "Kommandoen binder altid kun 127.0.0.1 og slår hosted Better Auth samt shared-token-auth fra, også hvis de findes i procesmiljøet.",
+      "Hvis workspacet har mere end én aktiv virksomhed, afvises launcheren. Brug 'rentemester serve --workspace <dir>' til flerfirma/hosted-drift.",
+      "--no-open springer browseråbning over og er beregnet til tests, headless brug og scripts.",
+    ],
+  },
+];
+
 export const systemSpecs: CommandSpec[] = [
   { key: "system healthcheck", usage: "system healthcheck --company <slug|path>", description: "Tjekker at virksomhedsmappen og kernefiler findes.", allowedFlags: ["--company"] },
   { key: "system backup", usage: "system backup --company <path> [--at <ISO-8601>] [--sign-with-ed25519] [--archive]", description: "Opretter en revisionsklar backup. Med --sign-with-ed25519 tilføjes en asymmetrisk signatur som 3.-part kan verificere uafhængigt. Med --archive pakkes backuppen straks til én .tar-fil klar til off-site placering.", allowedFlags: ["--company", "--at", "--sign-with-ed25519", "--archive"] },

@@ -12,6 +12,8 @@ const promote = readFileSync(
   "utf8",
 );
 const www = readFileSync(join(root, ".github", "workflows", "www.yml"), "utf8");
+const testWorkflow = readFileSync(join(root, ".github", "workflows", "test.yml"), "utf8");
+const smokeWorkflow = readFileSync(join(root, ".github", "workflows", "smoke.yml"), "utf8");
 const registryStatus = readFileSync(
   join(root, "scripts", "release", "registry-manifest-status.ts"),
   "utf8",
@@ -19,13 +21,59 @@ const registryStatus = readFileSync(
 
 describe("release workflow security contract", () => {
   test("pins every privileged third-party action to a full commit", () => {
-    for (const workflow of [candidate, promote, www]) {
+    for (const workflow of [candidate, promote, www, testWorkflow, smokeWorkflow]) {
       const uses = [...workflow.matchAll(/^\s*uses:\s*([^\s#]+)/gm)].map(
         (match) => match[1],
       );
       expect(uses.length).toBeGreaterThan(0);
       expect(uses.every((value) => /@[0-9a-f]{40}$/i.test(value))).toBe(true);
     }
+  });
+
+  test("makes cockpit tests and its production build ordinary merge gates", () => {
+    expect(testWorkflow).toContain("name: Test cockpit");
+    expect(testWorkflow).toContain("run: bun run cockpit:test");
+    expect(testWorkflow).toContain("run: bun run cockpit:build");
+    expect(testWorkflow.match(/bun install --frozen-lockfile/g)).toHaveLength(3);
+  });
+
+  test("makes the strict runtime typecheck a merge and release gate", () => {
+    expect(testWorkflow).toContain("name: Typecheck runtime and release scripts");
+    expect(testWorkflow).toContain("run: bun run typecheck:runtime");
+    expect(candidate).toContain("name: Typecheck runtime and release scripts");
+    expect(candidate.indexOf("run: bun run typecheck:runtime")).toBeLessThan(
+      candidate.indexOf("name: Build and push candidate image"),
+    );
+  });
+
+  test("makes the pinned Biome lint policy a merge and release gate", () => {
+    expect(testWorkflow).toContain("name: Lint TypeScript and React sources");
+    expect(testWorkflow).toContain("run: bun run lint");
+    expect(candidate).toContain("name: Lint TypeScript and React sources");
+    expect(candidate.indexOf("run: bun run lint")).toBeLessThan(
+      candidate.indexOf("name: Build and push candidate image"),
+    );
+  });
+
+  test("makes the production license allowlist a merge and release gate", () => {
+    expect(testWorkflow).toContain("run: bun run supply-chain:licenses");
+    expect(candidate).toContain("run: bun run supply-chain:licenses");
+  });
+
+  test("blocks advisories and binds audit, licenses and lockfile into release evidence", () => {
+    expect(testWorkflow).toContain("run: bun run supply-chain:audit");
+    expect(candidate).toContain("run: bun run supply-chain:audit");
+    expect(candidate).toContain("bun run supply-chain:evidence > supply-chain-evidence.json");
+    expect(candidate).toContain("RELEASE_SUPPLY_CHAIN_SHA256");
+    expect(candidate).toContain("supply-chain-evidence.json.sha256");
+    expect(promote).toContain("candidate supply-chain report does not match approved evidence");
+    expect(promote).toContain("supply-chain-evidence.json.sha256");
+  });
+
+  test("runs the persisted-volume readiness container integration as a merge gate", () => {
+    expect(testWorkflow).toContain("name: container readiness and persisted restart");
+    expect(testWorkflow).toContain("run: bun run container:test");
+    expect(testWorkflow).toContain("run: bun run container:reproducibility");
   });
 
   test("publishes evidence only after the candidate image is attested", () => {
@@ -45,14 +93,37 @@ describe("release workflow security contract", () => {
   });
 
   test("smokes the published digest before attestation and evidence", () => {
+    const reproducibilityGate = candidate.indexOf("name: Verify reproducible OCI export");
+    const readinessGate = candidate.indexOf(
+      "name: Verify container readiness and persisted restart",
+    );
     const imageBuild = candidate.indexOf("name: Build and push candidate image");
     const containerSmoke = candidate.indexOf("name: Smoke the published candidate digest");
     const attestation = candidate.indexOf("name: Attest candidate image provenance");
+    expect(reproducibilityGate).toBeGreaterThan(0);
+    expect(readinessGate).toBeGreaterThan(reproducibilityGate);
+    expect(imageBuild).toBeGreaterThan(readinessGate);
     expect(containerSmoke).toBeGreaterThan(imageBuild);
     expect(attestation).toBeGreaterThan(containerSmoke);
     expect(candidate).toContain('image="$REGISTRY_IMAGE@$IMAGE_DIGEST"');
     expect(candidate).toContain('test "$(id -u)" = 1000');
     expect(candidate).toContain("cockpit asset missing");
+    expect(candidate).toContain("sbom: true");
+    expect(candidate).toContain("outputs: type=registry,rewrite-timestamp=true");
+    expect(candidate).not.toMatch(/^\s+push:\s+true\s*$/m);
+    expect(candidate).toContain("image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8");
+    expect(candidate).toContain("run: bun run container:reproducibility");
+    expect(candidate).toContain("run: bun run container:test");
+    expect(candidate.match(/RELEASE_VERSION: \$\{\{ steps\.identity\.outputs\.version \}\}/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(candidate.match(/RELEASE_GIT_COMMIT: \$\{\{ steps\.identity\.outputs\.commit \}\}/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(candidate.match(/SOURCE_DATE_EPOCH: \$\{\{ steps\.identity\.outputs\.source_date_epoch \}\}/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(candidate).toContain("EXPECTED_BUN_VERSION");
+    expect(candidate).toContain("EXPECTED_BASE_IMAGE_DIGEST");
+    expect(candidate).toContain('org.opencontainers.image.base.digest');
+    expect(candidate).toContain('test "$(bun --version)" = "$EXPECTED_BUN_VERSION"');
+    expect(candidate).toContain("SPDX SBOM");
+    expect(candidate).toContain("Extract digest-bound SPDX SBOM evidence");
+    expect(candidate).toContain("sbom.spdx.json.sha256");
   });
 
   test("binds promotion to one successful trusted run and its attestation", () => {
@@ -76,6 +147,9 @@ describe("release workflow security contract", () => {
     expect(promote).not.toContain("pattern: release-candidate-*");
     expect(promote).not.toContain(":latest");
     expect(promote).toContain("registry-manifest-status.ts");
+    expect(promote).toContain("BuildKit SPDX attestation is content-addressed to this exact");
+    expect(promote).toContain("candidate SBOM does not match approved evidence");
+    expect(promote).toContain("sbom.spdx.json.sha256");
     expect(candidate).toContain("registry-manifest-status.ts");
     expect(registryStatus).toContain("manifestResponse.status === 200 || manifestResponse.status === 404");
     expect(registryStatus).toContain("refusing to classify it as absent");
@@ -105,18 +179,32 @@ describe("container release inputs", () => {
 
   test("pins the Docker frontend and Bun base and runs non-root", () => {
     expect(dockerfile).toMatch(/^# syntax=docker\/dockerfile:1\.7@sha256:[0-9a-f]{64}$/m);
-    expect(dockerfile).toMatch(/oven\/bun:1\.3\.14-slim@sha256:[0-9a-f]{64}/);
+    expect(dockerfile).toMatch(/oven\/bun:1\.4\.0-slim@sha256:e0ee68d16ccb9927bf02aa7dd8fd4bf3369ee6d46da04faa72b05ce8bfd135f6/);
     expect(dockerfile).toContain("USER bun");
+    expect(dockerfile).toContain("org.opencontainers.image.base.digest");
+    expect(dockerfile).toContain("org.rentemester.runtime.bun.version");
+    expect(dockerfile).toContain("RENTEMESTER_BUN_VERSION");
+    expect(dockerfile).toContain("RENTEMESTER_BASE_IMAGE_DIGEST");
     expect(dockerfile).toContain("RENTEMESTER_APP_AUTH=required");
     expect(dockerfile).toContain("process.env.RENTEMESTER_APP_TOKEN");
     expect(dockerfile).toContain("Authorization:`Bearer ${token}`");
     expect(dockerfile).not.toContain(":latest");
   });
 
+  test("keeps Docker's actual Bun base digest aligned with release runtime identity", () => {
+    const imageDigest = dockerfile.match(/ARG BUN_IMAGE=oven\/bun:1\.4\.0-slim@(sha256:[0-9a-f]{64})/)?.[1];
+    expect(imageDigest).toBeDefined();
+    expect(dockerfile).toContain(`ARG RENTEMESTER_BASE_IMAGE_DIGEST=${imageDigest}`);
+    expect(candidate).toContain(`BUN_BASE_IMAGE_DIGEST: ${imageDigest}`);
+    expect(candidate).toContain("RENTEMESTER_BASE_IMAGE_DIGEST=${{ env.BUN_BASE_IMAGE_DIGEST }}");
+  });
+
   test("requires a digest pin and keeps the no-login cockpit on host loopback", () => {
     expect(compose).toContain("RENTEMESTER_IMAGE:?");
     expect(compose).toContain('"127.0.0.1:4319:4319"');
+    expect(compose).toContain("RENTEMESTER_DEPLOYMENT_PROFILE: local-container");
     expect(compose).toContain("RENTEMESTER_APP_AUTH: off");
+    expect(dockerfile).toContain("RENTEMESTER_DEPLOYMENT_PROFILE=local-container");
     expect(compose).toContain("rentemester-workspace:/workspace");
     expect(compose).not.toContain("ghcr.io/mikkelkrogsholm/rentemester:v0.1.0");
   });

@@ -402,16 +402,6 @@ export function ContactFormModal({
         {kind === "customer" ? (
         <>
             <label className="modal-field">
-              Leverandørland (ISO)
-              <input type="text" value={form.countryCode} onChange={(e) => update("countryCode", e.target.value.toUpperCase())} maxLength={2} placeholder="DK, DE, US" disabled={busy} />
-            </label>
-            <label className="modal-field">
-              Leverandøridentitet
-              <select value={form.identifierKind} onChange={(e) => update("identifierKind", e.target.value as FormState["identifierKind"])} disabled={busy}>
-                <option value="">Ikke klassificeret</option><option value="dk_cvr">Dansk CVR</option><option value="eu_vat">EU-momsnr.</option><option value="non_eu">Ikke-EU</option>
-              </select>
-            </label>
-            <label className="modal-field">
               EAN-nummer (offentlige kunder)
               <input
                 type="text"
@@ -449,6 +439,16 @@ export function ContactFormModal({
           </>
         ) : (
           <>
+            <label className="modal-field">
+              Leverandørland (ISO)
+              <input type="text" value={form.countryCode} onChange={(e) => update("countryCode", e.target.value.toUpperCase())} maxLength={2} placeholder="DK, DE, US" disabled={busy} />
+            </label>
+            <label className="modal-field">
+              Leverandøridentitet
+              <select value={form.identifierKind} onChange={(e) => update("identifierKind", e.target.value as FormState["identifierKind"])} disabled={busy}>
+                <option value="">Ikke klassificeret</option><option value="dk_cvr">Dansk CVR</option><option value="eu_vat">EU-momsnr.</option><option value="non_eu">Ikke-EU</option>
+              </select>
+            </label>
             <label className="modal-field">
               Standard udgiftskonto
               <input

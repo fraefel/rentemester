@@ -8,6 +8,8 @@ describe("build identity", () => {
       version: "0.1.0",
       gitCommit: null,
       builtAt: null,
+      bunVersion: null,
+      baseImageDigest: null,
     });
   });
 
@@ -17,11 +19,15 @@ describe("build identity", () => {
         RENTEMESTER_VERSION: "0.1.0",
         RENTEMESTER_GIT_COMMIT: "81acc2f",
         RENTEMESTER_BUILT_AT: "2026-07-19T12:00:00.000Z",
+        RENTEMESTER_BUN_VERSION: "1.4.0",
+        RENTEMESTER_BASE_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
       }),
     ).toEqual({
       version: "0.1.0",
       gitCommit: "81acc2f",
       builtAt: "2026-07-19T12:00:00.000Z",
+      bunVersion: "1.4.0",
+      baseImageDigest: `sha256:${"b".repeat(64)}`,
     });
   });
 
@@ -35,5 +41,7 @@ describe("build identity", () => {
     expect(() =>
       getBuildIdentity({ RENTEMESTER_VERSION: "0.2.0" }),
     ).toThrow("does not match packaged version");
+    expect(() => getBuildIdentity({ RENTEMESTER_BUN_VERSION: "not-semver" })).toThrow("SemVer");
+    expect(() => getBuildIdentity({ RENTEMESTER_BASE_IMAGE_DIGEST: "image" })).toThrow("sha256 digest");
   });
 });

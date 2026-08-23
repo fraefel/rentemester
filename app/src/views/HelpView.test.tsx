@@ -7,7 +7,7 @@
 //    "Posteringer" (which is read-only). Posting receipts lives under "Bilag"
 //    and bank reconciliation under "Bank" — both labels come from CompanyNav.
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { screen, within } from "@testing-library/react";
 import { HelpView } from "./HelpView";
 import { renderAt } from "../test/render";

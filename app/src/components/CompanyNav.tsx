@@ -77,6 +77,7 @@ const TAB_GROUPS: { name: string; tabs: NavTab[] }[] = [
     name: "Bogføring",
     tabs: [
       { to: "posteringer", label: "Posteringer" },
+      { to: "kladder", label: "Kladder" },
       { to: "bilag", label: "Bilag" },
       { to: "leverandoerfaktura", label: "Leverandørfaktura" },
       { to: "bank", label: "Bank" },

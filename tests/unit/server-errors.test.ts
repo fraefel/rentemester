@@ -13,7 +13,7 @@
 // `conflict`/… markers are still useful for programmatic branching), but the
 // human-readable message moves into `errors[0]`.
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { ApiError, toErrorResponse } from "../../src/server/errors";
 
 describe("cockpit error envelope (#368)", () => {

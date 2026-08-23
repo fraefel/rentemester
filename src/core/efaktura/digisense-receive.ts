@@ -1,3 +1,4 @@
+import { runSql } from "../sqlite";
 // Digisense MODTAG-sti (#efaktura) — poll-baseret modtagelse af e-fakturaer.
 //
 // Flow (poll, INGEN always-on server):
@@ -268,8 +269,8 @@ async function ingestReceivedDocument(
     const metadata = buildReceivedMetadata(doc, download.xml, options.metadata);
     const ingest = ingestDocument(db, companyRoot, xmlPath, metadata, {
       ...(options.ingestOptions ?? {}),
-      createdBy: options.actor?.createdBy,
-      createdByProgram: options.actor?.createdByProgram,
+      createdBy: options.actor?.createdBy ?? undefined,
+      createdByProgram: options.actor?.createdByProgram ?? undefined,
     });
     if (!ingest.ok) {
       // TERMINAL ingest-fejl: download lykkedes, men XML'en kan ikke bookføres
@@ -288,7 +289,7 @@ async function ingestReceivedDocument(
     // ingen, så en halv-skreven modtagelse aldrig efterlader en uregistreret
     // dublet-mulighed.
     db.transaction(() => {
-      db.run(
+      runSql(db,
         `INSERT INTO digisense_received_documents
            (internal_id, company_key, document_id, skip_reason, digisense_document_id, source_network,
             sender_participant_id, sender_name, received_at)
@@ -334,7 +335,7 @@ function quarantineReceivedDocument(
   actor?: ResolveActorInput,
 ): void {
   db.transaction(() => {
-    db.run(
+    runSql(db,
       `INSERT INTO digisense_received_documents
          (internal_id, company_key, document_id, skip_reason, digisense_document_id, source_network,
           sender_participant_id, sender_name, received_at)

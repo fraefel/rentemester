@@ -50,6 +50,7 @@ export type {
 } from "./api/invoices";
 
 import { accountantApi } from "./api/accountant";
+import { accountingDraftsApi } from "./api/accounting-drafts";
 import { accountsApi } from "./api/accounts";
 import { accrualsApi } from "./api/accruals";
 import { agentSuggestionsApi, exceptionsApi } from "./api/exceptions";
@@ -63,6 +64,7 @@ import { contactsApi } from "./api/contacts";
 import { dashboardApi } from "./api/dashboard";
 import { documentsApi } from "./api/documents";
 import { gdprApi } from "./api/gdpr";
+import { groupApi } from "./api/group";
 import { integrityApi } from "./api/integrity";
 import { invoicesApi } from "./api/invoices";
 import { mileageApi } from "./api/mileage";
@@ -72,11 +74,13 @@ import { retentionApi } from "./api/retention";
 import { statementsApi } from "./api/statements";
 import { systemApi } from "./api/system";
 import { vatApi } from "./api/vat";
+import { workspaceApi } from "./api/workspace";
 
 // One method per key — the earlier legacy `closePeriod` / `reopenPeriod` /
 // `resolveException` duplicates (#UI-9) have been deleted, so no spread-order
 // shadowing is load-bearing any more.
 export const api = {
+  ...accountingDraftsApi,
   ...systemApi,
   ...retentionApi,
   ...integrityApi,
@@ -101,4 +105,6 @@ export const api = {
   ...assetsApi,
   ...payablesApi,
   ...agentSuggestionsApi,
+  ...groupApi,
+  ...workspaceApi,
 };

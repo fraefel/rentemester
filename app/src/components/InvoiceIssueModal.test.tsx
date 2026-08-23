@@ -1,8 +1,9 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InvoiceIssueModal } from "./InvoiceIssueModal";
 import { companySettings, contacts, mockFetch } from "../test/fixtures";
+import { stubGlobal } from "../test/globals";
 
 function noop() {}
 
@@ -101,7 +102,7 @@ describe("InvoiceIssueModal", () => {
 
   test("does not overwrite a seller CVR typed before settings resolve", async () => {
     let resolveCompany!: (response: Response) => void;
-    vi.stubGlobal(
+    stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = typeof input === "string" ? input : input.toString();
@@ -173,7 +174,7 @@ describe("InvoiceIssueModal", () => {
       screen.getByRole("button", { name: "Udsted faktura" }),
     );
 
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const issueCall = calls.find((c) =>
       String(c[0]).includes("/invoices/issue"),
     );
@@ -364,12 +365,12 @@ describe("InvoiceIssueModal", () => {
       const createObjectURL = vi.fn(() => "blob:fake-preview-url");
       const revokeObjectURL = vi.fn();
       const open = vi.fn();
-      vi.stubGlobal("URL", {
+      stubGlobal("URL", {
         ...URL,
         createObjectURL,
         revokeObjectURL,
       });
-      vi.stubGlobal("open", open);
+      stubGlobal("open", open);
       return { createObjectURL, revokeObjectURL, open };
     }
 
@@ -381,7 +382,7 @@ describe("InvoiceIssueModal", () => {
      */
     function mockFetchWithPreview() {
       const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]); // %PDF-1
-      vi.stubGlobal(
+      stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === "string" ? input : input.toString();
@@ -463,7 +464,7 @@ describe("InvoiceIssueModal", () => {
 
       // The preview endpoint received the SAME line/date/vat shape Udsted
       // would have sent — same source of truth for both calls.
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const previewCall = calls.find((c) =>
         String(c[0]).includes("/invoices/preview"),
       );
@@ -509,7 +510,7 @@ describe("InvoiceIssueModal", () => {
       expect(
         await screen.findByText(/Angiv en fakturadato/),
       ).toBeInTheDocument();
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const previewCall = calls.find((c) =>
         String(c[0]).includes("/invoices/preview"),
       );
@@ -523,7 +524,7 @@ describe("InvoiceIssueModal", () => {
      * old `previewInvoice` parsed (which swallowed every preview error).
      */
     function mockFetchPreviewError(code: string, message: string) {
-      vi.stubGlobal(
+      stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === "string" ? input : input.toString();
@@ -614,7 +615,7 @@ describe("InvoiceIssueModal", () => {
       // whose action is in flight should show its progress text. Here the
       // preview never resolves, so Forhåndsvis reads "Henter…" while
       // "Udsted faktura" keeps its label (both disabled).
-      vi.stubGlobal(
+      stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === "string" ? input : input.toString();

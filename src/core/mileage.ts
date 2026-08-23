@@ -258,7 +258,7 @@ export function createMileageEntry(db: Database, input: CreateMileageEntryInput)
     });
 
     return { id: row.id, entryNo };
-  }, { immediate: true })();
+  }).immediate();
 
   return {
     ok: true,

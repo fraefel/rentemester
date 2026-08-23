@@ -5,11 +5,26 @@
 // through the `withCompanyMutation` write pipeline (backup lock, confirm gate,
 // actor attribution, localhost hard-gate).
 
-export { resolveServerConfig, DEFAULT_APP_HOST, DEFAULT_APP_PORT } from "./config";
-export type { ServerConfig } from "./config";
+export {
+  resolveServerConfig,
+  DEFAULT_APP_HOST,
+  DEFAULT_APP_PORT,
+  DEPLOYMENT_PROFILES,
+  HOSTED_AUTH_ENV,
+} from "./config";
+export type { ServerConfig, DeploymentProfile, HostedBetterAuthConfig, HostedAuthEmailConfig } from "./config";
+export {
+  createDisabledAuthEmailSender,
+  createFakeAuthEmailSender,
+  createHttpJsonV1AuthEmailSender,
+} from "./auth-email";
+export type { AuthEmailSender, AuthEmailMessage, AuthEmailHttpJsonV1Config } from "./auth-email";
 export { startCockpitServer } from "./app";
 export type { CockpitServer } from "./app";
 export { handleRequest } from "./router";
+export { observeRequest } from "./observability";
+export type { RequestLogEvent, RequestLogSink } from "./observability";
+export { handleMe } from "./router/me";
 export { authMiddleware, LOCALHOST_PRINCIPAL } from "./auth";
 export type { Principal } from "./auth";
 export { ApiError, toErrorResponse } from "./errors";

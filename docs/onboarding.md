@@ -13,14 +13,13 @@ operativsystemets secret store, når en integration kræver en hemmelighed.
 
 ## 1. Udviklerinstallation
 
-Forudsætning: [Bun](https://bun.sh) 1.2 eller nyere. En ren clone kræver både
-rodprojektets afhængigheder (CLI/MCP) og cockpit-appens afhængigheder:
+Forudsætning: [Bun](https://bun.sh) 1.4.0. Root og cockpit er ét workspace, så
+en ren clone kræver én installation:
 
 ```bash
 git clone https://github.com/mikkelkrogsholm/rentemester.git
 cd rentemester
 bun install
-(cd app && bun install)
 bun link
 rentemester --version
 command -v rentemester
@@ -36,7 +35,8 @@ De mindste grønne gates for en udviklerclone er:
 
 ```bash
 bun test
-(cd app && bun test && bun run build)
+bun run cockpit:test
+bun run cockpit:build
 bun run smoke
 bun run smoke-mcp
 ```

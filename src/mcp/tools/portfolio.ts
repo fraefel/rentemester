@@ -303,7 +303,7 @@ export function registerPortfolioTools(server: McpServer): void {
         return envelopeToCallResult(errorEnvelope(redactPaths(ws.error)));
       }
       const asOfDate = args.asOf ?? todayIsoDate();
-      let registered;
+      let registered: ReturnType<typeof listWorkspaceCompanies>;
       try {
         registered = listWorkspaceCompanies(ws.root);
       } catch (error) {

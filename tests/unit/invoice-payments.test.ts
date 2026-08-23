@@ -83,7 +83,7 @@ describe("invoice payments", () => {
     // here via the RENTEMESTER_TODAY override for determinism (EJER-1).
     const previousToday = process.env.RENTEMESTER_TODAY;
     process.env.RENTEMESTER_TODAY = "2026-06-16";
-    let status2;
+    let status2: ReturnType<typeof getInvoiceStatus>;
     try {
       status2 = getInvoiceStatus(db, issued.documentId!);
     } finally {

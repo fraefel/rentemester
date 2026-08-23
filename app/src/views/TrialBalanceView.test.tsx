@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { screen, within } from "@testing-library/react";
 import { TrialBalanceView } from "./TrialBalanceView";
 import { renderAt } from "../test/render";

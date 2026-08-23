@@ -56,6 +56,10 @@ There is one auth seam (`src/server/auth.ts`), run before every route.
 - **`RENTEMESTER_APP_AUTH=required`:** a shared-secret bearer token. Every
   request must carry `Authorization: Bearer <RENTEMESTER_APP_TOKEN>`; a
   missing or wrong token is `401`.
+- **Hosted profile:** Better Auth owns individual password credentials,
+  verified e-mail, TOTP/recovery codes and cookie sessions. Every protected
+  route is authorized against append-only workspace/company membership and
+  the route's declared permission before a company ledger is opened.
 
 **The localhost write hard-gate.** When auth is *disabled* (Phase 1), a
 bookkeeping **write** is additionally refused unless the request's `Host`
@@ -127,8 +131,10 @@ agent can branch on the specific cause without parsing `errors[0]`. The
 
 All read endpoints are `GET`, side-effect free, and require no body. Unknown
 slug → `404`. The `year` query parameter, where accepted, selects a fiscal
-year; `asOf` (a `YYYY-MM-DD`) selects an as-of date — both default sensibly
-when omitted.
+year and normally defaults when omitted. `asOf` selects an as-of date; ordinary
+company/portfolio routes may default it, while every group structure,
+reconciliation, elimination and consolidated-report endpoint requires an
+explicit `YYYY-MM-DD` value and otherwise fails closed.
 
 | Method + path | Response key | Purpose |
 |---|---|---|
@@ -145,6 +151,8 @@ when omitted.
 | `GET /api/companies/:slug/trial-balance?year=` | `trialBalance` | Trial balance (saldobalance). |
 | `GET /api/companies/:slug/trial-balance/export?format=csv&year=` | _binary CSV_ | #372 — Saldobalance som CSV-download. |
 | `GET /api/companies/:slug/journal?year=&account=` | `journal` | Journal entries, optionally filtered by account. |
+| `GET /api/companies/:slug/accounting-drafts` | `accountingDrafts` | Latest append-only state for every accounting draft. |
+| `GET /api/companies/:slug/accounting-drafts/:draftId` | `accountingDraft` | One draft's current exact version and event hash. |
 | `GET /api/companies/:slug/bank?year=` | `bank` | Bank transactions. |
 | `GET /api/companies/:slug/vat?year=` | `vat` | VAT report (momsopgørelse). |
 | `GET /api/companies/:slug/documents` | `documents` | Ingested documents (bilag). |
@@ -157,6 +165,11 @@ when omitted.
 | `GET /api/companies/:slug/cashflow?year=` | `cashflow` | Cash-flow view. |
 | `GET /api/companies/:slug/budget?year=` | `budget` | Effective (latest-revision) budget lines for one fiscal year (#339). |
 | `GET /api/companies/:slug/budget-vs-actual?year=` | `budgetVsActual` | Budget-vs-faktisk comparison for one fiscal year (#339). |
+| `GET /api/group-overview?asOf=YYYY-MM-DD` | `scope` | Membership-filtered, effective-dated group structure and readiness without financial figures. Exactly one `asOf` is required. |
+| `GET /api/group-reconciliation?asOf=YYYY-MM-DD` | `scope` | Read-only intercompany reconciliation with source evidence. Exactly one `asOf` is required. |
+| `GET /api/group-eliminations?asOf=YYYY-MM-DD` | `scope` | Applied append-only balance eliminations visible to the caller. Exactly one `asOf` is required. |
+| `GET /api/group-report-profiles?asOf=YYYY-MM-DD` | `scope`, `profiles` | Active, approved reporting profiles only when the complete group is visible. Exactly one `asOf` is required. |
+| `GET /api/group-consolidated-report?profileId=&from=&asOf=` | `scope`, `status` | Profile-bound read-only consolidated result and balance. Each query parameter is required exactly once. |
 
 The detailed object shape of each read payload is the corresponding
 `build*` function's return type in `src/server/data.ts`.
@@ -206,6 +219,23 @@ Clears an open exception. `:id` must be a positive integer.
 - No `confirm` required (non-destructive — the status only flips to
   `resolved`).
 - Response key `exception`: `{ id, resolved }`.
+
+### Accounting draft review lifecycle
+
+All lifecycle calls bind to the exact current `eventHash`. The server ignores
+any client actor fields and derives the actor from the authenticated session.
+
+| Method + path | Body | Permission | Effect |
+|---|---|---|---|
+| `POST /api/companies/:slug/accounting-drafts` | `{ draftId, payload }` | `company.draft.write` | Creates version 1 without posting. |
+| `POST /api/companies/:slug/accounting-drafts/:draftId/revise` | `{ expectedEventHash, payload }` | `company.draft.write` | Appends a new editable version. |
+| `POST /api/companies/:slug/accounting-drafts/:draftId/submit` | `{ expectedEventHash }` | `company.draft.write` | Revalidates and locks the exact version for review. |
+| `POST /api/companies/:slug/accounting-drafts/:draftId/reject` | `{ expectedEventHash, reason }` | `company.review` | Appends an explained rejection; a new version is required before resubmit. |
+| `POST /api/companies/:slug/accounting-drafts/:draftId/approve-and-post` | `{ expectedEventHash, confirm: true }` | `company.review` | An independent reviewer atomically posts and records approval. Exact retries return existing evidence. |
+
+The payload is the normal `JournalEntryInput` shape. Account, balance,
+period, document and bank-link invariants are checked on creation/submission
+and again inside the final immediate transaction.
 
 ### `POST /api/companies/:slug/bank/import`
 

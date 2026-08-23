@@ -15,6 +15,10 @@ export type CreateSystemBackupInput = {
   createdAt?: string;
   debugHoldMs?: number;
   signWithEd25519?: boolean;
+  /** Portable workspace snapshots omit operational credentials and destinations. */
+  credentialFree?: boolean;
+  createdBy?: string;
+  createdByProgram?: string;
 };
 
 export type CreateSystemBackupResult = {
@@ -220,12 +224,24 @@ function relativeBackupPath(backupDir: string, filePath: string) {
   return relative(backupDir, filePath).replaceAll("\\", "/");
 }
 
-function copyDirWithManifest(sourceDir: string, targetDir: string, backupDir: string) {
+const PORTABLE_CONFIG_ALLOWLIST = new Set([
+  "backup-lock.json",
+  "backup-manifest.pub",
+  "policy.yaml",
+]);
+
+function copyDirWithManifest(
+  sourceDir: string,
+  targetDir: string,
+  backupDir: string,
+  includeFile: (name: string) => boolean = () => true,
+) {
   const copied: ManifestFile[] = [];
   if (!existsSync(sourceDir)) return copied;
   mkdirSync(targetDir, { recursive: true });
   for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
+    if (!includeFile(entry.name)) continue;
     const sourcePath = join(sourceDir, entry.name);
     const targetPath = join(targetDir, entry.name);
     copyFileSync(sourcePath, targetPath);
@@ -354,7 +370,12 @@ export function createSystemBackup(db: Database, companyRoot: string, input: Cre
     }
   }
 
-  const copiedConfig = copyDirWithManifest(paths.config, configBackupDir, backupDir);
+  const copiedConfig = copyDirWithManifest(
+    paths.config,
+    configBackupDir,
+    backupDir,
+    input.credentialFree ? (name) => PORTABLE_CONFIG_ALLOWLIST.has(name) : undefined,
+  );
 
   const asymmetricSignature: BackupAsymmetricSignature | undefined = asymmetricKeypair
     ? {
@@ -408,6 +429,8 @@ export function createSystemBackup(db: Database, companyRoot: string, input: Cre
     entityType: "company",
     entityId: 1,
     message: `Created full backup ${backupId}`,
+    createdBy: input.createdBy,
+    createdByProgram: input.createdByProgram,
     fallbackActor: { createdBy: "scheduled:system_backup", createdByProgram: "rentemester-cron" },
   });
 
@@ -489,7 +512,7 @@ export type PackBackupArchiveResult = {
 export function packBackupArchive(
   db: Database,
   companyRoot: string,
-  input: { backupId?: string; outPath?: string } = {},
+  input: { backupId?: string; outPath?: string; createdBy?: string; createdByProgram?: string } = {},
 ): PackBackupArchiveResult {
   const paths = companyPaths(companyRoot);
   let backupId = input.backupId?.trim();
@@ -544,6 +567,8 @@ export function packBackupArchive(
     entityType: "company",
     entityId: 1,
     message: `Packed backup ${backupId} into single-file archive ${basename(archivePath)} (sha256:${sha256})`,
+    createdBy: input.createdBy,
+    createdByProgram: input.createdByProgram,
   });
 
   return {

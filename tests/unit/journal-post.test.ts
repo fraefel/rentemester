@@ -236,13 +236,18 @@ describe("journal posting", () => {
     migrate(db);
     seedAccounts(db);
 
-    const seenOptions: any[] = [];
+    let immediateCalls = 0;
     const instrumentedDb = new Proxy(db, {
       get(target, prop, receiver) {
         if (prop === "transaction") {
-          return (fn: (...args: any[]) => any, options?: any) => {
-            seenOptions.push(options ?? null);
-            return target.transaction(fn, options);
+          return (fn: (...args: any[]) => any) => {
+            const transaction = target.transaction(fn);
+            const instrumented = (...args: any[]) => transaction(...args);
+            instrumented.immediate = (...args: any[]) => {
+              immediateCalls += 1;
+              return transaction.immediate(...args);
+            };
+            return instrumented;
           };
         }
         const value = Reflect.get(target, prop, receiver);
@@ -266,7 +271,7 @@ describe("journal posting", () => {
       reason: "Proof"
     });
     expect(reversed.ok).toBe(true);
-    expect(seenOptions.filter((options) => options?.immediate === true)).toHaveLength(2);
+    expect(immediateCalls).toBe(2);
 
     db.close();
     rmSync(root, { recursive: true, force: true });

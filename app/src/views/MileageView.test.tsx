@@ -1,6 +1,6 @@
 // Cockpit Kørsel view (#335) — list, summary, and the register-modal flow.
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MileageView } from "./MileageView";

@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 /**
  * Recurring invoice templates (#118).
  *
@@ -303,7 +304,7 @@ export function createRecurringInvoiceTemplate(
     });
 
     return row;
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, templateId: inserted.id, appliedRules, errors: [] };
 }
@@ -455,7 +456,7 @@ export function retireRecurringInvoiceTemplate(
   }
 
   db.transaction(() => {
-    db.run(
+    runSql(db,
       `UPDATE recurring_invoice_templates SET active = 0 WHERE id = ?`,
       template.id,
     );
@@ -468,7 +469,7 @@ export function retireRecurringInvoiceTemplate(
       createdBy: input.createdBy,
       createdByProgram: input.createdByProgram,
     });
-  }, { immediate: true })();
+  }).immediate();
 
   return { ok: true, templateId: template.id, appliedRules, errors: [] };
 }
@@ -622,7 +623,7 @@ export function generateRecurringInvoice(
 
     const nextIssueDate = periodIssueDate(template.first_issue_date, template.interval, template.interval_count, periodIndex + 1);
     if (nextIssueDate > template.next_issue_date) {
-      db.run(
+      runSql(db,
         `UPDATE recurring_invoice_templates SET next_issue_date = ? WHERE id = ?`,
         nextIssueDate,
         template.id,
@@ -644,7 +645,7 @@ export function generateRecurringInvoice(
         deliveryPeriodStart: window.start, deliveryPeriodEnd: window.end,
         appliedRules: mergedRules, errors: [],
       };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     // issueInvoice publishes immutable files before its nested transaction
     // returns. If a later generation-link write aborts the outer transaction,

@@ -77,8 +77,8 @@ describe("POST /api/companies — CSRF-gates (SEC-1-BYPASS)", () => {
     }
   });
 
-  test("(c) Origin: http://localhost:5319 (vite-dev) tillades", async () => {
-    const ws = makeWorkspace("ws-create-vite-origin");
+  test("(c) Origin: http://localhost:5319 (Bun-dev) tillades", async () => {
+    const ws = makeWorkspace("ws-create-bun-origin");
     try {
       const res = await request(
         ws,
@@ -179,7 +179,7 @@ describe("PATCH /api/companies/:slug — CSRF-gates (SEC-1-BYPASS)", () => {
   });
 
   test("(c) Origin: http://localhost:5319 tillades", async () => {
-    const { ws, slug } = makeWsWithCompany("ws-patch-vite-origin");
+    const { ws, slug } = makeWsWithCompany("ws-patch-bun-origin");
     try {
       const res = await request(
         ws,

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DashboardView } from "./DashboardView";
@@ -82,7 +82,7 @@ describe("DashboardView — Overblik", () => {
     const select = await screen.findByLabelText("Vælg regnskabsår");
     await userEvent.selectOptions(select, "2025");
     // The last fetch call must carry the chosen year.
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const lastUrl = String(calls[calls.length - 1]![0]);
     expect(lastUrl).toContain("year=2025");
   });
@@ -405,7 +405,7 @@ describe("DashboardView — resolve exception (#213)", () => {
       within(dialog).getByRole("button", { name: REVIEW_BUTTON }),
     );
     // The resolve endpoint was called.
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const resolveCall = calls.find((c) =>
       String(c[0]).includes("/exceptions/7/resolve"),
     );

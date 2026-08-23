@@ -248,7 +248,7 @@ export function registerVatTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      payload: ReverseChargePurchaseInput & { invoiceNo?: string };
+      payload: z.infer<typeof euServicePurchasePayloadSchema>;
       confirm?: boolean;
     }>(server, "vat_post_eu_service_purchase", ({ db, actor, args }) => {
       const payload = { ...(args.payload as Record<string, unknown>) };

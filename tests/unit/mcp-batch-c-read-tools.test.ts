@@ -155,7 +155,7 @@ describe("#batch-c — bank_account_list", () => {
     const envAll = await call(bankRegistered, "bank_account_list", {
       company: companyRoot,
     });
-    expect((envAll.data?.accounts as unknown[]).length).toBe(2);
+    expect(((envAll.data?.accounts ?? []) as unknown[]).length).toBe(2);
     // With the flag set to false the count stays the same (no inactive
     // accounts seeded) — this pins the schema field's presence without
     // requiring a fixture row we'd have to clean up.
@@ -163,7 +163,7 @@ describe("#batch-c — bank_account_list", () => {
       company: companyRoot,
       includeInactive: false,
     });
-    expect((envActive.data?.accounts as unknown[]).length).toBe(2);
+    expect(((envActive.data?.accounts ?? []) as unknown[]).length).toBe(2);
   });
 });
 

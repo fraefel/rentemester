@@ -21,6 +21,7 @@ import {
   type StatementCsvExport,
 } from "../data/statement-exports";
 import { okResponse } from "./_shared";
+import { responseBodyFromBytes } from "../response-body";
 
 export function handleCompanyIncomeStatement(
   config: ServerConfig,
@@ -89,7 +90,7 @@ export function handleCompanyStatementExport(
     } else {
       pdfExport = exportTrialBalancePdf(config.workspaceRoot, slug, year);
     }
-    return new Response(pdfExport.content, {
+    return new Response(responseBodyFromBytes(pdfExport.content), {
       headers: {
         "content-type": "application/pdf",
         "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(pdfExport.filename)}`,
@@ -153,7 +154,7 @@ export function handleCompanyVatExport(
     }
     throw err;
   }
-  return new Response(exported.content, {
+  return new Response(responseBodyFromBytes(exported.content), {
     headers: {
       "content-type": "application/pdf",
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(exported.filename)}`,

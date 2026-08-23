@@ -12,7 +12,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Database } from "bun:sqlite";
+import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { z } from "zod";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
@@ -404,14 +404,14 @@ export function resolveJournalEntryId(
   if (matchText) {
     const dateClause = args.matchDate ? "AND transaction_date = ?" : "";
     const docClause = args.matchDocumentId ? "AND document_id = ?" : "";
-    const params: unknown[] = [matchText];
+    const params: SQLQueryBindings[] = [matchText];
     if (args.matchDate) params.push(args.matchDate);
     if (args.matchDocumentId) params.push(args.matchDocumentId);
     const row = db
       .query(
         `SELECT id FROM journal_entries WHERE text = ? ${dateClause} ${docClause} ORDER BY id DESC LIMIT 1`,
       )
-      .get(...(params as [unknown])) as { id: number } | null;
+      .get(...params) as { id: number } | null;
     if (row) return asJournalEntryId(row.id);
   }
   return null;

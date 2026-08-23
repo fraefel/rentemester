@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import { insertAuditLog } from "./actor";
 
@@ -87,7 +88,7 @@ export function accountRoleCompatibility(db: Database, role: AccountRole, accoun
 export function proposeAccountRole(db: Database, role: AccountRole, accountNo: string, source: string): boolean {
   const compatibility = accountRoleCompatibility(db, role, accountNo);
   if (!compatibility.ok) return false;
-  const result = db.run("INSERT OR IGNORE INTO account_role_proposals (role, account_no, source) VALUES (?, ?, ?)", role, accountNo, source);
+  const result = runSql(db, "INSERT OR IGNORE INTO account_role_proposals (role, account_no, source) VALUES (?, ?, ?)", role, accountNo, source);
   return result.changes > 0;
 }
 
@@ -109,7 +110,7 @@ export function persistAccountRoleProposals(db: Database, proposals: ReadonlyArr
     ignored += roleProposals.length - valid.length;
     const differsFromNative = currentRow?.confirmation_source === "native_seed" && valid.some((proposal) => proposal.accountNo !== currentRow.account_no);
     if (differsFromNative) {
-      db.run("UPDATE account_role_mappings SET status = 'inactive' WHERE role = ? AND status = 'confirmed' AND confirmation_source = 'native_seed'", role);
+      runSql(db, "UPDATE account_role_mappings SET status = 'inactive' WHERE role = ? AND status = 'confirmed' AND confirmation_source = 'native_seed'", role);
       insertAuditLog(db, { eventType: "account_role_review_required", entityType: "account_role", entityId: role, message: `Imported chart requires explicit review of ${role}; native seed ${currentRow!.account_no} was deactivated`, createdBy: "system", createdByProgram: "rentemester-import" });
       reviewRequired.add(role);
     }
@@ -132,10 +133,10 @@ export function confirmAccountRole(db: Database, role: AccountRole, accountNo: s
   if (!compatibility.ok) return { ok: false as const, error: compatibility.error };
   db.transaction(() => {
     const current = db.query("SELECT COALESCE(MAX(version), 0) AS n FROM account_role_mappings WHERE role = ?").get(role) as { n: number };
-    db.run("UPDATE account_role_mappings SET status = 'superseded' WHERE role = ? AND status = 'confirmed'", role);
-    db.run("INSERT INTO account_role_mappings (role, account_no, version, confirmed_by, confirmation_source) VALUES (?, ?, ?, ?, ?)", role, accountNo, current.n + 1, actor, confirmationSource);
-    db.run("UPDATE account_role_proposals SET status = 'accepted' WHERE role = ? AND account_no = ?", role, accountNo);
-    db.run("UPDATE account_role_proposals SET status = 'rejected' WHERE role = ? AND account_no <> ? AND status = 'proposed'", role, accountNo);
+    runSql(db, "UPDATE account_role_mappings SET status = 'superseded' WHERE role = ? AND status = 'confirmed'", role);
+    runSql(db, "INSERT INTO account_role_mappings (role, account_no, version, confirmed_by, confirmation_source) VALUES (?, ?, ?, ?, ?)", role, accountNo, current.n + 1, actor, confirmationSource);
+    runSql(db, "UPDATE account_role_proposals SET status = 'accepted' WHERE role = ? AND account_no = ?", role, accountNo);
+    runSql(db, "UPDATE account_role_proposals SET status = 'rejected' WHERE role = ? AND account_no <> ? AND status = 'proposed'", role, accountNo);
     insertAuditLog(db, { eventType: "account_role_confirmed", entityType: "account_role", entityId: role, message: `Confirmed ${role} -> ${accountNo} (version ${current.n + 1})`, createdBy: actor, createdByProgram });
   })();
   return { ok: true as const, resolution: resolveAccountRole(db, role) };

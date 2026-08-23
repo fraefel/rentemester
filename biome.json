@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "src/**/*.ts",
+      "scripts/**/*.ts",
+      "tests/**/*.ts",
+      "app/src/**/*.ts",
+      "app/src/**/*.tsx",
+      "app/scripts/**/*.ts"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none",
+      "security": {
+        "preset": "recommended"
+      },
+      "correctness": {
+        "noUnsafeOptionalChaining": "error",
+        "useExhaustiveDependencies": "error"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "error",
+        "noImplicitAnyLet": "error",
+        "useIterableCallbackReturn": "error"
+      },
+      "a11y": {
+        "useAriaPropsSupportedByRole": "error",
+        "useButtonType": "error"
+      }
+    }
+  }
+}

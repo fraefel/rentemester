@@ -21,15 +21,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.0
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Typecheck runtime and release scripts
+        run: bun run typecheck:runtime
+
+      - name: Lint TypeScript and React sources
+        run: bun run lint
+
+      - name: Refuse vulnerable dependencies
+        run: bun run supply-chain:audit
+
+      - name: Verify production dependency licenses
+        run: bun run supply-chain:licenses
 
       - name: Run tests
         run: bun test
@@ -40,18 +52,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.14
-      - name: Install root dependencies
+          bun-version: 1.4.0
+      - name: Install workspace dependencies
         run: bun install --frozen-lockfile
-      - name: Install cockpit dependencies
-        working-directory: app
-        run: bun install --frozen-lockfile
+      - name: Test cockpit
+        run: bun run cockpit:test
       - name: Build cockpit
-        run: bun run --cwd app build
+        run: bun run cockpit:build
 
   windows-root-safety:
     name: Windows restore and cleanup safety
@@ -59,12 +70,28 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.0
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Run native Windows restore and cleanup tests
         run: bun test tests/unit/system-restore-target-guard.test.ts tests/unit/windows-filesystem-safety.test.ts
+
+  container-integration:
+    name: container readiness and persisted restart
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Build and verify the local container profile
+        run: bun run container:test
+      - name: Verify two clean builds are byte-identical by OCI content identity
+        run: bun run container:reproducibility

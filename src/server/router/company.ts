@@ -4,6 +4,7 @@
 // payables, agent-suggestions.
 
 import type { ServerConfig } from "../config";
+import { withCompanyMutation } from "../mutations";
 import { ApiError } from "../errors";
 import { buildCompanyAccounts } from "../data/accounts-view";
 import { buildCompanyAccruals } from "../data/accruals-view";
@@ -40,10 +41,22 @@ export function handleCompanySettings(config: ServerConfig, slug: string): Respo
  * credentials, unknown CVR) is reported inside `sync.ok`, not as an HTTP error.
  */
 export async function handleCompanySyncCvr(
+  request: Request,
   config: ServerConfig,
   slug: string,
 ): Promise<Response> {
-  const data = await syncCompanyCvr(config.workspaceRoot, slug);
+  // Sync mutates stored company master data and can call an external source.
+  // It therefore goes through the same local/origin/content-type, company,
+  // backup-lock and actor gates as every other company mutation.
+  const result = await withCompanyMutation(request, config, slug, async () => ({
+    ok: true,
+    // TODO(auth/core): syncCompanyCvr only exposes workspace+slug and opens
+    // its own DB. Reusing MutationContext.db requires a data-layer API change;
+    // until then this outer pipeline remains the controlling authorization,
+    // origin, backup-lock and actor gate.
+    data: await syncCompanyCvr(config.workspaceRoot, slug),
+  }));
+  const data = result.data;
   return okResponse({ sync: data });
 }
 

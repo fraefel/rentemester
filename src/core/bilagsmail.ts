@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 // Bilagsmail — IMAP config storage + per-company mail alias (#348, #350).
 //
 // IMAP credentials lever ALDRIG i ledger-DB'en; de gemmes i en JSON-fil i
@@ -105,7 +106,7 @@ const ALIAS_PATTERN = /^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/;
  */
 export function setCompanyMailAlias(db: Database, alias: string | null): void {
   if (alias === null || alias === "") {
-    db.run("UPDATE companies SET mail_alias = NULL WHERE id = 1");
+    runSql(db, "UPDATE companies SET mail_alias = NULL WHERE id = 1");
     return;
   }
   const normalized = alias.trim().toLowerCase();
@@ -114,7 +115,7 @@ export function setCompanyMailAlias(db: Database, alias: string | null): void {
       "mail_alias must be 3-64 chars, lowercase alnum/./_/-, starting and ending alphanumeric",
     );
   }
-  db.run("UPDATE companies SET mail_alias = ? WHERE id = 1", normalized);
+  runSql(db, "UPDATE companies SET mail_alias = ? WHERE id = 1", normalized);
 }
 
 export function getCompanyMailAlias(db: Database): string | null {

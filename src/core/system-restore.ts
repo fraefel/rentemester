@@ -32,6 +32,10 @@ export type RestoreSystemBackupInput = {
   // user's own files, pointed at by mistake. An empty or non-existent target is
   // always fine and needs no flag.
   allowNonEmptyTarget?: boolean;
+  /** Internal portable-workspace mode: no HMAC secret ships; Ed25519 must verify. */
+  credentialFreePortableMode?: boolean;
+  createdBy?: string;
+  createdByProgram?: string;
 };
 
 export type RestoreSystemBackupResult = {
@@ -254,7 +258,7 @@ function verifyManifestEd25519(
     return { error: "ed25519 public key not found; pass publicKeyPath or restore from a backup that ships the key under config/backup-manifest.pub" };
   }
   const pem = readFileSync(publicKeyPath, "utf8");
-  let key;
+  let key: ReturnType<typeof createPublicKey>;
   try {
     key = createPublicKey(pem);
   } catch (error) {
@@ -282,7 +286,18 @@ function verifyManifestAuthenticity(
   verificationKeyPath?: string,
   publicKeyPath?: string,
   publicKeyHintExpected?: string,
+  credentialFreePortableMode = false,
 ) {
+  if (credentialFreePortableMode) {
+    if (!manifest.asymmetricSignature) return "credential-free portable restore requires an ed25519 signature";
+    const ed25519 = verifyManifestEd25519(
+      backupDir, manifest, manifestText, publicKeyPath, publicKeyHintExpected,
+    );
+    if (!ed25519 || "error" in ed25519) {
+      return ed25519 && "error" in ed25519 ? ed25519.error : "ed25519 verification failed";
+    }
+    return null;
+  }
   const hmacError = verifyManifestHmac(backupDir, manifestText, verificationKeyPath);
   if (hmacError) return hmacError;
   // If the manifest advertises an ed25519 signature, it MUST also verify.
@@ -359,6 +374,8 @@ function migrateValidateAndStampRestoredDb(
   manifest: BackupManifest,
   restoredCompanyRoot: string,
   restoredAt: string,
+  createdBy?: string,
+  createdByProgram?: string,
 ) {
   // Bun can keep file-backed SQLite handles alive on Windows after close(),
   // especially when cached statements were used. Deserialize into an in-memory
@@ -380,6 +397,8 @@ function migrateValidateAndStampRestoredDb(
       entityType: "company",
       entityId: 1,
       message: `Restored from backup ${manifest.backupId} (created ${manifest.createdAt}) at ${restoredAt}`,
+      createdBy,
+      createdByProgram,
     });
     return { ok: true as const, image: db.serialize() };
   } finally {
@@ -559,7 +578,15 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
   if (!manifestText) return { ok: false, appliedRules: [RULE_ID], errors: [`invalid or missing backup manifest in ${input.backupDir}`] };
   const manifest = readManifest(input.backupDir);
   if (!manifest) return { ok: false, appliedRules: [RULE_ID], errors: [`invalid or missing backup manifest in ${input.backupDir}`] };
-  const authenticityError = verifyManifestAuthenticity(input.backupDir, manifest, manifestText, input.verificationKeyPath, input.publicKeyPath, input.publicKeyHint);
+  const authenticityError = verifyManifestAuthenticity(
+    input.backupDir,
+    manifest,
+    manifestText,
+    input.verificationKeyPath,
+    input.publicKeyPath,
+    input.publicKeyHint,
+    input.credentialFreePortableMode === true,
+  );
   if (authenticityError) return { ok: false, appliedRules: [RULE_ID], errors: [authenticityError] };
 
   const manifestErrors = [
@@ -604,7 +631,14 @@ function restoreFromBackupDir(input: RestoreSystemBackupInput): RestoreSystemBac
       config: restoreFiles(input.backupDir, manifest.copiedFiles.config, stagingPaths.config),
     };
 
-    const preparedDb = migrateValidateAndStampRestoredDb(stagingPaths.db, manifest, stagingRoot, restoredAt);
+    const preparedDb = migrateValidateAndStampRestoredDb(
+      stagingPaths.db,
+      manifest,
+      stagingRoot,
+      restoredAt,
+      input.createdBy,
+      input.createdByProgram,
+    );
     if (!preparedDb.ok) {
       return {
         ok: false,

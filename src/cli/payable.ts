@@ -5,7 +5,7 @@ import {
   buildPayablesList,
   type PayablesListRow,
 } from "../core/payables";
-import { openCommandDb } from "../cli-dispatch";
+import { openCommandDb, optionalNumberOrFatal } from "../cli-dispatch";
 import { formatKroner } from "../cli-format";
 import type { CommandDispatch } from "../cli-dispatch";
 
@@ -93,15 +93,14 @@ export function register(dispatch: CommandDispatch): void {
       console.error("Missing required --payable-id <n> or --bank-transaction-id <n>");
       process.exit(2);
     }
-    const amount = ctx.parseOptionalNumber("--amount");
-    if (!amount.ok) ctx.fatal(amount.error);
+    const amount = optionalNumberOrFatal(ctx, "--amount");
     const db = openCommandDb(ctx);
     migrate(db);
     const result = payPayableFromBank(db, {
       payableId,
       bankTransactionId,
       paymentDate: ctx.arg("--date") ?? undefined,
-      amount: amount.value === undefined ? undefined : Number(amount.value),
+      amount: amount === undefined ? undefined : Number(amount),
       paymentAccountNo: ctx.arg("--payment-account") ?? undefined,
       note: ctx.arg("--note") ?? undefined,
     });
@@ -111,10 +110,8 @@ export function register(dispatch: CommandDispatch): void {
   });
 
   dispatch.on("payable", "list", (ctx) => {
-    const minDays = ctx.parseOptionalNumber("--min-days");
-    const vendorId = ctx.parseOptionalNumber("--vendor-id");
-    if (!minDays.ok) ctx.fatal(minDays.error);
-    if (!vendorId.ok) ctx.fatal(vendorId.error);
+    const minDays = optionalNumberOrFatal(ctx, "--min-days");
+    const vendorId = optionalNumberOrFatal(ctx, "--vendor-id");
     const db = openCommandDb(ctx);
     migrate(db);
     const result = buildPayablesList(db, {
@@ -123,8 +120,8 @@ export function register(dispatch: CommandDispatch): void {
       supplier: ctx.arg("--supplier") ?? undefined,
       from: ctx.arg("--from") ?? undefined,
       to: ctx.arg("--to") ?? undefined,
-      vendorId: vendorId.value === undefined ? undefined : Number(vendorId.value),
-      minDays: minDays.value === undefined ? undefined : Number(minDays.value),
+      vendorId: vendorId === undefined ? undefined : Number(vendorId),
+      minDays: minDays === undefined ? undefined : Number(minDays),
     });
     if (ctx.outputFormat === "json") {
       ctx.emitResult(result as Record<string, unknown>);

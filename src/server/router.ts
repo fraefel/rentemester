@@ -17,12 +17,21 @@
 // the agent CLI / MCP stacks enforce — the server does not inherit them.
 
 import type { ServerConfig } from "./config";
-import { authMiddleware } from "./auth";
+import type { RoutePermission } from "../core/access-permissions";
+export type { RoutePermission } from "../core/access-permissions";
+import { authMiddleware, type Principal } from "./auth";
+import { insertWorkspaceAuthorizationAudit, openWorkspaceControlDb } from "../core/workspace-control";
+import { authorizeWorkspaceRoute } from "../core/workspace-access";
+import { recordHostedDocumentAccess } from "./document-access-audit";
+import { isValidSlug } from "../core/workspace";
 import { ApiError, toErrorResponse } from "./errors";
+import { assertHostedMutationOriginAllowed } from "./mutations";
 import { serveStatic } from "./static";
 import { jsonResponse } from "./router/_shared";
+import { AUTH_SESSION_FRESH_AGE_SECONDS } from "./security-policy";
 import {
   handleHealth,
+  handleReadiness,
   handleRules,
   handleSystemCvrStatus,
 } from "./router/system";
@@ -30,6 +39,19 @@ import {
   handleCompanyList,
   handlePortfolio,
 } from "./router/portfolio";
+import { handleMe } from "./router/me";
+import {
+  handleWorkspaceInvitationCancel,
+  handleWorkspaceInvitationClaim,
+  handleWorkspaceInvitationCreate,
+  handleWorkspaceInvitationList,
+} from "./router/workspace-invitations";
+import {
+  handleWorkspaceMemberAccessUpdate,
+  handleWorkspaceMemberCompanyUpdate,
+  handleWorkspaceMemberList,
+} from "./router/workspace-members";
+import { handleGroupConsolidatedReport, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
 import {
   handleCompanyDashboard,
   handleCompanyFiscalYears,
@@ -61,6 +83,7 @@ import {
   handleCompanyRecurringInvoices,
 } from "./router/invoices";
 import { handleCompanyContacts } from "./router/contacts";
+import { handleCompanyAccountingDraft, handleCompanyAccountingDrafts } from "./router/accounting-drafts";
 import {
   handleAssetNextDepreciation,
   handleCompanyAssets,
@@ -134,6 +157,11 @@ import {
   handleSetBudget,
   handleUpdateCustomer,
   handleUpdateVendor,
+  handleApproveAndPostAccountingDraft,
+  handleCreateAccountingDraft,
+  handleRejectAccountingDraft,
+  handleReviseAccountingDraft,
+  handleSubmitAccountingDraft,
 } from "./write-handlers";
 
 // --------------------------------------------------------------------------
@@ -151,106 +179,339 @@ import {
  * The list is exported so `tests/unit/surface-diff-discoverable.test.ts` can
  * assert that it stays the single source of truth for the catalog.
  */
-export const ROUTE_CATALOG: ReadonlyArray<{
+export type RouteScope = "public" | "workspace" | "company";
+export type RouteEffect = "read" | "write" | "external";
+export type RouteCatalogEntry = {
   method: string;
   pattern: string;
   summary: string;
-}> = [
-  { method: "GET", pattern: "/api", summary: "Sundhedstjek + rute-katalog." },
-  { method: "GET", pattern: "/api/health", summary: "Alias for GET /api." },
-  { method: "GET", pattern: "/api/rules", summary: "Lovgrundlag — bundler, regler og SHA-256-citationer (#347)." },
-  { method: "GET", pattern: "/api/system/cvr-status", summary: "Er CVR-login konfigureret på serveren? (#402)" },
-  { method: "GET", pattern: "/api/portfolio", summary: "Workspace-portfolio." },
-  { method: "GET", pattern: "/api/companies", summary: "Lister virksomheder i workspacet." },
-  { method: "POST", pattern: "/api/companies", summary: "Opretter virksomhed i workspacet." },
-  { method: "PATCH", pattern: "/api/companies/:slug", summary: "Omdøber/arkiverer en virksomhed." },
-  { method: "GET", pattern: "/api/companies/:slug/dashboard", summary: "Virksomhedens dashboard." },
-  { method: "GET", pattern: "/api/companies/:slug/fiscal-years", summary: "Kendte regnskabsår." },
-  { method: "GET", pattern: "/api/companies/:slug/overview", summary: "Nøgletalsoverblik." },
-  { method: "GET", pattern: "/api/companies/:slug/income-statement", summary: "Resultatopgørelse." },
-  { method: "GET", pattern: "/api/companies/:slug/income-statement/export", summary: "Resultatopgørelse som CSV-download (#372)." },
-  { method: "GET", pattern: "/api/companies/:slug/balance", summary: "Balance." },
-  { method: "GET", pattern: "/api/companies/:slug/balance/export", summary: "Balance som CSV-download (#372)." },
-  { method: "GET", pattern: "/api/companies/:slug/trial-balance", summary: "Saldobalance." },
-  { method: "GET", pattern: "/api/companies/:slug/trial-balance/export", summary: "Saldobalance som CSV-download (#372)." },
-  { method: "GET", pattern: "/api/companies/:slug/journal", summary: "Journalposter." },
-  { method: "GET", pattern: "/api/companies/:slug/journal/export", summary: "Posteringer (kassekladde) som CSV-download (#465)." },
-  { method: "GET", pattern: "/api/companies/:slug/vat/export", summary: "Moms-rapport som PDF-download m. SKAT-rubrikker + frist (#464)." },
-  { method: "GET", pattern: "/api/companies/:slug/retention", summary: "5-års retention-status pr. data-domæne (#343)." },
-  { method: "GET", pattern: "/api/companies/:slug/integrity", summary: "Audit chain + backup status panel (#333)." },
-  { method: "GET", pattern: "/api/companies/:slug/accounts", summary: "Kontoplan — read-only liste (#344)." },
-  { method: "GET", pattern: "/api/companies/:slug/bank", summary: "Bank-transaktioner." },
-  { method: "GET", pattern: "/api/companies/:slug/vat", summary: "Momsoplysninger." },
-  { method: "GET", pattern: "/api/companies/:slug/documents", summary: "Bilagsliste." },
-  { method: "GET", pattern: "/api/companies/:slug/documents/:id/file", summary: "Henter et bilag." },
-  { method: "GET", pattern: "/api/companies/:slug/documents/:id/booking-options", summary: "Forslagsdata til bogføring af et bilag." },
-  { method: "GET", pattern: "/api/companies/:slug/recurring-invoices", summary: "Gentagende fakturaer." },
-  { method: "POST", pattern: "/api/companies/:slug/recurring-invoices", summary: "Opretter faktura-skabelon (#386)." },
-  { method: "POST", pattern: "/api/companies/:slug/recurring-invoices/:id/generate", summary: "Materialiserer en gentagende faktura." },
-  { method: "GET", pattern: "/api/companies/:slug/archive/:year", summary: "Arkiveret regnskabsår." },
-  { method: "GET", pattern: "/api/companies/:slug/multi-year", summary: "Flerårsoversigt." },
-  { method: "GET", pattern: "/api/companies/:slug/invoices", summary: "Udstedte fakturaer." },
-  { method: "GET", pattern: "/api/companies/:slug/invoices/:id/pdf", summary: "Henter en faktura-PDF." },
-  { method: "GET", pattern: "/api/companies/:slug/contacts", summary: "Kunder + leverandører." },
-  { method: "POST", pattern: "/api/companies/:slug/customers", summary: "Opretter kunde." },
-  { method: "PATCH", pattern: "/api/companies/:slug/customers/:id", summary: "Opdaterer kunde." },
-  { method: "DELETE", pattern: "/api/companies/:slug/customers/:id", summary: "Sletter kunde (#430). Blokeres ved åbne fakturaer." },
-  { method: "POST", pattern: "/api/companies/:slug/vendors", summary: "Opretter leverandør." },
-  { method: "PATCH", pattern: "/api/companies/:slug/vendors/:id", summary: "Opdaterer leverandør." },
-  { method: "DELETE", pattern: "/api/companies/:slug/vendors/:id", summary: "Sletter leverandør (#430). Blokeres ved åbne gælder." },
-  { method: "GET", pattern: "/api/companies/:slug/cvr-lookup", summary: "Slår CVR op." },
-  { method: "GET", pattern: "/api/companies/:slug/company", summary: "Virksomhedens stamdata." },
-  { method: "PATCH", pattern: "/api/companies/:slug/company", summary: "Opdaterer stamdata + bank/betaling." },
-  { method: "POST", pattern: "/api/companies/:slug/sync-cvr", summary: "Synkroniserer stamdata fra CVR." },
-  { method: "GET", pattern: "/api/companies/:slug/obligations", summary: "Frister og forpligtelser." },
-  { method: "GET", pattern: "/api/companies/:slug/cashflow", summary: "Likviditetsprognose." },
-  { method: "GET", pattern: "/api/companies/:slug/budget", summary: "Budget pr. konto pr. måned (#339)." },
-  { method: "GET", pattern: "/api/companies/:slug/budget-vs-actual", summary: "Budget vs. faktisk for året (#339)." },
-  { method: "POST", pattern: "/api/companies/:slug/budget", summary: "Sætter (append-only revision) en budgetlinje (#339)." },
-  { method: "GET", pattern: "/api/companies/:slug/exceptions", summary: "Exceptions queue — undtagelser, filtrerbar pr. status (#332)." },
-  { method: "POST", pattern: "/api/companies/:slug/exceptions/:id/resolve", summary: "Løser en exception." },
-  { method: "GET", pattern: "/api/companies/:slug/periods", summary: "Periodelås-liste med effective status (#342)." },
-  { method: "GET", pattern: "/api/companies/:slug/bank-accounts", summary: "Registrerede bankkonti + CSV-mapping-profiler (#345)." },
-  { method: "POST", pattern: "/api/companies/:slug/bank-accounts", summary: "Opretter en bankkonto (#345)." },
-  { method: "PATCH", pattern: "/api/companies/:slug/bank-accounts/:account", summary: "Auditeret opdatering af bankkontoens betalingsprofil (#539)." },
-  { method: "POST", pattern: "/api/companies/:slug/gdpr/export", summary: "GDPR-indsigt — actor-attribueret og confirm-gatet (#334)." },
-  { method: "POST", pattern: "/api/companies/:slug/gdpr/erase", summary: "GDPR-anonymisering — append-only tombstones (#334)." },
-  { method: "GET", pattern: "/api/companies/:slug/bilagsmail", summary: "Bilagsmail-status: IMAP-config, alias, inbox (#348/#350/#351)." },
-  { method: "POST", pattern: "/api/companies/:slug/bilagsmail/imap-config", summary: "Gemmer IMAP-config til config/imap.json (#348)." },
-  { method: "DELETE", pattern: "/api/companies/:slug/bilagsmail/imap-config", summary: "Sletter den gemte IMAP-config (#348)." },
-  { method: "PATCH", pattern: "/api/companies/:slug/bilagsmail/alias", summary: "Sætter eller rydder mail-alias (#350)." },
-  { method: "GET", pattern: "/api/companies/:slug/accruals", summary: "Periodiseringsregister (#337)." },
-  { method: "GET", pattern: "/api/companies/:slug/annual-report", summary: "Årsrapport-builder (regnskabsklasse-B) (#338)." },
-  { method: "POST", pattern: "/api/companies/:slug/bank/import", summary: "Importerer bank-CSV." },
-  { method: "POST", pattern: "/api/companies/:slug/import", summary: "Generel data-import." },
-  { method: "POST", pattern: "/api/companies/:slug/accountant-export", summary: "Revisor-eksport (.tar)." },
-  { method: "POST", pattern: "/api/companies/:slug/documents/ingest", summary: "Modtager et bilag." },
-  { method: "POST", pattern: "/api/companies/:slug/documents/book-expense", summary: "Bogfører et bilag som udgift mod en banktransaktion." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/issue", summary: "Udsteder en faktura." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/preview", summary: "Forhåndsviser en faktura-PDF uden at udstede." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/post", summary: "Bogfører en udstedt faktura." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/settle", summary: "Afregner faktura fra bank." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/credit-note", summary: "Udsteder kreditnota." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/send-public", summary: "Sender faktura som e-faktura (NemHandel/PEPPOL)." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/send-public/status", summary: "Kontrollerer kun status for en køsat DigiSense e-faktura." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/send-email", summary: "Sender faktura til kundens e-mail med PDF vedhæftet." },
-  { method: "POST", pattern: "/api/companies/:slug/invoices/send-reminder", summary: "Registrerer rykker (rentel. § 9b) og sender den på e-mail." },
-  { method: "POST", pattern: "/api/companies/:slug/periods/close", summary: "Lukker regnskabsperiode." },
-  { method: "POST", pattern: "/api/companies/:slug/periods/reopen", summary: "Genåbner regnskabsperiode (#247-modstykke til CLI-only)." },
-  { method: "GET", pattern: "/api/companies/:slug/mileage", summary: "Kørselsregister for valgt regnskabsår (#335)." },
-  { method: "POST", pattern: "/api/companies/:slug/mileage", summary: "Registrerer en kørsel (#335)." },
-  { method: "GET", pattern: "/api/companies/:slug/assets", summary: "Anlægskartotek — kapitaliserede aktiver + straksafskrivninger (#336)." },
-  { method: "POST", pattern: "/api/companies/:slug/assets", summary: "Registrerer et anlæg + lineær afskrivningsplan (#336)." },
-  { method: "GET", pattern: "/api/companies/:slug/assets/:id/next-depreciation", summary: "Næste afskrivningsperiode for et anlæg (#336)." },
-  { method: "POST", pattern: "/api/companies/:slug/assets/:id/depreciate", summary: "Bogfører næste afskrivningsperiode (#336)." },
-  { method: "POST", pattern: "/api/companies/:slug/assets/write-off", summary: "Straksafskriver et småanskaffelse (#336)." },
-  { method: "GET", pattern: "/api/companies/:slug/payables", summary: "Leverandørfaktura-arbejdsbord — kreditorliste + modal-data (#340)." },
-  { method: "POST", pattern: "/api/companies/:slug/payables", summary: "Registrerer et bilag som leverandørfaktura (#340)." },
-  { method: "POST", pattern: "/api/companies/:slug/payables/:id/pay", summary: "Markerer leverandørfaktura betalt fra bankpost (#340)." },
-  { method: "GET", pattern: "/api/companies/:slug/agent-suggestions", summary: "Agent-forslag i kø — afventer ejerens godkendelse (#346)." },
-  { method: "POST", pattern: "/api/companies/:slug/agent-suggestions/:id/approve", summary: "Ejer godkender agent-forslag — løser undtagelsen med 'Godkendt'-note (#346)." },
-  { method: "POST", pattern: "/api/companies/:slug/agent-suggestions/:id/reject", summary: "Ejer afviser agent-forslag — løser undtagelsen med 'Afvist'-note (#346)." },
+  scope: RouteScope;
+  effect: RouteEffect;
+  permission: RoutePermission;
+};
+
+type RouteCatalogInput = RouteCatalogEntry;
+/** Fails closed if a future route supplies contradictory capability metadata. */
+export function validateRouteCatalog(entries: readonly RouteCatalogEntry[]): void {
+  for (const entry of entries) {
+    if (!entry.scope || !entry.effect || !entry.permission) {
+      throw new Error(`route metadata missing for ${entry.method} ${entry.pattern}`);
+    }
+    if (entry.scope === "public" &&
+      entry.permission !== "public.read" &&
+      entry.permission !== "public.invitation.claim") {
+      throw new Error(`public route has non-public permission: ${entry.pattern}`);
+    }
+    if (entry.scope === "public" && entry.permission === "public.read" && entry.effect !== "read") {
+      throw new Error(`public route has non-read effect: ${entry.pattern}`);
+    }
+    if (entry.permission === "public.invitation.claim" &&
+      (entry.pattern !== "/api/invitations/claim" || entry.method !== "POST" || entry.effect !== "write")) {
+      throw new Error("invitation claim permission is restricted to its one token-bearing route");
+    }
+    if (entry.effect === "read" && /(?:\.write|\.manage|\.external)$/.test(entry.permission)) {
+      throw new Error(`read route has mutating permission: ${entry.pattern}`);
+    }
+    if (entry.effect === "external" &&
+      entry.permission !== "company.external-lookup" &&
+      entry.permission !== "company.external-send") {
+      throw new Error(`external route has non-external permission: ${entry.pattern}`);
+    }
+    if (entry.scope === "company" && !entry.permission.startsWith("company.")) {
+      throw new Error(`company route has wrong permission scope: ${entry.pattern}`);
+    }
+    if (entry.scope === "workspace" && !entry.permission.startsWith("workspace.")) {
+      throw new Error(`workspace route has wrong permission scope: ${entry.pattern}`);
+    }
+  }
+}
+
+const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
+  { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api", summary: "Sundhedstjek + rute-katalog." },
+  { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/health", summary: "Alias for GET /api." },
+  { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/ready", summary: "Read-only readiness for workspace, control DB and registered ledgers." },
+  { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/rules", summary: "Lovgrundlag — bundler, regler og SHA-256-citationer (#347)." },
+  { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/system/cvr-status", summary: "Er CVR-login konfigureret på serveren? (#402)" },
+  { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/portfolio", summary: "Workspace-portfolio." },
+  { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/me", summary: "Sikker hosted bruger- og medlemskabs-kontekst." },
+  { scope: "workspace", effect: "read", permission: "workspace.members.read", method: "GET", pattern: "/api/workspace/invitations", summary: "Lister workspace-invitationer uden tokens." },
+  { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/invitations", summary: "Opretter og leverer en tidsbegrænset workspace-invitation." },
+  { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/invitations/cancel", summary: "Annullerer en ubrugt workspace-invitation." },
+  { scope: "workspace", effect: "read", permission: "workspace.members.read", method: "GET", pattern: "/api/workspace/members", summary: "Lister aktive workspace-brugere og kun administrerbare selskabsmedlemskaber." },
+  { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/members/access", summary: "Ændrer workspace-rolle eller deaktiverer en bruger append-only." },
+  { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/members/company", summary: "Ændrer adgang til ét selskab append-only." },
+  { scope: "public", effect: "write", permission: "public.invitation.claim", method: "POST", pattern: "/api/invitations/claim", summary: "Indløser en e-mailbundet invitation uden at oprette en session." },
+  { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-overview", summary: "Koncernstruktur og status uden konsoliderede tal." },
+  { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-reconciliation", summary: "Eksakt read-only mellemregningsafstemning med kildehenvisninger." },
+  { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-eliminations", summary: "Anvendte, append-only balanceelimineringer uden selskabsledger-skrivning." },
+  { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-consolidated-report", summary: "Godkendt, read-only konsolideret resultat og balance med kildeevidens." },
+  { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-report-profiles", summary: "Lister kun aktive, godkendte og fuldt synlige konsolideringsprofiler." },
+  { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/companies", summary: "Lister virksomheder i workspacet." },
+  { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/companies", summary: "Opretter virksomhed i workspacet." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "PATCH", pattern: "/api/companies/:slug", summary: "Omdøber/arkiverer en virksomhed." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dashboard", summary: "Virksomhedens dashboard." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/fiscal-years", summary: "Kendte regnskabsår." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/overview", summary: "Nøgletalsoverblik." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/income-statement", summary: "Resultatopgørelse." },
+  { scope: "company", effect: "read", permission: "company.export", method: "GET", pattern: "/api/companies/:slug/income-statement/export", summary: "Resultatopgørelse som CSV-download (#372)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/balance", summary: "Balance." },
+  { scope: "company", effect: "read", permission: "company.export", method: "GET", pattern: "/api/companies/:slug/balance/export", summary: "Balance som CSV-download (#372)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/trial-balance", summary: "Saldobalance." },
+  { scope: "company", effect: "read", permission: "company.export", method: "GET", pattern: "/api/companies/:slug/trial-balance/export", summary: "Saldobalance som CSV-download (#372)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/journal", summary: "Journalposter." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accounting-drafts", summary: "Bogføringskladder og deres seneste reviewtilstand." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accounting-drafts/:draftId", summary: "Én bogføringskladde med præcis event-hash." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/accounting-drafts", summary: "Opretter en append-only bogføringskladde." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/accounting-drafts/:draftId/revise", summary: "Opretter en ny version af en redigerbar bogføringskladde." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/accounting-drafts/:draftId/submit", summary: "Indsender den præcise kladde-version til review." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/accounting-drafts/:draftId/reject", summary: "Afviser en indsendt kladde med begrundelse." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/accounting-drafts/:draftId/approve-and-post", summary: "Godkender og bogfører atomisk den præcise indsendte kladde." },
+  { scope: "company", effect: "read", permission: "company.export", method: "GET", pattern: "/api/companies/:slug/journal/export", summary: "Posteringer (kassekladde) som CSV-download (#465)." },
+  { scope: "company", effect: "read", permission: "company.export", method: "GET", pattern: "/api/companies/:slug/vat/export", summary: "Moms-rapport som PDF-download m. SKAT-rubrikker + frist (#464)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/retention", summary: "5-års retention-status pr. data-domæne (#343)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/integrity", summary: "Audit chain + backup status panel (#333)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accounts", summary: "Kontoplan — read-only liste (#344)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bank", summary: "Bank-transaktioner." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/vat", summary: "Momsoplysninger." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents", summary: "Bilagsliste." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/file", summary: "Henter et bilag." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/booking-options", summary: "Forslagsdata til bogføring af et bilag." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/recurring-invoices", summary: "Gentagende fakturaer." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/recurring-invoices", summary: "Opretter faktura-skabelon (#386)." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/recurring-invoices/:id/generate", summary: "Materialiserer en gentagende faktura." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/recurring-invoices/:id/retire", summary: "Deaktiverer en gentagende fakturaskabelon." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/archive/:year", summary: "Arkiveret regnskabsår." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/multi-year", summary: "Flerårsoversigt." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/invoices", summary: "Udstedte fakturaer." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/invoices/:id/pdf", summary: "Henter en faktura-PDF." },
+  { scope: "company", effect: "read", permission: "company.master-data", method: "GET", pattern: "/api/companies/:slug/contacts", summary: "Kunder + leverandører." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/customers", summary: "Opretter kunde." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "PATCH", pattern: "/api/companies/:slug/customers/:id", summary: "Opdaterer kunde." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "DELETE", pattern: "/api/companies/:slug/customers/:id", summary: "Sletter kunde (#430). Blokeres ved åbne fakturaer." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/vendors", summary: "Opretter leverandør." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "PATCH", pattern: "/api/companies/:slug/vendors/:id", summary: "Opdaterer leverandør." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "DELETE", pattern: "/api/companies/:slug/vendors/:id", summary: "Sletter leverandør (#430). Blokeres ved åbne gælder." },
+  { scope: "company", effect: "external", permission: "company.external-lookup", method: "GET", pattern: "/api/companies/:slug/cvr-lookup", summary: "Slår CVR op." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/company", summary: "Virksomhedens stamdata." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "PATCH", pattern: "/api/companies/:slug/company", summary: "Opdaterer stamdata + bank/betaling." },
+  { scope: "company", effect: "external", permission: "company.external-lookup", method: "POST", pattern: "/api/companies/:slug/sync-cvr", summary: "Synkroniserer stamdata fra CVR." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/obligations", summary: "Frister og forpligtelser." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/cashflow", summary: "Likviditetsprognose." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/budget", summary: "Budget pr. konto pr. måned (#339)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/budget-vs-actual", summary: "Budget vs. faktisk for året (#339)." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "POST", pattern: "/api/companies/:slug/budget", summary: "Sætter (append-only revision) en budgetlinje (#339)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/exceptions", summary: "Exceptions queue — undtagelser, filtrerbar pr. status (#332)." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/exceptions/:id/resolve", summary: "Løser en exception." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/periods", summary: "Periodelås-liste med effective status (#342)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bank-accounts", summary: "Registrerede bankkonti + CSV-mapping-profiler (#345)." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "POST", pattern: "/api/companies/:slug/bank-accounts", summary: "Opretter en bankkonto (#345)." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "PATCH", pattern: "/api/companies/:slug/bank-accounts/:account", summary: "Auditeret opdatering af bankkontoens betalingsprofil (#539)." },
+  { scope: "company", effect: "write", permission: "company.export", method: "POST", pattern: "/api/companies/:slug/gdpr/export", summary: "GDPR-indsigt — actor-attribueret og confirm-gatet (#334)." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "POST", pattern: "/api/companies/:slug/gdpr/erase", summary: "GDPR-anonymisering — append-only tombstones (#334)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bilagsmail", summary: "Bilagsmail-status: IMAP-config, alias, inbox (#348/#350/#351)." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "POST", pattern: "/api/companies/:slug/bilagsmail/imap-config", summary: "Gemmer IMAP-config til config/imap.json (#348)." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "DELETE", pattern: "/api/companies/:slug/bilagsmail/imap-config", summary: "Sletter den gemte IMAP-config (#348)." },
+  { scope: "company", effect: "write", permission: "company.admin", method: "PATCH", pattern: "/api/companies/:slug/bilagsmail/alias", summary: "Sætter eller rydder mail-alias (#350)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accruals", summary: "Periodiseringsregister (#337)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/annual-report", summary: "Årsrapport-builder (regnskabsklasse-B) (#338)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bank/import", summary: "Importerer bank-CSV." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/import", summary: "Generel data-import." },
+  { scope: "company", effect: "write", permission: "company.export", method: "POST", pattern: "/api/companies/:slug/accountant-export", summary: "Revisor-eksport (.tar)." },
+  { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/ingest", summary: "Modtager et bilag." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/documents/book-expense", summary: "Bogfører et bilag som udgift mod en banktransaktion." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/invoices/issue", summary: "Udsteder en faktura." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/invoices/preview", summary: "Forhåndsviser en faktura-PDF uden at udstede." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/invoices/post", summary: "Bogfører en udstedt faktura." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/invoices/settle", summary: "Afregner faktura fra bank." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/invoices/credit-note", summary: "Udsteder kreditnota." },
+  { scope: "company", effect: "external", permission: "company.external-send", method: "POST", pattern: "/api/companies/:slug/invoices/send-public", summary: "Sender faktura som e-faktura (NemHandel/PEPPOL)." },
+  { scope: "company", effect: "external", permission: "company.external-send", method: "POST", pattern: "/api/companies/:slug/invoices/send-public/status", summary: "Kontrollerer kun status for en køsat DigiSense e-faktura." },
+  { scope: "company", effect: "external", permission: "company.external-send", method: "POST", pattern: "/api/companies/:slug/invoices/send-email", summary: "Sender faktura til kundens e-mail med PDF vedhæftet." },
+  { scope: "company", effect: "external", permission: "company.external-send", method: "POST", pattern: "/api/companies/:slug/invoices/send-reminder", summary: "Registrerer rykker (rentel. § 9b) og sender den på e-mail." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/periods/close", summary: "Lukker regnskabsperiode." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/periods/reopen", summary: "Genåbner regnskabsperiode (#247-modstykke til CLI-only)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/mileage", summary: "Kørselsregister for valgt regnskabsår (#335)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/mileage", summary: "Registrerer en kørsel (#335)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/assets", summary: "Anlægskartotek — kapitaliserede aktiver + straksafskrivninger (#336)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/assets", summary: "Registrerer et anlæg + lineær afskrivningsplan (#336)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/assets/:id/next-depreciation", summary: "Næste afskrivningsperiode for et anlæg (#336)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/assets/:id/depreciate", summary: "Bogfører næste afskrivningsperiode (#336)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/assets/write-off", summary: "Straksafskriver et småanskaffelse (#336)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/payables", summary: "Leverandørfaktura-arbejdsbord — kreditorliste + modal-data (#340)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/payables", summary: "Registrerer et bilag som leverandørfaktura (#340)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/payables/:id/pay", summary: "Markerer leverandørfaktura betalt fra bankpost (#340)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/agent-suggestions", summary: "Agent-forslag i kø — afventer ejerens godkendelse (#346)." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/agent-suggestions/:id/approve", summary: "Ejer godkender agent-forslag — løser undtagelsen med 'Godkendt'-note (#346)." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/agent-suggestions/:id/reject", summary: "Ejer afviser agent-forslag — løser undtagelsen med 'Afvist'-note (#346)." },
 ];
+
+export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = ROUTE_CATALOG_INPUT;
+validateRouteCatalog(ROUTE_CATALOG);
+
+export type MatchedCatalogRoute = {
+  entry: RouteCatalogEntry;
+  /** Decoded only after it has remained a single valid slug segment. */
+  companySlug?: string;
+  /** Positive numeric resource id for an `:id` segment, if the route has one. */
+  resourceId?: number;
+};
+
+/**
+ * High-risk hosted operations require a freshly established Better Auth
+ * session. This is deliberately one central, server-clock policy: handlers
+ * never inspect client time or implement their own step-up checks.
+ */
+export const HIGH_RISK_SESSION_MAX_AGE_MS = AUTH_SESSION_FRESH_AGE_SECONDS * 1000;
+
+const HIGH_RISK_WRITE_PERMISSIONS = new Set<RoutePermission>([
+  "workspace.manage",
+  "workspace.members.manage",
+  "company.admin",
+  "company.master-data",
+  "company.draft.write",
+  "company.ledger.post",
+  "company.review",
+  "company.export", // Includes GDPR/accountant exports, never read-only CSV downloads.
+  "company.external-send",
+]);
+
+function isUnsafeMethod(method: string): boolean {
+  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
+
+/** Exported for catalog tests: reads, including normal report downloads, stay available. */
+export function routeRequiresFreshSession(route: MatchedCatalogRoute): boolean {
+  return isUnsafeMethod(route.entry.method) && HIGH_RISK_WRITE_PERMISSIONS.has(route.entry.permission);
+}
+
+function assertFreshHostedSession(principal: Principal | undefined, route: MatchedCatalogRoute): void {
+  if (principal?.via !== "better-auth" || !routeRequiresFreshSession(route)) return;
+  const createdAt = principal.sessionCreatedAt?.getTime();
+  const age = createdAt === undefined ? Number.NaN : Date.now() - createdAt;
+  if (!Number.isFinite(age) || age < 0 || age > HIGH_RISK_SESSION_MAX_AGE_MS) {
+    throw new ApiError("unauthorized", "reauthentication required", { subcode: "SESSION_REAUTH_REQUIRED" });
+  }
+}
+
+/**
+ * Custom route security which must happen before dispatch (and therefore
+ * before any company ledger can be opened). Hosted mutations require a trusted
+ * browser origin; hosted high-risk actions also require a recent provider
+ * session. Local legacy requests retain their existing localhost/CLI contract.
+ */
+function assertCatalogRouteSecurity(
+  request: Request,
+  config: ServerConfig,
+  principal: Principal | undefined,
+  route: MatchedCatalogRoute,
+): void {
+  if (config.betterAuthProvider && isUnsafeMethod(route.entry.method)) {
+    assertHostedMutationOriginAllowed(request, config);
+  }
+  assertFreshHostedSession(principal, route);
+}
+
+/**
+ * Matches dispatch against the catalog before authorization.  This keeps the
+ * security policy and the imperative handler chain in lockstep without
+ * opening a company ledger just to determine permission.
+ */
+export function matchCatalogRoute(method: string, path: string): MatchedCatalogRoute | null {
+  const requestedSegments = path.split("/").filter(Boolean);
+  for (const entry of ROUTE_CATALOG) {
+    if (entry.method !== method) continue;
+    const patternSegments = entry.pattern.split("/").filter(Boolean);
+    if (patternSegments.length !== requestedSegments.length) continue;
+    let companySlug: string | undefined;
+    let resourceId: number | undefined;
+    let matched = true;
+    for (let index = 0; index < patternSegments.length; index += 1) {
+      const pattern = patternSegments[index]!;
+      const segment = requestedSegments[index]!;
+      if (!pattern.startsWith(":")) {
+        if (pattern !== segment) matched = false;
+        continue;
+      }
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {
+        matched = false;
+        continue;
+      }
+      if (pattern === ":slug") {
+        // `%2f` and encoded traversal are denied here, before a handler can
+        // interpret the value as a filesystem/company selection.
+        if (!isValidSlug(decoded) || decoded.includes("/")) matched = false;
+        else companySlug = decoded;
+      } else if (pattern === ":id" && /^\d+$/.test(decoded)) {
+        const id = Number(decoded);
+        if (!Number.isSafeInteger(id)) matched = false;
+        else if (id > 0) resourceId = id;
+      }
+    }
+    if (matched) return { entry, companySlug, resourceId };
+  }
+  return null;
+}
+
+function authorizeCatalogRoute(
+  config: ServerConfig,
+  principal: Principal | undefined,
+  route: MatchedCatalogRoute,
+): void {
+  if (route.entry.permission === "public.read" || route.entry.permission === "public.invitation.claim") return;
+  // The two legacy modes are deliberately whole-workspace escape hatches for
+  // local single-owner use only. Hosted Better Auth principals are always
+  // checked against append-only workspace/company membership events.
+  if (!config.betterAuthProvider || principal?.via !== "better-auth") return;
+  const userId = principal.id.slice("user:".length);
+  const db = openWorkspaceControlDb(config.workspaceRoot);
+  let allowed = false;
+  try {
+    const decision = authorizeWorkspaceRoute(db, config.workspaceRoot, {
+      userId,
+      permission: route.entry.permission,
+      companySlug: route.companySlug,
+    });
+    allowed = decision.allowed;
+    if (!allowed) {
+      insertWorkspaceAuthorizationAudit(db, {
+        actor: principal.id,
+        method: route.entry.method,
+        routeTemplate: route.entry.pattern,
+        permission: route.entry.permission,
+        companySlug: route.companySlug,
+        requestId: config.requestId ?? null,
+      });
+    }
+  } finally {
+    db.close();
+  }
+  if (allowed) return;
+  const resourceType = route.entry.pattern === "/api/companies/:slug/documents/:id/file"
+    ? "document_file"
+    : route.entry.pattern === "/api/companies/:slug/invoices/:id/pdf"
+    ? "issued_invoice_pdf"
+    : null;
+  // This event records an authenticated authorization denial only.  It never
+  // opens a company ledger or changes the deliberately generic HTTP denial,
+  // so it cannot become a cross-company existence oracle.
+  if (resourceType && route.companySlug) {
+    recordHostedDocumentAccess(config, {
+      companySlug: route.companySlug,
+      resourceType,
+      resourceId: route.resourceId ?? null,
+      outcome: "denied",
+      reasonCode: "authorization_denied",
+    });
+  }
+  throw ApiError.unauthorized("missing or invalid credentials");
+}
+
+function catalogContainsPath(path: string): boolean {
+  return ROUTE_CATALOG.some((entry) => matchCatalogRoute(entry.method, path) !== null);
+}
 
 // --------------------------------------------------------------------------
 // Dispatch
@@ -265,18 +526,73 @@ export async function handleRequest(
   config: ServerConfig,
 ): Promise<Response> {
   try {
-    // (1) The single auth seam — runs before any route logic. Phase 2 swaps
-    // the body of authMiddleware; this call site never changes.
-    authMiddleware(request, config);
-
-    // (2) Route dispatch.
+    // (1) Route metadata is resolved before authorization. The catalog never
+    // opens a ledger and is therefore safe to inspect before identity.
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method.toUpperCase();
+    const route = matchCatalogRoute(method, path);
+
+    // Better Auth owns only its documented `/api/auth/*` endpoints. Public
+    // signup is explicitly blocked here even though the production runtime
+    // also sets `disableSignUp: true`; the private bootstrap factory is never
+    // reachable through HTTP.
+    if (path === "/api/auth" || path.startsWith("/api/auth/")) {
+      if (path === "/api/auth/sign-up" || path.startsWith("/api/auth/sign-up/")) {
+        throw ApiError.notFound("ukendt endpoint");
+      }
+      if (!config.betterAuthProvider) throw ApiError.notFound("ukendt endpoint");
+      return await config.betterAuthProvider.handle(request);
+    }
+
+    let principal: Principal | undefined;
+    if (config.betterAuthProvider) {
+      // Public health/rules/catalog calls are intentionally anonymous. A
+      // protected route performs exactly one Better Auth session lookup.
+      if (route?.entry.permission !== "public.read" && route?.entry.permission !== "public.invitation.claim") {
+        principal = await (config.authenticateRequest ?? authMiddleware)(request, config);
+      }
+    } else {
+      // Preserve the explicit local/shared-secret contract, including its
+      // existing all-route authentication behavior when authRequired is set.
+      principal = await (config.authenticateRequest ?? authMiddleware)(request, config);
+    }
+    if (principal) {
+      // A request-local immutable copy carries the exact principal through all
+      // existing handlers without re-authentication or global request state.
+      config = {
+        ...config,
+        // Existing mutation/origin gates treat an authenticated Better Auth
+        // deployment like the established shared-secret hosted mode.
+        authRequired: config.authRequired || Boolean(config.betterAuthProvider),
+        requestPrincipal: principal,
+      };
+    }
+    if (route) {
+      authorizeCatalogRoute(config, principal, route);
+      assertCatalogRouteSecurity(request, config, principal, route);
+    } else if (path === "/api" || path.startsWith("/api/")) {
+      // The catalog is an enforcement boundary, not documentation only. A
+      // future imperative dispatch branch is unreachable until it declares
+      // scope, effect and permission metadata. Known paths keep the existing
+      // method-not-allowed contract; unknown API paths fail closed as 404.
+      if (catalogContainsPath(path)) {
+        throw ApiError.methodNotAllowed("metoden er ikke understøttet på denne rute");
+      }
+      throw ApiError.notFound("ukendt endpoint");
+    }
+
+    // (2) Imperative route dispatch. `route` above ensures every handler
+    // reached by a catalogued request was authorized first.
 
     if (path === "/api" || path === "/api/health") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       return handleHealth(config, ROUTE_CATALOG);
+    }
+
+    if (path === "/api/ready") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleReadiness(config);
     }
 
     // #402 — CVR-login status, so the cockpit can offer a friendly path
@@ -290,6 +606,79 @@ export async function handleRequest(
     if (path === "/api/portfolio") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       return handlePortfolio(config, url);
+    }
+
+    if (path === "/api/me") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleMe(config);
+    }
+
+    if (path === "/api/workspace/invitations") {
+      if (method === "GET") return handleWorkspaceInvitationList(config);
+      if (method === "POST") return await handleWorkspaceInvitationCreate(config, request);
+      throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
+    }
+
+    if (path === "/api/workspace/invitations/cancel") {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleWorkspaceInvitationCancel(config, request);
+    }
+
+    if (path === "/api/workspace/members") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleWorkspaceMemberList(config);
+    }
+
+    if (path === "/api/workspace/members/access") {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleWorkspaceMemberAccessUpdate(config, request);
+    }
+
+    if (path === "/api/workspace/members/company") {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleWorkspaceMemberCompanyUpdate(config, request);
+    }
+
+    if (path === "/api/invitations/claim") {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleWorkspaceInvitationClaim(config, request);
+    }
+
+    if (path === "/api/group-overview") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const asOfValues = url.searchParams.getAll("asOf");
+      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
+      return handleGroupOverview(config, asOfValues[0]!);
+    }
+
+    if (path === "/api/group-reconciliation") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const asOfValues = url.searchParams.getAll("asOf");
+      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
+      return handleGroupReconciliation(config, asOfValues[0]!);
+    }
+
+    if (path === "/api/group-eliminations") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const asOfValues = url.searchParams.getAll("asOf");
+      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
+      return handleGroupEliminations(config, asOfValues[0]!);
+    }
+
+    if (path === "/api/group-consolidated-report") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const profileIds = url.searchParams.getAll("profileId");
+      const fromValues = url.searchParams.getAll("from");
+      const asOfValues = url.searchParams.getAll("asOf");
+      if (profileIds.length !== 1 || fromValues.length !== 1 || asOfValues.length !== 1) throw ApiError.badRequest("exactly one profileId, from and asOf are required");
+      return handleGroupConsolidatedReport(config, profileIds[0]!, fromValues[0]!, asOfValues[0]!);
+    }
+
+    if (path === "/api/group-report-profiles") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const asOfValues = url.searchParams.getAll("asOf");
+      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
+      return handleGroupReportProfiles(config, asOfValues[0]!);
     }
 
     if (path === "/api/rules") {
@@ -456,6 +845,40 @@ export async function handleRequest(
 
     const recurringInvoicesMatch =
       /^\/api\/companies\/([^/]+)\/recurring-invoices$/.exec(path);
+
+    const accountingDraftsMatch =
+      /^\/api\/companies\/([^/]+)\/accounting-drafts$/.exec(path);
+    if (accountingDraftsMatch) {
+      const slug = decodeURIComponent(accountingDraftsMatch[1]!);
+      if (method === "GET") return handleCompanyAccountingDrafts(config, slug);
+      if (method === "POST") return await handleCreateAccountingDraft(config, request, slug);
+      throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
+    }
+
+    const accountingDraftActionMatch =
+      /^\/api\/companies\/([^/]+)\/accounting-drafts\/([^/]+)\/(revise|submit|reject|approve-and-post)$/.exec(path);
+    if (accountingDraftActionMatch) {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      const slug = decodeURIComponent(accountingDraftActionMatch[1]!);
+      const draftId = decodeURIComponent(accountingDraftActionMatch[2]!);
+      const action = accountingDraftActionMatch[3]!;
+      if (action === "revise") return await handleReviseAccountingDraft(config, request, slug, draftId);
+      if (action === "submit") return await handleSubmitAccountingDraft(config, request, slug, draftId);
+      if (action === "reject") return await handleRejectAccountingDraft(config, request, slug, draftId);
+      return await handleApproveAndPostAccountingDraft(config, request, slug, draftId);
+    }
+
+    const accountingDraftMatch =
+      /^\/api\/companies\/([^/]+)\/accounting-drafts\/([^/]+)$/.exec(path);
+    if (accountingDraftMatch) {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleCompanyAccountingDraft(
+        config,
+        decodeURIComponent(accountingDraftMatch[1]!),
+        decodeURIComponent(accountingDraftMatch[2]!),
+      );
+    }
+
     if (recurringInvoicesMatch) {
       const slug = decodeURIComponent(recurringInvoicesMatch[1]!);
       if (method === "GET") return handleCompanyRecurringInvoices(config, slug);
@@ -631,7 +1054,7 @@ export async function handleRequest(
     if (syncCvrMatch) {
       if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
       const slug = decodeURIComponent(syncCvrMatch[1]!);
-      return await handleCompanySyncCvr(config, slug);
+      return await handleCompanySyncCvr(request, config, slug);
     }
 
     const obligationsMatch =

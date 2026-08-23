@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 
 export type ActorContext = {
@@ -64,7 +65,7 @@ export type AuditLogInput = {
 
 export function insertAuditLog(db: Database, input: AuditLogInput) {
   const actor = resolveActor(input);
-  db.run(
+  runSql(db,
     "INSERT INTO audit_log (event_type, entity_type, entity_id, message, actor) VALUES (?, ?, ?, ?, ?)",
     input.eventType,
     input.entityType,

@@ -211,7 +211,9 @@ export function seedAccounts(db: Database) {
     ["7310", "Forudbetalt indtægt (udskudt omsætning)", "liability", "credit", null]
   ];
   const insert = db.prepare("INSERT OR IGNORE INTO accounts (account_no,name,type,normal_balance,default_vat_code) VALUES (?,?,?,?,?)");
-  db.transaction(() => rows.forEach((r) => insert.run(...r)), { immediate: true })();
+  db.transaction(() => rows.forEach((r) => {
+    insert.run(...r);
+  })).immediate();
   seedNativeAccountRoles(db);
 }
 
@@ -326,7 +328,7 @@ function validateJournalEntryWithPolicy(
   policy: JournalPostingPolicy,
 ) {
   const errors: string[] = [];
-  const appliedRules = [LEDGER_RULES.BALANCED, LEDGER_RULES.APPEND_ONLY];
+  const appliedRules: string[] = [LEDGER_RULES.BALANCED, LEDGER_RULES.APPEND_ONLY];
   const lines = payload.lines ?? [];
   const currency = (payload.currency ?? 'DKK').trim().toUpperCase();
 
@@ -617,6 +619,14 @@ function postJournalEntryWithPolicy(
   payload: JournalEntryInput,
   policy: JournalPostingPolicy,
 ): JournalPostResult {
+  return db.transaction(() => postJournalEntryInCurrentTransactionWithPolicy(db, payload, policy)).immediate();
+}
+
+function postJournalEntryInCurrentTransactionWithPolicy(
+  db: Database,
+  payload: JournalEntryInput,
+  policy: JournalPostingPolicy,
+): JournalPostResult {
   const validation = validateJournalEntryWithPolicy(db, payload, policy);
   if (!validation.ok) return { ok: false, appliedRules: validation.appliedRules, errors: validation.errors };
 
@@ -624,10 +634,7 @@ function postJournalEntryWithPolicy(
 
   let applied: ReturnType<typeof applyJournalEntry>;
   try {
-    applied = db.transaction(
-      () => applyJournalEntry(db, payload, accounts, policy),
-      { immediate: true },
-    )();
+    applied = applyJournalEntry(db, payload, accounts, policy);
   } catch (error) {
     // KODE-4: the period-lock re-check inside the transaction lost the race —
     // the period was closed after validation. Surface it as a normal error
@@ -648,6 +655,16 @@ function postJournalEntryWithPolicy(
 /** Public/manual journal posting. Import privileges cannot be supplied in data. */
 export function postJournalEntry(db: Database, payload: JournalEntryInput): JournalPostResult {
   return postJournalEntryWithPolicy(db, payload, MANUAL_POSTING_POLICY);
+}
+
+/**
+ * Internal transaction-aware adapter for a larger atomic domain workflow.
+ * The caller MUST invoke this inside its own immediate SQLite transaction.
+ * It exists so reviewed draft evidence and the journal post can commit or
+ * roll back together without relying on nested transaction semantics.
+ */
+export function postJournalEntryInCurrentTransaction(db: Database, payload: JournalEntryInput): JournalPostResult {
+  return postJournalEntryInCurrentTransactionWithPolicy(db, payload, MANUAL_POSTING_POLICY);
 }
 
 /**
@@ -741,7 +758,7 @@ export function dryRunJournalEntry(db: Database, payload: JournalEntryInput): Jo
       // Unwinds the transaction: the journal rows, audit log, any resolved bank
       // exceptions and the allocated journal number are all discarded.
       throw rollback;
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     if (error !== rollback) throw error;
   }
@@ -987,7 +1004,7 @@ function reverseJournalEntryInternal(
     });
 
     return { entryId: asJournalEntryId(entry.id), entryNo: entry.entry_no, entryHash };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     if (error instanceof PeriodLockRaceError) {
       return { ok: false, appliedRules: [...new Set([...appliedRules, ...validation.appliedRules])], errors: error.periodErrors };

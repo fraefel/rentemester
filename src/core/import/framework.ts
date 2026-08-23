@@ -384,7 +384,7 @@ export function runImport(db: Database, source: ImportSource, options: ImportOpt
       if (!withProposals.ok) throw new ImportRollback(withProposals);
       if (options.dryRun) throw new ImportRollback({ ...withProposals, dryRun: true });
       return withProposals;
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     if (error instanceof ImportRollback) return error.result;
     throw error;
@@ -568,13 +568,13 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
       if (expectedDocs > 0 && (db.query("SELECT COUNT(*) AS n FROM dinero_import_document_links WHERE attempt_id = ?").get(provenance.attemptId) as { n: number }).n !== expectedDocs) throw new Error("Dinero v4 verifier: provenance document-link count mismatch");
       if ((db.query("SELECT COUNT(*) AS n FROM migration_open_item_batches WHERE dinero_import_attempt_id = ?").get(provenance.attemptId) as { n: number }).n !== openItems.balances.length) throw new Error("Dinero v4 verifier: migration open-item batch count mismatch");
       return landed;
-    }, { immediate: true })();
+    }).immediate();
     return result;
   } catch (error) {
     for (const path of createdPaths) { try { if (existsSync(path)) unlinkSync(path); } catch {} }
     if (error instanceof ImportRollback) return error.result;
     const rejected: ImportResult = { ok: false, sourceSystem: "dinero", cutOverDate: source.cutOverDate, openingBalanceLineCount: source.openingBalances.length, historicalEntriesSkipped: source.historicalEntries?.length ?? 0, auditTrail: ["Dinero v4 transaction rolled back"], appliedRules: [IMPORT_RULE], errors: [error instanceof Error ? error.message : String(error)] };
-    try { db.transaction(() => { persistDineroEvidence(db, resolved, source, options, "rejected", rejected); }, { immediate: true })(); } catch (recordError) { rejected.errors.push(`rejected-attempt evidence could not be recorded: ${recordError instanceof Error ? recordError.message : String(recordError)}`); }
+    try { db.transaction(() => { persistDineroEvidence(db, resolved, source, options, "rejected", rejected); }).immediate(); } catch (recordError) { rejected.errors.push(`rejected-attempt evidence could not be recorded: ${recordError instanceof Error ? recordError.message : String(recordError)}`); }
     return rejected;
   }
 }

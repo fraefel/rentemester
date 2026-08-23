@@ -402,7 +402,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
         appliedRules: [RULE_ID, ...journal.appliedRules],
         errors: [],
       } satisfies RegisterPayableResult;
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     const parsed = parseTransactionError(error);
     return {
@@ -518,7 +518,8 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
   const paymentDate = input.paymentDate ?? bank.transaction_date;
   const payment = input.paymentAccountNo?.trim() ? { ok: true as const, accountNo: input.paymentAccountNo.trim() } : resolveAccountRole(db, "bank");
   const creditor = resolveAccountRole(db, "creditors");
-  if (!payment.ok || !creditor.ok) return { ok: false, appliedRules: [PAYMENT_RULE_ID], errors: [!payment.ok ? payment.error : creditor.error] };
+  if (!payment.ok) return { ok: false, appliedRules: [PAYMENT_RULE_ID], errors: [payment.error] };
+  if (!creditor.ok) return { ok: false, appliedRules: [PAYMENT_RULE_ID], errors: [creditor.error] };
   const text = payable.supplier_name
     ? `Betaling af kreditorpost til ${payable.supplier_name} (banktransaktion ${bank.id})`
     : `Betaling af kreditorpost (banktransaktion ${bank.id})`;
@@ -566,7 +567,7 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
         appliedRules: [PAYMENT_RULE_ID, ...journal.appliedRules],
         errors: [],
       } satisfies PayPayableResult;
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     const parsed = parseTransactionError(error);
     return {

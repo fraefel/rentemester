@@ -4,7 +4,7 @@ import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
 import { compareDkk, roundDkk } from "./money";
 import { validateInvoiceJournalEvidence } from "./invoice-journal-evidence";
-import type { JournalEntryId } from "./ids";
+import { asJournalEntryId, type JournalEntryId } from "./ids";
 import { allocateClaimReceipt, calculateClaimReceivableBalances } from "./invoice-claim-receivable";
 import {
   calculateInvoiceReceivableCarryingBalance,
@@ -53,7 +53,7 @@ function getIncomingBankTransaction(db: Database, input: SettleInvoiceFromBankIn
         .query(
           `SELECT id, transaction_date, amount, currency, amount_dkk, fx_rate_to_dkk, text, reference FROM bank_transactions WHERE reference = ? ORDER BY id DESC LIMIT 1`,
         )
-        .get(input.bankTransactionReference)) as {
+        .get(input.bankTransactionReference ?? "")) as {
     id: number;
     transaction_date: string;
     amount: number;
@@ -318,7 +318,9 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
         });
         if (!payment.ok) throw new Error(JSON.stringify({ appliedRules: payment.appliedRules, errors: payment.errors }));
         paymentId = payment.paymentId;
-        journalEntryId = payment.journalEntryId;
+        journalEntryId = payment.journalEntryId == null
+          ? undefined
+          : asJournalEntryId(payment.journalEntryId);
         for (const rule of payment.appliedRules ?? []) appliedRules.add(rule);
       }
 
@@ -338,7 +340,7 @@ export function settleInvoiceFromBank(db: Database, input: SettleInvoiceFromBank
         appliedRules: [...appliedRules],
         errors: [],
       };
-    }, { immediate: true })();
+    }).immediate();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

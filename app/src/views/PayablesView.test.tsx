@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PayablesView } from "./PayablesView";
@@ -70,7 +70,7 @@ describe("PayablesView — Leverandørfaktura-arbejdsbordet", () => {
     await screen.findByRole("heading", { name: "Acme ApS" });
     await userEvent.click(screen.getByRole("button", { name: "Forfaldne" }));
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const lastUrl = String(calls[calls.length - 1]![0]);
       expect(lastUrl).toContain("status=overdue");
     });
@@ -167,7 +167,7 @@ describe("PayablesView — Leverandørfaktura-arbejdsbordet", () => {
       within(dialog).getByRole("button", { name: "Markér betalt" }),
     );
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const post = calls.find(
         (c) =>
           String(c[0]).includes("/payables/11/pay") &&

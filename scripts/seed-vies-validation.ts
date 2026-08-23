@@ -228,7 +228,7 @@ try {
         valid: true,
         rawResponse: JSON.stringify({ valid: true, source: "unsafe-offline-demo-seed" }),
       });
-    }, { immediate: true })();
+    }).immediate();
     console.log(JSON.stringify({ ok: true, validation }, null, 2));
   } finally {
     db.close();

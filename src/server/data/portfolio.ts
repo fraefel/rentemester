@@ -24,6 +24,7 @@ import { verifyAuditChain } from "../../core/ledger";
 import {
   companyRootForSlug,
   findWorkspaceCompany,
+  listWorkspaceCompanies,
   type WorkspaceCompanyEntry,
 } from "../../core/workspace";
 import { discoverWorkspaceCompanies } from "../discovery";
@@ -263,6 +264,14 @@ export type PortfolioOverview = {
   companies: CompanySummary[];
 };
 
+export type PortfolioOverviewOptions = {
+  /**
+   * An explicit hosted authorization filter. Passing it disables discovery so
+   * a read cannot adopt an unlisted company before access is evaluated.
+   */
+  companySlugs?: readonly string[];
+};
+
 /**
  * Aggregates one real-figure summary per workspace company plus a
  * workspace-wide roll-up. Each company's figures cover its current fiscal
@@ -274,11 +283,17 @@ export type PortfolioOverview = {
 export function buildPortfolioOverview(
   workspaceRoot: string,
   asOfDate: string,
+  options: PortfolioOverviewOptions = {},
 ): PortfolioOverview {
   // Discover-and-adopt any present-but-unlisted company directory first
   // (#256): the portfolio is the cockpit's landing page, so an owner who set
   // a company up via the CLI must land on that real company — not onboarding.
-  const entries = discoverWorkspaceCompanies(workspaceRoot);
+  const entries = options.companySlugs
+    ? (() => {
+      const allowed = new Set(options.companySlugs);
+      return listWorkspaceCompanies(workspaceRoot).filter((entry) => allowed.has(entry.slug));
+    })()
+    : discoverWorkspaceCompanies(workspaceRoot);
   const companies = entries.map((entry) =>
     summariseCompany(workspaceRoot, entry),
   );

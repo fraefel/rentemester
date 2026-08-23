@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, setSystemTime, test, vi } from "bun:test";
 import {
   attentionFlags,
   attentionLevel,
@@ -24,7 +24,7 @@ describe("todayIso", () => {
     // `todayIso` must return the LOCAL "2026-03-01". The instant is built from
     // local Y/M/D components so the test holds whatever the runner's timezone.
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 2, 1, 23, 30, 0)); // 1 Mar 2026, 23:30 local
+    setSystemTime(new Date(2026, 2, 1, 23, 30, 0)); // 1 Mar 2026, 23:30 local
     expect(todayIso()).toBe("2026-03-01");
   });
 });

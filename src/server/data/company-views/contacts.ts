@@ -26,7 +26,7 @@ export type ContactCustomerRow = {
   name: string;
   vatOrCvr: string | null;
   email: string | null;
-  paymentTermsDays: number;
+  paymentTermsDays: number | null;
   defaultCurrency: string;
   // #390 — surface the remaining stamdata fields so the Cockpit edit-modal can
   // prefill them without a second round-trip.

@@ -4,7 +4,11 @@ import { importBankCsv, resolveBankAccount } from "../core/bank";
 import { suggestBankMatches } from "../core/bank-suggest-matches";
 import { buildBankReconciliationReport, listBankTransactions } from "../core/reconciliation";
 import { syncUnmatchedBankTransactionExceptions } from "../core/exceptions";
-import { openCommandDb } from "../cli-dispatch";
+import {
+  openCommandDb,
+  optionalNumberOrFatal,
+  requiredNumberOrFatal,
+} from "../cli-dispatch";
 import { renderHumanReport, formatKroner } from "../cli-format";
 import { ledgerStatusDa } from "../core/messages";
 import type { Database } from "bun:sqlite";
@@ -133,16 +137,14 @@ export function register(dispatch: CommandDispatch): void {
   });
 
   dispatch.on("bank", "suggest-matches", (ctx) => {
-    const bankTransactionId = ctx.parseOptionalNumber("--bank-transaction-id");
-    const max = ctx.parseOptionalNumber("--max");
-    if (!bankTransactionId.ok) ctx.fatal(bankTransactionId.error);
-    if (!max.ok) ctx.fatal(max.error);
+    const bankTransactionId = optionalNumberOrFatal(ctx, "--bank-transaction-id");
+    const max = optionalNumberOrFatal(ctx, "--max");
     const db = openCommandDb(ctx);
     migrate(db);
     const result = suggestBankMatches(db, {
       bankTransactionId:
-        bankTransactionId.value === undefined ? undefined : Number(bankTransactionId.value),
-      max: max.value === undefined ? undefined : Number(max.value),
+        bankTransactionId === undefined ? undefined : Number(bankTransactionId),
+      max: max === undefined ? undefined : Number(max),
     });
     if (ctx.outputFormat === "json") {
       ctx.emitResult(result as Record<string, unknown>);
@@ -159,20 +161,16 @@ export function register(dispatch: CommandDispatch): void {
     if (ctx.arg("--confirm") !== "yes") {
       ctx.fatal("bank link-journal requires the exact confirmation --confirm yes");
     }
-    const bankId = ctx.parseOptionalNumber("--bank-transaction-id");
-    const journalId = ctx.parseOptionalNumber("--journal-entry-id");
-    if (!bankId.ok) ctx.fatal(bankId.error);
-    if (!journalId.ok) ctx.fatal(journalId.error);
-    if (bankId.value === undefined) ctx.fatal("Missing required --bank-transaction-id <n>");
-    if (journalId.value === undefined) ctx.fatal("Missing required --journal-entry-id <n>");
+    const bankId = requiredNumberOrFatal(ctx, "--bank-transaction-id");
+    const journalId = requiredNumberOrFatal(ctx, "--journal-entry-id");
     const matchMethod = ctx.trimToNull(ctx.arg("--match-method")) as BankJournalMatchMethod | null;
     if (!matchMethod) ctx.fatal("Missing required --match-method <method>");
     const db = openCommandDb(ctx);
     migrate(db);
     const result = linkBankTransactionToJournal(db, {
-      bankTransactionId: bankId.value,
-      journalEntryId: journalId.value,
-      matchMethod,
+      bankTransactionId: bankId,
+      journalEntryId: journalId,
+      matchMethod: matchMethod as BankJournalMatchMethod,
       sourceReference: ctx.trimToNull(ctx.arg("--source-reference")) ?? undefined,
       note: ctx.trimToNull(ctx.arg("--note")) ?? undefined,
       createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined,

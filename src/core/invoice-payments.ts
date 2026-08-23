@@ -585,7 +585,7 @@ export function applyInvoicePayment(db: Database, input: ApplyInvoicePaymentInpu
           : [RULE_ID, CORRECTION_BALANCE_RULE_ID],
         errors: [],
       } satisfies ApplyInvoicePaymentResult;
-    }, { immediate: true })();
+    }).immediate();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

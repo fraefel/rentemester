@@ -65,9 +65,7 @@ export async function handleBankImport(
           ? syncUnmatchedBankTransactionExceptions(ctx.db)
           : { ok: true, created: 0, errors: [] };
         return {
-          ...(imported as Record<string, unknown>),
-          ok: imported.ok,
-          errors: imported.errors,
+          ...imported,
           exceptionsCreated: sync.created,
         };
       } finally {

@@ -364,7 +364,7 @@ export function setCompanyVatPeriodType(
   // `closeAccountingPeriod` / `validateJournalTransactionDate` already use.
   if (type === null && before.t !== null) {
     const vatAccounts = loadVatAccountSemantics(db).amountSideByAccountNo;
-    const vatEntryDates = db
+    const vatEntryDates = (db
       .query(
         `SELECT DISTINCT je.transaction_date AS d, a.account_no AS account_no
            FROM journal_lines jl
@@ -372,11 +372,8 @@ export function setCompanyVatPeriodType(
            JOIN journal_entries je ON je.id = jl.journal_entry_id
           WHERE je.status = 'posted'`,
       )
-      .all()
-      .filter((row) => vatAccounts.has(row.account_no)) as Array<{
-      d: string;
-      account_no: string;
-    }>;
+      .all() as Array<{ d: string; account_no: string }>)
+      .filter((row) => vatAccounts.has(row.account_no));
     if (vatEntryDates.length > 0) {
       const vatPeriods = db
         .query(

@@ -195,7 +195,7 @@ export function register(dispatch: CommandDispatch): void {
       process.exit(1);
     }
     const root = ctx.companyRoot();
-    let config;
+    let config: ReturnType<typeof loadDigisenseSecretConfig>;
     try {
       config = loadDigisenseSecretConfig(root);
     } catch {
@@ -227,7 +227,7 @@ export function register(dispatch: CommandDispatch): void {
       process.exit(1);
     }
     const root = ctx.companyRoot();
-    let config;
+    let config: ReturnType<typeof loadDigisenseSecretConfig>;
     try {
       config = loadDigisenseSecretConfig(root);
     } catch {

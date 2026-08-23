@@ -43,7 +43,7 @@ export function reserveSequenceValue(db: Database, kind: string, scope: string, 
        ON CONFLICT(kind, scope) DO UPDATE SET value = excluded.value`
     ).run(kind, scope, requestedValue);
     return { ok: true as const, expectedValue, currentValue };
-  }, { immediate: true })();
+  }).immediate();
 }
 
 export function fiscalYearLabelFromDate(db: Database, dateText: string) {

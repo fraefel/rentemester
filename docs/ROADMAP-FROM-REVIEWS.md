@@ -45,22 +45,25 @@ companies and values.
 ### Legal group structure, intercompany reconciliation and consolidation
 
 **Surfaced by:** real-world holding-company workspace migration (2026-08-22).
-**Current state:** a workspace registers multiple legally separate companies,
-and `portfolio_overview` juxtaposes their status. It intentionally does not
-model ownership or consolidate figures. There is no effective-dated parent /
-subsidiary graph, intercompany counterparty mapping, reciprocal-balance check,
-elimination journal or consolidated reporting layer.
-**Workaround:** preserve each company's ledger separately, keep ownership in
-external documentation, and reconcile intercompany balances manually. Never
-sum workspace figures as if they were consolidated accounts.
+**Current state:** the workspace now has an effective-dated ownership graph,
+membership-filtered group overview, reviewed intercompany mappings, exact
+same-currency reconciliation, source-bound append-only balance eliminations,
+reviewed reporting-chart profiles and read-only consolidated balance/income
+statements. Every legal ledger remains separate. The first report slice is
+deliberately limited to 100% ownership, one currency and balance eliminations;
+it fails closed for stale evidence, incomplete mappings or partial visibility.
+**Workaround:** use the built-in profile-bound report for supported groups.
+Keep FX, non-controlling interests, income/expense eliminations, consolidated
+tax and statutory group reporting external.
 **Estimated scope:** ~4-8 weeks in slices: ownership graph and disclosures;
-intercompany account/counterparty mapping and mismatch report; then read-only
-consolidated statements with explicit elimination evidence. Consolidated tax or
-statutory reporting remains a separate reviewed scope.
-**Next action:** add a generic effective-dated group-manifest schema whose
-concrete CVRs and ownership percentages live only in each user's workspace.
-Keep legal ledgers immutable and implement the first feature as a read-only
-intercompany reconciliation report, not cross-company automatic postings.
+an independent group overview with company status and consolidation-readiness;
+intercompany account/counterparty mapping and mismatch report; then an
+append-only elimination workflow and read-only consolidated statements with
+explicit evidence. Consolidated tax or statutory reporting remains a separate
+reviewed scope.
+**Next action:** only after explicit accounting-policy review, add FX,
+non-controlling interests and transaction-level income/expense eliminations.
+Portfolio, group structure and consolidated figures remain separate contracts.
 
 ### Payroll / A-skat / AM-bidrag / ATP / eIndkomst
 

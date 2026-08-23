@@ -107,7 +107,7 @@ export function registerInvoiceIssuanceTools(server: McpServer): void {
     {
       title: "Render invoice PDF",
       description:
-        "Renderer (eller genskaber) deterministisk PDF for udstedt faktura. " +
+        "Returnerer og hash-verificerer den immutabelt udstedte PDF for en faktura; manipuleret eller manglende evidens genskabes aldrig. " +
         "Forudsætning: fakturaen skal være udstedt med invoice_issue. write-irreversible.",
       inputSchema: { ...docIdOrNumberSchema, confirm: confirmField },
       outputSchema: envelopeShape,
@@ -142,7 +142,7 @@ export function registerInvoiceIssuanceTools(server: McpServer): void {
       outputSchema: envelopeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    withCompanyDbConfirmed<{ company: string; payload: IssueCreditNoteInput; confirm?: boolean }>(
+    withCompanyDbConfirmed<{ company: string; payload: z.infer<typeof creditNotePayloadSchema>; confirm?: boolean }>(
       server,
       "invoice_credit_note",
       ({ db, actor, args }) => {

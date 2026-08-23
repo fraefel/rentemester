@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { api, ApiError } from "./api";
 import { dashboard, mockFetch, summary } from "../test/fixtures";
 

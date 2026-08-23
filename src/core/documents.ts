@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
@@ -11,6 +11,13 @@ import { asDocumentId, type DocumentId } from "./ids";
 import { resolveLegacySupplierIdentity, resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
 import { compareDkk, percentOfDkk, roundDkk, sumDkk } from "./money";
 import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
+import {
+  ensureCanonicalDocumentStore,
+  publishDocumentSnapshot,
+  removePublishedSnapshot,
+  snapshotDocumentSource,
+  type DocumentSnapshot,
+} from "./document-storage";
 
 export type DocumentType = "purchase_sale" | "cash_register_receipt" | "issued_invoice_pdf";
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
@@ -58,7 +65,82 @@ export type IngestDocumentOptions = {
   createdByProgram?: string;
   /** Internal bulk-import use only: the enclosing import writes one audit event. */
   suppressAudit?: boolean;
+  /** Scanner policy is off unless a caller explicitly requires it. */
+  scannerPolicy?: "off" | "required";
+  /** Upper bound for a single scanner decision. Required scanners fail closed on expiry. */
+  scannerTimeoutMs?: number;
+  /** A vendor-neutral async seam. It receives immutable snapshot bytes only. */
+  scanner?: DocumentScanner;
 };
+
+export type DocumentScanner = {
+  scan(input: { bytes: Buffer; sha256: string; mimeType: string; filename: string; signal: AbortSignal }): Promise<
+    | { ok: true; scannerId: string; scannerVersion?: string; evidenceRef?: string }
+    | { ok: false; error?: string }
+  >;
+};
+
+const DEFAULT_SCANNER_TIMEOUT_MS = 15_000;
+const UNSAFE_SCANNER_EVIDENCE_TEXT = /[\p{Cc}\p{Cf}]/u;
+
+function boundedScannerEvidence(value: string | undefined, maxLength: number): string | undefined {
+  const normalized = value?.trim().normalize("NFC") ?? "";
+  if (!normalized || normalized.length > maxLength || UNSAFE_SCANNER_EVIDENCE_TEXT.test(normalized)) return undefined;
+  return normalized;
+}
+
+function scannerTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_SCANNER_TIMEOUT_MS;
+  if (!Number.isInteger(value) || value < 100 || value > 120_000) {
+    throw new Error("document scanner timeout must be an integer between 100 and 120000 ms");
+  }
+  return value;
+}
+
+/** A scanner receives a private buffer and is bounded even when it ignores AbortSignal. */
+async function scanSnapshot(scanner: DocumentScanner, snapshot: DocumentSnapshot, mimeType: string, timeoutMs: number): Promise<
+  | { ok: true; scannerId: string; scannerVersion?: string; evidenceRef?: string }
+  | { ok: false; reason: "rejected" | "failed" }
+> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("document scanner timed out"));
+      }, timeoutMs);
+    });
+    // Buffer is mutable: never give a third-party scanner a reference to the
+    // canonical snapshot which is later published as accounting evidence.
+    const input = {
+      bytes: Buffer.from(snapshot.bytes),
+      sha256: snapshot.sha256,
+      mimeType,
+      filename: snapshot.filename,
+      signal: controller.signal,
+    };
+    const result = await Promise.race([scanner.scan(input), timeout]);
+    if (!result.ok || !hasText(result.scannerId)) return { ok: false, reason: "rejected" };
+    const scannerId = boundedScannerEvidence(result.scannerId, 160);
+    const scannerVersion = boundedScannerEvidence(result.scannerVersion, 160);
+    const evidenceRef = boundedScannerEvidence(result.evidenceRef, 512);
+    if (!scannerId || (result.scannerVersion !== undefined && !scannerVersion) || (result.evidenceRef !== undefined && !evidenceRef)) {
+      return { ok: false, reason: "failed" };
+    }
+    return {
+      ok: true,
+      scannerId,
+      scannerVersion,
+      evidenceRef,
+    };
+  } catch {
+    return { ok: false, reason: "failed" };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    controller.abort();
+  }
+}
 
 const RULES = {
   STORAGE: "DK-DOCUMENT-STORAGE-001",
@@ -172,10 +254,6 @@ export function purchaseVatLinesFromPayload(payloadJson: string | null | undefin
 }
 
 
-function sha256File(path: string) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
 /**
  * Allow-list of ingestable document types. Plain-text receipts are
  * legitimate (the smoke ingests several `.txt` files), so `text/plain`
@@ -215,8 +293,8 @@ function startsWithBytes(buf: Buffer, signature: number[]): boolean {
  * they indicate, or `null` for content with no recognised binary
  * signature (treated as plain text).
  */
-function sniffMimeType(path: string): string | null {
-  const buf = readFileSync(path).subarray(0, 16);
+function sniffMimeType(bytes: Buffer): string | null {
+  const buf = bytes.subarray(0, 16);
   if (startsWithBytes(buf, [0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf"; // %PDF-
   if (startsWithBytes(buf, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
   if (startsWithBytes(buf, [0xff, 0xd8, 0xff])) return "image/jpeg";
@@ -230,10 +308,10 @@ const BINARY_MIME_TYPES = new Set(["application/pdf", "image/png", "image/jpeg"]
  * extension with magic-byte content sniffing. Throws if the bytes
  * contradict the extension, or if the type is outside the allow-list.
  */
-function detectMimeType(path: string): string {
-  const ext = extname(path).toLowerCase();
+function detectMimeType(filename: string, bytes: Buffer): string {
+  const ext = extname(filename).toLowerCase();
   const expected = EXTENSION_MIME[ext];
-  const sniffed = sniffMimeType(path);
+  const sniffed = sniffMimeType(bytes);
 
   if (!expected) {
     throw new Error(`unsupported document type for extension '${ext || "(none)"}'`);
@@ -271,7 +349,7 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   const documentType = metadata.documentType ?? "purchase_sale";
   const exemptionCode = metadata.exemptionCode ?? null;
   const currency = (metadata.currency ?? "DKK").trim().toUpperCase();
-  const appliedRules = [RULES.STORAGE, RULES.INTEGRITY];
+  const appliedRules: string[] = [RULES.STORAGE, RULES.INTEGRITY];
 
   if (!hasText(metadata.source)) errors.push("source is required");
   if (metadata.reverseChargeWordingConfirmed !== undefined && typeof metadata.reverseChargeWordingConfirmed !== "boolean") {
@@ -306,19 +384,66 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   return { ok: errors.length === 0, appliedRules, errors };
 }
 
+/**
+ * Legacy synchronous entrypoint. It remains safe because snapshotting and
+ * publishing are synchronous, but it refuses a configured scanner instead of
+ * silently bypassing an async security decision. New external ingress points
+ * should use ingestDocumentAsync.
+ */
 export function ingestDocument(db: Database, companyRoot: string, filePath: string, metadata: DocumentMetadata, options: IngestDocumentOptions = {}): IngestDocumentResult {
+  if (options.scannerPolicy === "required" || options.scanner) {
+    return { ok: false, errors: ["document scanner requires async ingestDocumentAsync"] };
+  }
+  return ingestDocumentSnapshot(db, companyRoot, filePath, metadata, options);
+}
+
+/** Async entrypoint for ingress stacks that may mandate malware scanning. */
+export async function ingestDocumentAsync(db: Database, companyRoot: string, filePath: string, metadata: DocumentMetadata, options: IngestDocumentOptions = {}): Promise<IngestDocumentResult> {
   const validation = validateDocumentMetadata(metadata);
   if (!validation.ok) return { ok: false, errors: validation.errors };
-  if (!existsSync(filePath)) return { ok: false, errors: [`file does not exist: ${filePath}`] };
-
+  let snapshot: DocumentSnapshot;
   let mimeType: string;
   try {
-    mimeType = detectMimeType(filePath);
+    snapshot = snapshotDocumentSource(filePath);
+    mimeType = detectMimeType(snapshot.filename, snapshot.bytes);
   } catch (error) {
     return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
   }
+  if (options.scannerPolicy === "required" && !options.scanner) {
+    return { ok: false, errors: ["document scanner is required but unavailable"] };
+  }
+  let scanEvidence: { scannerId: string; scannerVersion?: string; evidenceRef?: string } | undefined;
+  if (options.scanner) {
+    const result = await scanSnapshot(options.scanner, snapshot, mimeType, scannerTimeoutMs(options.scannerTimeoutMs));
+    if (!result.ok) {
+      return { ok: false, errors: [result.reason === "rejected" ? "document scanner rejected the document" : "document scanner failed"] };
+    }
+    scanEvidence = result;
+  }
+  return ingestDocumentSnapshot(db, companyRoot, filePath, metadata, options, snapshot, mimeType, scanEvidence);
+}
 
-  const sha256 = sha256File(filePath);
+function ingestDocumentSnapshot(
+  db: Database,
+  companyRoot: string,
+  filePath: string,
+  metadata: DocumentMetadata,
+  options: IngestDocumentOptions,
+  suppliedSnapshot?: DocumentSnapshot,
+  suppliedMimeType?: string,
+  scanEvidence?: { scannerId: string; scannerVersion?: string; evidenceRef?: string },
+): IngestDocumentResult {
+  const validation = validateDocumentMetadata(metadata);
+  if (!validation.ok) return { ok: false, errors: validation.errors };
+  let snapshot: DocumentSnapshot;
+  let mimeType: string;
+  try {
+    snapshot = suppliedSnapshot ?? snapshotDocumentSource(filePath);
+    mimeType = suppliedMimeType ?? detectMimeType(snapshot.filename, snapshot.bytes);
+  } catch (error) {
+    return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
+  }
+  const sha256 = snapshot.sha256;
   const existing = db.query("SELECT id, document_no, stored_path FROM documents WHERE sha256_hash = ?").get(sha256) as { id: number; document_no: string; stored_path: string } | null;
   if (existing) {
     return { ok: false, errors: [`duplicate document content already ingested as ${existing.document_no}`] };
@@ -366,23 +491,45 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
     }
   }
 
-  const p = companyPaths(companyRoot);
-  const ext = extname(filePath).toLowerCase() || ".bin";
-  const evidenceStore = docType === "issued_invoice_pdf"
-    ? p.invoicesIssued
-    : p.documentsOriginals;
-  mkdirSync(evidenceStore, { recursive: true });
+  const ext = extname(snapshot.filename).toLowerCase() || ".bin";
+  let evidenceStore: string;
+  try {
+    evidenceStore = ensureCanonicalDocumentStore(companyRoot, docType === "issued_invoice_pdf" ? "invoices/issued" : "documents/originals");
+  } catch (error) {
+    return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
+  }
   const storedPath = join(evidenceStore, `${sha256}${ext}`);
 
   const currency = (metadata.currency ?? "DKK").trim().toUpperCase();
   const retentionBasisDate = metadata.issueDate ?? currentUtcIsoDate(db);
-  let copied = false;
+  let published = false;
 
   try {
+    // Publish before the DB transaction so a document row can never point at
+    // a not-yet-durable file. A stale/unregistered final is rejected below.
+    const alreadyRegistered = db.query("SELECT 1 FROM documents WHERE sha256_hash = ?").get(sha256);
+    if (alreadyRegistered) return { ok: false, errors: ["duplicate document content already ingested"] };
+    // This is immediately before the exclusive create. The scanner only got a
+    // copy, but rechecking here makes the publication boundary independently
+    // fail closed if any future caller accidentally mutates a supplied snapshot.
+    const canonicalHash = createHash("sha256").update(snapshot.bytes).digest("hex");
+    const canonicalMimeType = detectMimeType(snapshot.filename, snapshot.bytes);
+    if (canonicalHash !== sha256 || canonicalMimeType !== mimeType) {
+      return { ok: false, errors: ["document snapshot changed before publication"] };
+    }
+    const publication = publishDocumentSnapshot(evidenceStore, `${sha256}${ext}`, snapshot);
+    published = publication.published;
+    if (!published) {
+      // A pre-existing same-byte file without its immutable DB register is not
+      // safe to adopt: it could be left by a failed/crashed writer.
+      const registered = db.query("SELECT 1 FROM documents WHERE sha256_hash = ?").get(sha256);
+      if (!registered) return { ok: false, errors: ["document evidence destination exists without a registered document"] };
+      return { ok: false, errors: ["duplicate document content already ingested"] };
+    }
     const result = db.transaction(() => {
+      const contentDuplicate = db.query("SELECT document_no FROM documents WHERE sha256_hash = ?").get(sha256) as { document_no: string } | null;
+      if (contentDuplicate) throw new Error(`duplicate document content already ingested as ${contentDuplicate.document_no}`);
       const documentNo = nextDocumentNo(db, metadata.issueDate);
-      copyFileSync(filePath, storedPath);
-      copied = true;
 
       const inserted = db.query(
         `INSERT INTO documents (
@@ -395,7 +542,7 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
       ).get(
         documentNo,
         metadata.source,
-        basename(filePath),
+        snapshot.filename,
         storedPath,
         mimeType,
         sha256,
@@ -426,6 +573,13 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
         name: metadata.sender?.name,
         cvr: senderVatOrCvr,
       });
+
+      if (scanEvidence) {
+        db.query(
+          `INSERT INTO document_scan_evidence (document_id, sha256_hash, scanner_id, scanner_version, result, evidence_ref)
+           VALUES (?, ?, ?, ?, 'clean', ?)`,
+        ).run(inserted.id, sha256, scanEvidence.scannerId, scanEvidence.scannerVersion ?? null, scanEvidence.evidenceRef ?? null);
+      }
       strengthenGdprErasureAliasesForIdentity(db, {
         name: metadata.recipient?.name,
         cvr: metadata.recipient?.vatOrCvr,
@@ -443,14 +597,17 @@ export function ingestDocument(db: Database, companyRoot: string, filePath: stri
       }
 
       return { id: asDocumentId(inserted.id), documentNo };
-    }, { immediate: true })();
+    }).immediate();
 
     return { ok: true, documentId: result.id, documentNo: result.documentNo, sha256, storedPath };
   } catch (error) {
-    if (copied) {
-      try { unlinkSync(storedPath); } catch {}
+    if (published) {
+      // Never delete a possible concurrent winner. The unique hash register is
+      // authoritative; only remove our final when no row references it.
+      const registered = db.query("SELECT 1 FROM documents WHERE sha256_hash = ?").get(sha256);
+      if (!registered) removePublishedSnapshot(storedPath, snapshot);
     }
-    throw error;
+    return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
   }
 }
 

@@ -37,7 +37,7 @@ function getOutgoingRefundBankTransaction(db: Database, input: RefundInvoiceToBa
   }
   const bank = (input.bankTransactionId !== undefined
     ? db.query(`SELECT id, transaction_date, amount, text, reference FROM bank_transactions WHERE id = ?`).get(input.bankTransactionId)
-    : db.query(`SELECT id, transaction_date, amount, text, reference FROM bank_transactions WHERE reference = ? ORDER BY id DESC LIMIT 1`).get(input.bankTransactionReference)) as { id: number; transaction_date: string; amount: number; text: string; reference: string | null } | null;
+    : db.query(`SELECT id, transaction_date, amount, text, reference FROM bank_transactions WHERE reference = ? ORDER BY id DESC LIMIT 1`).get(input.bankTransactionReference ?? "")) as { id: number; transaction_date: string; amount: number; text: string; reference: string | null } | null;
   if (!bank) {
     return { error: input.bankTransactionId !== undefined ? `bank transaction ${input.bankTransactionId} does not exist` : `no bank transaction found with reference ${input.bankTransactionReference}` };
   }
@@ -185,7 +185,7 @@ export function refundInvoiceToBank(db: Database, input: RefundInvoiceToBankInpu
         remainingCreditBalance: roundDkk(Math.max(0, -(after.openBalance ?? 0))),
         appliedRules: [...new Set([RULE_ID, ...(journal.appliedRules ?? [])])],
       };
-    }, { immediate: true })();
+    }).immediate();
     return result;
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {

@@ -20,6 +20,21 @@ describe("cockpit API — endpoint contracts", () => {
     }
   });
 
+  test("GET /api/health never exposes the private workspace location or company identity", async () => {
+    const ws = makeWorkspace("ep-health-private", ["Private Example ApS"]);
+    try {
+      const res = await get(config({ workspaceRoot: ws }), "/api/health");
+      const serialized = JSON.stringify(res.body);
+      expect(res.status).toBe(200);
+      expect(serialized).not.toContain(ws);
+      expect(serialized).not.toContain("private-example-aps");
+      expect(serialized).not.toContain("Private Example ApS");
+      expect(res.body).not.toHaveProperty("workspace");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   test("GET /api/companies lists workspace companies", async () => {
     const ws = makeWorkspace("ep-companies", ["Acme ApS", "Beta IVS"]);
     try {

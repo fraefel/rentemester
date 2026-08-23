@@ -186,6 +186,7 @@ function ManageForm({
         </p>
         <button
           className="btn secondary"
+          type="button"
           onClick={
             archived ? restoreCompany : () => setConfirmingArchive(true)
           }
@@ -572,6 +573,7 @@ function CvrCard({ slug, initial }: { slug: string; initial: CompanySettings }) 
 
       <button
         className="btn secondary"
+        type="button"
         onClick={sync}
         disabled={buttonDisabled}
         title={buttonTitle}

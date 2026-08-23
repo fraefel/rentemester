@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import { postJournalEntry, type JournalPostResult } from "./ledger";
 import { getInvoiceStatus } from "./invoice-payments";
@@ -683,10 +684,10 @@ export function postInvoiceLateInterestToLedger(db: Database, input: PostInvoice
         return { ...journal, claimId: claim.id, invoiceDocumentId: claim.invoice_document_id, invoiceNumber: claim.invoice_no, claimDate: claim.claim_date, accruedInterestAmount: amount, appliedRules: [...new Set([...(journal.appliedRules ?? []), BOOKKEEPING_RULE_ID])] };
       }
 
-      db.run(
+      runSql(db,
         `INSERT INTO invoice_interest_postings (interest_claim_id, journal_entry_id) VALUES (?, ?)`,
         claim.id,
-        journal.entryId,
+        journal.entryId ?? null,
       );
 
       insertAuditLog(db, {
@@ -1379,21 +1380,21 @@ export function postInterestCorrection(db: Database, input: PostInterestCorrecti
       // permanently poison the register before the TypeScript evidence audit
       // gets a chance to run. Header, causal claims, account allocations and
       // the correction itself commit or roll back together.
-      db.run(
+      runSql(db,
         `INSERT INTO invoice_interest_correction_plans
            (journal_entry_id, invoice_document_id, correction_date, amount_dkk)
          VALUES (?, ?, ?, ?)`,
-        journal.entryId,
+        journal.entryId ?? null,
         input.invoiceDocumentId,
         transactionDate,
         amount,
       );
       for (const claim of allocationPlan.causalClaims) {
-        db.run(
+        runSql(db,
           `INSERT INTO invoice_interest_correction_plan_claims
              (journal_entry_id, interest_claim_id, claim_date, amount_dkk, claim_ceiling_dkk)
            VALUES (?, ?, ?, ?, ?)`,
-          journal.entryId,
+          journal.entryId ?? null,
           claim.claimId,
           claim.claimDate,
           claim.amountDkk,
@@ -1401,21 +1402,21 @@ export function postInterestCorrection(db: Database, input: PostInterestCorrecti
         );
       }
       for (const allocation of allocationPlan.incomeDebits) {
-        db.run(
+        runSql(db,
           `INSERT INTO invoice_interest_correction_plan_lines
              (journal_entry_id, account_no, debit_amount, credit_amount)
            VALUES (?, ?, ?, 0)`,
-          journal.entryId,
+          journal.entryId ?? null,
           allocation.accountNo,
           allocation.amountDkk,
         );
       }
       for (const allocation of allocationPlan.receivableCredits) {
-        db.run(
+        runSql(db,
           `INSERT INTO invoice_interest_correction_plan_lines
              (journal_entry_id, account_no, debit_amount, credit_amount)
            VALUES (?, ?, 0, ?)`,
-          journal.entryId,
+          journal.entryId ?? null,
           allocation.accountNo,
           allocation.amountDkk,
         );
@@ -1424,7 +1425,7 @@ export function postInterestCorrection(db: Database, input: PostInterestCorrecti
       const inserted = db.query(
         `INSERT INTO invoice_interest_corrections (invoice_document_id, correction_date, amount_dkk, reason, journal_entry_id)
          VALUES (?, ?, ?, ?, ?) RETURNING id`,
-      ).get(input.invoiceDocumentId, transactionDate, amount, input.reason ?? null, journal.entryId) as { id: number };
+      ).get(input.invoiceDocumentId, transactionDate, amount, input.reason ?? null, journal.entryId ?? null) as { id: number };
 
       insertAuditLog(db, {
         eventType: "invoice_interest_correction",
@@ -1477,7 +1478,7 @@ export function postInterestCorrection(db: Database, input: PostInterestCorrecti
         claimOpenBalance: statusAfter.claimOpenBalance,
         appliedRules: [...new Set([...(journal.appliedRules ?? []), BOOKKEEPING_RULE_ID])],
       };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     const parsed = typeof error === "object" && error && "message" in error ? (() => {
       try { return JSON.parse(String((error as any).message)); } catch { return null; }

@@ -258,7 +258,10 @@ function sha256Text(text: string) {
 }
 
 function uniqueIds(values: Array<number | null | undefined>) {
-  return [...new Set(values.filter((value): value is number => Number.isInteger(value) && value > 0))].sort((a, b) => a - b);
+  return [...new Set(values.filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isInteger(value) && value > 0,
+  ))].sort((a, b) => a - b);
 }
 
 function exportFileName(document: DocumentRecord) {
@@ -731,11 +734,14 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
 
   const outputs: ExportedFileMeta[] = [];
   writeExportJson(exportDir, join(machineReadableDir, "journal-entries.json"), journalEntries, outputs);
-  writeExportJson(exportDir, join(machineReadableDir, "documents.json"), documents.map(({ purchaseVatLinesErrors: _purchaseVatLinesErrors, ...document }) => ({
-    ...document,
-    storedPathRelativeToCompany: storedPathRelativeToCompany(companyRoot, document.storedPath),
-    exportedReadablePath: document.storedPath ? join("documents-readable", exportFileName(document)).replace(/\\/g, "/") : null,
-  })), outputs);
+  writeExportJson(exportDir, join(machineReadableDir, "documents.json"), documents.map((document) => {
+    const { purchaseVatLinesErrors: _purchaseVatLinesErrors, ...exported } = document;
+    return {
+      ...exported,
+      storedPathRelativeToCompany: storedPathRelativeToCompany(companyRoot, document.storedPath),
+      exportedReadablePath: document.storedPath ? join("documents-readable", exportFileName(document)).replace(/\\/g, "/") : null,
+    };
+  }), outputs);
   writeExportJson(exportDir, join(machineReadableDir, "bank-transactions.json"), bankTransactions, outputs);
   writeExportJson(exportDir, join(machineReadableDir, "bank-journal-reconciliation-links.json"), bankJournalReconciliationLinks, outputs);
   writeExportJson(exportDir, join(machineReadableDir, "audit-log.json"), auditLog.map((row: any) => ({

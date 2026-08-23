@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Database, SQLQueryBindings } from "bun:sqlite";
 
 export type AuditLogRow = {
   id: number;
@@ -76,7 +76,7 @@ export function listAuditLog(
   options: ListAuditLogOptions = {},
 ): ListAuditLogResult {
   const where: string[] = [];
-  const params: unknown[] = [];
+  const params: SQLQueryBindings[] = [];
   if (typeof options.fromDate === "string" && options.fromDate.length > 0) {
     where.push("created_at >= ?");
     params.push(options.fromDate);

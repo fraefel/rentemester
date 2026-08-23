@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BankImportModal } from "./BankImportModal";
@@ -71,7 +71,7 @@ describe("BankImportModal", () => {
 
     // The import endpoint was called with the CSV text and confirm:true.
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const importCall = calls.find((c) =>
         String(c[0]).includes("/bank/import"),
       );

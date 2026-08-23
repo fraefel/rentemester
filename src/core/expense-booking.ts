@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { getCompanySettings } from "./company";
-import { postJournalEntry, type JournalPostResult } from "./ledger";
+import { postJournalEntry, type JournalLineInput, type JournalPostResult } from "./ledger";
 import { postForeignServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
 import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
@@ -340,7 +340,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     const scale = fxBasis.basis.currency === "DKK" ? 1 : fxBasis.basis.fxRateToDkk;
     const scaledPurchaseVatLines = scalePurchaseVatNetAmounts(purchaseVatLines, scale, grossAmountDkk, vatAmountDkk);
     if (!scaledPurchaseVatLines.ok) return { ok: false, appliedRules: [], errors: [scaledPurchaseVatLines.error] };
-    const lines = scaledPurchaseVatLines.lines.flatMap(({ line, netAmountDkk }) => {
+    const lines: JournalLineInput[] = scaledPurchaseVatLines.lines.flatMap(({ line, netAmountDkk }) => {
       if (line.classification === "dk_purchase_25") return [{ accountNo: account.account_no, debitAmount: netAmountDkk, vatCode: "DK_PURCHASE_25", text: document.invoice_no ?? "Udgift, momspligtigt grundbeløb" }];
       return [{ accountNo: account.account_no, debitAmount: netAmountDkk, vatCode: "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? "Udgift, momsfrit grundbeløb" }];
     });

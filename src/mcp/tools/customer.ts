@@ -135,7 +135,7 @@ export function registerCustomerTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      input: CreateCustomerInput;
+      input: Partial<CreateCustomerInput>;
       fromCvr?: string;
       confirm?: boolean;
     }>(server, "customer_create", async ({ db, args }) => {

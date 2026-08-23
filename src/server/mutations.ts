@@ -33,7 +33,7 @@ import { evaluateBackupLock } from "../core/backup-governance";
 import { findWorkspaceCompany, companyRootForSlug } from "../core/workspace";
 import type { ServerConfig } from "./config";
 import { ApiError } from "./errors";
-import { authMiddleware, type Principal } from "./auth";
+import type { Principal } from "./auth";
 import { resolveCockpitActor } from "./actor";
 
 /**
@@ -143,18 +143,23 @@ const LOOPBACK_ORIGIN_HOSTNAMES = new Set([
  *
  *   - manglende Origin → tilladt (CLI/curl/MCP/ikke-browser-klienter);
  *   - loopback-origin  → tilladt på ENHVER port: produktion serverer SPA'en
- *                        fra samme loopback-server, og vite-dev kører på
+ *                        fra samme loopback-server, og Bun-dev kører på
  *                        http://localhost:5319 og proxy'er `/api` videre
- *                        (app/vite.config.ts) med Origin-headeren intakt;
+ *                        (app/scripts/serve.ts) med Origin-headeren intakt;
  *   - alt andet        → afvist med stabil subcode FORBIDDEN_ORIGIN. Det
  *                        dækker også `Origin: null` (sandboxed iframe).
  *
- * Når auth ER slået til, træder gaten til side ligesom localhost-gaten: dér
- * er bearer-tokenet i `authMiddleware` gaten (et cross-site angreb kan ikke
- * sætte Authorization-headeren i en simple request), og en legitim
- * fjern-deployment har netop en ikke-loopback Origin.
+ * I lokal/shared-secret drift er en manglende Origin fortsat den eksplicitte
+ * CLI/MCP-kontrakt. Hosted Better Auth er anderledes: cookie-sessioner kan
+ * sendes af browseren uden en Authorization-header, så alle unsafe custom API
+ * calls skal komme fra en valideret `trustedOrigins`-origin. Better Auth
+ * beskytter kun `/api/auth/*`, ikke disse routes.
  */
 export function assertMutationOriginAllowed(request: Request, config: ServerConfig): void {
+  if (config.betterAuthProvider) {
+    assertHostedMutationOriginAllowed(request, config);
+    return;
+  }
   if (config.authRequired) return;
   const origin = (request.headers.get("origin") ?? "").trim();
   if (origin === "") return;
@@ -175,6 +180,31 @@ export function assertMutationOriginAllowed(request: Request, config: ServerConf
         "loopback-origin (http://localhost, http://127.0.0.1 eller http://[::1]).",
       { subcode: "FORBIDDEN_ORIGIN" },
     );
+  }
+}
+
+/**
+ * Hosted cookie-authenticated mutations have no headerless CLI escape hatch.
+ * A browser supplies Origin; Referer is accepted only as a fallback for
+ * privacy-restricted same-origin browser requests. Both are checked as full
+ * URL origins against the already validated hosted `trustedOrigins` list.
+ */
+export function assertHostedMutationOriginAllowed(request: Request, config: ServerConfig): void {
+  if (!config.betterAuthProvider) return;
+  const trustedOrigins = new Set(config.hostedBetterAuth?.trustedOrigins ?? []);
+  const header = (request.headers.get("origin") ?? "").trim();
+  const referer = (request.headers.get("referer") ?? "").trim();
+  const candidate = header || referer;
+  let origin = "";
+  try {
+    origin = new URL(candidate).origin;
+  } catch {
+    // Missing, malformed and `Origin: null` all fail closed below.
+  }
+  if (!candidate || !trustedOrigins.has(origin)) {
+    throw new ApiError("unauthorized", "missing or invalid credentials", {
+      subcode: "FORBIDDEN_ORIGIN",
+    });
   }
 }
 
@@ -266,10 +296,13 @@ export async function withCompanyMutation<T extends CoreResult>(
   assertMutationOriginAllowed(request, config);
   assertMutationContentType(request);
 
-  // The auth seam already ran once in `handleRequest`; re-running it here is
-  // cheap and yields the typed `Principal` the actor mapper needs without
-  // threading it through every route signature.
-  const principal = authMiddleware(request, config);
+  // Authentication belongs to the router. In Phase 1 actor mapping is fixed,
+  // but keep the request principal explicit so Better Auth can replace that
+  // mapping without re-authenticating or using mutable request-global state.
+  const principal = config.requestPrincipal;
+  if (!principal) {
+    throw ApiError.unauthorized("request authentication context missing");
+  }
 
   // (2) Company resolution. A registered slug whose ledger is missing on disk
   // is a 404 — the same shape the read routes return.

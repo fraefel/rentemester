@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { screen } from "@testing-library/react";
 import { LiquidityView } from "./LiquidityView";
 import { renderAt } from "../test/render";

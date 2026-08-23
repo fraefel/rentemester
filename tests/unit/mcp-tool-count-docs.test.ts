@@ -75,12 +75,13 @@ describe("MCP tool count in agent-facing docs (#367)", () => {
       for (let i = 0; i < lines.length; i++) {
         for (const pat of phrasePatterns) {
           pat.lastIndex = 0;
-          let m: RegExpExecArray | null;
-          while ((m = pat.exec(lines[i])) !== null) {
+          let m = pat.exec(lines[i]);
+          while (m !== null) {
             const n = Number(m[1]);
             if (n !== actual) {
               offenders.push(`${rel}:${i + 1}: "${m[0]}" (actual=${actual})`);
             }
+            m = pat.exec(lines[i]);
           }
         }
       }

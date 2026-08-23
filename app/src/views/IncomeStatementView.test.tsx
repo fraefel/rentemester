@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IncomeStatementView } from "./IncomeStatementView";
@@ -62,7 +62,7 @@ describe("IncomeStatementView — Resultatopgørelse", () => {
     renderView();
     const select = await screen.findByLabelText("Vælg regnskabsår");
     await userEvent.selectOptions(select, "2025");
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const lastUrl = String(calls[calls.length - 1]![0]);
     expect(lastUrl).toContain("year=2025");
   });

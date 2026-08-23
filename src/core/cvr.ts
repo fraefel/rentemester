@@ -122,11 +122,15 @@ export function normalizeCvrNumber(input?: string | null): string | null {
 // `gyldigTil: null` marks the currently valid element.
 // ---------------------------------------------------------------------------
 
-function getCurrent<T extends { periode?: { gyldigTil?: string | null } }>(
+function getCurrent<T>(
   items: T[] | undefined,
 ): T | null {
   if (!items || items.length === 0) return null;
-  const current = items.find((item) => item?.periode?.gyldigTil === null);
+  const current = items.find(
+    (item) =>
+      (item as { periode?: { gyldigTil?: string | null } } | null | undefined)
+        ?.periode?.gyldigTil === null,
+  );
   return current ?? items[items.length - 1] ?? null;
 }
 
@@ -183,7 +187,10 @@ function extractPublicContact(arr: unknown): string | null {
 function attrValue(entity: any, type: string): string | null {
   const attr = (entity?.attributter ?? []).find((a: any) => a?.type === type);
   if (!attr) return null;
-  return trimToNull(getCurrent(attr.vaerdier ?? [])?.vaerdi);
+  return trimToNull(getCurrent<{
+    vaerdi?: unknown;
+    periode?: { gyldigTil?: string | null };
+  }>(attr.vaerdier ?? [])?.vaerdi);
 }
 
 function formatStreet(address: any): string | null {
@@ -228,7 +235,10 @@ function extractManagement(entity: any): CvrManagementMember[] {
   const out: CvrManagementMember[] = [];
   const seen = new Set<string>();
   for (const rel of entity?.deltagerRelation ?? []) {
-    const name = trimToNull(getCurrent(rel?.deltager?.navne ?? [])?.navn);
+    const name = trimToNull(getCurrent<{
+      navn?: unknown;
+      periode?: { gyldigTil?: string | null };
+    }>(rel?.deltager?.navne ?? [])?.navn);
     if (!name) continue;
     for (const org of rel?.organisationer ?? []) {
       if (org?.hovedtype !== "LEDELSESORGAN") continue;
@@ -257,11 +267,17 @@ export function mapVirksomhed(entity: any, cvrNumber: string): CvrCompanyInfo {
   const industry = metadata.nyesteHovedbranche ?? getCurrent(entity?.hovedbranche ?? []) ?? null;
   const name =
     trimToNull(metadata.nyesteNavn?.navn) ??
-    trimToNull(getCurrent(entity?.navne ?? [])?.navn) ??
+    trimToNull(getCurrent<{
+      navn?: unknown;
+      periode?: { gyldigTil?: string | null };
+    }>(entity?.navne ?? [])?.navn) ??
     "Ukendt";
   const status =
     trimToNull(metadata.sammensatStatus) ??
-    trimToNull(getCurrent(entity?.virksomhedsstatus ?? [])?.status);
+    trimToNull(getCurrent<{
+      status?: unknown;
+      periode?: { gyldigTil?: string | null };
+    }>(entity?.virksomhedsstatus ?? [])?.status);
 
   const fiscalYearStart = attrValue(entity, "REGNSKABSÅR_START");
   const fiscalYearEnd = attrValue(entity, "REGNSKABSÅR_SLUT");

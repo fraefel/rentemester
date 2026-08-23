@@ -201,8 +201,9 @@ function postServiceReverseChargeLines(
   const inputVat = resolveAccountRole(db, "input_vat");
   const outputVat = resolveAccountRole(db, "reverse_charge_vat");
   const bank = input.paymentAccountNo ? { ok: true as const, accountNo: input.paymentAccountNo } : resolveAccountRole(db, "bank");
-  const roleErrors = [inputVat, outputVat, bank].flatMap((resolution) => resolution.ok ? [] : [resolution.error]);
-  if (roleErrors.length > 0) return { ok: false, appliedRules: [ruleId], errors: roleErrors };
+  if (!inputVat.ok) return { ok: false, appliedRules: [ruleId], errors: [inputVat.error] };
+  if (!outputVat.ok) return { ok: false, appliedRules: [ruleId], errors: [outputVat.error] };
+  if (!bank.ok) return { ok: false, appliedRules: [ruleId], errors: [bank.error] };
   const result = postJournalEntry(db, {
     transactionDate: input.transactionDate,
     text: input.text.trim(),
@@ -472,7 +473,8 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
   const grossAmount = addDkk(input.netAmount, fullVatAmount);
   const inputVat = resolveAccountRole(db, "input_vat");
   const payment = input.paymentAccountNo ? { ok: true as const, accountNo: input.paymentAccountNo } : resolveAccountRole(db, "bank");
-  if (!inputVat.ok || !payment.ok) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: [!inputVat.ok ? inputVat.error : payment.error] };
+  if (!inputVat.ok) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: [inputVat.error] };
+  if (!payment.ok) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: [payment.error] };
 
   const result = postJournalEntry(db, {
     transactionDate: input.transactionDate,

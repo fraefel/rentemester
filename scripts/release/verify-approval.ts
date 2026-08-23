@@ -74,6 +74,8 @@ const approval = parseJson(approvalPath).value;
 const release = objectField(manifest.value, "release");
 const image = objectField(manifest.value, "image");
 const workflow = objectField(manifest.value, "workflow");
+const runtime = objectField(manifest.value, "runtime");
+const evidence = objectField(manifest.value, "evidence");
 const reviewer = objectField(approval, "reviewer");
 
 if (manifest.value.manifestVersion !== 1) {
@@ -95,6 +97,15 @@ if (Number.isNaN(Date.parse(releaseBuiltAt))) {
 if (!/^sha256:[0-9a-f]{64}$/i.test(releaseImageDigest)) {
   throw new Error("release manifest image digest must be sha256");
 }
+const runtimeBunVersion = stringField(runtime, "bunVersion");
+const runtimeBaseImageDigest = stringField(runtime, "baseImageDigest");
+const sbomSha256 = stringField(evidence, "sbomSha256");
+if (!isValidSemVer(runtimeBunVersion) || !/^sha256:[0-9a-f]{64}$/i.test(runtimeBaseImageDigest)) {
+  throw new Error("release manifest runtime identity is invalid");
+}
+if (!/^sha256:[0-9a-f]{64}$/i.test(sbomSha256)) {
+  throw new Error("release manifest SBOM evidence is invalid");
+}
 if (
   !/^\d+$/.test(stringField(workflow, "runId")) ||
   typeof workflow.runAttempt !== "number" ||
@@ -112,6 +123,12 @@ if (
   manifest.value.provenance.product.builtAt !== releaseBuiltAt
 ) {
   throw new Error("release manifest provenance does not match release identity");
+}
+if (
+  manifest.value.provenance.product.bunVersion !== runtimeBunVersion ||
+  manifest.value.provenance.product.baseImageDigest !== runtimeBaseImageDigest
+) {
+  throw new Error("release manifest runtime does not match provenance");
 }
 
 assertExactKeys(

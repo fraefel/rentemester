@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 /**
  * Email delivery (#180): send an issued invoice or a reminder to the
  * customer's email via SMTP, with the rendered PDF attached.
@@ -370,7 +371,7 @@ export function sendInvoiceEmail(
   }
 
   const bodySha256 = createHash("sha256").update(message.rawMessage).digest("hex");
-  db.run(
+  runSql(db,
     `INSERT INTO email_send_log
        (invoice_document_id, invoice_no, kind, recipient, sender, subject,
         message_id, body_sha256, smtp_host)

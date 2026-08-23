@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 // Opening balance (primobalance) — issue #179.
 //
 // A real business adopting Rentemester has accounting history. The opening
@@ -199,12 +200,12 @@ export function postOpeningBalance(db: Database, input: OpeningBalanceInput): Op
   // row is what makes a second call idempotent; the audit-log row makes the
   // primobalance event independently visible alongside the journal_post event.
   db.transaction(() => {
-    db.run(
+    runSql(db,
       `INSERT INTO opening_balances (cut_over_date, journal_entry_id, journal_entry_no)
        VALUES (?, ?, ?)`,
       cutOverDate,
-      post.entryId,
-      post.entryNo,
+      post.entryId ?? null,
+      post.entryNo ?? null,
     );
     insertAuditLog(db, {
       eventType: "opening_balance_post",
@@ -214,7 +215,7 @@ export function postOpeningBalance(db: Database, input: OpeningBalanceInput): Op
       createdBy: input.createdBy,
       createdByProgram: input.createdByProgram,
     });
-  }, { immediate: true })();
+  }).immediate();
 
   return {
     ok: true,

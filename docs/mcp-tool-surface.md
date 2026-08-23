@@ -387,7 +387,7 @@ modpostering.
 | `invoice_post_reminder` | `invoice post-reminder` | `{ company, documentId? \| invoiceNumber?, reminderId?, date?, confirm }` | Bogfører registreret rykker. Forudsætning: `invoice_remind`. |
 | `invoice_refund_bank` | `invoice refund-bank` | `{ company, payload: RefundPayload, confirm }` | Bogfører refundering til kunde fra banken. Forudsætning: `invoice_post`. |
 | `invoice_remind` | `invoice remind` | `{ company, documentId? \| invoiceNumber?, date, fee?, note?, confirm }` | Registrerer rykker på forfalden faktura. Forudsætning: `invoice_post` (fakturaen skal være bogført og forfalden). |
-| `invoice_render` | `invoice render` | `{ company, documentId? \| invoiceNumber?, confirm }` | Renderer (eller genskaber) deterministisk PDF. Idempotent. Forudsætning: `invoice_issue`. |
+| `invoice_render` | `invoice render` | `{ company, documentId? \| invoiceNumber?, confirm }` | Returnerer og hash-verificerer den immutabelt udstedte PDF. Manipuleret eller manglende evidens genskabes aldrig. Idempotent. Forudsætning: `invoice_issue`. |
 | `invoice_send_email` | `invoice send` | `{ company, documentId? \| invoiceNumber?, kind?, to?, confirm }` | Sender faktura/rykker via SMTP med PDF vedhæftet. Idempotent. SMTP-config læses fra `config/smtp.json` i virksomhedsmappen — påkrævede felter: `host`, `port`, `fromAddress`; valgfri: `fromName`, `username`, `password`, `dryRun`. Mangler filen ⇒ `{ ok:false, errors:["missing SMTP config: ..."] }`. Den indbyggede transport kører **kun** i dry-run: `dryRun:true` registrerer afsendelsen uden netværkskald (`ok:true`); uden `dryRun:true` fejler et rigtigt send med en `ok:false`-envelope. |
 | `invoice_settle_bank` | `invoice settle-bank` | `{ company, payload: SettlementPayload, confirm }` | Matcher bankbetaling mod faktura. Forudsætning: `invoice_post`. |
 | `invoice_settle_claim_bank` | `invoice settle-claim-bank` | `{ company, payload: ClaimSettlementPayload, confirm }` | Matcher bankbetaling mod fakturakrav. Forudsætning: `invoice_post` + relevant `invoice_post_reminder` / `invoice_post_interest` / `invoice_post_compensation`. |
@@ -582,6 +582,30 @@ regnskabsperiode (`period reopen`) er fx CLI-only — se også underafsnittet
   resten er CLI-only.
 - `src/cli/serve.ts` — `serve` (starter cockpit HTTP-API'en). Det er en
   proces-host og giver ikke mening som MCP-tool.
+- `src/cli/group.ts` — strukturkommandoerne `validate-manifest`,
+  `apply-manifest` og `overview` samt mellemregningskommandoerne
+  `validate-mapping`, `propose-mapping`, `approve-mapping`, `revoke-mapping`
+  og `reconcile`, samt balanceelimineringernes `propose-elimination`,
+  `approve-elimination`, `reject-elimination`, `apply-elimination`,
+  `reverse-elimination` og `eliminations`. Mappings og eliminationer har
+  append-only lifecycle og særskilt reviewer;
+  afstemning er read-only, eksplicit dateret og kun sammenlignelig i samme
+  funktionsvaluta. Der er bevidst ingen MCP-vej, før en særskilt workspace-wide
+  autorisationskontrakt er eksponeret der.
+- `src/cli/workspace-access.ts` — `workspace-access bootstrap-first`:
+  lokal, engangs bootstrap af workspace-ejer og medlemskaber. Den private
+  sikkerhedsbootstrap må ikke udstilles som et generelt MCP-tool.
+- `src/cli/workspace-snapshot.ts` — `workspace snapshot` og
+  `workspace restore`: credential-fri, signeret flytning af et helt workspace
+  med staged restore og eksplicit geninvitation af identiteter. Det er en
+  administrativ backup-/recovery-grænse og udstilles ikke som MCP-tool.
+- `src/cli/local.ts` — `local start`: loopback-only launcher for den simple
+  én-virksomhedstilstand; det er en proces-host, ikke et MCP-tool.
+- `src/cli/accounting-draft.ts` — det append-only fire-øjne-flow
+  `create`/`revise`/`submit`/`reject`/`approve-and-post` samt `list`/`show`.
+  Hosted HTTP håndhæver bogholder/reviewer-roller via Better Auth-medlemskab;
+  CLI'en håndhæver actor-allowlist og forskellige actors, men workflowet
+  udstilles ikke over MCP før samme rolle- og virksomhedsgrænse findes dér.
 - `src/cli/bank-account.ts` — `bank-account add`/`bank-account list`
   (registrér/lis/opdatér bankkonti for FX-bogføring). MCP-surface'en eksponerer
   `bank_account_list` og confirm-gatede `bank_account_update`; oprettelse er

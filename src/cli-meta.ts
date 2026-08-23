@@ -1,6 +1,6 @@
 import { registerCommandSpecs } from "./cli-meta/helpers";
 import type { CommandSpec } from "./cli-meta/_shared";
-import { initSpec, serveSpec, systemSpecs } from "./cli-meta/system-specs";
+import { initSpec, localSpecs, serveSpec, systemSpecs } from "./cli-meta/system-specs";
 import { companySpecs } from "./cli-meta/company-specs";
 import { masterDataSpecs } from "./cli-meta/master-data-specs";
 import { invoiceSpecs, invoiceSendSpec } from "./cli-meta/invoice-specs";
@@ -10,6 +10,7 @@ import { expenseSpecs } from "./cli-meta/expense-specs";
 import { vatSpecs, vatFilingSpecs } from "./cli-meta/vat-specs";
 import { periodSpecs } from "./cli-meta/period-specs";
 import { journalSpecs } from "./cli-meta/journal-specs";
+import { accountingDraftSpecs } from "./cli-meta/accounting-draft-specs";
 import { dashboardSpecs } from "./cli-meta/dashboard-specs";
 import { recurringInvoiceSpecs } from "./cli-meta/recurring-invoice-specs";
 import { mailIntakeSpecs } from "./cli-meta/mail-intake-specs";
@@ -25,6 +26,9 @@ import { accrualSpecs } from "./cli-meta/accrual-specs";
 import { budgetSpecs } from "./cli-meta/budget-specs";
 import { payableSpecs } from "./cli-meta/payables-specs";
 import { efakturaSpecs } from "./cli-meta/efaktura-specs";
+import { workspaceAccessSpecs } from "./cli-meta/workspace-access-specs";
+import { groupSpecs } from "./cli-meta/group-specs";
+import { workspaceSnapshotSpecs } from "./cli-meta/workspace-snapshot-specs";
 
 export type { CommandSpec } from "./cli-meta/_shared";
 export {
@@ -55,6 +59,7 @@ export const COMMAND_SPECS: CommandSpec[] = [
   ...initSpec,
   ...companySpecs,
   ...serveSpec,
+  ...localSpecs,
   ...systemSpecs,
   ...masterDataSpecs,
   ...invoiceSpecs,
@@ -64,6 +69,7 @@ export const COMMAND_SPECS: CommandSpec[] = [
   ...vatSpecs,
   ...periodSpecs,
   ...journalSpecs,
+  ...accountingDraftSpecs,
   ...dashboardSpecs,
   ...recurringInvoiceSpecs,
   ...mailIntakeSpecs,
@@ -82,6 +88,9 @@ export const COMMAND_SPECS: CommandSpec[] = [
   ...budgetSpecs,
   ...payableSpecs,
   ...efakturaSpecs,
+  ...workspaceAccessSpecs,
+  ...workspaceSnapshotSpecs,
+  ...groupSpecs,
 ];
 
 registerCommandSpecs(COMMAND_SPECS);

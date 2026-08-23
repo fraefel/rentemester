@@ -3,6 +3,21 @@ import { join } from "node:path";
 import { companyPaths } from "./core/paths";
 
 export const MUTATING_COMMANDS = new Set([
+  "workspace snapshot",
+  "workspace restore",
+  "workspace-access bootstrap-first",
+  "group apply-manifest",
+  "group propose-mapping",
+  "group approve-mapping",
+  "group revoke-mapping",
+  "group propose-elimination",
+  "group approve-elimination",
+  "group reject-elimination",
+  "group apply-elimination",
+  "group reverse-elimination",
+  "group propose-profile",
+  "group approve-profile",
+  "group revoke-profile",
   "efaktura onboard",
   "accounts add",
   "accounts role-confirm",
@@ -69,6 +84,11 @@ export const MUTATING_COMMANDS = new Set([
   "period reopen",
   "journal post",
   "journal reverse",
+  "accounting-draft create",
+  "accounting-draft revise",
+  "accounting-draft submit",
+  "accounting-draft reject",
+  "accounting-draft approve-and-post",
   "exceptions resolve",
   // ===== RECURRING INVOICES (#118) =====
   "recurring-invoice create",

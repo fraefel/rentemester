@@ -1,13 +1,19 @@
+import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { companyPaths } from "../../../core/paths";
 import { openDb, migrate } from "../../../core/db";
 import { buildInvoiceList } from "../../../core/invoice-list";
-import { renderIssuedInvoicePdf } from "../../../core/invoice-pdf";
 import {
   companyRootForSlug,
   findWorkspaceCompany,
 } from "../../../core/workspace";
 import { ApiError } from "../../errors";
+import {
+  EvidenceFileUnavailable,
+  evidenceDownloadFilename,
+  readVerifiedEvidenceFile,
+  type EvidenceFileSnapshot,
+} from "../evidence-file";
 import {
   resolveStatementContext,
   roundKroner,
@@ -19,19 +25,15 @@ import {
 // --------------------------------------------------------------------------
 
 /**
- * Resolves an issued-invoice document into the on-disk PDF the cockpit can
- * serve to the owner. The same `renderIssuedInvoicePdf` core that the CLI's
- * `invoice render` command uses is called — re-rendering is idempotent: when
- * the payload has not changed since issuance, the existing PDF row is returned
- * unchanged; if it has, the row is updated in place. The thrown shapes match
- * `resolveCompanyDocumentFile` so the route handler can rely on the same
- * not-found mapping. (#378)
+ * Resolves existing issued-invoice PDF evidence into an immutable byte
+ * snapshot. GET never invokes the renderer: rendering/replacing invoice
+ * evidence is an explicit issuing workflow, not a read-side repair.
  */
 export function resolveCompanyIssuedInvoicePdf(
   workspaceRoot: string,
   slug: string,
   invoiceDocumentId: number,
-): { path: string; mimeType: string; filename: string } {
+): EvidenceFileSnapshot {
   const entry = findWorkspaceCompany(workspaceRoot, slug);
   if (!entry) {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
@@ -42,21 +44,49 @@ export function resolveCompanyIssuedInvoicePdf(
     throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);
   }
 
-  const db = openDb(dbPath);
+  const db = new Database(dbPath, { readonly: true });
   try {
-    migrate(db);
-    const result = renderIssuedInvoicePdf(db, companyRoot, {
-      invoiceDocumentId,
-    });
-    if (!result.ok || !result.storedPath || !result.invoiceNumber) {
-      const reason = result.errors[0] ?? "issued invoice PDF could not be rendered";
-      throw ApiError.notFound(reason);
+    db.exec("PRAGMA query_only = ON");
+    const invoice = db.query(
+      `SELECT invoice_no AS invoiceNo, payload_json AS payloadJson FROM documents
+        WHERE id = ? AND document_type = 'issued_invoice'`,
+    ).get(invoiceDocumentId) as { invoiceNo: string | null; payloadJson: string | null } | null;
+    if (!invoice?.invoiceNo || !invoice.payloadJson) {
+      throw ApiError.notFound("faktura-PDF er ikke tilgængelig");
     }
-    return {
-      path: result.storedPath,
-      mimeType: "application/pdf",
-      filename: `${result.invoiceNumber}.pdf`,
-    };
+    // A PDF artifact is immutable evidence for exactly one issued invoice.
+    // Old/ambiguous ledgers are denied rather than guessing the newest row.
+    const pdfRows = db.query(
+      `SELECT id, stored_path AS storedPath, sha256_hash AS sha256Hash,
+              mime_type AS mimeType
+         FROM documents
+        WHERE document_type = 'issued_invoice_pdf'
+          AND invoice_no = ?
+          AND payload_json = ?
+        ORDER BY id ASC`,
+    ).all(invoice.invoiceNo, invoice.payloadJson) as Array<{
+      id: number;
+      storedPath: string | null;
+      sha256Hash: string;
+      mimeType: string | null;
+    }>;
+    if (pdfRows.length !== 1 || !pdfRows[0]!.storedPath || !pdfRows[0]!.sha256Hash) {
+      throw ApiError.notFound("faktura-PDF er ikke tilgængelig");
+    }
+    try {
+      return readVerifiedEvidenceFile({
+        evidenceRoot: companyPaths(companyRoot).invoicesIssued,
+        storedPath: pdfRows[0]!.storedPath!,
+        expectedSha256: pdfRows[0]!.sha256Hash,
+        mimeType: pdfRows[0]!.mimeType,
+        filename: evidenceDownloadFilename(invoiceDocumentId, ".pdf"),
+      });
+    } catch (error) {
+      if (error instanceof EvidenceFileUnavailable) {
+        throw ApiError.notFound("faktura-PDF er ikke tilgængelig");
+      }
+      throw error;
+    }
   } finally {
     db.close();
   }

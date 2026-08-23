@@ -17,6 +17,8 @@ export type BuildIdentity = {
   version: string;
   gitCommit: string | null;
   builtAt: string | null;
+  bunVersion: string | null;
+  baseImageDigest: string | null;
 };
 
 export type HealthResponse = {
@@ -30,6 +32,7 @@ export type HealthResponse = {
   };
   workspace: string;
   authRequired: boolean;
+  deploymentProfile?: "local" | "hosted";
 };
 
 /**

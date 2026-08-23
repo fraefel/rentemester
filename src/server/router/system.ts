@@ -9,6 +9,7 @@ import {
 import { okResponse } from "./_shared";
 import { getBuildIdentity } from "../../core/build-identity";
 import { getReleaseProvenance } from "../../core/release-provenance";
+import { assessWorkspaceReadiness } from "../../core/workspace-readiness";
 
 export function handleHealth(
   config: ServerConfig,
@@ -18,9 +19,23 @@ export function handleHealth(
     service: "rentemester-cockpit",
     build: getBuildIdentity(),
     provenance: getReleaseProvenance(),
-    workspace: config.workspaceRoot,
+    // Workspace location is private operational state. Health is public in a
+    // hosted deployment, so it must not expose an absolute filesystem path.
     authRequired: config.authRequired,
+    deploymentProfile: config.deploymentProfile ?? "local",
     routes,
+  });
+}
+
+/** Public aggregate only: diagnostics stay inside the server process. */
+export function handleReadiness(config: ServerConfig): Response {
+  const readiness = assessWorkspaceReadiness(config.workspaceRoot);
+  return new Response(JSON.stringify({ ok: readiness.ready, ...readiness }), {
+    status: readiness.ready ? 200 : 503,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    },
   });
 }
 

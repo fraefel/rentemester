@@ -1,11 +1,13 @@
 // Tests: src/cli/serve.ts — the `rentemester serve` command boots Bun.serve
 // on the config-driven bind address and serves the workspace API.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCompany } from "../../src/core/company";
-import { initWorkspace } from "../../src/core/workspace";
+import { initWorkspace, workspaceExists } from "../../src/core/workspace";
+import { workspaceControlPaths } from "../../src/core/workspace-control";
+import { prepareWorkspaceForServe } from "../../src/cli/serve";
 
 function tmpRoot(label: string) {
   return mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -27,6 +29,25 @@ async function waitForServer(url: string, deadlineMs = 5000): Promise<boolean> {
 }
 
 describe("serve CLI", () => {
+  test("local-container prepares only a genuinely empty first-run volume", () => {
+    const parent = tmpRoot("serve-container-bootstrap");
+    const empty = join(parent, "empty");
+    const occupied = join(parent, "occupied");
+    mkdirSync(empty);
+    mkdirSync(occupied);
+    writeFileSync(join(occupied, "unrelated.txt"), "do not adopt\n");
+    try {
+      prepareWorkspaceForServe(empty, "local-container");
+      expect(workspaceExists(empty)).toBe(true);
+      expect(existsSync(workspaceControlPaths(empty).db)).toBe(true);
+      expect(() => prepareWorkspaceForServe(occupied, "local-container")).toThrow("non-empty");
+      expect(() => prepareWorkspaceForServe(join(parent, "local"), "local")).toThrow("explicitly");
+      expect(() => prepareWorkspaceForServe(join(parent, "hosted"), "hosted")).toThrow("explicitly");
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   test("serve boots the API on a config-driven port and serves the workspace", async () => {
     const ws = tmpRoot("serve-cli");
     initWorkspace(ws);

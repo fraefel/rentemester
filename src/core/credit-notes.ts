@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -428,7 +429,7 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
       if (!receivableAccount || journal.entryId == null) {
         throw new Error(`credit note ${creditNoteNumber} cannot persist its receivable posting evidence`);
       }
-      db.run(
+      runSql(db,
         `INSERT INTO credit_note_postings
            (credit_note_document_id, original_invoice_document_id, journal_entry_id,
             receivable_account_id, booked_gross_dkk)
@@ -463,7 +464,7 @@ export function issueCreditNote(db: Database, companyRoot: string, input: IssueC
 
       const treatment = payload?.vatTreatment ?? "standard";
       return { ok: true as const, docId: doc.id, creditNoteNumber, sha256: hash, journal, isReverseCharge: treatment === "domestic_reverse_charge" || treatment === "foreign_reverse_charge" };
-    }, { immediate: true })();
+    }).immediate();
 
     if (!result.ok) return { ok: false, appliedRules: [RULE_ID], errors: [result.error] };
     return {

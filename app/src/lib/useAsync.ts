@@ -25,6 +25,8 @@ export function useAsync<T>(
   loaderRef.current = loader;
 
   useEffect(() => {
+    // Reading the generation makes reloads an explicit effect input.
+    void tick;
     let cancelled = false;
     setLoading(true);
     setError(null);

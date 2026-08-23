@@ -6,12 +6,13 @@
 // endpoint and reloads the list. The underlying exception-resolution logic is
 // covered by the server-side tests; the frontend never re-implements it.
 
-import { describe, expect, test, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { describe, expect, test, vi } from "bun:test";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SuggestionsView } from "./SuggestionsView";
 import { renderAt } from "../test/render";
 import { agentSuggestions, mockFetch } from "../test/fixtures";
+import { stubGlobal } from "../test/globals";
 
 function route(over = {}) {
   return {
@@ -134,7 +135,7 @@ describe("SuggestionsView — Agent-forslag (#346)", () => {
         );
       },
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubGlobal("fetch", fetchMock);
 
     renderView();
     const approveBtn = await screen.findByRole("button", {
@@ -216,7 +217,7 @@ describe("SuggestionsView — Agent-forslag (#346)", () => {
         );
       },
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubGlobal("fetch", fetchMock);
 
     renderView();
     const rejectBtn = await screen.findByRole("button", {
@@ -236,7 +237,7 @@ describe("SuggestionsView — Agent-forslag (#346)", () => {
     );
 
     // Wait for the reject POST + the list reload to flush.
-    await vi.waitFor(() => expect(rejected).toBe(true));
+    await waitFor(() => expect(rejected).toBe(true));
     expect(rejectBody).toEqual({ note: "ikke forfalden — bilaget er fejldatoet" });
   });
 });

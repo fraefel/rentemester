@@ -287,7 +287,7 @@ function restoreSchemaTriggers(db: Database, schema: string) {
       db.run(`DROP TRIGGER IF EXISTS ${name}`);
       db.exec(canonical);
     }
-  }, { immediate: true })();
+  }).immediate();
 }
 
 // Financial guards delegate deterministic money/shape checks to canonical SQL
@@ -305,7 +305,7 @@ function restoreSchemaViews(db: Database, schema: string) {
       db.run(`DROP VIEW IF EXISTS ${name}`);
       db.exec(canonical);
     }
-  }, { immediate: true })();
+  }).immediate();
 }
 
 export function migrate(db: Database) {

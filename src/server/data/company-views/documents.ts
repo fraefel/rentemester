@@ -1,13 +1,20 @@
+import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { companyPaths } from "../../../core/paths";
 import { openDb, migrate } from "../../../core/db";
 import { getCompanySettings } from "../../../core/company";
-import { purchaseVatLinesFromPayload, resolveDocumentFile } from "../../../core/documents";
+import { purchaseVatLinesFromPayload } from "../../../core/documents";
 import {
   companyRootForSlug,
   findWorkspaceCompany,
 } from "../../../core/workspace";
 import { ApiError } from "../../errors";
+import {
+  EvidenceFileUnavailable,
+  evidenceDownloadFilename,
+  readVerifiedEvidenceFile,
+  type EvidenceFileSnapshot,
+} from "../evidence-file";
 import {
   roundKroner,
   statementCompanyBlock,
@@ -204,7 +211,7 @@ export function resolveCompanyDocumentFile(
   workspaceRoot: string,
   slug: string,
   documentId: number,
-): { path: string; mimeType: string; filename: string } {
+): EvidenceFileSnapshot {
   const entry = findWorkspaceCompany(workspaceRoot, slug);
   if (!entry) {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
@@ -215,16 +222,59 @@ export function resolveCompanyDocumentFile(
     throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);
   }
 
-  const db = openDb(dbPath);
+  // A download is evidence retrieval, never a ledger maintenance path.  In
+  // particular it must not call `migrate()` (which can repair/write state) or
+  // even open the ledger read-write.
+  const db = new Database(dbPath, { readonly: true });
   try {
-    migrate(db);
-    const resolved = resolveDocumentFile(db, companyRoot, documentId);
-    if (!resolved.ok) {
-      throw ApiError.notFound(resolved.error);
+    db.exec("PRAGMA query_only = ON");
+    const row = db.query(
+      `SELECT stored_path AS storedPath, mime_type AS mimeType,
+              sha256_hash AS sha256Hash, document_type AS documentType
+         FROM documents WHERE id = ?`,
+    ).get(documentId) as {
+      storedPath: string | null;
+      mimeType: string | null;
+      sha256Hash: string;
+      documentType: string;
+    } | null;
+    if (!row?.storedPath || !row.sha256Hash) {
+      throw ApiError.notFound("bilagsfil er ikke tilgængelig");
     }
-    return resolved.file;
+    const paths = companyPaths(companyRoot);
+    const evidenceRoot = row.documentType === "issued_invoice" ||
+      row.documentType === "issued_invoice_pdf" ||
+      row.documentType === "credit_note"
+      ? paths.invoicesIssued
+      : paths.documentsOriginals;
+    try {
+      return readVerifiedEvidenceFile({
+        evidenceRoot,
+        storedPath: row.storedPath,
+        expectedSha256: row.sha256Hash,
+        mimeType: row.mimeType,
+        filename: evidenceDownloadFilename(documentId, extensionForMime(row.mimeType)),
+      });
+    } catch (error) {
+      if (error instanceof EvidenceFileUnavailable) {
+        throw ApiError.notFound("bilagsfil er ikke tilgængelig");
+      }
+      throw error;
+    }
   } finally {
     db.close();
+  }
+}
+
+function extensionForMime(mimeType: string | null): string {
+  switch ((mimeType ?? "").trim().toLowerCase()) {
+    case "application/pdf": return ".pdf";
+    case "text/plain": return ".txt";
+    case "image/jpeg": return ".jpg";
+    case "image/png": return ".png";
+    case "image/gif": return ".gif";
+    case "image/webp": return ".webp";
+    default: return "";
   }
 }
 

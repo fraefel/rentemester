@@ -100,7 +100,7 @@ export function registerVendorTools(server: McpServer): void {
     },
     withCompanyDbConfirmed<{
       company: string;
-      input: CreateVendorInput;
+      input: Partial<CreateVendorInput>;
       fromCvr?: string;
       confirm?: boolean;
     }>(server, "vendor_create", async ({ db, args }) => {

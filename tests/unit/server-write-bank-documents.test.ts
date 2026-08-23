@@ -362,6 +362,8 @@ describe("Cockpit write — document ingest (happy path)", () => {
           .query("SELECT COUNT(*) AS n FROM documents")
           .get() as { n: number };
         expect(row.n).toBe(1);
+        expect(db.query("SELECT actor FROM audit_log WHERE event_type = 'document_ingest'").get())
+          .toEqual({ actor: "system:cockpit via rentemester-cockpit" });
       });
     } finally {
       rmSync(ws, { recursive: true, force: true });
@@ -388,6 +390,24 @@ describe("Cockpit write — document ingest (happy path)", () => {
 });
 
 describe("Cockpit write — document ingest (gates + input errors)", () => {
+  test("a required scanner with no provider fails closed at real HTTP ingress", async () => {
+    const { root: ws, slug } = makeWorkspace("doc-scanner-required-absent");
+    try {
+      const res = await post(
+        config({ workspaceRoot: ws, documentScannerPolicy: "required" }),
+        `/api/companies/${slug}/documents/ingest`,
+        receiptBody(),
+      );
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body)).toContain("scanner is required");
+      withLedger(ws, slug, (db) => {
+        expect(db.query("SELECT count(*) AS n FROM documents").get()).toEqual({ n: 0 });
+      });
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   test("without confirm:true the ingest is refused with 400", async () => {
     const { root: ws, slug } = makeWorkspace("doc-noconfirm");
     try {

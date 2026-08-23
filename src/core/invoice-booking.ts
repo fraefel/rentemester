@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import {
   postJournalEntry,
@@ -85,7 +86,8 @@ function postIssuedInvoiceToLedgerInternal(
   }
   const debtors = input.receivableAccountNo ? { ok: true as const, accountNo: input.receivableAccountNo } : resolveAccountRole(db, "debtors");
   const outputVat = input.outputVatAccountNo ? { ok: true as const, accountNo: input.outputVatAccountNo } : resolveAccountRole(db, "output_vat");
-  if (!debtors.ok || !outputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [!debtors.ok ? debtors.error : outputVat.error] };
+  if (!debtors.ok) return { ok: false, appliedRules: [RULE_ID], errors: [debtors.error] };
+  if (!outputVat.ok) return { ok: false, appliedRules: [RULE_ID], errors: [outputVat.error] };
 
   const doc = db.query(
     `SELECT id, invoice_no, invoice_date, amount_inc_vat, currency, vat_amount, payload_json, document_type
@@ -211,13 +213,18 @@ function postIssuedInvoiceToLedgerInternal(
       const lockedOutputVat = input.outputVatAccountNo
         ? { ok: true as const, accountNo: input.outputVatAccountNo }
         : resolveAccountRole(db, "output_vat");
-      if (!lockedDebtors.ok || !lockedOutputVat.ok) {
+      if (!lockedDebtors.ok) {
         return {
           ok: false,
           appliedRules: [RULE_ID],
-          errors: [!lockedDebtors.ok ? lockedDebtors.error : lockedOutputVat.error],
+          errors: [lockedDebtors.error],
         } satisfies JournalPostResult;
       }
+      if (!lockedOutputVat.ok) return {
+        ok: false,
+        appliedRules: [RULE_ID],
+        errors: [lockedOutputVat.error],
+      } satisfies JournalPostResult;
       let lockedPosting: ReturnType<typeof issuedInvoiceJournalLines>;
       try {
         lockedPosting = issuedInvoiceJournalLines(doc, payload, grossAmountDkk, netAmountDkk, vatAmountDkk, {
@@ -299,7 +306,7 @@ function postIssuedInvoiceToLedgerInternal(
         "SELECT id FROM accounts WHERE account_no = ?",
       ).get(lockedDebtors.accountNo) as { id: number } | null;
       if (!receivableAccount) throw new Error(`resolved receivable account ${lockedDebtors.accountNo} disappeared before invoice posting`);
-      db.run(
+      runSql(db,
         `INSERT INTO issued_invoice_postings
            (invoice_document_id, journal_entry_id, receivable_account_id, booked_gross_dkk)
          VALUES (?, ?, ?, ?)`,
@@ -317,7 +324,7 @@ function postIssuedInvoiceToLedgerInternal(
         ...journal,
         appliedRules: [...new Set([...(journal.appliedRules ?? []), RULE_ID, ...(lockedPosting.isReverseCharge ? [REVERSE_RULE_ID] : [])])],
       };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     return {
       ok: false,
@@ -482,7 +489,7 @@ export function repairUnlinkedIssuedInvoiceBooking(
         appliedRules: [...new Set([...replacement.appliedRules, ...reversal.appliedRules, RULE_ID])],
         errors: [],
       };
-    }, { immediate: true })();
+    }).immediate();
   } catch (error) {
     if (error instanceof InvoiceBookingRepairFailure) {
       return {

@@ -14,7 +14,10 @@ function config(workspaceRoot: string): ServerConfig {
 }
 
 async function call(cfg: ServerConfig, path: string, init?: RequestInit) {
-  const res = await handleRequest(new Request(`http://localhost${path}`, init), cfg);
+  const res = await handleRequest(new Request(`http://localhost${path}`, {
+    ...init,
+    headers: { host: "localhost", ...(init?.headers ?? {}) },
+  }), cfg);
   return { status: res.status, body: await res.json() };
 }
 

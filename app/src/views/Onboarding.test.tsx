@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { screen } from "@testing-library/react";
 import { Onboarding } from "./Onboarding";
 import { renderAt } from "../test/render";

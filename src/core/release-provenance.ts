@@ -94,6 +94,10 @@ export function isReleaseProvenance(value: unknown): value is ReleaseProvenance 
     (product.gitCommit === null || /^[0-9a-f]{7,64}$/i.test(product.gitCommit)) &&
     isNullableString(product.builtAt) &&
     (product.builtAt === null || !Number.isNaN(Date.parse(product.builtAt))) &&
+    isNullableString(product.bunVersion) &&
+    (product.bunVersion === null || isValidSemVer(product.bunVersion)) &&
+    isNullableString(product.baseImageDigest) &&
+    (product.baseImageDigest === null || /^sha256:[0-9a-f]{64}$/i.test(product.baseImageDigest)) &&
     Number.isInteger(schema.version) &&
     (schema.version as number) > 0 &&
     typeof schema.baselineChecksum === "string" &&

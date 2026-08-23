@@ -9,7 +9,15 @@
 // It is a read/workspace-management endpoint set, so it is NOT a mutating
 // command in the actor-policy sense.
 
-import { resolveWorkspaceRoot, listWorkspaceCompanies, companyRootForSlug } from "../core/workspace";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
+import {
+  resolveWorkspaceRoot,
+  listWorkspaceCompanies,
+  companyRootForSlug,
+  initWorkspace,
+  workspaceExists,
+} from "../core/workspace";
+import { openWorkspaceControlDb } from "../core/workspace-control";
 import { resolveServerConfig } from "../server/config";
 import { startCockpitServer } from "../server/app";
 import { describeStaticUiBuild } from "../server/static";
@@ -18,6 +26,35 @@ import { createImapClient, pollImapMailbox, resolveImapConfig } from "../core/im
 import { openDb, migrate } from "../core/db";
 import { companyPaths } from "../core/paths";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
+
+/**
+ * A packaged local container owns its mounted data volume and may therefore
+ * initialise a genuinely empty one on first boot. Other deployment profiles
+ * must be provisioned explicitly, and no profile may adopt an arbitrary
+ * non-empty directory as an accounting workspace.
+ */
+export function prepareWorkspaceForServe(
+  workspaceRoot: string,
+  deploymentProfile: "local" | "local-container" | "hosted" | undefined,
+): void {
+  if (!workspaceExists(workspaceRoot)) {
+    if (deploymentProfile !== "local-container") {
+      throw new Error("workspace is not initialized; initialize it explicitly before serving");
+    }
+    if (existsSync(workspaceRoot)) {
+      const stat = lstatSync(workspaceRoot);
+      if (!stat.isDirectory()) throw new Error("--workspace must name a directory, not a file");
+      if (readdirSync(workspaceRoot).length > 0) {
+        throw new Error("workspace is not initialized; refuse to adopt a non-empty directory");
+      }
+    }
+    initWorkspace(workspaceRoot);
+  }
+
+  // Startup owns control-schema migration. `/api/ready` remains read-only and
+  // can therefore prove that the exact state needed by workspace routes exists.
+  openWorkspaceControlDb(workspaceRoot).close();
+}
 
 export function register(dispatch: CommandDispatch): void {
   dispatch.on("serve", null, (ctx: CommandContext) => {
@@ -35,13 +72,19 @@ export function register(dispatch: CommandDispatch): void {
       }
     }
 
-    let config;
+    let config: ReturnType<typeof resolveServerConfig>;
     try {
       config = resolveServerConfig({
         host: hostFlag,
         port: portRaw.value,
         workspaceRoot,
       });
+    } catch (error) {
+      return ctx.fatal(error instanceof Error ? error.message : String(error));
+    }
+
+    try {
+      prepareWorkspaceForServe(config.workspaceRoot, config.deploymentProfile);
     } catch (error) {
       return ctx.fatal(error instanceof Error ? error.message : String(error));
     }
@@ -133,6 +176,7 @@ export function register(dispatch: CommandDispatch): void {
       port: cockpit.server.port,
       workspace: config.workspaceRoot,
       authRequired: config.authRequired,
+      deploymentProfile: config.deploymentProfile,
       ui: uiBuild,
     });
     // `Bun.serve` keeps the process alive; the command intentionally does not

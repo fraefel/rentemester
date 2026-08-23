@@ -7,6 +7,8 @@ export type BuildIdentity = {
   version: string;
   gitCommit: string | null;
   builtAt: string | null;
+  bunVersion: string | null;
+  baseImageDigest: string | null;
 };
 
 function optionalBuildValue(value: string | undefined): string | null {
@@ -45,10 +47,22 @@ export function getBuildIdentity(
     throw new Error("RENTEMESTER_BUILT_AT must be an ISO-8601 timestamp");
   }
 
+  const bunVersion = optionalBuildValue(env.RENTEMESTER_BUN_VERSION);
+  if (bunVersion && !isValidSemVer(bunVersion)) {
+    throw new Error("RENTEMESTER_BUN_VERSION must be a SemVer version");
+  }
+
+  const baseImageDigest = optionalBuildValue(env.RENTEMESTER_BASE_IMAGE_DIGEST);
+  if (baseImageDigest && !/^sha256:[0-9a-f]{64}$/i.test(baseImageDigest)) {
+    throw new Error("RENTEMESTER_BASE_IMAGE_DIGEST must be a sha256 digest");
+  }
+
   return {
     version: packageJson.version,
     gitCommit,
     builtAt,
+    bunVersion,
+    baseImageDigest,
   };
 }
 

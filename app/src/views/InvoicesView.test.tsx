@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InvoicesView } from "./InvoicesView";
@@ -77,7 +77,7 @@ describe("InvoicesView — Fakturaer", () => {
     renderView();
     const select = await screen.findByLabelText("Vælg regnskabsår");
     await userEvent.selectOptions(select, "2025");
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const lastUrl = String(calls[calls.length - 1]![0]);
     expect(lastUrl).toContain("year=2025");
   });
@@ -176,7 +176,7 @@ describe("InvoicesView — write actions", () => {
     );
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const settleCall = calls.find((c) =>
         String(c[0]).includes("/invoices/settle"),
       );
@@ -477,7 +477,7 @@ describe("InvoicesView — write actions", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Send e-faktura" }));
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const sendCall = calls.find((c) =>
         String(c[0]).includes("/invoices/send-public"),
       );
@@ -636,7 +636,7 @@ describe("InvoicesView — write actions", () => {
     );
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const sendCall = calls.find((c) =>
         String(c[0]).includes("/invoices/send-email"),
       );
@@ -849,7 +849,7 @@ describe("InvoicesView — write actions", () => {
     );
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const sendCall = calls.find((c) =>
         String(c[0]).includes("/invoices/send-reminder"),
       );
@@ -889,7 +889,7 @@ describe("InvoicesView — write actions", () => {
     );
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const creditCall = calls.find((c) =>
         String(c[0]).includes("/invoices/credit-note"),
       );

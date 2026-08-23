@@ -45,7 +45,7 @@ function bank(db: Database, id: number, amount: number) {
 describe("migration open items v5", () => {
   test("migrates a fresh database through the current schema and preserves v4 provenance when upgrading", () => {
     const db = setup();
-    expect(CURRENT_SCHEMA_VERSION).toBe(6);
+    expect(CURRENT_SCHEMA_VERSION).toBe(9);
     expect(readSchemaMigrations(db)).toContainEqual(expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME }));
     db.exec(`
       DROP VIEW bank_journal_reconciliations;

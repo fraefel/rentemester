@@ -1,0 +1,5 @@
+{
+  "id": 7,
+  "name": "rentemester-group-structure-v7",
+  "sql": "CREATE TABLE rm_group_manifest_events (\n id INTEGER PRIMARY KEY CHECK(id > 0),\n manifest_hash TEXT NOT NULL UNIQUE CHECK(length(manifest_hash)=64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),\n previous_hash TEXT CHECK(previous_hash IS NULL OR (length(previous_hash)=64 AND previous_hash NOT GLOB '*[^0-9a-f]*')),\n canonical_manifest TEXT NOT NULL CHECK(length(canonical_manifest) BETWEEN 2 AND 262144),\n actor TEXT NOT NULL CHECK(length(actor) BETWEEN 3 AND 160),\n created_at TEXT NOT NULL CHECK(length(created_at) BETWEEN 19 AND 30)\n);\nCREATE TRIGGER rm_group_manifest_events_no_update BEFORE UPDATE ON rm_group_manifest_events BEGIN SELECT RAISE(ABORT, 'group manifest events are append-only'); END;\nCREATE TRIGGER rm_group_manifest_events_no_delete BEFORE DELETE ON rm_group_manifest_events BEGIN SELECT RAISE(ABORT, 'group manifest events are append-only'); END;\n"
+}

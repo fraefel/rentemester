@@ -6,13 +6,13 @@
  * Split out of `../invoice.ts`. Registration order preserved.
  */
 
-import { readJsonCliInput, openCommandDb } from "../../cli-dispatch";
+import { readJsonObjectCliInput, openCommandDb } from "../../cli-dispatch";
 import { migrate } from "../../core/db";
-import { applyInvoicePayment } from "../../core/invoice-payments";
-import { settleInvoiceFromBank } from "../../core/invoice-settlement";
-import { settleInvoiceClaimsFromBank } from "../../core/invoice-claim-settlement";
-import { refundInvoiceToBank } from "../../core/invoice-refunds";
-import { writeOffInvoiceBadDebt } from "../../core/invoice-bad-debt";
+import { applyInvoicePayment, type ApplyInvoicePaymentInput } from "../../core/invoice-payments";
+import { settleInvoiceFromBank, type SettleInvoiceFromBankInput } from "../../core/invoice-settlement";
+import { settleInvoiceClaimsFromBank, type SettleInvoiceClaimsFromBankInput } from "../../core/invoice-claim-settlement";
+import { refundInvoiceToBank, type RefundInvoiceToBankInput } from "../../core/invoice-refunds";
+import { writeOffInvoiceBadDebt, type WriteOffInvoiceBadDebtInput } from "../../core/invoice-bad-debt";
 import type { CommandDispatch } from "../../cli-dispatch";
 import { withResolvedInvoicePayload } from "./_shared";
 
@@ -25,9 +25,9 @@ export function registerSettlementCommands(dispatch: CommandDispatch): void {
     }
     const db = openCommandDb(ctx);
     migrate(db);
-    const payload = withResolvedInvoicePayload(
+    const payload = withResolvedInvoicePayload<SettleInvoiceFromBankInput>(
       db,
-      readJsonCliInput(ctx, input, "--input"),
+      readJsonObjectCliInput(ctx, input, "--input"),
       "invoiceDocumentId",
       "invoiceNumber",
     );
@@ -44,9 +44,9 @@ export function registerSettlementCommands(dispatch: CommandDispatch): void {
     }
     const db = openCommandDb(ctx);
     migrate(db);
-    const payload = withResolvedInvoicePayload(
+    const payload = withResolvedInvoicePayload<SettleInvoiceClaimsFromBankInput>(
       db,
-      readJsonCliInput(ctx, input, "--input"),
+      readJsonObjectCliInput(ctx, input, "--input"),
       "invoiceDocumentId",
       "invoiceNumber",
     );
@@ -63,9 +63,9 @@ export function registerSettlementCommands(dispatch: CommandDispatch): void {
     }
     const db = openCommandDb(ctx);
     migrate(db);
-    const payload = withResolvedInvoicePayload(
+    const payload = withResolvedInvoicePayload<WriteOffInvoiceBadDebtInput>(
       db,
-      readJsonCliInput(ctx, input, "--input"),
+      readJsonObjectCliInput(ctx, input, "--input"),
       "invoiceDocumentId",
       "invoiceNumber",
     );
@@ -82,9 +82,9 @@ export function registerSettlementCommands(dispatch: CommandDispatch): void {
     }
     const db = openCommandDb(ctx);
     migrate(db);
-    const payload = withResolvedInvoicePayload(
+    const payload = withResolvedInvoicePayload<ApplyInvoicePaymentInput>(
       db,
-      readJsonCliInput(ctx, input, "--input"),
+      readJsonObjectCliInput(ctx, input, "--input"),
       "invoiceDocumentId",
       "invoiceNumber",
     );
@@ -101,9 +101,9 @@ export function registerSettlementCommands(dispatch: CommandDispatch): void {
     }
     const db = openCommandDb(ctx);
     migrate(db);
-    const payload = withResolvedInvoicePayload(
+    const payload = withResolvedInvoicePayload<RefundInvoiceToBankInput>(
       db,
-      readJsonCliInput(ctx, input, "--input"),
+      readJsonObjectCliInput(ctx, input, "--input"),
       "invoiceDocumentId",
       "invoiceNumber",
     );

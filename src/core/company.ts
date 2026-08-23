@@ -1,3 +1,4 @@
+import { runSql } from "./sqlite";
 import type { Database } from "bun:sqlite";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -414,7 +415,7 @@ export function initialiseCompanyVolume(
     if (!existsSync(policy)) {
       writeFileSync(policy, buildDefaultPolicyYaml(options.onboardingActor));
     }
-    db.run(
+    runSql(db,
       "INSERT INTO audit_log (event_type, entity_type, message) VALUES ('init','company','Company volume initialized')",
     );
   } finally {
@@ -688,7 +689,7 @@ export function setCompanyProfile(
       message: "Updated company profile (identity / payment details)",
     });
     return getCompanySettings(db);
-  }, { immediate: true })();
+  }).immediate();
 
   const updatedFields: string[] = [];
   const compare: Array<[string, unknown, unknown]> = [

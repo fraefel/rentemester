@@ -8,6 +8,7 @@ import { detectImportSource } from "../../core/import/source-detect";
 import { exportAuthorityPackage } from "../../core/authority-export";
 import { createTar, dirToTarEntries } from "../../core/tar";
 import type { ServerConfig } from "../config";
+import { responseBodyFromBytes } from "../response-body";
 import { ApiError } from "../errors";
 import { withCompanyMutation } from "../mutations";
 import { removePathWithRetry } from "../../core/fs-cleanup";
@@ -152,7 +153,7 @@ export async function handleAccountantExport(
     { requireConfirm: true },
   );
 
-  return new Response(result.tar, {
+  return new Response(responseBodyFromBytes(result.tar), {
     headers: {
       "content-type": "application/x-tar",
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,

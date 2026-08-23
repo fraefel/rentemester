@@ -11,7 +11,7 @@
 // and refreshes the list on success. The CLI snippet that used to live in
 // the empty-state is gone.
 
-import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, test, vi, beforeEach, afterEach } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RecurringInvoicesView } from "./RecurringInvoicesView";
@@ -128,11 +128,11 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
       screen.getByRole("button", { name: /Deaktivér skabelonen/ }),
     );
 
-    expect(vi.mocked(window.confirm)).toHaveBeenCalled();
-    expect(vi.mocked(window.prompt)).toHaveBeenCalled();
+    expect(window.confirm).toHaveBeenCalled();
+    expect(window.prompt).toHaveBeenCalled();
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const retireCall = calls.find(
         ([u]) =>
           typeof u === "string" &&
@@ -163,7 +163,7 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
       screen.getByRole("button", { name: /Deaktivér skabelonen/ }),
     );
 
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const retireCall = calls.find(
       ([u]) =>
         typeof u === "string" && u.includes("/retire"),
@@ -194,7 +194,7 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
   });
 
   test("An empty reason in the prompt is omitted from the request body", async () => {
-    vi.mocked(window.prompt).mockReturnValue("");
+    (window.prompt as ReturnType<typeof vi.fn>).mockReturnValue("");
     mockFetch({
       ...routes(),
       "POST /api/companies/acme-aps/recurring-invoices/7/retire": {
@@ -209,7 +209,7 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
     );
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const retireCall = calls.find(
         ([u]) =>
           typeof u === "string" && u.includes("/retire"),
@@ -344,7 +344,7 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
     await userEvent.click(getByRole("button", { name: /^Opret skabelon$/ }));
 
     await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const createCall = calls.find(
         ([u, init]) =>
           typeof u === "string" &&
@@ -400,7 +400,7 @@ describe("RecurringInvoicesView — Faktura-skabeloner", () => {
 
     // No POST was made — only the GETs (recurring-invoices + fiscal-years +
     // contacts).
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const createCall = calls.find(
       ([u, init]) =>
         typeof u === "string" &&

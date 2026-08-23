@@ -6,7 +6,7 @@
  * Split out of `../invoice.ts`. Registration order preserved.
  */
 
-import { readJsonCliInput } from "../../cli-dispatch";
+import { readJsonCliInput, readJsonObjectCliInput } from "../../cli-dispatch";
 import { companyPaths } from "../../core/paths";
 import { openDb, migrate } from "../../core/db";
 import {
@@ -29,7 +29,7 @@ import {
   resolveDigisenseTransmitter,
   digisenseAccessPointIdentity,
 } from "../../core/efaktura/digisense-wiring";
-import { issueCreditNote } from "../../core/credit-notes";
+import { issueCreditNote, type IssueCreditNoteInput } from "../../core/credit-notes";
 import {
   postIssuedInvoiceToLedger,
   repairUnlinkedIssuedInvoiceBooking,
@@ -86,7 +86,7 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
       console.error("Missing required --input <file.json>");
       process.exit(2);
     }
-    const payload = readJsonCliInput(ctx, input, "--input");
+    const payload = readJsonObjectCliInput(ctx, input, "--input") as unknown as InvoicePayload;
     const result = validateInvoice(payload);
     // #250: render the validation verdict — valid/invalid plus every concrete
     // rejection reason — in Danish for a human; `--format json` is unchanged.
@@ -102,16 +102,20 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
     const root = ctx.companyRoot();
     const db = openDb(companyPaths(root).db);
     migrate(db);
-    const payload = readJsonCliInput(ctx, input, "--input");
+    const payload = readJsonObjectCliInput(ctx, input, "--input") as unknown as InvoicePayload;
     const customerIdRaw = ctx.arg("--customer-id");
     const customerId = customerIdRaw === undefined ? undefined : Number(customerIdRaw);
     const resolved = resolveInvoiceMasterData(db, payload, {
-      customerId: Number.isInteger(customerId) && customerId > 0 ? customerId : undefined,
+      customerId:
+        typeof customerId === "number" && Number.isInteger(customerId) && customerId > 0
+          ? customerId
+          : undefined,
     });
     if (!resolved.ok) {
       ctx.emitResult(resolved as Record<string, unknown>);
       db.close();
       process.exit(1);
+      return;
     }
     const result = issueInvoice(db, root, resolved.payload!);
     // EJER-3: surface master-data notes (afvigende kundefrist) alongside the
@@ -365,9 +369,9 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
     const root = ctx.companyRoot();
     const db = openDb(companyPaths(root).db);
     migrate(db);
-    const payload = withResolvedInvoicePayload(
+    const payload = withResolvedInvoicePayload<IssueCreditNoteInput>(
       db,
-      readJsonCliInput(ctx, input, "--input"),
+      readJsonObjectCliInput(ctx, input, "--input"),
       "originalInvoiceDocumentId",
       "originalInvoiceNumber",
     );
@@ -394,8 +398,8 @@ export function registerIssuanceCommands(dispatch: CommandDispatch): void {
     if (!Number.isInteger(legacyJournalEntryId) || legacyJournalEntryId <= 0) {
       ctx.fatal("--legacy-journal-entry-id must be a positive integer");
     }
-    const reason = ctx.trimToNull(ctx.arg("--reason"));
-    if (!reason) ctx.fatal("invoice repair-posting requires --reason <text>");
+    const reason = ctx.trimToNull(ctx.arg("--reason")) ??
+      ctx.fatal("invoice repair-posting requires --reason <text>");
 
     const db = openCommandDb(ctx);
     migrate(db);

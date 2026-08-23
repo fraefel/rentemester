@@ -1,0 +1,130 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { createTar, readTar } from "../../src/core/tar";
+import { companyPaths } from "../../src/core/paths";
+import { createWorkspaceSnapshot, restoreWorkspaceSnapshot } from "../../src/core/workspace-snapshot";
+import { openWorkspaceControlDb, workspaceControlPaths } from "../../src/core/workspace-control";
+import { activateWorkspaceUser, grantCompanyMembership } from "../../src/core/workspace-access";
+import { openDb } from "../../src/core/db";
+import { verifyAuditChain } from "../../src/core/ledger";
+import { companyRootForSlug } from "../../src/core/workspace";
+import { makeWorkspace } from "./server-api/_shared";
+
+function tempPath(label: string) { return join(mkdtempSync(join(tmpdir(), `${label}-`)), "artifact.tar"); }
+
+function addOwner(workspace: string) {
+  const db = openWorkspaceControlDb(workspace);
+  const createdAt = "2026-08-23T10:00:00.000Z";
+  db.query(`INSERT INTO "user"
+    (id,name,email,emailVerified,createdAt,updatedAt,twoFactorEnabled)
+    VALUES ('owner','Snapshot Owner','owner@example.test',1,?,?,1)`).run(createdAt, createdAt);
+  db.query(`INSERT INTO "account"
+    (id,accountId,providerId,issuer,userId,password,createdAt,updatedAt)
+    VALUES ('credential','owner','credential','credential','owner','private-password-hash',?,?)`).run(createdAt, createdAt);
+  db.query(`INSERT INTO "session"
+    (id,expiresAt,token,createdAt,updatedAt,userId)
+    VALUES ('private-session',?,'private-session-token',?,?,'owner')`).run(
+    "2026-08-24T10:00:00.000Z", createdAt, createdAt,
+  );
+  activateWorkspaceUser(db, {
+    userId: "owner", workspaceRole: "workspace_owner",
+    createdBy: "agent:test", createdByProgram: "unit-test",
+  });
+  for (const companySlug of ["alpha-company", "beta-company"]) {
+    grantCompanyMembership(db, workspace, {
+      userId: "owner", companySlug, role: "owner",
+      createdBy: "agent:test", createdByProgram: "unit-test",
+    });
+  }
+  db.close();
+}
+
+describe("credential-free workspace snapshot and restore", () => {
+  test("restores every ledger and a safe access plan without credentials", () => {
+    const workspace = makeWorkspace("workspace-snapshot", ["Alpha Company", "Beta Company"]);
+    const outPath = tempPath("workspace-snapshot-out");
+    const target = join(mkdtempSync(join(tmpdir(), "workspace-snapshot-target-parent-")), "restored");
+    try {
+      addOwner(workspace);
+      for (const slug of ["alpha-company", "beta-company"]) {
+        const config = companyPaths(companyRootForSlug(workspace, slug)).config;
+        writeFileSync(join(config, "digisense.json"), '{"apiLicenseKey":"private-digisense-key"}', { mode: 0o600 });
+        writeFileSync(join(config, "imap.json"), '{"password":"private-imap-password"}', { mode: 0o600 });
+        writeFileSync(join(config, "smtp.json"), '{"password":"private-smtp-password"}', { mode: 0o600 });
+      }
+      const created = createWorkspaceSnapshot(workspace, {
+        outPath,
+        createdAt: "2026-08-23T11:00:00.000Z",
+        createdBy: "agent:test",
+        createdByProgram: "unit-test",
+      });
+      expect(created).toMatchObject({ ok: true, companyCount: 2, accessIdentityCount: 1 });
+      const archive = readFileSync(outPath);
+      for (const credential of [
+        "private-password-hash", "private-session-token", "private-digisense-key",
+        "private-imap-password", "private-smtp-password",
+      ]) expect(archive.includes(Buffer.from(credential))).toBe(false);
+
+      const restored = restoreWorkspaceSnapshot({ snapshotPath: outPath, targetWorkspaceRoot: target });
+      expect(restored).toMatchObject({
+        ok: true, companyCount: 2, nextStep: "bootstrap-owner-then-reinvite",
+      });
+      expect(existsSync(workspaceControlPaths(target).db)).toBe(false);
+      const planPath = join(target, ".rentemester", "restored-access-plan.json");
+      expect(statSync(planPath).mode & 0o777).toBe(0o600);
+      expect(JSON.parse(readFileSync(planPath, "utf8"))).toMatchObject({
+        version: 1,
+        recovery: "bootstrap-owner-then-reinvite",
+        users: [{
+          name: "Snapshot Owner", email: "owner@example.test", workspaceRole: "workspace_owner",
+          memberships: [
+            { companySlug: "alpha-company", role: "owner" },
+            { companySlug: "beta-company", role: "owner" },
+          ],
+        }],
+      });
+      for (const slug of ["alpha-company", "beta-company"]) {
+        const root = companyRootForSlug(target, slug);
+        for (const secretFile of ["digisense.json", "imap.json", "smtp.json"]) {
+          expect(existsSync(join(companyPaths(root).config, secretFile))).toBe(false);
+        }
+        const db = openDb(companyPaths(root).db);
+        expect(verifyAuditChain(db).ok).toBe(true);
+        db.close();
+      }
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(dirname(outPath), { recursive: true, force: true });
+      rmSync(dirname(target), { recursive: true, force: true });
+    }
+  });
+
+  test("rejects tampering before publishing a target workspace", () => {
+    const workspace = makeWorkspace("workspace-snapshot-tamper", ["Alpha Company"]);
+    const outPath = tempPath("workspace-snapshot-tamper-out");
+    const tamperedPath = tempPath("workspace-snapshot-tampered");
+    const target = join(mkdtempSync(join(tmpdir(), "workspace-snapshot-tamper-target-")), "restored");
+    try {
+      const created = createWorkspaceSnapshot(workspace, {
+        outPath, createdAt: "2026-08-23T12:00:00.000Z",
+        createdBy: "agent:test", createdByProgram: "unit-test",
+      });
+      expect(created.ok).toBe(true);
+      const entries = readTar(readFileSync(outPath)).map((entry) => entry.path === "access-plan.json"
+        ? { ...entry, content: Buffer.from('{"tampered":true}\n') }
+        : entry);
+      writeFileSync(tamperedPath, createTar(entries));
+      const restored = restoreWorkspaceSnapshot({ snapshotPath: tamperedPath, targetWorkspaceRoot: target });
+      expect(restored.ok).toBe(false);
+      expect(restored.errors.join(" ")).toContain("checksum mismatch");
+      expect(existsSync(target)).toBe(false);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(dirname(outPath), { recursive: true, force: true });
+      rmSync(dirname(tamperedPath), { recursive: true, force: true });
+      rmSync(dirname(target), { recursive: true, force: true });
+    }
+  });
+});

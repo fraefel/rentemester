@@ -198,7 +198,9 @@ export function updateBankAccount(db: Database, input: UpdateBankAccountInput) {
   if (!existing) return { ok: false as const, account: undefined, errors: [`bank account '${input.idOrSlug}' does not exist`] };
   const nextCurrency = input.currency === undefined ? existing.currency : normalizeCurrency(input.currency);
   if (nextCurrency.length !== 3) return { ok: false as const, account: undefined, errors: ["currency must be a 3-letter ISO currency code"] };
-  const nextLedger = input.ledgerAccountNo === undefined ? existing.ledgerAccountNo : nullableTrim(input.ledgerAccountNo);
+  const nextLedger: string | null = input.ledgerAccountNo === undefined
+    ? existing.ledgerAccountNo ?? null
+    : nullableTrim(input.ledgerAccountNo) ?? null;
   const ledgerError = validateBankLedgerAccount(db, nextLedger);
   if (ledgerError) return { ok: false as const, account: undefined, errors: [ledgerError] };
   const used = (db.query("SELECT COUNT(*) AS n FROM bank_transactions WHERE bank_account_id = ?").get(existing.id) as { n: number }).n;
@@ -427,7 +429,9 @@ function parseCsv(content: string): CsvParseResult {
       continue;
     }
     const row: Record<string, string> = {};
-    header.forEach((key, idx) => row[key] = parsed.values[idx] ?? "");
+    header.forEach((key, idx) => {
+      row[key] = parsed.values[idx] ?? "";
+    });
     rows.push(row);
   }
   return { rows, errors };

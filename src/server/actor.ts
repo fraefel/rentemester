@@ -8,10 +8,10 @@
 // append-only `audit_log` row can be traced back to "a human acting in the
 // Cockpit".
 //
-// Phase 1 is deliberately a *fixed* web actor: there is no per-user identity
-// yet (Better Auth is Phase 2), and every Cockpit write is performed by the
-// same localhost-trusted operator. When Phase 2 lands, the real user id flows
-// through `Principal.id` and this mapper starts honouring it.
+// Local/shared-secret operation remains a fixed web actor. A hosted Better
+// Auth principal is different: its canonical `user:<opaque-id>` must flow
+// unchanged to the core, otherwise append-only audit evidence loses who made
+// the mutation.
 //
 // IMPORTANT: like the MCP actor, the resolved actor is passed to core as an
 // EXPLICIT payload parameter (`createdBy` / `createdByProgram`) — never via a
@@ -19,6 +19,7 @@
 
 import type { ActorContext } from "../core/actor";
 import type { Principal } from "./auth";
+import { ApiError } from "./errors";
 
 /** The fixed Phase-1 Cockpit actor id. */
 export const COCKPIT_ACTOR_ID = "system:cockpit";
@@ -28,12 +29,21 @@ export const COCKPIT_ACTOR_PROGRAM = "rentemester-cockpit";
 /**
  * Maps an authenticated `Principal` to a core `ActorContext`.
  *
- * Phase 1: the principal is always the synthetic localhost/cockpit identity,
- * so the actor is the fixed web actor regardless of `principal`. The argument
- * is taken now so the Phase-2 swap — honouring a real `user:<id>` principal —
- * is a change to this function body only, never a change to its callers.
+ * Hosted Better Auth identities are accepted only in the canonical opaque-id
+ * shape emitted by `authMiddleware`. Do not turn arbitrary `agent:` or
+ * `system:` strings into a trusted web actor if a provider seam is malformed.
  */
-export function resolveCockpitActor(_principal: Principal): ActorContext {
+export function resolveCockpitActor(principal: Principal): ActorContext {
+  if (principal.via === "better-auth") {
+    if (!isCanonicalBetterAuthActorId(principal.id)) {
+      throw ApiError.unauthorized("missing or invalid credentials");
+    }
+    return {
+      createdBy: principal.id,
+      createdByProgram: COCKPIT_ACTOR_PROGRAM,
+      auditActor: `${principal.id} via ${COCKPIT_ACTOR_PROGRAM}`,
+    };
+  }
   return {
     createdBy: COCKPIT_ACTOR_ID,
     createdByProgram: COCKPIT_ACTOR_PROGRAM,
@@ -41,14 +51,20 @@ export function resolveCockpitActor(_principal: Principal): ActorContext {
   };
 }
 
+/** Better Auth's default opaque IDs are URL-safe tokens, never actor syntax. */
+function isCanonicalBetterAuthActorId(value: string): boolean {
+  return /^user:[A-Za-z0-9_-]{1,191}$/.test(value);
+}
+
 /**
  * Folds the resolved actor into a core payload as explicit `createdBy` /
  * `createdByProgram` fields, without overwriting any value the caller set.
  * Mirrors `withActor` in `src/mcp/actor.ts`.
  */
-export function withCockpitActor<
-  T extends { createdBy?: string; createdByProgram?: string },
->(payload: T, actor: ActorContext): T {
+export function withCockpitActor<T extends object>(
+  payload: T & { createdBy?: string; createdByProgram?: string },
+  actor: ActorContext,
+): T & { createdBy: string; createdByProgram: string } {
   return {
     ...payload,
     createdBy: payload.createdBy ?? actor.createdBy,

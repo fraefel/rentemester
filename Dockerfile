@@ -30,6 +30,7 @@ ARG RENTEMESTER_BUILT_AT
 WORKDIR /prepared
 COPY package.json bun.lock tsconfig.json ./
 COPY src ./src
+COPY examples ./examples
 COPY rules ./rules
 COPY sources ./sources
 COPY docs ./docs

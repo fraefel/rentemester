@@ -203,6 +203,8 @@ jobs:
                 test "$(id -u)" = 1000
                 test "$(bun --version)" = "$EXPECTED_BUN_VERSION"
                 bun run src/cli.ts --version | grep -F "rentemester $EXPECTED_VERSION commit $EXPECTED_COMMIT"
+                bun run src/cli.ts documents ingest --example >/tmp/documents-example.json
+                bun -e '\''const metadata=await Bun.file("/tmp/documents-example.json").json(); if(metadata.source!=="email"||metadata.currency!=="DKK"||typeof metadata.amountIncVat!=="number") throw new Error("documents ingest example invalid")'\''
                 bun run src/cli.ts serve --workspace /workspace --host 0.0.0.0 --port 4319 >/tmp/server.log 2>&1 &
                 server_pid=$!
                 trap "kill $server_pid 2>/dev/null || true" EXIT

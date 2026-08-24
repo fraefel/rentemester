@@ -1,8 +1,11 @@
 // Tests: src/cli-meta.ts, src/cli.ts (CLI help formatting)
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { COMMAND_SPECS } from "../../src/cli-meta";
+
+const root = join(import.meta.dir, "..", "..");
 
 describe("CLI help, examples, and human formatting", () => {
   test("prints per-command help for invoice issue", async () => {
@@ -37,6 +40,40 @@ describe("CLI help, examples, and human formatting", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.invoiceType).toBe("full");
     expect(parsed.currency).toBe("DKK");
+  });
+
+  test("every registered example is included in the packaged examples directory", () => {
+    const registeredExamples = COMMAND_SPECS.filter((spec) => spec.examplePath);
+    const outsidePackagedDirectory = registeredExamples
+      .filter((spec) => !spec.examplePath!.startsWith("examples/"))
+      .map((spec) => `${spec.key}: ${spec.examplePath}`);
+    const missing = registeredExamples
+      .filter((spec) => spec.examplePath)
+      .filter((spec) => !existsSync(join(root, spec.examplePath!)))
+      .map((spec) => `${spec.key}: ${spec.examplePath}`);
+    expect(outsidePackagedDirectory).toEqual([]);
+    expect(missing).toEqual([]);
+  });
+
+  test("documents ingest --example works outside the application directory", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rentemester-example-cwd-"));
+    try {
+      const proc = Bun.spawn(
+        ["bun", "run", join(root, "src", "cli.ts"), "documents", "ingest", "--example"],
+        { cwd, stdout: "pipe", stderr: "pipe" },
+      );
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      const metadata = JSON.parse(stdout);
+      expect(metadata.source).toBe("email");
+      expect(metadata.currency).toBe("DKK");
+      expect(typeof metadata.amountIncVat).toBe("number");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   test("suggests the right flag name for command-local typos", async () => {

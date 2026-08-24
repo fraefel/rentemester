@@ -24,6 +24,10 @@ const registryStatus = readFileSync(
   join(root, "scripts", "release", "registry-manifest-status.ts"),
   "utf8",
 );
+const containerTest = readFileSync(
+  join(root, "scripts", "release", "test-local-container.ts"),
+  "utf8",
+);
 
 describe("release workflow security contract", () => {
   test("pins every privileged third-party action to a full commit", () => {
@@ -144,6 +148,8 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain("EXPECTED_BASE_IMAGE_DIGEST");
     expect(candidate).toContain('org.opencontainers.image.base.digest');
     expect(candidate).toContain('test "$(bun --version)" = "$EXPECTED_BUN_VERSION"');
+    expect(candidate).toContain("documents ingest --example");
+    expect(candidate).toContain("documents ingest example invalid");
     expect(candidate).toContain("SPDX SBOM");
     expect(candidate).toContain("Extract digest-bound SPDX SBOM evidence");
     expect(candidate).toContain("sbom.spdx.json.sha256");
@@ -209,9 +215,15 @@ describe("container release inputs", () => {
     expect(dockerfile).toContain("RENTEMESTER_BUN_VERSION");
     expect(dockerfile).toContain("RENTEMESTER_BASE_IMAGE_DIGEST");
     expect(dockerfile).toContain("RENTEMESTER_APP_AUTH=required");
+    expect(dockerfile).toContain("COPY examples ./examples");
     expect(dockerfile).toContain("process.env.RENTEMESTER_APP_TOKEN");
     expect(dockerfile).toContain("Authorization:`Bearer ${token}`");
     expect(dockerfile).not.toContain(":latest");
+  });
+
+  test("smokes registered CLI examples from the built container", () => {
+    expect(containerTest).toContain('"documents", "ingest", "--example"');
+    expect(containerTest).toContain("documents ingest --example must emit valid metadata JSON");
   });
 
   test("keeps Docker's actual Bun base digest aligned with release runtime identity", () => {

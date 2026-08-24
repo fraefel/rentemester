@@ -63,6 +63,14 @@ try {
     "--build-arg", `SOURCE_DATE_EPOCH=${identity.sourceDateEpoch}`,
     ".",
   ]);
+  const documentExample = JSON.parse(
+    run(["docker", "run", "--rm", "--read-only", image, "documents", "ingest", "--example"]).stdout,
+  );
+  if (
+    documentExample?.source !== "email" ||
+    documentExample?.currency !== "DKK" ||
+    typeof documentExample?.amountIncVat !== "number"
+  ) throw new Error("documents ingest --example must emit valid metadata JSON");
   run(["docker", "volume", "create", volume]);
 
   run([
@@ -113,7 +121,7 @@ try {
     companiesBody?.companies?.length !== 1 ||
     companiesBody.companies[0]?.slug !== "container-example-aps"
   ) throw new Error(JSON.stringify(companiesBody));
-  console.log("container integration passed: fresh-volume readiness, API create, default command, persisted restart, non-root");
+  console.log("container integration passed: CLI example, fresh-volume readiness, API create, default command, persisted restart, non-root");
 } finally {
   run(["docker", "rm", "--force", first], { allowFailure: true });
   run(["docker", "rm", "--force", second], { allowFailure: true });

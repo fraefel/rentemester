@@ -229,7 +229,8 @@ if (flagErrors.length > 0) fatal(flagErrors.join("\n"));
 if (parsedArgs.flags.has("--example")) {
   if (!commandSpec?.examplePath)
     fatal(`No example is registered for ${cmd}${sub ? ` ${sub}` : ""}`);
-  process.stdout.write(readFileSync(commandSpec.examplePath, "utf8"));
+  const examplePath = resolve(import.meta.dir, "..", commandSpec.examplePath);
+  process.stdout.write(readFileSync(examplePath, "utf8"));
   process.exit(0);
 }
 

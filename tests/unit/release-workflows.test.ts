@@ -127,6 +127,10 @@ describe("release workflow security contract", () => {
     expect(candidate).not.toContain("serve --workspace /workspace --host 127.0.0.1");
     expect(candidate).toContain("cockpit asset missing");
     expect(candidate).toContain("fetch(new URL(asset,base))");
+    expect(candidate).toContain("name: Render the published local-container cockpit");
+    expect(candidate).toContain("--dump-dom \"$base_url/\"");
+    expect(candidate).toContain("Opret første virksomhed");
+    expect(candidate).toContain("local-container cockpit was rejected by the UI security-profile gate");
     expect(candidate).toContain("sbom: true");
     expect(candidate).toContain("outputs: type=registry,rewrite-timestamp=true");
     expect(candidate).not.toMatch(/^\s+push:\s+true\s*$/m);

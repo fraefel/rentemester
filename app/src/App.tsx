@@ -80,7 +80,10 @@ export function App() {
   if (health.loading) return <div className="state-msg">Starter Rentemester…</div>;
   // This gate deliberately has no fallback. A reverse proxy error or an old
   // server must not accidentally expose a local/trusted cockpit in production.
-  if (health.error || (profile !== "local" && profile !== "hosted")) {
+  if (
+    health.error ||
+    (profile !== "local" && profile !== "local-container" && profile !== "hosted")
+  ) {
     return <div className="state-msg" role="alert">Kunne ikke bekræfte Rentemesters sikkerhedsprofil. Prøv igen senere.</div>;
   }
   return <AuthProvider hosted={profile === "hosted"}><AuthGate /></AuthProvider>;

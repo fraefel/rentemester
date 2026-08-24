@@ -33,6 +33,9 @@ følger [Semantic Versioning](https://semver.org/).
   domænetests.
 - Produktet kan køre både som enkelt lokalt workspace og som hosted løsning
   med flere virksomheder og flere ejere.
+- Cockpittet accepterer den dokumenterede `local-container`-profil som lokal
+  drift uden Better Auth; release-gaten renderer nu den publicerede profil i
+  en rigtig headless browser.
 
 ### Security
 

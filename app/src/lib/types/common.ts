@@ -32,7 +32,7 @@ export type HealthResponse = {
   };
   workspace: string;
   authRequired: boolean;
-  deploymentProfile?: "local" | "hosted";
+  deploymentProfile?: "local" | "local-container" | "hosted";
 };
 
 /**

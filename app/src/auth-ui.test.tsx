@@ -29,6 +29,7 @@ vi.mock("./lib/auth-client", () => ({
 
 import { App } from "./App";
 import { request } from "./lib/api/_shared";
+import { mockFetch } from "./test/fixtures";
 
 function hostedFetch(extra: Record<string, unknown> = {}) {
   stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -297,6 +298,35 @@ describe("hosted cockpit auth shell", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Kunne ikke bekræfte");
     expect(authMocks.getSession).not.toHaveBeenCalled();
     expect(screen.queryByText("Portefølje")).not.toBeInTheDocument();
+  });
+
+  test("local-container opens the local cockpit without hosted auth", async () => {
+    mockFetch({
+      "GET /api/health": {
+        service: "rentemester-cockpit",
+        workspace: "/workspace",
+        authRequired: false,
+        deploymentProfile: "local-container",
+        build: {},
+        provenance: {},
+        routes: [],
+      },
+      "GET /api/portfolio": {
+        portfolio: {
+          workspace: "/workspace",
+          asOf: "2026-08-24",
+          companyCount: 0,
+          rollup: { resultat: 0, liquidity: 0, vatPayable: 0, openTaskCount: 0 },
+          totals: {},
+          companies: [],
+        },
+      },
+    });
+    renderApp();
+    expect(await screen.findByRole("form", { name: /Opret virksomhed/i })).toBeInTheDocument();
+    expect(authMocks.getSession).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Log ind" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Kunne ikke bekræfte/)).not.toBeInTheDocument();
   });
 
   test("failed health never starts auth or cockpit", async () => {

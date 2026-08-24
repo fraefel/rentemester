@@ -126,6 +126,7 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain("serve --workspace /workspace --host 0.0.0.0 --port 4319");
     expect(candidate).not.toContain("serve --workspace /workspace --host 127.0.0.1");
     expect(candidate).toContain("cockpit asset missing");
+    expect(candidate).toContain("fetch(new URL(asset,base))");
     expect(candidate).toContain("sbom: true");
     expect(candidate).toContain("outputs: type=registry,rewrite-timestamp=true");
     expect(candidate).not.toMatch(/^\s+push:\s+true\s*$/m);

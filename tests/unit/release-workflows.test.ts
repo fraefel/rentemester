@@ -122,6 +122,9 @@ describe("release workflow security contract", () => {
     expect(attestation).toBeGreaterThan(containerSmoke);
     expect(candidate).toContain('image="$REGISTRY_IMAGE@$IMAGE_DIGEST"');
     expect(candidate).toContain('test "$(id -u)" = 1000');
+    expect(candidate).toContain("/workspace:rw,nosuid,size=64m,uid=1000,gid=1000");
+    expect(candidate).toContain("serve --workspace /workspace --host 0.0.0.0 --port 4319");
+    expect(candidate).not.toContain("serve --workspace /workspace --host 127.0.0.1");
     expect(candidate).toContain("cockpit asset missing");
     expect(candidate).toContain("sbom: true");
     expect(candidate).toContain("outputs: type=registry,rewrite-timestamp=true");

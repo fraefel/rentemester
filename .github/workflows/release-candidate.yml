@@ -190,8 +190,8 @@ jobs:
             | grep -Fx "$EXPECTED_BUN_VERSION"
           docker run --rm --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-            --tmpfs /workspace:rw,nosuid,size=64m \
-            --tmpfs /import:rw,nosuid,size=64m \
+            --tmpfs /workspace:rw,nosuid,size=64m,uid=1000,gid=1000 \
+            --tmpfs /import:rw,nosuid,size=64m,uid=1000,gid=1000 \
             -e RENTEMESTER_APP_AUTH=off \
             -e EXPECTED_VERSION \
             -e EXPECTED_COMMIT \
@@ -203,7 +203,7 @@ jobs:
                 test "$(id -u)" = 1000
                 test "$(bun --version)" = "$EXPECTED_BUN_VERSION"
                 bun run src/cli.ts --version | grep -F "rentemester $EXPECTED_VERSION commit $EXPECTED_COMMIT"
-                bun run src/cli.ts serve --workspace /workspace --host 127.0.0.1 --port 4319 >/tmp/server.log 2>&1 &
+                bun run src/cli.ts serve --workspace /workspace --host 0.0.0.0 --port 4319 >/tmp/server.log 2>&1 &
                 server_pid=$!
                 trap "kill $server_pid 2>/dev/null || true" EXIT
                 bun -e '\''let health; for(let i=0;i<100;i++){try{const response=await fetch("http://127.0.0.1:4319/api/health"); if(response.ok){health=await response.json(); break}}catch{} await Bun.sleep(100)} if(!health) throw new Error("server did not become healthy"); if(health.build.version!==process.env.EXPECTED_VERSION||health.build.gitCommit!==process.env.EXPECTED_COMMIT||health.build.bunVersion!==process.env.EXPECTED_BUN_VERSION||health.build.baseImageDigest!==process.env.EXPECTED_BASE_IMAGE_DIGEST) throw new Error("wrong build identity"); const html=await fetch("http://127.0.0.1:4319/").then(r=>{if(!r.ok) throw new Error(`cockpit index ${r.status}`); return r.text()}); const asset=/src="([^"]+\.js)"/.exec(html)?.[1]; if(!asset) throw new Error("cockpit asset missing"); const js=await fetch(`http://127.0.0.1:4319${asset}`).then(r=>r.text()); if(!js.includes(process.env.EXPECTED_VERSION)) throw new Error("cockpit version missing")'\'''

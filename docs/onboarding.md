@@ -31,20 +31,17 @@ command -v rentemester-mcp
 en stdio-server og må derfor ikke bruges som en interaktiv `--help`-kommando;
 dens ende-til-ende-kontrol er MCP-smoken nedenfor.
 
-De mindste grønne gates for en udviklerclone er:
+Den samlede grønne gate før push eller release candidate er:
 
 ```bash
-bun test
-bun run cockpit:test
-bun run cockpit:build
-bun run smoke
-bun run smoke-mcp
+bun run verify:local
 ```
 
-Root-testene dækker den delte kerne, cockpit-test/build dækker UI'en, `smoke`
-går CLI-flowet igennem, og `smoke-mcp` opretter en midlertidig virksomhed,
-gennemfører MCP-handshake, confirm-gating, fakturalivscyklus og audit-kontrol.
-Ingen af dem bruger produktionsdata.
+Kommandoen bruger Buns parallelle test-workers på alle lokale CPU-kerner til
+root- og cockpittests og kører derefter build, smoke, MCP-smoke samt
+containerens readiness- og reproducerbarhedskontrol. Ingen af kontrollerne
+bruger produktionsdata. GitHub ejer ikke den fulde testsuite; push-CI laver
+hurtige kildekontroller og bygger/verificerer Linux-imaget.
 
 ## 2. Produktionsoperatørinstallation
 

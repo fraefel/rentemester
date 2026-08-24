@@ -51,11 +51,11 @@ rollbackstrategi.
 
 ## Versions- og image-tags
 
-- Kandidat: `candidate-v0.1.0-<commit>-<workflow-run>-<attempt>`.
-- Godkendt image: `ghcr.io/mikkelkrogsholm/rentemester:v0.1.0`.
+- Kandidat: `candidate-v0.2.0-<commit>-<workflow-run>-<attempt>`.
+- Godkendt image: `ghcr.io/mikkelkrogsholm/rentemester:v0.2.0`.
 - Uforanderlig driftsreference:
   `ghcr.io/mikkelkrogsholm/rentemester@sha256:<digest>`.
-- Git/GitHub release-tag: `v0.1.0`.
+- Git/GitHub release-tag: `v0.2.0`.
 
 Kandidatworkflowet giver hvert run sit eget tag og afviser genbrug af det i
 workflowet. GHCR håndhæver ikke tag-immutabilitet over for alle fremtidige

@@ -12,9 +12,11 @@ concurrency:
 
 jobs:
   smoke:
+    # Keep the required `smoke` context stable. Its contract is now the actual
+    # image build/readiness/reproducibility gate, not a duplicate source suite.
     name: smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -25,34 +27,8 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Build and verify the local container profile
+        run: bun run container:test
 
-      - name: Run smoke (timed)
-        id: smoke
-        run: |
-          set -o pipefail
-          start=$(date +%s)
-          bun run smoke 2>&1 | tee /tmp/smoke.log
-          status=${PIPESTATUS[0]}
-          end=$(date +%s)
-          duration=$(( end - start ))
-          echo "duration_seconds=${duration}" >> "$GITHUB_OUTPUT"
-          echo "Smoke wall-clock: ${duration}s"
-          exit "$status"
-
-      - name: Report wall-clock duration
-        if: always()
-        run: |
-          duration="${{ steps.smoke.outputs.duration_seconds }}"
-          if [ -z "$duration" ]; then
-            duration="unknown"
-          fi
-          {
-            echo "## Smoke wall-clock"
-            echo ""
-            echo "Duration: **${duration}s**"
-            echo ""
-            echo "_Budget tracking for issue #88._"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice title=Smoke wall-clock::${duration}s"
+      - name: Verify two clean builds are byte-identical by OCI content identity
+        run: bun run container:reproducibility

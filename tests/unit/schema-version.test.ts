@@ -111,7 +111,7 @@ describe("schema version compatibility", () => {
         id: BASELINE_SCHEMA_VERSION,
         name: BASELINE_MIGRATION_NAME,
         checksum: BASELINE_MIGRATION_CHECKSUM,
-        applied_by_version: "0.1.0",
+        applied_by_version: "0.2.0",
       }),
       expect.objectContaining({ id: 2, name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME, checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM }),

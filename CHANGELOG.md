@@ -10,6 +10,36 @@ følger [Semantic Versioning](https://semver.org/).
 
 - Plads til ændringer, der endnu ikke indgår i en godkendt release.
 
+## [0.2.0] - 2026-08-24
+
+### Added
+
+- Hosted login med Better Auth, TOTP-MFA, recovery codes, sessionslukning og
+  server-side adgangskontrol på tværs af virksomheder.
+- Roller, invitationer, virksomhedsskifter og revisionsspor for handlinger i
+  webinterfacet.
+- Kontrollerede bogføringskladder, review, dokumenthåndtering, snapshots og
+  generiske health-, readiness- og restore-kontroller.
+- Koncernstruktur, mellemregning, elimineringer og read-only konsolidering,
+  mens hver juridisk enhed beholder sin egen ledger.
+- Bun 1.4-native cockpit-build og et reproducerbart, non-root OCI-image med
+  release-evidens, SBOM og attestering.
+
+### Changed
+
+- Den fulde backend- og cockpittestkæde køres lokalt og parallelt via
+  `bun run verify:local`; GitHub verificerer build, containerkontrakt og
+  reproducerbarhed og publicerer kandidat-imaget uden at gentage tusindvis af
+  domænetests.
+- Produktet kan køre både som enkelt lokalt workspace og som hosted løsning
+  med flere virksomheder og flere ejere.
+
+### Security
+
+- Tilføjet fail-closed virksomhedsskel, rolle- og MFA-kontroller, sikre
+  cookies, CSRF-beskyttelse, login-rate-limit og private dokumentdownloads.
+- Dependency-, licens- og containerkontroller indgår i release-gaten.
+
 ## [0.1.0] - 2026-07-19
 
 ### Added
@@ -29,5 +59,6 @@ følger [Semantic Versioning](https://semver.org/).
 - Docker Compose-eksemplet kræver et eksplicit digest-pinnet image og bruger
   aldrig `latest`.
 
-[Unreleased]: https://github.com/mikkelkrogsholm/rentemester/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mikkelkrogsholm/rentemester/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mikkelkrogsholm/rentemester/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mikkelkrogsholm/rentemester/releases/tag/v0.1.0

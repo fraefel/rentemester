@@ -21,8 +21,8 @@ betragtes som en Digisense-godkendelse.
 1. Vælg næste SemVer efter `docs/versioning.md`.
 2. Opdatér `package.json` og `app/package.json` til samme version.
 3. Flyt punkter fra `[Unreleased]` til en dateret sektion i `CHANGELOG.md`.
-4. Kør `bun run version:check`, `bun run typecheck:runtime`, alle tests, smoke
-   og builds.
+4. Kør `bun run version:check` og derefter `bun run verify:local`. Gem den
+   afsluttende testopsummering sammen med releasearbejdet.
 5. Merge ændringen til `main`. Opret ikke Git-tag manuelt.
 
 ## 2. Byg release candidate
@@ -35,8 +35,10 @@ Workflowet:
 
 - validerer version/commit og bruger commit-tidspunktet som reproducerbar
   buildtid;
-- kører strict runtime-typecheck, root-tests, smoke og cockpit-test/build; `www` har sit eget uafhængige
-  workflow og kan hverken blokere eller ændre produktimaget;
+- kører de hurtige kilde-, dependency- og buildkontroller, men gentager ikke
+  de lokalt beståede backend- og cockpittests;
+- bygger cockpittet; `www` har sit eget uafhængige workflow og kan hverken
+  blokere eller ændre produktimaget;
 - bygger to rene, timestamp-normaliserede OCI-exports og kræver identisk
   manifestdigest og arkiv-SHA-256;
 - kører containeren non-root mod en ny persistent volume, kræver grøn
@@ -47,6 +49,13 @@ Workflowet:
   kandidatens immutable digest;
 - udtrækker den samme SBOM til `sbom.spdx.json`, uploader den med egen SHA-256
   og binder checksummen ind i release-manifestet sammen med approval-schemaet.
+
+Den fulde testsuite er en lokal releasegate, fordi den stærke udviklingsmaskine
+kører den parallelt med Bun. Kandidatworkflowets ansvar er at bevise, at den
+præcise commit kan bygges reproducerbart til et startbart Linux/AMD64-image og
+at publicere netop dette image med attestering og evidens. Workflowet må derfor
+ikke få `bun test`, `cockpit:test` eller den fulde kilde-smoke tilbage som en
+skjult dobbeltkørsel.
 
 Manifestet binder version, commit, OCI-digest, schema-checksum og regelsæt-digest
 sammen med GitHub run-id og run-attempt. Digisense skal hente

@@ -14,6 +14,12 @@ const promote = readFileSync(
 const www = readFileSync(join(root, ".github", "workflows", "www.yml"), "utf8");
 const testWorkflow = readFileSync(join(root, ".github", "workflows", "test.yml"), "utf8");
 const smokeWorkflow = readFileSync(join(root, ".github", "workflows", "smoke.yml"), "utf8");
+const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+  scripts: Record<string, string>;
+};
+const appPackageJson = JSON.parse(readFileSync(join(root, "app", "package.json"), "utf8")) as {
+  scripts: Record<string, string>;
+};
 const registryStatus = readFileSync(
   join(root, "scripts", "release", "registry-manifest-status.ts"),
   "utf8",
@@ -30,10 +36,18 @@ describe("release workflow security contract", () => {
     }
   });
 
-  test("makes cockpit tests and its production build ordinary merge gates", () => {
-    expect(testWorkflow).toContain("name: Test cockpit");
-    expect(testWorkflow).toContain("run: bun run cockpit:test");
+  test("keeps full suites local while GitHub builds the cockpit", () => {
+    expect(packageJson.scripts["test:parallel"]).toBe("bun test --parallel --timeout=20000 --only-failures");
+    expect(appPackageJson.scripts["test:parallel"]).toBe("bun test --parallel --timeout=20000 --only-failures");
+    expect(packageJson.scripts["verify:local"]).toContain("bun run test:parallel");
+    expect(packageJson.scripts["verify:local"]).toContain("bun run cockpit:test:parallel");
+    expect(testWorkflow).not.toContain("run: bun test\n");
+    expect(testWorkflow).not.toContain("run: bun run cockpit:test");
     expect(testWorkflow).toContain("run: bun run cockpit:build");
+    expect(candidate).not.toContain("run: bun test");
+    expect(candidate).not.toContain("run: bun run cockpit:test");
+    expect(candidate).not.toContain("run: bun run smoke");
+    expect(candidate).toContain("run: bun run cockpit:build");
     expect(testWorkflow.match(/bun install --frozen-lockfile/g)).toHaveLength(3);
   });
 
@@ -70,10 +84,11 @@ describe("release workflow security contract", () => {
     expect(promote).toContain("supply-chain-evidence.json.sha256");
   });
 
-  test("runs the persisted-volume readiness container integration as a merge gate", () => {
-    expect(testWorkflow).toContain("name: container readiness and persisted restart");
-    expect(testWorkflow).toContain("run: bun run container:test");
-    expect(testWorkflow).toContain("run: bun run container:reproducibility");
+  test("uses the required smoke check only for image build and runtime verification", () => {
+    expect(smokeWorkflow).toContain("run: bun run container:test");
+    expect(smokeWorkflow).toContain("run: bun run container:reproducibility");
+    expect(smokeWorkflow).not.toContain("run: bun run smoke");
+    expect(smokeWorkflow).not.toContain("run: bun test");
   });
 
   test("publishes evidence only after the candidate image is attested", () => {

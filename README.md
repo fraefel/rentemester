@@ -215,6 +215,16 @@ arbejder på den samme ledger. `bun run cockpit:build` og
 cockpit-toolchainen. Root og cockpit er ét Bun-workspace med én installation
 og én lockfile.
 
+Den fulde lokale releasekontrol køres på alle maskinens kerner med Bun 1.4:
+
+```bash
+bun run verify:local
+```
+
+Den kører backend- og cockpittests parallelt samt typecheck, lint, audit,
+licenser, builds, smoke og containerverifikation. GitHub genkører ikke de
+tusindvis af tests ved push; det bygger og verificerer i stedet produktimaget.
+
 > Alt cockpittet kan, kan CLI'en også — og omvendt. Samme regler, samme audit-trail, samme append-only historik. Cockpittet er en blødere indgang; CLI'en er en hårdere én.
 
 ### Fastlåst Docker-distribution

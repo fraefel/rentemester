@@ -27,8 +27,8 @@ Every loop starts with one narrow hypothesis and ends with a pushed commit or an
 
 5. **Verify in gates**
    - Run the focused test(s) first.
-   - Then run `bun test`.
-   - Then run `bun run smoke` on fresh `/tmp/rentemester-smoke`.
+   - Then run `bun run test:parallel` on the local multi-core machine.
+   - Before push or a release candidate, run the complete `bun run verify:local` gate.
    - Run `git diff --check` before commit.
 
    **Smoke wall-clock budget**: smoke currently completes in ~2 seconds. To
@@ -117,11 +117,12 @@ Work the queue in this order unless Mikkel explicitly reprioritizes:
 `main` must always be runnable:
 
 ```bash
-bun test
-bun run smoke
+bun run verify:local
 ```
 
-Push to `main` only after both pass. Small docs-only commits can skip smoke only if they do not touch runtime files, but prefer running at least `bun test` when cheap.
+Push product changes to `main` only after the local gate passes. Small docs-only
+commits may use focused checks. GitHub validates source contracts and the
+container build, but deliberately does not repeat the full local suite.
 
 ### Branches
 

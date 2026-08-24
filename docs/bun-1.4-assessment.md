@@ -57,8 +57,8 @@ eller lockfiler:
 | --- | --- |
 | Root-tests, serielt | 2.417 bestået, 0 fejl, 363 filer og 14.624 assertions efter dependency-, lint- og fresh-volume-containeropdateringen |
 | Strikt runtime-typecheck | Bestået for `src/` og `scripts/` |
-| Root-tests, `--parallel` med 16 workers | 2.253 bestået, 1 timeout, ca. 24,3 sekunder |
-| Cockpit-tests | 464 bestået, 0 fejl med `bun test --isolate` |
+| Root-tests, `--parallel=16 --timeout=20000` | 2.417 bestået, 0 fejl, 363 filer og 14.624 assertions på 38,09 sekunder |
+| Cockpit-tests, `--parallel=16 --timeout=20000` | 464 bestået, 0 fejl, 54 filer og 1.118 assertions på 1,87 sekunder |
 | Cockpit produktionsbuild | Bestået |
 | Frozen workspace-install | Accepteret |
 | Lokal container: opret, readiness, persisted restart, non-root | Bestået |
@@ -74,11 +74,11 @@ første selskab gennem HTTP-API'et og genstarter på samme volume. Den kontrolle
 samtidig, at selskabet og de migrerede data stadig er tilgængelige. Begge er
 merge- og release-candidate-gates. Der er fortsat ikke pushed et image.
 
-Den ene parallelle fejl var en timeout på fem sekunder i refund-concurrency-
-testen. Den serielle udgave bestod. Det er evidens for, at parallel kørsel kan
-give en stor CI-forbedring, men endnu ikke bør erstatte den serielle release-
-gate. Først skal testen gøres robust under kontrolleret belastning, og antal
-workers skal vælges eksplicit.
+Den tidligere femsekunders-timeout under parallel belastning er lukket ved at
+give hver test en eksplicit 20-sekunders grænse. Det ændrer ikke assertions eller
+genforsøger fejl. Med 16 workers bestod den komplette suite på 38,09 sekunder.
+`bun run verify:local` bruger `--parallel` uden et fast antal og udnytter derfor
+automatisk alle kerner på den maskine, som udfører releasekontrollen.
 
 Bun 1.4's aktuelle SQLite-kontrakt kræver `db.transaction(fn).immediate()` og
 et samlet bindings-array til dynamiske `db.run`-kald. Koden er migreret til den
@@ -104,15 +104,19 @@ IMAP-relaterede flows og remote-provider-kald uden et API-skifte.
 Det er hovedargumentet for selve runtime-opgraderingen. Eksperimentel HTTP/3
 skal ikke aktiveres som del af ændringen.
 
-### 2. Parallel test og timings
+### 2. Parallel lokal test
 
-`bun test --parallel` kan gøre feedback markant hurtigere. Anbefalet model:
+`bun test --parallel` er nu den autoritative lokale releasegate. Bun fordeler
+isolerede testfiler over alle CPU-kerner, mens `--timeout=20000` giver de tunge
+CLI- og concurrency-filer realistisk headroom uden retries. Root og cockpit har
+hver sin parallelle kommando, og `bun run verify:local` samler dem med build,
+smoke, audit, licenser og containerkontroller.
 
-1. behold `bun test` som autoritativ release-gate;
-2. tilføj en CI-kørsel med et begrænset antal workers, fx 4 eller 8;
-3. gør den fundne timeout belastningsrobust uden at svække assertions;
-4. mål igen og gem eventuelt timings til balanceret fordeling;
-5. overvej først derefter, om parallel kørsel kan blive blocking release-gate.
+GitHub gentager bevidst ikke de tusindvis af tests. Almindelig push-CI udfører
+hurtig typecheck/lint/supply-chain, cockpit-build og den lille Windows-specifikke
+filsystemskontrol. Den krævede smoke-kontekst bygger og verificerer Docker-
+imaget. Kandidatworkflowet bygger, starter, reproducerbarhedsverificerer,
+attesterer og publicerer den præcise commit.
 
 ### 3. `bun audit` og package-governance
 
@@ -279,9 +283,8 @@ grænse: reviewet gælder bestemte bytes, ikke en gren eller et flytbart tag.
 - Bun 1.4.0, `@types/bun`, Docker og relevante workflows er pinned;
 - root og cockpit bruger ét workspace, én frozen installation og én lockfile;
 - den verificerede `oven/bun:1.4.0-slim`-digest er pinned;
-- serial root-test, cockpit-test/build, smoke, backup/restore og
-  release-provenance er gates; published-image smoke kræver en godkendt
-  ekstern kandidat;
+- parallel root- og cockpit-test, smoke, backup/restore og release-provenance
+  er lokale gates; GitHub ejer image-build, readiness og attestering;
 - behold linux/amd64, medmindre en særskilt multi-arch-beslutning træffes.
 
 ### Leverance B — dependency- og CI-sikkerhed
@@ -290,7 +293,7 @@ grænse: reviewet gælder bestemte bytes, ikke en gren eller et flytbart tag.
 - blocking `bun audit` kører for hele workspacet;
 - licensallowlist er blocking i almindelig CI og release-candidate-flowet;
 - audit- og licensrapporten er lockfile-bundet release-evidens;
-- indfør begrænset parallel test og behold serial release-gate;
+- behold den fulde parallelle testgate lokal og GitHub-gaten image-fokuseret;
 - SBOM-attestation er digest-bundet.
 
 ### Leverance C — Bun 1.4-produktgevinster

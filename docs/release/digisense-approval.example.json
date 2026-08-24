@@ -9,6 +9,6 @@
   },
   "releaseManifestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "imageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "gitCommit": "cccccccccccccccccccccccccccccccccccccccc"
 }

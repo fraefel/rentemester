@@ -30,10 +30,10 @@ migration af virkelige data er udført.
 
 Seneste lokale resultat:
 
-- backend: 2.417 tests bestået på Bun 1.4.0, 0 fejl. Den afsluttende kørsel
-  dækkede 363 filer og 14.624 assertions;
-- frontend: 464 tests bestået med `bun:test --isolate`, 0 fejl og 1.118
-  assertions;
+- backend: 2.417 tests bestået lokalt med 16 parallelle Bun-workers på 38,09
+  sekunder, 0 fejl, 363 filer og 14.624 assertions;
+- frontend: 464 tests bestået lokalt med 16 parallelle Bun-workers på 1,87
+  sekunder, 0 fejl, 54 filer og 1.118 assertions;
 - strict runtime-typecheck: bestået;
 - frontend typecheck og produktionsbuild: bestået;
 - containerintegration: en helt tom volume blev readiness-grøn via den faktiske

@@ -44,7 +44,7 @@ Rentemester kører på Bun:
 
 - CLI, HTTP-server og MCP startes med `bun run`;
 - SQLite-adgangen bruger `bun:sqlite`;
-- kernetests køres med `bun test`;
+- kernetests køres lokalt med `bun test --parallel` via `bun run verify:local`;
 - React-cockpittet bygges med Buns native bundler, og komponenttestene kører
   isoleret pr. fil med `bun:test`;
 - produktimaget er baseret på `oven/bun`.

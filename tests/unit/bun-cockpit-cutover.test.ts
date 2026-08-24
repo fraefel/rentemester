@@ -13,6 +13,7 @@ describe("cockpit Bun 1.4 cutover", () => {
       dev: "bun --hot scripts/serve.ts",
       build: "tsc --noEmit && bun run scripts/build.ts",
       test: "bun test --isolate",
+      "test:parallel": "bun test --parallel --timeout=20000 --only-failures",
     });
     for (const name of ["vite", "vitest", "@vitejs/plugin-react"]) {
       expect(packageJson.dependencies?.[name]).toBeUndefined();
@@ -36,6 +37,7 @@ describe("cockpit Bun 1.4 cutover", () => {
     expect(rootPackageJson.scripts).toMatchObject({
       "cockpit:dev": "bun run --filter rentemester-cockpit dev",
       "cockpit:test": "bun run --filter rentemester-cockpit test",
+      "cockpit:test:parallel": "bun run --filter rentemester-cockpit test:parallel",
       "cockpit:build": "bun run --filter rentemester-cockpit build",
     });
 

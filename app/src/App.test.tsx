@@ -34,7 +34,7 @@ describe("App topbar", () => {
     });
     renderApp("/");
     await screen.findByRole("form", { name: /Opret virksomhed/i });
-    expect(screen.getByText("v0.1.0")).toBeInTheDocument();
+    expect(screen.getByText("v0.2.0")).toBeInTheDocument();
     const helpLink = screen.getByRole("link", { name: /^Hjælp$/i });
     expect(helpLink).toBeInTheDocument();
     expect(helpLink.getAttribute("href")).toBe("/help");

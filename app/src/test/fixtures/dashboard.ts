@@ -20,6 +20,9 @@ export function dashboard(over: Partial<CompanyDashboard> = {}): CompanyDashboar
     vat: {
       periodStart: "2026-04-01",
       periodEnd: "2026-06-30",
+      periodLabel: "Q2 2026",
+      deadline: "2026-09-01",
+      periodStatus: "open",
       netVatPayable: 0,
       daysRemaining: 41,
       errors: [],
@@ -77,6 +80,7 @@ export function overview(over: Partial<CompanyOverview> = {}): CompanyOverview {
       payable: 3371,
       deadline: "2026-09-01",
       daysRemaining: 103,
+      periodStatus: "open",
     },
     exceptions: { count: 0, rows: [], groups: [] },
     recentEntries: [],

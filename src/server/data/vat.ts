@@ -48,6 +48,8 @@ export type VatPosition = {
   reportOk: boolean;
   reportErrors: string[];
   reportWarnings: string[];
+  /** Whether the period contains any posted bookkeeping, including zero-VAT activity. */
+  hasBookkeepingActivity: boolean;
 };
 
 /**
@@ -57,9 +59,10 @@ export type VatPosition = {
  */
 export type VatRubrikker = VatRubric;
 
-/** Whether a VAT position carries any booked activity at all. */
+/** Whether the period carries bookkeeping that can require a VAT return. */
 function vatPeriodHasActivity(pos: VatPosition): boolean {
   return (
+    pos.hasBookkeepingActivity ||
     pos.payable !== 0 ||
     pos.outputVat !== 0 ||
     pos.outputVatAdjustment !== 0 ||
@@ -104,6 +107,10 @@ export function vatPositionForPeriod(
     reportOk: report.ok,
     reportErrors: [...report.errors],
     reportWarnings: [...report.warnings],
+    // A VAT return can legitimately be zero. Such a period still needs to be
+    // filed when the company traded, so the attention selector must not rely
+    // solely on non-zero VAT account balances (#555).
+    hasBookkeepingActivity: report.totalJournalEntryCount > 0,
   };
 }
 
@@ -111,13 +118,11 @@ export function vatPositionForPeriod(
  * The VAT period the cockpit surfaces — generalised over the company's VAT
  * cadence (#299).
  *
- * Selection mirrors the historical quarterly logic, period-type-agnostic: for
- * the current calendar year, prefer the period today falls in, falling back to
- * the latest active period when it (and every earlier one) is empty; for a past
- * year, the latest active period, or the year's first period when nothing has
- * activity. A monthly company picks among 12 periods, a quarterly company among
- * 4, a half-yearly company among 2 — but a `quarter` company gets the exact
- * same period the old `selectVatQuarter` did, so nothing observable changes.
+ * For the current calendar year, the earliest period with posted bookkeeping
+ * that has not been reported is the filing obligation needing attention. This
+ * includes legitimate zero-VAT returns (#555). When every active period is
+ * reported, the current accrual period is shown. Monthly, quarterly and
+ * half-yearly companies all follow the same rule.
  *
  * Returns the chosen period's window, its booked VAT position, a Danish label
  * and the statutory filing deadline so callers do not recompute any of it.
@@ -169,11 +174,17 @@ export function selectVatPeriod(
         vatPeriodHasActivity(positions[index]!) &&
         vatPeriodEffectiveStatus(db, window.start, window.end) !== "reported",
     );
-    if (selected < 0) {
-      selected = latestActiveUpTo(currentIndex) ?? currentIndex;
-    }
+    // Every active period has been reported, or the company has no activity
+    // yet. In both cases the current accrual period is the useful fallback;
+    // never move backwards to an already-reported obligation.
+    if (selected < 0) selected = currentIndex;
   } else {
-    selected = latestActiveUpTo(windows.length - 1) ?? 0;
+    selected = windows.findIndex(
+      (window, index) =>
+        vatPeriodHasActivity(positions[index]!) &&
+        vatPeriodEffectiveStatus(db, window.start, window.end) !== "reported",
+    );
+    if (selected < 0) selected = latestActiveUpTo(windows.length - 1) ?? 0;
   }
 
   const window = windows[selected]!;

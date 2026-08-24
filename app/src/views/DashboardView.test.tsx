@@ -56,6 +56,7 @@ describe("DashboardView — Overblik", () => {
     expect(
       within(vat as HTMLElement).getByText(/Q2 2026/),
     ).toBeInTheDocument();
+    expect(within(vat as HTMLElement).getByText(/Åben/)).toBeInTheDocument();
   });
 
   test("lists recent entries when present", async () => {

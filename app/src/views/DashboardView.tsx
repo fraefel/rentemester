@@ -398,13 +398,19 @@ function VatCard({
         ? "Frist i dag"
         : `${days} ${days === 1 ? "dag" : "dage"} tilbage`;
   const tone = days <= 30 ? (days < 0 ? "critical" : "warning") : "ok";
+  const periodStatus =
+    vat.periodStatus === "reported"
+      ? "Indberettet"
+      : vat.periodStatus === "closed"
+        ? "Lukket – klar til indberetning"
+        : "Åben";
   return (
     <StatusCard title="Moms" to={to}>
       <div className="status-figure">
         {formatKroner(vat.payable, currency)}
       </div>
       <p className="muted status-note">
-        Momsperiode {vat.periodLabel} ({vat.periodStart} – {vat.periodEnd}) ·{" "}
+        Momsperiode {vat.periodLabel} ({vat.periodStart} – {vat.periodEnd}) · {periodStatus} ·{" "}
         {vat.payable >= 0 ? "at betale" : "tilgode"}
       </p>
       <p className="muted status-note">

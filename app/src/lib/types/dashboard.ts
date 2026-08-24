@@ -36,10 +36,13 @@ export type CompanyDashboard = {
   unlinkedBank: { count: number };
   exceptions: { count: number; rows: ExceptionRow[] };
   vat: {
-    periodStart: string;
-    periodEnd: string;
+    periodStart: string | null;
+    periodEnd: string | null;
+    periodLabel: string | null;
+    deadline: string | null;
+    periodStatus: "open" | "closed" | "reported" | null;
     netVatPayable: number;
-    daysRemaining: number;
+    daysRemaining: number | null;
     errors: unknown[];
   };
   backup: {
@@ -126,6 +129,8 @@ export type OverviewVat = {
   deadline: string;
   /** Signed countdown from today to the deadline; negative once passed. */
   daysRemaining: number;
+  /** Effective lifecycle state for the exact period shown. */
+  periodStatus: "open" | "closed" | "reported";
 };
 
 export type CompanyOverview = {

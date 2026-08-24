@@ -29,9 +29,9 @@ import {
 } from "../../core/workspace";
 import { discoverWorkspaceCompanies } from "../discovery";
 import { ApiError } from "../errors";
-import { currentFiscalYear, roundKroner, todayIsoDate } from "./shared";
+import { currentFiscalYear, roundKroner } from "./shared";
 import { actualBankBalanceAsOf, bankStatementStatusAsOf } from "./bank";
-import { selectVatPeriod } from "./vat";
+import { selectVatPeriod, vatPeriodEffectiveStatus } from "./vat";
 import { groupExceptions, type ExceptionGroup } from "./exceptions";
 
 // --------------------------------------------------------------------------
@@ -93,6 +93,7 @@ export type CompanySummary = {
 function summariseCompany(
   workspaceRoot: string,
   entry: WorkspaceCompanyEntry,
+  asOfDate: string,
 ): CompanySummary {
   const companyRoot = companyRootForSlug(workspaceRoot, entry.slug);
   const dbPath = companyPaths(companyRoot).db;
@@ -176,11 +177,17 @@ function summariseCompany(
       vatPeriodType === null
         ? null
         : (() => {
-            const vatPeriod = selectVatPeriod(db, yearNum, vatPeriodType);
+            const vatYear = Number(asOfDate.slice(0, 4));
+            const vatPeriod = selectVatPeriod(
+              db,
+              vatYear,
+              vatPeriodType,
+              asOfDate,
+            );
             return {
               payable: vatPeriod.position.payable,
               deadline: vatPeriod.deadline,
-              daysRemaining: daysBetween(todayIsoDate(), vatPeriod.deadline),
+              daysRemaining: daysBetween(asOfDate, vatPeriod.deadline),
             };
           })();
 
@@ -295,7 +302,7 @@ export function buildPortfolioOverview(
     })()
     : discoverWorkspaceCompanies(workspaceRoot);
   const companies = entries.map((entry) =>
-    summariseCompany(workspaceRoot, entry),
+    summariseCompany(workspaceRoot, entry, asOfDate),
   );
   const rollup = companies.reduce(
     (acc, c) => ({
@@ -389,24 +396,39 @@ export function buildCompanyDashboardData(
     // A non-registered company has no VAT period — the `vat` block is emitted
     // with null period bounds and zero figures so the dashboard renderer can
     // branch on it.
-    const { year: vatYear } = currentFiscalYear(db, company);
+    const vatYear = Number(asOfDate.slice(0, 4));
     const vatPeriodTypeForBlock = company.vatPeriodType;
     const vatBlock =
       vatPeriodTypeForBlock === null
         ? {
             periodStart: null as string | null,
             periodEnd: null as string | null,
+            periodLabel: null as string | null,
+            deadline: null as string | null,
+            periodStatus: null as null,
             netVatPayable: 0,
             daysRemaining: null as number | null,
             errors: [] as string[],
           }
         : (() => {
-            const vatSelection = selectVatPeriod(db, vatYear, vatPeriodTypeForBlock);
+            const vatSelection = selectVatPeriod(
+              db,
+              vatYear,
+              vatPeriodTypeForBlock,
+              asOfDate,
+            );
             const period = { start: vatSelection.start, end: vatSelection.end };
             const vatPeriod = buildVatReport(db, period.start, period.end);
             return {
               periodStart: period.start as string | null,
               periodEnd: period.end as string | null,
+              periodLabel: vatSelection.label as string | null,
+              deadline: vatSelection.deadline as string | null,
+              periodStatus: vatPeriodEffectiveStatus(
+                db,
+                period.start,
+                period.end,
+              ),
               netVatPayable: vatPeriod.netVatPayable,
               daysRemaining: daysBetween(asOfDate, vatSelection.deadline) as
                 | number

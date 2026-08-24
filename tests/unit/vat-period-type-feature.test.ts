@@ -14,6 +14,7 @@ import {
   vatPeriodsForYear,
   vatPeriodWindowFor,
   setCompanyVatPeriodType,
+  closeAccountingPeriod,
   reopenAccountingPeriod,
 } from "../../src/core/periods";
 import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
@@ -90,6 +91,38 @@ function postVatSale(ws: string, slug: string, date: string, vatAmount = 250) {
       ],
     });
     if (!res.ok) throw new Error(res.errors.join("; "));
+  } finally {
+    db.close();
+  }
+}
+
+/** Books a valid VAT-exempt sale: company activity with a zero VAT return. */
+function postZeroVatActivity(ws: string, slug: string, date: string) {
+  const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+  try {
+    migrate(db);
+    const document = db.query(
+      `INSERT INTO documents (
+         source, sha256_hash, invoice_no, invoice_date, amount_inc_vat,
+         currency, vat_amount, document_type, retain_until
+       ) VALUES (?, ?, ?, ?, 1000, 'DKK', 0, 'issued_invoice', '2031-12-31')
+       RETURNING id`,
+    ).get(
+      "test-fixture",
+      `zero-vat-${date}`,
+      `ZERO-${date}`,
+      date,
+    ) as { id: number };
+    const result = postJournalEntry(db, {
+      transactionDate: date,
+      text: "Momsfrit salg",
+      documentId: document.id,
+      lines: [
+        { accountNo: "2000", debitAmount: 1000 },
+        { accountNo: "1000", creditAmount: 1000, vatCode: "DK_SALE_EXEMPT" },
+      ],
+    });
+    if (!result.ok) throw new Error(result.errors.join("; "));
   } finally {
     db.close();
   }
@@ -233,6 +266,111 @@ describe("static dashboard — VAT period follows the cadence (#299)", () => {
       const data = buildCompanyDashboardData(ws, slug, "2026-05-17");
       expect(data.vat.periodStart).toBe("2026-01-01");
       expect(data.vat.periodEnd).toBe("2026-03-31");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
+// #555 — filing-due zero-VAT periods must not be skipped at a boundary.
+// --------------------------------------------------------------------------
+describe("dashboard VAT attention period (#555)", () => {
+  for (const scenario of [
+    {
+      cadence: "half-year",
+      activityDate: "2026-03-15",
+      asOf: "2026-08-24",
+      expectedStart: "2026-01-01",
+      expectedEnd: "2026-06-30",
+      expectedDeadline: "2026-09-01",
+    },
+    {
+      cadence: "quarter",
+      activityDate: "2026-05-15",
+      asOf: "2026-08-24",
+      expectedStart: "2026-04-01",
+      expectedEnd: "2026-06-30",
+      expectedDeadline: "2026-09-01",
+    },
+    {
+      cadence: "month",
+      activityDate: "2026-07-15",
+      asOf: "2026-09-10",
+      expectedStart: "2026-07-01",
+      expectedEnd: "2026-07-31",
+      expectedDeadline: "2026-08-25",
+    },
+  ] as const) {
+    test(`${scenario.cadence}: zero-VAT activity keeps the earliest outstanding period visible`, async () => {
+      const { root: ws, slug } = makeWorkspace(
+        `vat-attention-${scenario.cadence}`,
+        scenario.cadence,
+      );
+      try {
+        postZeroVatActivity(ws, slug, scenario.activityDate);
+
+        const dashboard = await call(
+          config(ws),
+          `/api/companies/${slug}/dashboard?asOf=${scenario.asOf}`,
+        );
+        const vat = await call(
+          config(ws),
+          `/api/companies/${slug}/vat?year=2026&asOf=${scenario.asOf}`,
+        );
+        const overview = await call(
+          config(ws),
+          `/api/companies/${slug}/overview?year=2026&asOf=${scenario.asOf}`,
+        );
+
+        for (const block of [
+          dashboard.body.dashboard.vat,
+          vat.body.vat,
+          overview.body.overview.vat,
+        ]) {
+          expect(block.periodStart).toBe(scenario.expectedStart);
+          expect(block.periodEnd).toBe(scenario.expectedEnd);
+          expect(block.deadline).toBe(scenario.expectedDeadline);
+          expect(block.periodStatus).toBe("open");
+        }
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test("a reported first half advances every surface to the current half", async () => {
+    const { root: ws, slug } = makeWorkspace("vat-attention-reported", "half-year");
+    try {
+      postZeroVatActivity(ws, slug, "2026-03-15");
+      const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
+      try {
+        migrate(db);
+        const reported = closeAccountingPeriod(db, {
+          periodStart: "2026-01-01",
+          periodEnd: "2026-06-30",
+          status: "reported",
+          reference: "SKAT-TEST-555",
+          createdBy: "agent:test",
+          createdByProgram: "bun:test",
+        });
+        expect(reported.ok).toBe(true);
+      } finally {
+        db.close();
+      }
+
+      for (const path of [
+        `/api/companies/${slug}/dashboard?asOf=2026-08-24`,
+        `/api/companies/${slug}/vat?year=2026&asOf=2026-08-24`,
+        `/api/companies/${slug}/overview?year=2026&asOf=2026-08-24`,
+      ]) {
+        const response = await call(config(ws), path);
+        const block = response.body.dashboard?.vat ?? response.body.vat ?? response.body.overview?.vat;
+        expect(block.periodStart).toBe("2026-07-01");
+        expect(block.periodEnd).toBe("2026-12-31");
+        expect(block.deadline).toBe("2027-03-01");
+        expect(block.periodStatus).toBe("open");
+      }
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

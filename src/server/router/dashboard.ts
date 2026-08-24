@@ -32,7 +32,8 @@ export function handleCompanyOverview(
   url: URL,
 ): Response {
   const year = resolveYearParam(url.searchParams.get("year"));
-  const data = buildCompanyOverview(config.workspaceRoot, slug, year);
+  const asOf = resolveAsOfDate(url.searchParams.get("asOf"));
+  const data = buildCompanyOverview(config.workspaceRoot, slug, year, asOf);
   return okResponse({ overview: data });
 }
 

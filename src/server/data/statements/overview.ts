@@ -28,7 +28,7 @@ import {
   actualBankBalanceAsOf,
   bankStatementStatusAsOf,
 } from "../bank";
-import { selectVatPeriod } from "../vat";
+import { selectVatPeriod, vatPeriodEffectiveStatus } from "../vat";
 import { groupExceptions, type ExceptionGroup } from "../exceptions";
 import {
   archiveIncomeStatement,
@@ -56,6 +56,7 @@ export type OverviewVat = {
   payable: number;
   deadline: string;
   daysRemaining: number;
+  periodStatus: "open" | "closed" | "reported";
 };
 
 type ExceptionPreview = {
@@ -94,6 +95,7 @@ export function buildCompanyOverview(
   workspaceRoot: string,
   slug: string,
   year: number | null,
+  asOfDate = todayIsoDate(),
 ) {
   const entry = findWorkspaceCompany(workspaceRoot, slug);
   if (!entry) {
@@ -279,7 +281,7 @@ export function buildCompanyOverview(
     const vatSelection =
       company.vatPeriodType === null
         ? null
-        : selectVatPeriod(db, yearNum, company.vatPeriodType);
+        : selectVatPeriod(db, yearNum, company.vatPeriodType, asOfDate);
     const vat = vatSelection?.position ?? null;
 
     // The exception queue — grouped by type into one Danish summary line each,
@@ -390,7 +392,12 @@ export function buildCompanyOverview(
             inputVat: vat.inputVat,
             payable: vat.payable,
             deadline: vatSelection.deadline,
-            daysRemaining: daysBetween(todayIsoDate(), vatSelection.deadline),
+            daysRemaining: daysBetween(asOfDate, vatSelection.deadline),
+            periodStatus: vatPeriodEffectiveStatus(
+              db,
+              vat.periodStart,
+              vat.periodEnd,
+            ),
           }
         : null;
 

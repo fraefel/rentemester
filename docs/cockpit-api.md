@@ -256,8 +256,8 @@ core resolves the MIME type from it).
 
 - Body: `{ fileName: string, fileBase64: string, metadata: {...}, vendorId?: number, force?: boolean, confirm: true }`.
 - `metadata` is the document-metadata object (mirrors the MCP `documents_ingest`
-  input): `source` is required; `documentType` is `"purchase_sale"` or
-  `"cash_register_receipt"`; optional `issueDate`, `invoiceNo`,
+  input): `source` is required; `documentType` is `"purchase_sale"`,
+  `"cash_register_receipt"` or `"internal_voucher"`; optional `issueDate`, `invoiceNo`,
   `deliveryDescription`, `amountIncVat`, `currency`, `sender`, `recipient`
   (`{name?,address?,vatOrCvr?}`), `vatAmount`, `paymentDetails`, `exemptionCode`
   (`"FOREIGN_PHYSICAL_ONLY"` or `null`). Amounts are kroner.

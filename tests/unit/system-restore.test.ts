@@ -31,6 +31,8 @@ import {
   ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME,
   ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM,
   ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME,
+  INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM,
+  INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME,
   CURRENT_SCHEMA_VERSION,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
@@ -173,6 +175,12 @@ describe("system restore", () => {
         id: 9,
         name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME,
         checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM,
+        applied_by_version: expect.any(String),
+      }),
+      expect.objectContaining({
+        id: 10,
+        name: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME,
+        checksum: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM,
         applied_by_version: expect.any(String),
       }),
     ]);

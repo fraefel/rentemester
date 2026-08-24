@@ -36,6 +36,15 @@ export function register(dispatch: CommandDispatch): void {
     }
     const result = ingestDocument(db, root, file, resolved.metadata, {
       forceDuplicateLogicalIdentity: ctx.hasFlag("--force"),
+      createdBy:
+        ctx.cliActor ??
+        process.env.RENTEMESTER_ACTOR ??
+        ctx.inferredMutationActor() ??
+        undefined,
+      createdByProgram:
+        ctx.cliActorVia ??
+        process.env.RENTEMESTER_ACTOR_VIA ??
+        "rentemester-cli",
     });
     if (!result.ok) {
       recordException(db, {
@@ -73,7 +82,17 @@ export function register(dispatch: CommandDispatch): void {
     migrate(db);
     const rows = db
       .query(
-        "SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat, currency, status, stored_path, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status, payload_json FROM documents ORDER BY id DESC",
+        `SELECT d.id, d.document_no, d.source, d.original_filename,
+                d.document_type, d.invoice_date, d.amount_inc_vat, d.currency,
+                d.status, d.stored_path, d.sender_vat_cvr,
+                d.supplier_country_code, d.supplier_identifier_kind,
+                d.supplier_identity_status, d.payload_json,
+                ive.bank_transaction_id AS source_bank_transaction_id,
+                ive.accounting_rationale, ive.prepared_by,
+                ive.prepared_by_program
+           FROM documents d
+           LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
+          ORDER BY d.id DESC`,
       )
       .all() as Array<Record<string, unknown>>;
     if (ctx.outputFormat === "json") {
@@ -94,6 +113,12 @@ export function register(dispatch: CommandDispatch): void {
       console.log("");
       console.log(`#${row.document_no ?? row.id} — ${row.original_filename ?? "—"}`);
       console.log(`  Bilagsdato: ${row.invoice_date ?? "—"} | Kilde: ${row.source ?? "—"}`);
+      if (row.document_type === "internal_voucher") {
+        console.log(
+          `  Internt bilag: bankpost #${row.source_bank_transaction_id ?? "—"} | Udarbejdet af: ${row.prepared_by ?? "—"}`,
+        );
+        console.log(`  Begrundelse: ${row.accounting_rationale ?? "—"}`);
+      }
       if (row.supplier_country_code || row.supplier_identifier_kind || row.supplier_identity_status) {
         console.log(`  Leverandøridentitet: ${row.supplier_country_code ?? "—"} · ${row.supplier_identifier_kind ?? "—"} · ${row.supplier_identity_status ?? "—"}`);
       }

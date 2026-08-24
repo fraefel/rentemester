@@ -30,6 +30,10 @@ export type DocumentRow = {
   source: string;
   filename: string | null;
   documentType: string;
+  sourceBankTransactionId: number | null;
+  accountingRationale: string | null;
+  preparedBy: string | null;
+  preparedByProgram: string | null;
   supplierName: string | null;
   supplierVatOrCvr: string | null;
   supplierCountryCode: string | null;
@@ -101,6 +105,10 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
                 d.amount_inc_vat  AS amountIncVat,
                 d.currency        AS currency,
                 d.status          AS status,
+                ive.bank_transaction_id AS sourceBankTransactionId,
+                ive.accounting_rationale AS accountingRationale,
+                ive.prepared_by AS preparedBy,
+                ive.prepared_by_program AS preparedByProgram,
                 d.payload_json    AS payloadJson,
                 d.stored_path     AS storedPath,
                 idl.voucher_ref   AS voucherRef,
@@ -119,6 +127,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
            LEFT JOIN import_document_links idl ON idl.document_id = d.id
            LEFT JOIN journal_entries je_link   ON je_link.id = idl.journal_entry_id
            LEFT JOIN journal_entries je_direct ON je_direct.document_id = d.id
+           LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
           -- EJER-15: the 'issued_invoice_pdf' row is the invoice's OWN rendered
           -- PDF — an internal artifact Rentemester writes when it issues a sales
           -- invoice, NOT an inbound voucher the owner must process. Including it
@@ -136,6 +145,10 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       source: string;
       filename: string | null;
       documentType: string;
+      sourceBankTransactionId: number | null;
+      accountingRationale: string | null;
+      preparedBy: string | null;
+      preparedByProgram: string | null;
       supplierName: string | null;
       supplierVatOrCvr: string | null;
       supplierCountryCode: string | null;
@@ -161,6 +174,10 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       source: r.source,
       filename: r.filename,
       documentType: r.documentType,
+      sourceBankTransactionId: r.sourceBankTransactionId,
+      accountingRationale: r.accountingRationale,
+      preparedBy: r.preparedBy,
+      preparedByProgram: r.preparedByProgram,
       supplierName: r.supplierName,
       supplierVatOrCvr: r.supplierVatOrCvr,
       supplierCountryCode: r.supplierCountryCode,
@@ -318,6 +335,7 @@ export type DocumentBookingOptionsDocument = {
   id: number;
   documentNo: string | null;
   documentType: string;
+  sourceBankTransactionId: number | null;
   invoiceNo: string | null;
   invoiceDate: string | null;
   supplierName: string | null;
@@ -367,12 +385,14 @@ export function buildDocumentBookingOptions(
     migrate(db);
     const doc = db
       .query(
-        `SELECT id, document_no, document_type, invoice_no, invoice_date,
-                supplier_name, sender_vat_cvr, supplier_country_code,
-                supplier_identifier_kind, supplier_identity_status,
-                amount_inc_vat, vat_amount, currency, payload_json
-           FROM documents
-          WHERE id = ?`,
+        `SELECT d.id, d.document_no, d.document_type, d.invoice_no, d.invoice_date,
+                d.supplier_name, d.sender_vat_cvr, d.supplier_country_code,
+                d.supplier_identifier_kind, d.supplier_identity_status,
+                d.amount_inc_vat, d.vat_amount, d.currency, d.payload_json,
+                ive.bank_transaction_id AS source_bank_transaction_id
+           FROM documents d
+           LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
+          WHERE d.id = ?`,
       )
       .get(documentId) as
       | {
@@ -390,6 +410,7 @@ export function buildDocumentBookingOptions(
           vat_amount: number | null;
           currency: string;
           payload_json: string | null;
+          source_bank_transaction_id: number | null;
         }
       | null;
     if (!doc) {
@@ -456,6 +477,7 @@ export function buildDocumentBookingOptions(
         id: doc.id,
         documentNo: doc.document_no,
         documentType: doc.document_type,
+        sourceBankTransactionId: doc.source_bank_transaction_id,
         invoiceNo: doc.invoice_no,
         invoiceDate: doc.invoice_date,
         supplierName: doc.supplier_name,

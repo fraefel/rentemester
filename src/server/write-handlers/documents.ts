@@ -96,10 +96,11 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
   if (
     documentType !== undefined &&
     documentType !== "purchase_sale" &&
-    documentType !== "cash_register_receipt"
+    documentType !== "cash_register_receipt" &&
+    documentType !== "internal_voucher"
   ) {
     throw ApiError.badRequest(
-      "metadata.documentType must be 'purchase_sale' or 'cash_register_receipt'",
+      "metadata.documentType must be 'purchase_sale', 'cash_register_receipt' or 'internal_voucher'",
     );
   }
   const exemptionCode = m.exemptionCode;
@@ -141,6 +142,8 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     reverseChargeWordingConfirmed: bool("reverseChargeWordingConfirmed"),
     paymentDetails: str("paymentDetails"),
     exemptionCode: (exemptionCode ?? undefined) as DocumentMetadata["exemptionCode"],
+    sourceBankTransactionId: num("sourceBankTransactionId"),
+    accountingRationale: str("accountingRationale"),
   };
 }
 

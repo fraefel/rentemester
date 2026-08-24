@@ -99,6 +99,40 @@ describe("DocumentIngestModal", () => {
     expect(onIngested).toHaveBeenCalled();
   });
 
+  test("#554 submits a no-VAT internal voucher bound to a bank transaction", async () => {
+    mockFetch(ingestRoute());
+    render(
+      <DocumentIngestModal slug="acme-aps" onIngested={noop} onClose={noop} />,
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Bilagstype"), "internal_voucher");
+    await userEvent.upload(screen.getByLabelText("Bilagsfil"), receiptFile("bankgebyr.txt"));
+    await userEvent.type(screen.getByLabelText("Bilagsdato"), "2026-07-31");
+    await userEvent.type(screen.getByLabelText("Beløb"), "417");
+    await userEvent.type(screen.getByLabelText("Beskrivelse"), "Bankgebyr");
+    await userEvent.type(screen.getByLabelText("Banktransaktions-id"), "9");
+    await userEvent.type(
+      screen.getByLabelText("Regnskabsmæssig begrundelse"),
+      "Bankgebyr ifølge importeret kontoudtog; ingen moms.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Indlæs bilag" }));
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+      const ingestCall = calls.find((call) => String(call[0]).includes("/documents/ingest"));
+      expect(ingestCall).toBeDefined();
+      const sent = JSON.parse(String((ingestCall![1] as RequestInit).body));
+      expect(sent.metadata).toMatchObject({
+        documentType: "internal_voucher",
+        issueDate: "2026-07-31",
+        deliveryDescription: "Bankgebyr",
+        amountIncVat: 417,
+        vatAmount: 0,
+        sourceBankTransactionId: 9,
+        accountingRationale: "Bankgebyr ifølge importeret kontoudtog; ingen moms.",
+      });
+    });
+  });
+
   test("#530 sends a mixed taxable and exempt purchase split", async () => {
     mockFetch(ingestRoute());
     render(

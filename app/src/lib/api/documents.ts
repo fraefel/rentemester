@@ -122,6 +122,7 @@ export type DocumentBookingOptionsDocument = {
   id: number;
   documentNo: string | null;
   documentType: string;
+  sourceBankTransactionId: number | null;
   invoiceNo: string | null;
   invoiceDate: string | null;
   supplierName: string | null;
@@ -212,7 +213,7 @@ export type DataImportSummary = {
 /** Document metadata for `api.ingestDocument` — amounts are kroner (decimal DKK). */
 export type DocumentIngestMetadata = {
   source: string;
-  documentType?: "purchase_sale" | "cash_register_receipt";
+  documentType?: "purchase_sale" | "cash_register_receipt" | "internal_voucher";
   issueDate?: string;
   invoiceNo?: string;
   deliveryDescription?: string;
@@ -224,6 +225,8 @@ export type DocumentIngestMetadata = {
   purchaseVatLines?: Array<{ classification: "dk_purchase_25" | "exempt"; netAmount: number; vatAmount?: number }>;
   reverseChargeWordingConfirmed?: boolean;
   paymentDetails?: string;
+  sourceBankTransactionId?: number;
+  accountingRationale?: string;
 };
 
 /** Input for `api.ingestDocument` — the base64 file plus its metadata. */

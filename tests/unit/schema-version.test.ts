@@ -26,6 +26,8 @@ import {
   ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME,
   ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM,
   ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME,
+  INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM,
+  INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -121,6 +123,7 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 7, name: DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME, checksum: DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 10, name: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME, checksum: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM }),
     ]);
     db.close();
   });
@@ -153,6 +156,36 @@ describe("schema version compatibility", () => {
     migrate(db);
     expect(() => db.run("UPDATE accounting_draft_events SET actor_id = 'agent:changed' WHERE id = 1")).toThrow("append-only");
     expect(() => db.run("DELETE FROM accounting_draft_events WHERE id = 1")).toThrow("append-only");
+    db.close();
+  });
+
+  test("reasserts internal-voucher evidence guards on every open", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    db.run(
+      "INSERT INTO bank_transactions (id, transaction_date, text, amount, transaction_hash) VALUES (1, '2026-07-31', 'Fee', -10, 'stable')",
+    );
+    db.run(
+      "INSERT INTO documents (id, source, sha256_hash, document_type) VALUES (1, 'test', 'voucher', 'internal_voucher')",
+    );
+    db.run(
+      `INSERT INTO internal_voucher_evidence
+         (document_id, bank_transaction_id, accounting_rationale, prepared_by, prepared_by_program)
+       VALUES (1, 1, 'Synthetic evidence', 'agent:test', 'bun:test')`,
+    );
+    db.exec(
+      "DROP TRIGGER internal_voucher_evidence_no_update; DROP TRIGGER internal_voucher_document_no_update; DROP TRIGGER internal_voucher_bank_no_update;",
+    );
+    migrate(db);
+    expect(() => db.run(
+      "UPDATE internal_voucher_evidence SET accounting_rationale = 'changed' WHERE document_id = 1",
+    )).toThrow("append-only");
+    expect(() => db.run(
+      "UPDATE documents SET source = 'changed' WHERE id = 1",
+    )).toThrow("append-only");
+    expect(() => db.run(
+      "UPDATE bank_transactions SET amount = -11 WHERE id = 1",
+    )).toThrow("append-only");
     db.close();
   });
 

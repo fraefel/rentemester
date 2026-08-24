@@ -38,6 +38,46 @@ describe("DocumentsView — Bilag", () => {
     expect(screen.getByText("Leverandør ApS")).toBeInTheDocument();
   });
 
+  test("#554 shows an internal voucher's bank evidence and rationale", async () => {
+    mockFetch(route({
+      documents: [{
+        id: 9,
+        documentNo: "DOC-2026-000009",
+        source: "internal-preparation",
+        filename: "bankgebyr.txt",
+        documentType: "internal_voucher",
+        sourceBankTransactionId: 41,
+        accountingRationale: "Bankgebyr ifølge importeret kontoudtog; ingen moms.",
+        preparedBy: "user:owner",
+        preparedByProgram: "rentemester-cockpit",
+        supplierName: null,
+        supplierVatOrCvr: null,
+        supplierCountryCode: null,
+        supplierIdentifierKind: null,
+        supplierIdentityStatus: null,
+        invoiceNo: null,
+        invoiceDate: "2026-07-31",
+        amountIncVat: 417,
+        currency: "DKK",
+        status: "ingested",
+        voucherRef: null,
+        journalEntryNo: null,
+        journalEntryId: null,
+        journalEntryText: null,
+        journalEntryTotal: null,
+        hasFile: true,
+      }],
+      linkedCount: 0,
+      unlinkedCount: 1,
+    }));
+    renderView();
+    expect(
+      await screen.findByRole("cell", { name: "Internt bilag" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Bankpost #41")).toBeInTheDocument();
+    expect(screen.getByText("Bankgebyr ifølge importeret kontoudtog; ingen moms.")).toBeInTheDocument();
+  });
+
   test("shows the linked journal entry for a booked document", async () => {
     mockFetch(route());
     renderView();

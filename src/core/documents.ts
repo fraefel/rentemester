@@ -3,7 +3,7 @@ import { basename, extname, join } from "node:path";
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { companyPaths } from "./paths";
-import { insertAuditLog } from "./actor";
+import { insertAuditLog, resolveActor } from "./actor";
 import { companySequenceScope, currentUtcIsoDate, fiscalYearLabelFromDate, nextSequenceValue } from "./sequences";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { retainUntilForDate } from "./retention";
@@ -19,7 +19,11 @@ import {
   type DocumentSnapshot,
 } from "./document-storage";
 
-export type DocumentType = "purchase_sale" | "cash_register_receipt" | "issued_invoice_pdf";
+export type DocumentType =
+  | "purchase_sale"
+  | "cash_register_receipt"
+  | "issued_invoice_pdf"
+  | "internal_voucher";
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
 export type PurchaseVatClassification = "dk_purchase_25" | "exempt";
 export type PurchaseVatLine = { classification: PurchaseVatClassification; netAmount: number; vatAmount?: number };
@@ -42,6 +46,10 @@ export type DocumentMetadata = {
   reverseChargeWordingConfirmed?: boolean;
   paymentDetails?: string;
   exemptionCode?: DocumentExemptionCode;
+  /** Imported bank row that is the immutable primary evidence for an internal voucher. */
+  sourceBankTransactionId?: number;
+  /** Human accounting explanation for why the internal voucher is booked. */
+  accountingRationale?: string;
 };
 
 export type DocumentValidationResult = {
@@ -363,7 +371,44 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   // it before any document-type shortcut can accept malformed amounts.
   errors.push(...validatePurchaseVatLines(metadata));
 
-  const exemptFromMinimumFields = documentType === "cash_register_receipt" || documentType === "issued_invoice_pdf" || exemptionCode === "FOREIGN_PHYSICAL_ONLY";
+  if (documentType === "internal_voucher") {
+    if (!looksLikeIsoDate(metadata.issueDate)) {
+      errors.push("internal voucher issueDate must be present in YYYY-MM-DD format");
+    }
+    if (!hasText(metadata.deliveryDescription)) {
+      errors.push("internal voucher deliveryDescription is required");
+    }
+    if (!hasNonNegativeNumber(metadata.amountIncVat) || metadata.amountIncVat <= 0) {
+      errors.push("internal voucher amountIncVat must be greater than 0");
+    }
+    if (metadata.vatAmount !== 0) {
+      errors.push("internal voucher vatAmount must be exactly 0");
+    }
+    if (
+      !Number.isInteger(metadata.sourceBankTransactionId) ||
+      Number(metadata.sourceBankTransactionId) <= 0
+    ) {
+      errors.push("internal voucher sourceBankTransactionId must be a positive integer");
+    }
+    if (!hasText(metadata.accountingRationale)) {
+      errors.push("internal voucher accountingRationale is required");
+    }
+    if (metadata.purchaseVatLines !== undefined) {
+      errors.push("internal voucher cannot contain purchaseVatLines");
+    }
+    if (metadata.reverseChargeWordingConfirmed !== undefined) {
+      errors.push("internal voucher cannot contain reverseChargeWordingConfirmed");
+    }
+    if (metadata.exemptionCode !== undefined && metadata.exemptionCode !== null) {
+      errors.push("internal voucher cannot contain exemptionCode");
+    }
+  }
+
+  const exemptFromMinimumFields =
+    documentType === "cash_register_receipt" ||
+    documentType === "issued_invoice_pdf" ||
+    documentType === "internal_voucher" ||
+    exemptionCode === "FOREIGN_PHYSICAL_ONLY";
   if (!exemptFromMinimumFields) {
     if (!looksLikeIsoDate(metadata.issueDate)) errors.push("issueDate must be present in YYYY-MM-DD format");
     if (!hasText(metadata.deliveryDescription)) errors.push("deliveryDescription is required");
@@ -382,6 +427,69 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   }
 
   return { ok: errors.length === 0, appliedRules, errors };
+}
+
+function validateInternalVoucherBankEvidence(
+  db: Database,
+  metadata: DocumentMetadata,
+): string[] {
+  if (metadata.documentType !== "internal_voucher") return [];
+  const bankTransactionId = Number(metadata.sourceBankTransactionId);
+  const bank = db.query(
+    `SELECT id, transaction_date, amount, currency, transaction_hash,
+            source_file_hash, import_batch_id
+       FROM bank_transactions
+      WHERE id = ?`,
+  ).get(bankTransactionId) as
+    | {
+        id: number;
+        transaction_date: string;
+        amount: number;
+        currency: string;
+        transaction_hash: string | null;
+        source_file_hash: string | null;
+        import_batch_id: string | null;
+      }
+    | null;
+  if (!bank) return [`sourceBankTransactionId ${bankTransactionId} does not exist`];
+
+  const errors: string[] = [];
+  if (!bank.transaction_hash && !(bank.source_file_hash && bank.import_batch_id)) {
+    errors.push(
+      `bank transaction ${bank.id} has no stable import identity and cannot back an internal voucher`,
+    );
+  }
+  if (!(Number(bank.amount) < 0)) {
+    errors.push(`bank transaction ${bank.id} is not an outgoing payment`);
+  }
+  if (metadata.issueDate !== bank.transaction_date) {
+    errors.push(
+      `internal voucher issueDate ${metadata.issueDate ?? "(missing)"} does not match bank transaction date ${bank.transaction_date}`,
+    );
+  }
+  const currency = (metadata.currency ?? "DKK").trim().toUpperCase();
+  if (currency !== bank.currency.trim().toUpperCase()) {
+    errors.push(
+      `internal voucher currency ${currency} does not match bank transaction currency ${bank.currency}`,
+    );
+  }
+  if (
+    hasNonNegativeNumber(metadata.amountIncVat) &&
+    compareDkk(metadata.amountIncVat, Math.abs(Number(bank.amount))) !== 0
+  ) {
+    errors.push(
+      `internal voucher amount ${roundDkk(metadata.amountIncVat)} does not match bank transaction amount ${roundDkk(Math.abs(Number(bank.amount)))}`,
+    );
+  }
+  const existing = db.query(
+    "SELECT document_id FROM internal_voucher_evidence WHERE bank_transaction_id = ?",
+  ).get(bank.id) as { document_id: number } | null;
+  if (existing) {
+    errors.push(
+      `bank transaction ${bank.id} already backs internal voucher document ${existing.document_id}`,
+    );
+  }
+  return errors;
 }
 
 /**
@@ -435,6 +543,10 @@ function ingestDocumentSnapshot(
 ): IngestDocumentResult {
   const validation = validateDocumentMetadata(metadata);
   if (!validation.ok) return { ok: false, errors: validation.errors };
+  const internalEvidenceErrors = validateInternalVoucherBankEvidence(db, metadata);
+  if (internalEvidenceErrors.length > 0) {
+    return { ok: false, errors: internalEvidenceErrors };
+  }
   let snapshot: DocumentSnapshot;
   let mimeType: string;
   try {
@@ -568,6 +680,25 @@ function ingestDocumentSnapshot(
         JSON.stringify(metadata),
         retainUntilForDate(db, retentionBasisDate),
       ) as { id: number };
+
+      if (docType === "internal_voucher") {
+        const actor = resolveActor({
+          createdBy: options.createdBy,
+          createdByProgram: options.createdByProgram,
+        });
+        db.query(
+          `INSERT INTO internal_voucher_evidence
+             (document_id, bank_transaction_id, accounting_rationale,
+              prepared_by, prepared_by_program)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(
+          inserted.id,
+          metadata.sourceBankTransactionId!,
+          metadata.accountingRationale!.trim(),
+          actor.createdBy,
+          actor.createdByProgram,
+        );
+      }
 
       strengthenGdprErasureAliasesForIdentity(db, {
         name: metadata.sender?.name,

@@ -37,6 +37,15 @@ export function register(dispatch: CommandDispatch): void {
       paymentAccountNo: ctx.arg("--payment-account") ?? undefined,
       transactionDate: ctx.arg("--date") ?? undefined,
       text: ctx.arg("--text") ?? undefined,
+      createdBy:
+        ctx.cliActor ??
+        process.env.RENTEMESTER_ACTOR ??
+        ctx.inferredMutationActor() ??
+        undefined,
+      createdByProgram:
+        ctx.cliActorVia ??
+        process.env.RENTEMESTER_ACTOR_VIA ??
+        "rentemester-cli",
     });
     ctx.emitResult(result as Record<string, unknown>);
     db.close();

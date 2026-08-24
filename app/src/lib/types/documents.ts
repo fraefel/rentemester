@@ -8,6 +8,10 @@ export type DocumentRow = {
   source: string;
   filename: string | null;
   documentType: string;
+  sourceBankTransactionId: number | null;
+  accountingRationale: string | null;
+  preparedBy: string | null;
+  preparedByProgram: string | null;
   supplierName: string | null;
   supplierVatOrCvr: string | null;
   supplierCountryCode: string | null;

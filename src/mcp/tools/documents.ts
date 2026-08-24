@@ -33,7 +33,7 @@ const documentPartySchema = z.object({
  */
 export const documentMetadataFields = {
   documentType: z
-      .enum(["purchase_sale", "cash_register_receipt"])
+      .enum(["purchase_sale", "cash_register_receipt", "internal_voucher"])
       .optional()
       .describe("Document type (default 'purchase_sale')."),
     issueDate: z.string().optional().describe("Document/invoice date in YYYY-MM-DD format."),
@@ -74,6 +74,18 @@ export const documentMetadataFields = {
       .nullable()
       .optional()
       .describe("Set to 'FOREIGN_PHYSICAL_ONLY' for a foreign physical-only receipt; otherwise omit."),
+    sourceBankTransactionId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Required for internal_voucher: the imported bank transaction that is its primary evidence."),
+    accountingRationale: z
+      .string()
+      .min(1)
+      .max(2000)
+      .optional()
+      .describe("Required for internal_voucher: the accounting reason for the posting."),
 } as const;
 
 /**
@@ -111,16 +123,24 @@ export function registerDocumentTools(server: McpServer): void {
     withCompanyDb<{ company: string; limit?: number; offset?: number }>(server, ({ db, args }) => {
       const rows = db
         .query(
-          `SELECT id, document_no, source, original_filename, invoice_date, amount_inc_vat,
-                  currency, status, stored_path, payload_json, sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
-           FROM documents
-           ORDER BY id DESC`,
+          `SELECT d.id, d.document_no, d.source, d.original_filename,
+                  d.document_type, d.invoice_date, d.amount_inc_vat,
+                  d.currency, d.status, d.stored_path, d.payload_json,
+                  d.sender_vat_cvr, d.supplier_country_code,
+                  d.supplier_identifier_kind, d.supplier_identity_status,
+                  ive.bank_transaction_id AS source_bank_transaction_id,
+                  ive.accounting_rationale, ive.prepared_by,
+                  ive.prepared_by_program
+             FROM documents d
+             LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
+            ORDER BY d.id DESC`,
         )
         .all() as Array<{
           id: number;
           document_no: string | null;
           source: string;
           original_filename: string;
+          document_type: string;
           invoice_date: string | null;
           amount_inc_vat: number | null;
           currency: string | null;
@@ -128,12 +148,17 @@ export function registerDocumentTools(server: McpServer): void {
           stored_path: string | null;
           payload_json: string | null;
           sender_vat_cvr: string | null; supplier_country_code: string | null; supplier_identifier_kind: string | null; supplier_identity_status: string | null;
+          source_bank_transaction_id: number | null;
+          accounting_rationale: string | null;
+          prepared_by: string | null;
+          prepared_by_program: string | null;
         }>;
       const mapped = rows.map((row) => ({
         id: row.id,
         documentNo: row.document_no,
         source: row.source,
         originalFilename: row.original_filename,
+        documentType: row.document_type,
         invoiceDate: row.invoice_date,
         amountIncVat: row.amount_inc_vat,
         currency: row.currency,
@@ -144,6 +169,10 @@ export function registerDocumentTools(server: McpServer): void {
         supplierCountryCode: row.supplier_country_code,
         supplierIdentifierKind: row.supplier_identifier_kind,
         supplierIdentityStatus: row.supplier_identity_status,
+        sourceBankTransactionId: row.source_bank_transaction_id,
+        accountingRationale: row.accounting_rationale,
+        preparedBy: row.prepared_by,
+        preparedByProgram: row.prepared_by_program,
       }));
       const { pageRows, meta } = applyPagination(mapped, { limit: args.limit, offset: args.offset });
       return successEnvelope({ documents: pageRows, ...meta });
@@ -204,11 +233,13 @@ export function registerDocumentTools(server: McpServer): void {
       vendorId?: number;
       force?: boolean;
       confirm?: boolean;
-    }>(server, "documents_ingest", ({ db, args }) => {
+    }>(server, "documents_ingest", ({ db, actor, args }) => {
       const resolved = resolveDocumentMasterData(db, args.metadata, { vendorId: args.vendorId });
       if (!resolved.ok) return errorEnvelope(resolved.errors ?? ["resolveDocumentMasterData failed"]);
       const result = ingestDocument(db, args.company, args.filePath, resolved.metadata, {
         forceDuplicateLogicalIdentity: args.force === true,
+        createdBy: actor.createdBy,
+        createdByProgram: actor.createdByProgram,
       });
       if (!result.ok) {
         recordException(db, {

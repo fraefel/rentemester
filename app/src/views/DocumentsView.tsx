@@ -37,6 +37,7 @@ type DocumentsPage = {
 const DOC_TYPE_LABELS: Record<string, string> = {
   purchase_sale: "Køb/salg",
   cash_register_receipt: "Kassebon",
+  internal_voucher: "Internt bilag",
 };
 
 // #433 — the keys we own in the URL. Listed once so "Ryd filtre" can clear
@@ -44,7 +45,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 const FILTER_PARAM_KEYS = ["q", "from", "to", "status", "type"] as const;
 
 type StatusFilter = "all" | "booked" | "unbooked";
-type TypeFilter = "all" | "purchase_sale" | "cash_register_receipt";
+type TypeFilter = "all" | "purchase_sale" | "cash_register_receipt" | "internal_voucher";
 
 type SortKey = "date" | "amount";
 type SortDir = "asc" | "desc";
@@ -54,7 +55,10 @@ function isStatusFilter(v: string): v is StatusFilter {
 }
 function isTypeFilter(v: string): v is TypeFilter {
   return (
-    v === "all" || v === "purchase_sale" || v === "cash_register_receipt"
+    v === "all" ||
+    v === "purchase_sale" ||
+    v === "cash_register_receipt" ||
+    v === "internal_voucher"
   );
 }
 
@@ -70,6 +74,16 @@ function documentMatchesText(doc: DocumentRow, needle: string): boolean {
   if (doc.documentNo && doc.documentNo.toLowerCase().includes(needle))
     return true;
   if (doc.invoiceNo && doc.invoiceNo.toLowerCase().includes(needle))
+    return true;
+  if (
+    doc.accountingRationale &&
+    doc.accountingRationale.toLowerCase().includes(needle)
+  )
+    return true;
+  if (
+    doc.sourceBankTransactionId !== null &&
+    String(doc.sourceBankTransactionId).includes(needle)
+  )
     return true;
   if (
     doc.journalEntryText &&
@@ -314,6 +328,7 @@ export function DocumentsView() {
             <option value="all">Alle</option>
             <option value="purchase_sale">Køb/salg</option>
             <option value="cash_register_receipt">Kassebon</option>
+            <option value="internal_voucher">Internt bilag</option>
           </select>
         </label>
         {hasActiveFilter && (
@@ -341,7 +356,7 @@ export function DocumentsView() {
             <tr>
               <th>Bilagsnr.</th>
               <th>Type</th>
-              <th>Leverandør</th>
+              <th>Modpart / grundlag</th>
               <th>Faktura</th>
               <th>
                 <button
@@ -386,7 +401,14 @@ export function DocumentsView() {
                     {DOC_TYPE_LABELS[doc.documentType] ?? doc.documentType}
                   </td>
                   <td>
-                    <div>{doc.supplierName ?? "—"}</div>
+                    <div>
+                      {doc.documentType === "internal_voucher"
+                        ? `Bankpost #${doc.sourceBankTransactionId ?? "—"}`
+                        : doc.supplierName ?? "—"}
+                    </div>
+                    {doc.documentType === "internal_voucher" && doc.accountingRationale ? (
+                      <div className="muted">{doc.accountingRationale}</div>
+                    ) : null}
                     {(doc.supplierCountryCode || doc.supplierIdentifierKind || doc.supplierIdentityStatus) && (
                       <div className="muted">
                         {doc.supplierCountryCode ?? "—"} · {doc.supplierIdentifierKind ?? "—"} · {doc.supplierIdentityStatus ?? "—"}

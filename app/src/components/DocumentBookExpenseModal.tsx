@@ -73,6 +73,14 @@ export function DocumentBookExpenseModal({
       .then((res) => {
         if (cancelled) return;
         setOptions(res);
+        if (
+          res.document.documentType === "internal_voucher" &&
+          res.document.sourceBankTransactionId !== null
+        ) {
+          setBankTransactionId(res.document.sourceBankTransactionId);
+          setVatTreatment("exempt");
+          return;
+        }
         // Pre-select the only candidate if there is exactly one outgoing tx
         // that matches the bilag's gross amount — the same hint
         // BankReconcileModal uses to remove a click when there is no choice.
@@ -215,7 +223,9 @@ export function DocumentBookExpenseModal({
                 <>
                   <p>
                     <strong>
-                      {doc.supplierName ?? "Ukendt leverandør"}
+                      {doc.documentType === "internal_voucher"
+                        ? "Internt bilag"
+                        : doc.supplierName ?? "Ukendt leverandør"}
                     </strong>
                     {doc.invoiceNo ? ` · faktura ${doc.invoiceNo}` : ""} ·{" "}
                     {doc.invoiceDate ?? "—"} ·{" "}
@@ -225,8 +235,9 @@ export function DocumentBookExpenseModal({
                     inkl. moms
                   </p>
                   <p className="muted">
-                    Vælg den udgiftskonto bilaget hører til og den
-                    banktransaktion det betaler. Selve posteringen og bilagets
+                    Vælg den udgiftskonto bilaget hører til. {doc.documentType === "internal_voucher"
+                      ? "Banktransaktionen og den momsfrie behandling er låst til bilagets evidens. "
+                      : "Vælg også den banktransaktion det betaler. "}Selve posteringen og bilagets
                     moms-beregning dannes af regnskabskernen — samme vej som
                     via kommandolinjen.
                   </p>
@@ -297,7 +308,7 @@ export function DocumentBookExpenseModal({
                     const v = e.target.value;
                     setBankTransactionId(v === "" ? "" : Number(v));
                   }}
-                  disabled={busy}
+                  disabled={busy || doc?.documentType === "internal_voucher"}
                 >
                   <option value="">— vælg banktransaktion —</option>
                   {options.unmatchedOutgoingBank.map((t) => (
@@ -321,7 +332,11 @@ export function DocumentBookExpenseModal({
                       : (e.target.value as ExpenseVatTreatment),
                   )
                 }
-                disabled={busy || options === null}
+                disabled={
+                  busy ||
+                  options === null ||
+                  doc?.documentType === "internal_voucher"
+                }
               >
                 <option value="">— udled fra konto —</option>
                 {(Object.keys(VAT_TREATMENT_LABELS) as ExpenseVatTreatment[]).map(

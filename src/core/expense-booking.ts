@@ -223,10 +223,14 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   if (!account.active) return { ok: false, appliedRules: [], errors: [`account ${input.expenseAccountNo} is inactive`] };
 
   const document = db.query(
-    `SELECT id, document_type, invoice_no, invoice_date, amount_inc_vat, vat_amount, currency, sender_name, payload_json,
-            sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
-     FROM documents
-     WHERE id = ?`
+    `SELECT d.id, d.document_type, d.invoice_no, d.invoice_date,
+            d.amount_inc_vat, d.vat_amount, d.currency, d.sender_name,
+            d.payload_json, d.sender_vat_cvr, d.supplier_country_code,
+            d.supplier_identifier_kind, d.supplier_identity_status,
+            ive.bank_transaction_id AS evidence_bank_transaction_id
+     FROM documents d
+     LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
+     WHERE d.id = ?`
   ).get(input.documentId) as {
     id: number;
     document_type: string;
@@ -241,10 +245,29 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     supplier_country_code: string | null;
     supplier_identifier_kind: string | null;
     supplier_identity_status: string | null;
+    evidence_bank_transaction_id: number | null;
   } | null;
   if (!document) return { ok: false, appliedRules: [], errors: [`document ${input.documentId} does not exist`] };
-  if (document.document_type !== "purchase_sale" && document.document_type !== "cash_register_receipt") {
+  if (
+    document.document_type !== "purchase_sale" &&
+    document.document_type !== "cash_register_receipt" &&
+    document.document_type !== "internal_voucher"
+  ) {
     return { ok: false, appliedRules: [], errors: [`document ${input.documentId} is not a purchase document`] };
+  }
+  if (
+    document.document_type === "internal_voucher" &&
+    document.evidence_bank_transaction_id !== input.bankTransactionId
+  ) {
+    return {
+      ok: false,
+      appliedRules: [],
+      errors: [
+        document.evidence_bank_transaction_id === null
+          ? `internal voucher document ${input.documentId} has no bank-statement evidence`
+          : `internal voucher document ${input.documentId} is bound to bank transaction ${document.evidence_bank_transaction_id}, not ${input.bankTransactionId}`,
+      ],
+    };
   }
   const grossAmount = roundDkk(Number(document.amount_inc_vat ?? 0));
   const vatAmount = roundDkk(Number(document.vat_amount ?? 0));
@@ -278,6 +301,13 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     };
   }
   const vatTreatment: ExpenseVatTreatment = inferredTreatment;
+  if (document.document_type === "internal_voucher" && vatTreatment !== "exempt") {
+    return {
+      ok: false,
+      appliedRules: [],
+      errors: ["internal voucher expense booking requires explicit vatTreatment exempt"],
+    };
+  }
   if (vatTreatment === "standard" || vatTreatment === "representation") {
     const supplierErrors = deductibleDanishPurchaseSupplierErrors({
       supplierVatOrCvr: document.sender_vat_cvr,
@@ -288,6 +318,18 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     if (supplierErrors.length > 0) return { ok: false, appliedRules: [], errors: supplierErrors };
   }
   const transactionDate = input.transactionDate ?? bank.transaction_date;
+  if (
+    document.document_type === "internal_voucher" &&
+    transactionDate !== bank.transaction_date
+  ) {
+    return {
+      ok: false,
+      appliedRules: [],
+      errors: [
+        `internal voucher transaction date ${transactionDate} must match bank transaction date ${bank.transaction_date}`,
+      ],
+    };
+  }
   // Posting text is read by a Danish owner — keep it fully Danish. The
   // supplier name is used when known; otherwise fall back to a Danish word.
   const supplierName = document.sender_name?.trim();

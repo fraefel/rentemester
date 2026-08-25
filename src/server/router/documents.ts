@@ -1,7 +1,9 @@
 // Document list, file serve, and booking-options read handlers.
 
 import { purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
+import { createHash } from "node:crypto";
 import { migrate, openDb } from "../../core/db";
+import { inspectOpenLedger, openLedgerReadOnly } from "../../core/ledger-inspection";
 import { companyPaths } from "../../core/paths";
 import { companyRootForSlug } from "../../core/workspace";
 import type { ServerConfig } from "../config";
@@ -62,19 +64,44 @@ export function handleCompanyDocumentInvoiceExtraction(config: ServerConfig, slu
   try { migrate(db); return okResponse({ extraction: invoiceExtractionSurface(db, id) }); } finally { db.close(); }
 }
 
-function parsedStatus(db: any, documentId: number) {
-  return db.query(`SELECT id, document_id AS documentId, source_sha256_hash AS sourceSha256, parser_id AS parserId, parser_version AS parserVersion, contract_version AS contractVersion, status, error_code AS errorCode, page_count AS pageCount, item_count AS itemCount, text_length AS textLength, result_sha256_hash AS resultHash, created_at AS createdAt FROM document_pdf_parses WHERE document_id=? ORDER BY id DESC LIMIT 1`).get(documentId) ?? null;
+/**
+ * Public, verified parser DTOs shared by HTTP, CLI and MCP.  Deliberately do
+ * not expose parser result ids, stored paths, child diagnostics, or raw layout
+ * coordinates.  Page text is evidence; layout is represented by its persisted
+ * SHA-256 integrity hash.
+ */
+export type DocumentPdfParseStatusDto = {
+  documentId: number; sourceSha256: string; parserId: string; parserVersion: string;
+  contractVersion: string; status: string; errorCode: string | null; pageCount: number;
+  itemCount: number; textLength: number; resultHash: string;
+};
+const layoutHash = (layoutJson: string) => createHash("sha256").update(layoutJson).digest("hex");
+export function documentPdfParseStatus(db: any, documentId: number): DocumentPdfParseStatusDto | null {
+  const row = db.query(`SELECT document_id AS documentId, source_sha256_hash AS sourceSha256, parser_id AS parserId, parser_version AS parserVersion, contract_version AS contractVersion, status, error_code AS errorCode, page_count AS pageCount, item_count AS itemCount, text_length AS textLength, result_sha256_hash AS resultHash FROM document_pdf_parse_results WHERE document_id=? ORDER BY id DESC LIMIT 1`).get(documentId) as DocumentPdfParseStatusDto | null;
+  return row ?? null;
+}
+export function documentPdfParsedText(db: any, documentId: number, offset = 0, limit = 10) {
+  const parse = documentPdfParseStatus(db, documentId);
+  if (!parse) return { parse: null, pages: [], offset, limit, nextOffset: null };
+  const pages = db.query(`SELECT p.page_number AS pageNumber, p.width, p.height, p.rotation, p.text, p.item_count AS itemCount, p.layout_json AS layoutJson FROM document_pdf_parse_pages p JOIN document_pdf_parse_results r ON r.id=p.result_id WHERE r.document_id=? AND r.result_sha256_hash=? ORDER BY p.page_number LIMIT ? OFFSET ?`).all(documentId, parse.resultHash, limit, offset).map((row: any) => ({ pageNumber: row.pageNumber, width: row.width, height: row.height, rotation: row.rotation, text: row.text, itemCount: row.itemCount, layoutHash: layoutHash(row.layoutJson) }));
+  return { parse, pages, offset, limit, nextOffset: pages.length === limit ? offset + limit : null };
+}
+function openVerifiedRead(config: ServerConfig, slug: string) {
+  const db = openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
+  const inspection = inspectOpenLedger(db);
+  if (inspection.status !== "current") { db.close(); throw ApiError.notFound("company ledger is not ready"); }
+  return db;
 }
 /** Read-only PDF parse state; parser errors are persisted as codes, not stderr. */
 export function handleCompanyDocumentParseStatus(config: ServerConfig, slug: string, idRaw: string): Response {
   const id = Number(idRaw); if (!Number.isInteger(id) || id <= 0) throw ApiError.badRequest("document id must be a positive integer");
-  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db); try { migrate(db); return okResponse({ parse: parsedStatus(db, id) }); } finally { db.close(); }
+  const db = openVerifiedRead(config, slug); try { return okResponse({ parse: documentPdfParseStatus(db, id) }); } finally { db.close(); }
 }
 /** Read-only parsed pages, capped at ten to bound agent and HTTP responses. */
 export function handleCompanyDocumentParsedText(config: ServerConfig, slug: string, idRaw: string, url: URL): Response {
   const id = Number(idRaw), offset = Number(url.searchParams.get("offset") ?? "0"), limit = Number(url.searchParams.get("limit") ?? "10");
   if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 10) throw ApiError.badRequest("document id, offset and limit (1..10) are invalid");
-  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db); try { migrate(db); const parse = parsedStatus(db, id); const pages = parse ? db.query(`SELECT page_number AS pageNumber, width, height, rotation, text, item_count AS itemCount FROM document_pdf_parse_pages WHERE parse_id=? ORDER BY page_number LIMIT ? OFFSET ?`).all(parse.id, limit, offset) : []; return okResponse({ parse, pages, offset, limit, nextOffset: pages.length === limit ? offset + limit : null }); } finally { db.close(); }
+  const db = openVerifiedRead(config, slug); try { return okResponse(documentPdfParsedText(db, id, offset, limit)); } finally { db.close(); }
 }
 
 /**

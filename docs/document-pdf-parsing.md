@@ -21,3 +21,24 @@ limit. HTTP mirrors CLI/MCP: POST `/documents/:id/parse` or `/documents/parse-pe
 requires `confirm:true`; GET `/parse-status` and `/parsed-text?offset=0&limit=10`
 are read-only. The container uses non-root execution; run it with a read-only
 root filesystem, `--network none`, and resource limits for isolated parsing.
+
+## Stable public responses
+
+CLI, HTTP and MCP use the same verified DTO. `parse-status` returns `{ parse }`,
+where `parse` is `null` or `{ documentId, sourceSha256, parserId, parserVersion,
+contractVersion, status, errorCode, pageCount, itemCount, textLength,
+resultHash }`. It contains no database id, path, child command, stdout or stderr.
+
+`parsed-text` returns `{ parse, pages, offset, limit, nextOffset }`; `limit` is
+1–10. A page contains decoded `text`, dimensions, rotation, `itemCount`, and
+`layoutHash`, never layout coordinates. The four tools are `documents_parse`,
+`documents_parse_pending`, `documents_parse_status`, and
+`documents_parsed_text`. Writes require the normal actor/auth policy and
+`confirm:true`, return bounded summaries, and batches return canonical
+`{ requested, parsed, failed, resume }` without nested worker messages.
+
+This is BYO evidence interpretation: parser output has no bookkeeping authority
+and never posts a transaction. `PDF_PARSE_FAILED` is the stable write-boundary
+code; persisted parser status exposes stable parser error codes. The versioned
+contract is `document-pdf-text-v1`; `pdfjs-dist@6.2.108` is Apache-2.0 and the
+offline parser does not send documents to third parties.

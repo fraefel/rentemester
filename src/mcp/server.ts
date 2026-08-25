@@ -2,7 +2,7 @@
 /**
  * Rentemester MCP-server (stdio transport).
  *
- * Eksponerer hele Rentemester-tool-surface'en (127 tools, jf.
+ * Eksponerer hele Rentemester-tool-surface'en (131 tools, jf.
  * docs/mcp-tool-surface.md) over stdio, så Claude Desktop / Cursor /
  * Claude Code / Codex kan tale med Rentemester-kernen som MCP-tools.
  * Tools registreres pr. domæne af `registerAllTools` i `./registry`.

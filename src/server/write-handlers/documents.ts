@@ -27,23 +27,36 @@ import {
   requireBodyString,
 } from "./_shared";
 
+/** The write boundary returns operational facts, never parser pages/layout. */
+function parseSummary(run: any, documentId?: number) {
+  return {
+    documentId, status: run?.status, errorCode: run?.errorCode ?? null,
+    cached: Boolean(run?.cached), pageCount: Array.isArray(run?.pages) ? run.pages.length : 0,
+    itemCount: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.layout?.length ?? 0), 0) : 0,
+    textLength: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0) : 0,
+    resultHash: run?.resultHash,
+  };
+}
+
 /** Parse routes are explicit opt-in: ingest never invokes this service. */
 export async function handleDocumentPdfParse(config: ServerConfig, request: Request, slug: string, idRaw: string): Promise<Response> {
   const documentId = Number(idRaw); if (!Number.isInteger(documentId) || documentId <= 0) throw ApiError.badRequest("document id must be a positive integer");
   const result = await withCompanyMutation(request, config, slug, async ({ db, actor, companyRoot }) => {
-    try { return { ok: true, parse: await parseRegisteredPdfDocument(db, companyRoot, { documentId, createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }) }; }
+    try { return { ok: true, parse: parseSummary(await parseRegisteredPdfDocument(db, companyRoot, { documentId, createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }), documentId) }; }
     catch { return { ok: false, errors: ["PDF_PARSE_FAILED"] }; }
   }, { requireConfirm: true });
-  return okResponse({ parse: result.parse });
+  return okResponse(result.ok ? { parse: result.parse } : { errors: ["PDF_PARSE_FAILED"] });
 }
 
 export async function handleDocumentPdfParsePending(config: ServerConfig, request: Request, slug: string): Promise<Response> {
   const result = await withCompanyMutation(request, config, slug, async ({ db, actor, companyRoot }, body) => {
     const limit = body.limit === undefined ? 100 : Number(body.limit); if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw ApiError.badRequest("limit must be an integer between 1 and 100");
-    const ids = (db.query(`SELECT d.id FROM documents d WHERE d.mime_type='application/pdf' AND d.stored_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM document_pdf_parses p WHERE p.document_id=d.id) ORDER BY d.id LIMIT ?`).all(limit) as Array<{ id: number }>).map((row) => row.id);
-    return { ok: true, parses: await parseRegisteredPdfBatch(db, companyRoot, ids, { createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }) };
+    const ids = (db.query(`SELECT d.id FROM documents d WHERE d.mime_type='application/pdf' AND d.stored_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM document_pdf_parse_results p WHERE p.document_id=d.id) ORDER BY d.id LIMIT ?`).all(limit) as Array<{ id: number }>).map((row) => row.id);
+    const parses = await parseRegisteredPdfBatch(db, companyRoot, ids, { createdBy: actor.createdBy, createdByProgram: actor.createdByProgram });
+    const failed = parses.filter((entry: any) => !entry.ok);
+    return { ok: true, batch: { requested: ids.length, parsed: parses.length - failed.length, failed: failed.length, resume: failed.length ? { documentIds: failed.map((entry: any) => entry.documentId) } : null } };
   }, { requireConfirm: true });
-  return okResponse({ parses: result.parses });
+  return okResponse({ batch: result.batch });
 }
 
 /**

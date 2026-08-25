@@ -230,6 +230,15 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
 ## Read-tools
 
+### PDF parsing evidence
+
+`documents_parse_status` and `documents_parsed_text` are read-only. The latter
+is capped at ten pages and returns decoded text plus a `layoutHash` per page,
+never layout coordinates, stored paths, child stderr, or worker details. The
+paired writes are `documents_parse` and `documents_parse_pending`; both require
+`confirm:true`, the normal actor allow-list, and return bounded summaries only.
+Parsing is evidence, not bookkeeping authority.
+
 51 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
 frit og parallelt.
 

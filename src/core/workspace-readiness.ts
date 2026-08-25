@@ -4,10 +4,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, lstatSync } from "node:fs";
 import { companyPaths } from "./paths";
-import {
-  CURRENT_SCHEMA_VERSION,
-  assertSchemaCompatibility,
-} from "./schema-version";
+import { inspectOpenLedger, openLedgerReadOnly } from "./ledger-inspection";
 import {
   CURRENT_WORKSPACE_CONTROL_SCHEMA_VERSION,
   assertWorkspaceControlCompatibility,
@@ -77,18 +74,6 @@ function assertQuickAndForeignKeyIntegrity(db: Database): void {
   }
 }
 
-function assertCurrentLedgerSchema(db: Database): void {
-  assertSchemaCompatibility(db);
-  const columns = db.query("PRAGMA table_info(schema_migrations)").all() as Array<{ name: string }>;
-  if (!columns.some((column) => column.name === "checksum")) {
-    throw new Error("ledger migration ledger lacks checksums");
-  }
-  const rows = db.query("SELECT id FROM schema_migrations ORDER BY id").all() as Array<{ id: number }>;
-  if (rows.length !== CURRENT_SCHEMA_VERSION || rows.at(-1)?.id !== CURRENT_SCHEMA_VERSION) {
-    throw new Error("ledger schema is not current");
-  }
-}
-
 function checkWorkspaceControl(workspaceRoot: string): boolean {
   let db: Database | undefined;
   try {
@@ -115,9 +100,10 @@ function checkLedger(workspaceRoot: string, slug: string): boolean {
   let db: Database | undefined;
   try {
     const companyRoot = companyRootForSlug(workspaceRoot, slug);
-    db = openReadonly(companyPaths(companyRoot).db);
-    assertCurrentLedgerSchema(db);
-    assertQuickAndForeignKeyIntegrity(db);
+    db = openLedgerReadOnly(companyPaths(companyRoot).db);
+    if (inspectOpenLedger(db).status !== "current") {
+      throw new Error("ledger schema is not current");
+    }
     // This is intentionally the existing full ledger/audit verifier. It is
     // read-only, including its evidence-file reads, and makes readiness fail
     // closed on an append-only or evidence-integrity violation.

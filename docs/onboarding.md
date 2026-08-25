@@ -79,6 +79,12 @@ rentemester system healthcheck --company "$COMPANY"
 rentemester accounts roles-status --company "$COMPANY"
 ```
 
+Healthcheck skriver ikke til ledgeren. Brug `--json` når resultatet læses af
+automation; den maskinlæsbare `schema`-blok viser både installeret/krævet
+version og eventuelle ventende migrations. Kør kun den CLI-only migration med
+en allowlistet actor og eksakt samtykke: `rentemester system migrate --company
+"$COMPANY" --apply yes --actor "$ACTOR"`.
+
 Er virksomheden ikke momsregistreret, vælg `--no-vat` (eller
 `--vat-period none`) i stedet for `--vat-period quarter`. Før en anden person
 eller agent kan skrive, tilføjer en ansvarlig operatør dens kanoniske

@@ -281,9 +281,9 @@ frit og parallelt.
 | `system_backup_destination_list` | `system backup-destinations` | `{ company }` | Lister konfigurerede backup-destinationer med attestering. |
 | `system_backup_governance` | `system backup-governance` | `{ company, asOf? }` | Samlet backup-status: forfald, lås, destinationer, sikker placering. |
 | `system_backup_status` | `system backup-status` | `{ company, asOf? }` | Tjekker om backup-pligten er opfyldt. |
-| `system_healthcheck` | `system healthcheck` | `{ company }` | Tjekker virksomhedsmappens integritet. |
+| `system_healthcheck` | `system healthcheck` | `{ company }` | Read-only integritetstjek. `company` accepterer både workspace-slug og sikker sti; resultatet indeholder `checks`, `missing` og `schema` (inkl. ventende migrationsidentiteter). Stifejl redigeres før de vises til kaldende agent. |
 
-`system migrate --company <slug|path> [--apply yes]` er bevidst CLI-only og har ingen MCP-pendant. Uden `--apply yes` er den en read-only schema-preflight.
+`system migrate --company <slug|path> [--apply yes]` er bevidst CLI-only og har ingen MCP-pendant. Uden `--apply yes` er den en read-only schema-preflight; `--apply` accepterer kun den eksakte værdi `yes` og kræver en allowlistet actor.
 | `tax_return_prepare` | `report tax` | `{ company, from, to }` | Forbereder selskabets skattepligtige indkomst (oplysningsskema) for et lukket regnskabsår: årets resultat + deterministiske skattemæssige reguleringer + 22% selskabsskat (kun ApS). Ikke-deterministiske poster markeres som needs-review. |
 | `vat_eu_sales_list` | `vat eu-sales-list` | `{ company, from, to }` | EU-salg uden moms-liste (VIES recapitulative statement): værdien af grænseoverskridende B2B-salg uden dansk moms grupperet pr. køber-VAT-nummer. |
 | `vat_oss_report` | `vat oss-report` | `{ company, from, to }` | OSS-rapportskelet (One Stop Shop, første slice): grundlaget for digitale ydelser solgt til EU-forbrugere. Ikke en OSS-indberetning til SKAT. |

@@ -11,7 +11,8 @@ import { z } from "zod";
 import { existsSync } from "node:fs";
 import { companyPaths } from "../../../core/paths";
 import { inspectLedger } from "../../../core/ledger-inspection";
-import { envelopeShape, errorEnvelope, successEnvelope } from "../../envelope";
+import { envelopeShape, errorEnvelope, errorEnvelopeWithData, successEnvelope } from "../../envelope";
+import { redactPaths, resolveCompanyArg } from "../../tool-runtime";
 
 export function registerSystemHealthcheckTools(server: McpServer): void {
   server.registerTool(
@@ -41,7 +42,12 @@ export function registerSystemHealthcheckTools(server: McpServer): void {
           structuredContent: env,
         };
       }
-      const p = companyPaths(company);
+      const resolution = resolveCompanyArg(company);
+      if (!resolution.ok) {
+        const env = errorEnvelope(redactPaths(resolution.error));
+        return { content: [{ type: "text" as const, text: JSON.stringify(env) }], isError: true, structuredContent: env };
+      }
+      const p = companyPaths(resolution.companyRoot);
       const checks: Array<{ name: string; ok: boolean }> = [
         { name: "company_root", ok: existsSync(p.root) },
         { name: "data_dir", ok: existsSync(p.data) },
@@ -56,8 +62,11 @@ export function registerSystemHealthcheckTools(server: McpServer): void {
       if (inspection && inspection.status !== "current") missing.push("schema");
       const env =
         missing.length === 0
-          ? successEnvelope({ ok: true, missing: [], checks, schema: inspection })
-          : { ...errorEnvelope(missing.map((m) => m === "schema" ? `schema_${inspection?.status}: current=${inspection?.currentVersion} required=${inspection?.requiredVersion}` : `missing: ${m}`)), data: { ok: false, missing, checks, schema: inspection } };
+          ? successEnvelope({ missing: [], checks, schema_outdated: false, schema: inspection })
+          : errorEnvelopeWithData(
+              missing.map((m) => m === "schema" ? `schema_${inspection?.status}: current=${inspection?.currentVersion} required=${inspection?.requiredVersion}` : `missing: ${m}`),
+              { missing, checks, schema_outdated: inspection?.status === "pending", schema: inspection },
+            );
       return {
         content: [{ type: "text" as const, text: JSON.stringify(env) }],
         isError: !env.ok,

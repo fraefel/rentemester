@@ -29,6 +29,7 @@ import {
 import {
   envelopeToCallResult,
   errorEnvelope,
+  errorEnvelopeWithData,
   type Envelope,
 } from "./envelope";
 import { deriveMcpActor, type McpActor } from "./actor";
@@ -301,7 +302,12 @@ export function withCompanyReadOnlyDb<TArgs extends { company: string }>(
     try {
       db = openLedgerReadOnly(companyPaths(resolved.companyRoot).db);
       const schema = inspectOpenLedger(db);
-      if (schema.status !== "current") return envelopeToCallResult(errorEnvelope(`schema_${schema.status}: current=${schema.currentVersion} required=${schema.requiredVersion}`, { schema }));
+      if (schema.status !== "current") {
+        return envelopeToCallResult(errorEnvelopeWithData(
+          `schema_${schema.status}: current=${schema.currentVersion} required=${schema.requiredVersion}`,
+          { schema },
+        ));
+      }
       return envelopeToCallResult(await handler({ db, args: { ...args, company: resolved.companyRoot } }));
     } catch (error) {
       return envelopeToCallResult(safeErrorEnvelope("withCompanyReadOnlyDb", error instanceof Error ? error.message : String(error)));

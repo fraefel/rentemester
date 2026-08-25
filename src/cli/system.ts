@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { migrate } from "../core/db";
 import { insertAuditLog } from "../core/actor";
-import { inspectLedger } from "../core/ledger-inspection";
+import { inspectLedger, inspectOpenLedger, type LedgerInspection } from "../core/ledger-inspection";
 import { companyPaths } from "../core/paths";
 import {
   createSystemBackup,
@@ -52,6 +52,15 @@ function resolveActorId(ctx: CommandContext): string | undefined {
     ctx.inferredMutationActor() ??
     undefined
   );
+}
+
+function inspectionError(
+  inspection: Exclude<LedgerInspection, { status: "current" }>,
+): string {
+  if (inspection.status === "pending") {
+    return `schema_outdated: current=${inspection.currentVersion} required=${inspection.requiredVersion}`;
+  }
+  return inspection.error;
 }
 
 // A placement record names who placed the backup (a human pressing the
@@ -106,32 +115,57 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
     const p = companyPaths(ctx.companyRoot());
     const before = inspectLedger(p.db);
     if (apply === undefined) {
-      ctx.emitResult(before.status === "pending"
-        ? { ok: false, errors: [`schema_outdated: current=${before.currentVersion} required=${before.requiredVersion}`], schema: before }
-        : { ok: before.status === "current", errors: before.status === "current" ? [] : [before.error], schema: before });
+      if (before.status === "pending") {
+        ctx.emitResult({ ok: false, errors: [`schema_outdated: current=${before.currentVersion} required=${before.requiredVersion}`], schema: before });
+      } else if (before.status === "current") {
+        ctx.emitResult({ ok: true, errors: [], schema: before });
+      } else {
+        ctx.emitResult({ ok: false, errors: [inspectionError(before)], schema: before });
+      }
       if (before.status !== "current") process.exit(1);
       return;
     }
     if (before.status !== "pending") {
-      ctx.emitResult(before.status === "current" ? { ok: true, migrated: false, schema: before } : { ok: false, errors: [before.error], schema: before });
+      if (before.status === "current") ctx.emitResult({ ok: true, migrated: false, schema: before });
+      else ctx.emitResult({ ok: false, errors: [inspectionError(before)], schema: before });
       if (before.status !== "current") process.exit(1);
       return;
     }
+    const actor = ctx.cliActor ?? ctx.inferredMutationActor();
+    if (!actor) ctx.fatal("actor required for mutations");
     const db = openCommandDb(ctx);
     try {
-      const from = before.currentVersion;
+      let outcome: { ok: true; migrated: boolean; from: number; schema: LedgerInspection } | { ok: false; schema: LedgerInspection; error: string } | undefined;
       db.transaction(() => {
+        const locked = inspectOpenLedger(db);
+        if (locked.status === "current") {
+          outcome = { ok: true, migrated: false, from: locked.currentVersion, schema: locked };
+          return;
+        }
+        if (locked.status !== "pending") {
+          outcome = { ok: false, schema: locked, error: inspectionError(locked) };
+          return;
+        }
+        const from = locked.currentVersion;
         migrate(db);
+        const after = inspectOpenLedger(db);
+        if (after.status !== "current") {
+          throw new Error(`schema migration did not reach current state: ${inspectionError(after)}`);
+        }
         insertAuditLog(db, {
           eventType: "schema_migrated", entityType: "schema", entityId: String(from),
-          message: `Schema migrated from ${from} to ${before.requiredVersion}`,
-          createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined,
+          message: `Schema migrated from ${from} to ${after.currentVersion}`,
+          createdBy: actor,
           createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
         });
+        outcome = { ok: true, migrated: true, from, schema: after };
       }).immediate();
-      const after = inspectLedger(p.db);
-      ctx.emitResult(after.status === "current" ? { ok: true, migrated: true, from, to: after.currentVersion, schema: after } : { ok: false, errors: [after.error ?? "schema verification failed"], schema: after });
-      if (after.status !== "current") process.exit(1);
+      if (!outcome) throw new Error("schema migration transaction completed without an outcome");
+      if (!outcome.ok) {
+        ctx.emitResult({ ok: false, errors: [outcome.error], schema: outcome.schema });
+        process.exit(1);
+      }
+      ctx.emitResult({ ok: true, migrated: outcome.migrated, from: outcome.from, to: outcome.schema.currentVersion, schema: outcome.schema });
     } finally {
       db.close();
     }

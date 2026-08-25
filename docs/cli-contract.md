@@ -93,7 +93,12 @@ for den tabel der pr. business-operation viser hvilke stakke der kræver hvad.
 | `efaktura konfigurer` / `onboard` / `registrer*` | Gemmer secret eller ændrer ekstern DigiSense/NemHandel-registrering | Exit `1`; ingen secret/state/netværksmutation udføres. |
 | `efaktura modtag` / `modtag-workspace` | Henter og indlæser eksterne bilag i én eller flere ledgers | Exit `1`; workspace-varianten preflighter actor og backup-lås for alle aktive mål før første netværkskald. |
 | `expense vat-preflight --apply yes` | Henter nødvendig EU-VAT-evidens før købspostering | Kræver actor; uden `--apply` er samme kommando en ikke-mutérende dry-run. |
-| `system migrate --apply yes` | Anvender ventende, checksummede ledger-migreringer | CLI-only; kræver actor. Uden `--apply` er kommandoen en strikt read-only preflight. |
+| `system migrate --apply yes` | Anvender ventende, checksummede ledger-migreringer | CLI-only; kræver actor. Uden `--apply` er kommandoen en strikt read-only preflight. Under apply tages én IMMEDIATE-lås, status genlæses i låsen, og én `schema_migrated`-audit-hændelse med actor skrives atomisk med migreringen. |
+
+`system healthcheck` er altid read-only. Med `--json` eller `--format json`
+udskrives én stabil JSON-resultatlinje med `checks`, `missing` og `schema`.
+En ventende schema returnerer exit 1 og `schema_outdated`; `schema` indeholder
+`currentVersion`, `requiredVersion` og de ventende migrationsidentiteter.
 | `invoice transmit-digisense` / `efaktura leveringsstatus` | Leverer én e-faktura eller observerer eksisterende queued levering | Exit `1`; en queued identitet må kun status-poll'es og må aldrig blindt leveres igen. |
 | `workspace-access bootstrap-first` | Opretter første hosted workspace-identitet | Exit `1`; password-fil og database læses ikke før eksakt `--confirm yes`. |
 

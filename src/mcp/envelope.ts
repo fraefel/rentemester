@@ -8,7 +8,8 @@
  *
  * Reglerne (jf. docs/mcp-tool-surface.md):
  *  - `ok=true` ⇒ `data` er sat, `errors` er tom array
- *  - `ok=false` ⇒ `errors` er ikke-tom array af strings, `data` udelades
+ *  - `ok=false` ⇒ `errors` er ikke-tom array af strings; `data` udelades
+ *    normalt, men kan indeholde sikre diagnostiske felter (fx schema-status)
  *  - `appliedRules` listes altid for bogførings-tools (sporbarhed)
  */
 
@@ -31,7 +32,7 @@ export type Envelope<TData = Record<string, unknown>> = {
 };
 
 /**
- * Delt `outputSchema` for ALLE 81 MCP-tools (#202).
+ * Delt `outputSchema` for ALLE 127 MCP-tools (#202).
  *
  * Hver tool returnerer den samme `Envelope`-wrapper. Ved at deklarere
  * den som tool'ets `outputSchema` bliver wrapper-kontrakten
@@ -182,6 +183,15 @@ export function errorEnvelope(
   };
   if (options?.code) envelope.code = options.code;
   return envelope;
+}
+
+/** Add caller-safe diagnostic data to an error without overloading options. */
+export function errorEnvelopeWithData<TData extends Record<string, unknown>>(
+  errors: string[] | string,
+  data: TData,
+  options?: { code?: string },
+): Envelope<TData> {
+  return { ...errorEnvelope(errors, options), data };
 }
 
 /**

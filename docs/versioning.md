@@ -80,5 +80,11 @@ MCP-klienter bruger `meta_about`. Health/MCP viser produktversion, commit,
 buildtid, schema-version/baseline-checksum og `rules.digest`. Lokale source-runs
 har med vilje `null` for commit og buildtid; officielle images har begge dele.
 
+Schema-kompatibilitet kontrolleres uden mutation af `system healthcheck`,
+`system_healthcheck` og `/api/ready`. `/api/health` er alene liveness og
+forbliver derfor 200, selv når readiness afviser en ventende eller korrupt
+registreret ledger. Kun den actor-gatede CLI-kommando `system migrate --apply
+yes` må opgradere schemaet; MCP har med vilje ingen migrations-tool.
+
 Backups, myndighedspakker og SAF-T-pakker har `manifestVersion: 2` og samme
 `provenance`-blok. Ældre backupmanifests uden feltet læses fortsat som v1.

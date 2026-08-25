@@ -7,13 +7,14 @@ betalings- og årsregnskabsret. Denne fil dækker det modsatte:
 
 Det vigtige er, at en bruger ikke skal antage at Rentemester også
 løser fx løn, hvidvask-overvågning eller selskabsregistrering. For
-nogle af disse fravalg er der en konkret anden løsning. For andre er
-fravalget en aktiv arkitektur-beslutning (fx at forblive
-ikke-registreret bogføringssystem).
+nogle af disse fravalg er der en konkret anden løsning. Rentemester Hosted er
+fra 24. august 2026 under klargøring som registreret
+standardbogføringssystem. Rentemester Lokal og vilkårligt ændrede self-hosted
+installationer forbliver uden for den registrerede produktgrænse.
 
 Indeks:
 
-- [§ 1. Det største fravalg: ikke-registreret bogføringssystem](#1-det-største-fravalg-ikke-registreret-bogføringssystem)
+- [§ 1. Registreringsgrænsen: Hosted registreres, Lokal gør ikke](#1-registreringsgrænsen-hosted-registreres-lokal-gør-ikke)
 - [§ 2. Løn, skat og personalia](#2-løn-skat-og-personalia)
 - [§ 3. Selskabsret og virksomhedsadministration](#3-selskabsret-og-virksomhedsadministration)
 - [§ 4. Hvidvask, finansiel regulering og overvågning](#4-hvidvask-finansiel-regulering-og-overvågning)
@@ -26,7 +27,7 @@ Indeks:
 
 ---
 
-## 1. Det største fravalg: ikke-registreret bogføringssystem
+## 1. Registreringsgrænsen: Hosted registreres, Lokal gør ikke
 
 **Bogføringslovens § 15-16** beskriver et **registreret** digitalt
 bogføringssystem — typisk en kommerciel SaaS-leverandør (Dinero, Billy,
@@ -34,7 +35,10 @@ e-conomic) der har gennemgået Erhvervsstyrelsens registreringsproces og
 overholder en strammere bekendtgørelse ([BEK 97/2023 om digitale
 standardbogføringssystemer](https://www.retsinformation.dk/eli/lta/2023/97)).
 
-**Rentemester er bevidst ikke-registreret.** Det er forankret i:
+Den historiske baseline var et bevidst ikke-registreret system. Den er stadig
+relevant for Rentemester Lokal og self-hosted installationer, men er ikke
+længere produktmålet for Rentemester Hosted. Den tidligere baseline er
+forankret i:
 
 - [`sources/legal-sources.json`](../../sources/legal-sources.json) hvor
   `DK-DIGITAL-BOGFORING-NONREGISTERED-2024-205` står som den primære
@@ -52,9 +56,17 @@ standardbogføringssystemer](https://www.retsinformation.dk/eli/lta/2023/97)).
 | Krav til vendor (udbyderen) | Ingen — du er din egen vendor | Skarpe BEK 97/2023-krav |
 | Egnet til | Egen bogføring + agent-drift | Bogføring som ydelse til andre |
 
-Vil Rentemester en dag drives som registreret system, skal hele
-compliance-profilen revurderes. Indtil da: ikke-registreret er den
-aktive klasse, og det er det compliance-matricen er bygget på.
+Den aktive beslutning er nu:
+
+- **Rentemester Hosted** klargøres som provider-kontrolleret, cloudbaseret og
+  versionsfast registreret standardbogføringssystem.
+- **Rentemester Lokal** og vilkårligt ændrede self-hosted builds behandles
+  fortsat som ikke-registrerede løsninger.
+
+Den offentlige tekniske grænse mellem de to profiler vedligeholdes i
+[`docs/deployment-modes.md`](../deployment-modes.md). Formuleringen
+"klargøres" er bevidst: Rentemester Hosted må ikke beskrives som registreret,
+før registreringsprocessen faktisk er gennemført.
 
 ## 2. Løn, skat og personalia
 

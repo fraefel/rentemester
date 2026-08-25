@@ -1,3 +1,11 @@
+## Artefaktformat
+
+Brug kun flade filer som projekt- og arbejdsleverancer. Opret ikke Excel-,
+Word- eller andre Office-filer (`.xlsx`, `.xls`, `.docx`, `.doc`), medmindre
+brugeren udtrykkeligt beder om det i den konkrete opgave. Brug i stedet fx
+Markdown, YAML, JSON, JSONL, CSV, HTML eller OKF. Tabulær viden bør som
+udgangspunkt være CSV/JSONL med en menneskelæselig Markdown- eller HTML-visning.
+
 ## CLI-kontrakt for agenter
 
 Før du kalder `rentemester`-CLI'en muterende, læs `docs/cli-contract.md`. Kort:

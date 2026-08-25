@@ -249,7 +249,7 @@ jobs:
           set -euo pipefail
           image="$REGISTRY_IMAGE@$IMAGE_DIGEST"
           docker buildx imagetools inspect "$image" --format '{{ json .SBOM }}' > sbom.spdx.json
-          bun -e 'const value=await Bun.file("sbom.spdx.json").json(); if(!value || typeof value!=="object" || Array.isArray(value)) throw new Error("published image has no object SBOM"); await Bun.write("sbom.spdx.json", `${JSON.stringify(value)}\n`)'
+          bun -e 'const value=await Bun.file("sbom.spdx.json").json(); if(!value || typeof value!=="object" || Array.isArray(value)) throw new Error("published image has no object SBOM"); const sbom=value.SPDX??value; if(!sbom || typeof sbom!=="object" || Array.isArray(sbom)) throw new Error("published image has no SPDX document"); await Bun.write("sbom.spdx.json", `${JSON.stringify(sbom)}\n`)'
           bun -e 'const sbom=await Bun.file("sbom.spdx.json").json(); const packages=Array.isArray(sbom.packages)?sbom.packages:[]; if(!packages.some(p=>p?.name==="pdfjs-dist"&&String(p?.versionInfo??"")==="6.2.108")) throw new Error("SBOM must contain pdfjs-dist@6.2.108")'
           sha256sum sbom.spdx.json > sbom.spdx.json.sha256
           echo "sha256=sha256:$(cut -d " " -f 1 sbom.spdx.json.sha256)" >> "$GITHUB_OUTPUT"

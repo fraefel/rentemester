@@ -159,6 +159,7 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain("documents ingest example invalid");
     expect(candidate).toContain("SPDX SBOM");
     expect(candidate).toContain("Extract digest-bound SPDX SBOM evidence");
+    expect(candidate).toContain("const sbom=value.SPDX??value");
     expect(candidate).toContain("sbom.spdx.json.sha256");
     expect(candidate).toContain("SBOM must contain pdfjs-dist@6.2.108");
   });

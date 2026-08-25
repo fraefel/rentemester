@@ -81,6 +81,25 @@ describe("database trigger restoration", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("migrate leaves a missing current view missing for explicit repair", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-view-missing-"));
+    const db = openDb(join(root, "ledger.sqlite"));
+    migrate(db);
+    db.exec("DROP VIEW invoice_interest_correction_authorized_claims;");
+    migrate(db);
+    expect(db.query("SELECT 1 FROM sqlite_master WHERE type='view' AND name='invoice_interest_correction_authorized_claims'").get()).toBeNull();
+    db.close(); rmSync(root, { recursive: true, force: true });
+  });
+
+  test("migrate restores all v17 append-only guards", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-pdf-guard-"));
+    const db = openDb(join(root, "ledger.sqlite")); migrate(db);
+    for (const name of ["document_pdf_parse_attempts_no_update", "document_pdf_parse_results_no_delete", "document_pdf_parse_pages_no_update"]) db.exec(`DROP TRIGGER ${name}`);
+    migrate(db);
+    for (const name of ["document_pdf_parse_attempts_no_update", "document_pdf_parse_results_no_delete", "document_pdf_parse_pages_no_update"]) expect(db.query("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(name)).not.toBeNull();
+    db.close(); rmSync(root, { recursive: true, force: true });
+  });
+
   test("migrate restores triggers but leaves view repair to the explicit command", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-claim-guard-restore-"));
     const db = openDb(join(root, "ledger.sqlite"));

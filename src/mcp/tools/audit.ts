@@ -110,7 +110,7 @@ export function registerAuditTools(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    withCompanyDb<{
+    withCompanyReadOnlyDb<{
       company: string;
       fromDate?: string;
       toDate?: string;
@@ -118,7 +118,7 @@ export function registerAuditTools(server: McpServer): void {
       actorLike?: string;
       limit?: number;
       offset?: number;
-    }>(server, ({ db, args }) => {
+    }>(({ db, args }) => {
       const result = listAuditLog(db, {
         fromDate: args.fromDate,
         toDate: args.toDate,

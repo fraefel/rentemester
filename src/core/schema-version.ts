@@ -339,6 +339,16 @@ export function readSchemaMigrations(db: Database): MigrationRow[] {
     .all() as MigrationRow[];
 }
 
+/** True only for a complete, checksummed ledger known by this runtime. */
+export function schemaHistoryIsCurrent(db: Database): boolean {
+  if (!tableExists(db) || !migrationColumns(db).has("checksum")) return false;
+  try {
+    const rows = readSchemaMigrations(db);
+    validateSchemaMigrationHistory(rows);
+    return rows.length === CURRENT_SCHEMA_VERSION;
+  } catch { return false; }
+}
+
 /** Apply migrations after the immutable v1 normalization has completed. */
 export function applySchemaMigrations(db: Database): void {
   const build = getBuildIdentity();
@@ -578,6 +588,11 @@ export function applySchemaMigrations(db: Database): void {
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 14").get()) {
     const parsed = JSON.parse(INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 17").get()) {
+    const parsed = JSON.parse(DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }

@@ -1,7 +1,7 @@
 // Document list, file serve, and booking-options read handlers.
 
 import { purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
-import { createHash } from "node:crypto";
+import { readVerifiedPdfParse } from "../../core/document-pdf-parser";
 import { migrate, openDb } from "../../core/db";
 import { inspectOpenLedger, openLedgerReadOnly } from "../../core/ledger-inspection";
 import { companyPaths } from "../../core/paths";
@@ -75,15 +75,13 @@ export type DocumentPdfParseStatusDto = {
   contractVersion: string; status: string; errorCode: string | null; pageCount: number;
   itemCount: number; textLength: number; resultHash: string;
 };
-const layoutHash = (layoutJson: string) => createHash("sha256").update(layoutJson).digest("hex");
 export function documentPdfParseStatus(db: any, documentId: number): DocumentPdfParseStatusDto | null {
-  const row = db.query(`SELECT document_id AS documentId, source_sha256_hash AS sourceSha256, parser_id AS parserId, parser_version AS parserVersion, contract_version AS contractVersion, status, error_code AS errorCode, page_count AS pageCount, item_count AS itemCount, text_length AS textLength, result_sha256_hash AS resultHash FROM document_pdf_parse_results WHERE document_id=? ORDER BY id DESC LIMIT 1`).get(documentId) as DocumentPdfParseStatusDto | null;
-  return row ?? null;
+  return readVerifiedPdfParse(db, documentId)?.parse ?? null;
 }
 export function documentPdfParsedText(db: any, documentId: number, offset = 0, limit = 10) {
-  const parse = documentPdfParseStatus(db, documentId);
-  if (!parse) return { parse: null, pages: [], offset, limit, nextOffset: null };
-  const pages = db.query(`SELECT p.page_number AS pageNumber, p.width, p.height, p.rotation, p.text, p.item_count AS itemCount, p.layout_json AS layoutJson FROM document_pdf_parse_pages p JOIN document_pdf_parse_results r ON r.id=p.result_id WHERE r.document_id=? AND r.result_sha256_hash=? ORDER BY p.page_number LIMIT ? OFFSET ?`).all(documentId, parse.resultHash, limit, offset).map((row: any) => ({ pageNumber: row.pageNumber, width: row.width, height: row.height, rotation: row.rotation, text: row.text, itemCount: row.itemCount, layoutHash: layoutHash(row.layoutJson) }));
+  const verified=readVerifiedPdfParse(db, documentId); const parse=verified?.parse ?? null;
+  if (!verified) return { parse, pages: [], offset, limit, nextOffset: null };
+  const pages=verified.pages.slice(offset,offset+limit);
   return { parse, pages, offset, limit, nextOffset: pages.length === limit ? offset + limit : null };
 }
 function openVerifiedRead(config: ServerConfig, slug: string) {

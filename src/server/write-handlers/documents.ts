@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { applyPurchaseVatPreflight } from "../../cli/purchase-vat-preflight";
-import { parseRegisteredPdfBatch, parseRegisteredPdfDocument } from "../../core/document-pdf-parser";
+import { parseRegisteredPdfBatch, parseRegisteredPdfDocument, planCurrentPdfParses } from "../../core/document-pdf-parser";
 import { type DocumentMetadata, ingestDocumentAsync } from "../../core/documents";
 import {
   bookExpenseFromBank,
@@ -51,10 +51,11 @@ export async function handleDocumentPdfParse(config: ServerConfig, request: Requ
 export async function handleDocumentPdfParsePending(config: ServerConfig, request: Request, slug: string): Promise<Response> {
   const result = await withCompanyMutation(request, config, slug, async ({ db, actor, companyRoot }, body) => {
     const limit = body.limit === undefined ? 100 : Number(body.limit); if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw ApiError.badRequest("limit must be an integer between 1 and 100");
-    const ids = (db.query(`SELECT d.id FROM documents d WHERE d.mime_type='application/pdf' AND d.stored_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM document_pdf_parse_results p WHERE p.document_id=d.id) ORDER BY d.id LIMIT ?`).all(limit) as Array<{ id: number }>).map((row) => row.id);
-    const parses = await parseRegisteredPdfBatch(db, companyRoot, ids, { createdBy: actor.createdBy, createdByProgram: actor.createdByProgram });
+    const cursor = body.cursor === undefined ? 0 : Number(body.cursor); if (!Number.isInteger(cursor) || cursor < 0) throw ApiError.badRequest("cursor must be a non-negative integer");
+    const plan=planCurrentPdfParses(db,{limit,cursor});
+    const parses = await parseRegisteredPdfBatch(db, companyRoot, plan.documentIds, { createdBy: actor.createdBy, createdByProgram: actor.createdByProgram });
     const failed = parses.filter((entry: any) => !entry.ok);
-    return { ok: true, batch: { requested: ids.length, parsed: parses.length - failed.length, failed: failed.length, resume: failed.length ? { documentIds: failed.map((entry: any) => entry.documentId) } : null } };
+    return { ok: true, batch: { requested: plan.documentIds.length, parsed: parses.length - failed.length, failed: failed.length, cursor:plan.cursor, nextCursor:plan.nextCursor, resume: failed.length ? { documentIds: failed.map((entry: any) => entry.documentId) } : null } };
   }, { requireConfirm: true });
   return okResponse({ batch: result.batch });
 }

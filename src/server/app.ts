@@ -14,6 +14,7 @@ import { createHttpJsonV1AuthEmailSender } from "./auth-email";
 import { handleRequest } from "./router";
 import { observeRequest } from "./observability";
 import { createHttpJsonV1DocumentScanner } from "./document-scanner";
+import { resolveConfiguredInvoiceExtractor } from "./invoice-extractor";
 
 /** The concrete `Bun.serve` return type, without needing its generic param. */
 type BunServer = ReturnType<typeof Bun.serve>;
@@ -35,6 +36,9 @@ export type CockpitServer = {
 export function startCockpitServer(config: ServerConfig): CockpitServer {
   let authRuntime: WorkspaceBetterAuthRuntime | undefined;
   let runtimeConfig = config;
+  // The provider is opt-in for every deployment profile. Configuration errors
+  // stop startup; credentials are retained only in this runtime object.
+  if (!runtimeConfig.invoiceExtractor) runtimeConfig = { ...runtimeConfig, invoiceExtractor: resolveConfiguredInvoiceExtractor() ?? undefined };
   const deploymentProfile = config.deploymentProfile ?? "local";
   if (deploymentProfile === "hosted") {
     if (!config.hostedBetterAuth) {
@@ -54,7 +58,7 @@ export function startCockpitServer(config: ServerConfig): CockpitServer {
     });
     const scanning = config.hostedDocumentScanning;
     runtimeConfig = {
-      ...config,
+      ...runtimeConfig,
       authRequired: true,
       betterAuthProvider: createBetterAuthRequestProvider(authRuntime.auth),
       documentScannerPolicy: scanning?.policy ?? "off",

@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 118 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 127 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -120,7 +120,7 @@ Konvolutten (`structuredContent` på et `tools/call`-svar):
 den konkrete feltliste i `data` varierer pr. tool, og MCP-SDK'en validerer
 kun `structuredContent` mod schemaet for *succes*-svar (`isError:false`) —
 fejl-envelopes springes over. De per-tool `data`-felter er ikke hånd-typet
-118 gange; de er dokumenteret nedenfor og i tool-brief'ene.
+120 gange; de er dokumenteret nedenfor og i tool-brief'ene.
 
 ### Cross-cutting preconditions (envelope-`code`)
 
@@ -223,19 +223,20 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
-- **Read-tools**: 50
-- **Ordinary write-tools**: 66
+- **Read-tools**: 51
+- **Ordinary write-tools**: 68
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **118** (50 read, 67 ordinary write, 1 destructive)
+- **Total**: **127** (53 read, 73 ordinary write, 1 destructive)
 
 ## Read-tools
 
-50 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
+51 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
 frit og parallelt.
 
 | Tool | CLI-ækvivalent | Input | Brief |
 |---|---|---|---|
 | `accounts_list` | `accounts list` | `{ company }` | Lister kontoplanen. |
+| `expense_vat_preflight` | `expense vat-preflight` | `{ company, documentId }` | Ren dry-run: afledt region, krævet validering, cache-friskhed, sikker evidens/exception og om apply ville kalde provider. |
 | `accounts_roles_status` | `accounts roles-status` | `{ company }` | Viser bekræftede kontoroller, importforslag, tvetydigheder og den read-only posting-resolution. |
 | `accrual_register_report` | `accrual register-report` | `{ company }` | Register af periodeafgrænsningsposter med bogførte perioder, periodiseret beløb og resterende balanceeksponering. |
 | `asset_register_report` | `asset register-report` | `{ company }` | Aktivregister med akkumulerede afskrivninger og bogført værdi. |
@@ -375,6 +376,7 @@ modpostering.
 | `asset_write_off` | `asset write-off` | `{ company, name, category, acquisitionDate, cost, documentId, expenseAccount, date, thresholdRuleSource, confirmImmediateWriteOff, paymentAccount?, note?, confirm }` | Bogfører straksafskrivning af et mindre aktiv. |
 | `company_add` | `company add` | `{ workspace?, name, slug?, cvr?, fiscalYearStartMonth?, fiscalYearLabelStrategy?, confirm }` | Opretter en ny virksomhed under `<workspace>/<slug>/` og initialiserer ledgeren. Som ethvert write-tool kræver det `confirm: true` — uden flaget returneres `{ ok:false, errors:["confirm: true required for write tool company_add"] }` uden at noget oprettes. Udelades `workspace`, bruges miljøvariablen `RENTEMESTER_WORKSPACE` på MCP-serverens host; er den heller ikke sat, afvises kaldet med `no workspace given: pass 'workspace' or set RENTEMESTER_WORKSPACE`. **Ikke idempotent (`idempotentHint: false`):** et gentaget kald med samme `name`/`slug` *afvises* — det overskriver ALDRIG en eksisterende virksomhed. Findes der allerede en ledger på `<workspace>/<slug>/` fejler kaldet med `a company already exists at <sti>`, og et slug der allerede står i workspace-manifestet afvises ligeledes med en `ok:false`-envelope. For at oprette endnu en virksomhed med samme navn skal et nyt, unikt `slug` angives eksplicit. |
 | `expense_book` | `expense book` | `{ company, documentId, bankTransactionId, expenseAccount, vatTreatment?, paymentAccount?, date?, text?, confirm }` | Bogfører leverandørudgift fra bilag + bankpost. |
+| `expense_vat_preflight_apply` | `expense vat-preflight --apply` | `{ company, documentId, confirm }` | Actor-attribueret EU-VAT-preflight; gemmer kun sikker evidens og en resumérbar exception ved blokering. |
 | `invoice_apply_payment` | `invoice apply-payment` | `{ company, payload: InvoicePaymentPayload, confirm }` | Registrerer fakturabetaling fra payload. Forudsætning: `invoice_post`. |
 | `invoice_claim_compensation` | `invoice claim-compensation` | `{ company, documentId? \| invoiceNumber?, asOf, amountDkk?, note?, confirm }` | Registrerer kompensationskrav. Forudsætning: `invoice_post` (fakturaen skal være bogført og forfalden). |
 | `invoice_claim_interest` | `invoice claim-interest` | `{ company, documentId? \| invoiceNumber?, asOf, referenceRate, note?, confirm }` | Registrerer morarentekrav. Forudsætning: `invoice_post` (fakturaen skal være bogført og forfalden). Et nyt krav opkræver kun renten for perioden siden sidste krav (inkrementelt — ingen dobbelt-opkrævning), så rente kan registreres ad flere omgange. |
@@ -642,6 +644,19 @@ og `tools/list`):
 - `src/cli/customer.ts` (tvilling: `src/mcp/tools/customer.ts`) —
   `customer cvr-lookup` har MCP-pendanten `cvr_lookup` (se MCP-only ovenfor);
   ingen kommandoer i filen er helt uden pendant, men navnene divergerer.
+
+**Nye domæne-tvillinger** — disse filer har direkte, men ikke nødvendigvis
+ord-for-ord, CLI/MCP-pendanter og er derfor hverken CLI-only eller MCP-only:
+
+- `src/cli/bookkeeping-batch.ts` ↔ `src/mcp/tools/bookkeeping-batch.ts` —
+  planlægning, godkendelse og anvendelse af en hash-bundet batch.
+- `src/cli/posting-rules.ts` ↔ `src/mcp/tools/posting-rules.ts` —
+  forslag, lifecycle og dry-run forklaring af virksomheds-lokale
+  konteringsregler.
+- `src/cli/purchase-vat-preflight.ts` ↔ `src/mcp/tools/expense.ts` —
+  `expense vat-preflight` og `expense_vat_preflight[_apply]`; MCP-værktøjet
+  ligger under expense-domænet, mens CLI-adapteren bevidst er en selvstændig
+  fil for at holde provider-I/O ude af posting-kernen.
 
 > **Andre kendte mikro-afvigelser (samme filnavn, divergent klassifikation
 > eller ergonomi):**

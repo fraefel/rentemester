@@ -11,6 +11,8 @@ import { bookExpenseFromBank } from "../../core/expense-booking";
 import { withActor } from "../actor";
 import { envelopeShape, wrapCoreResult } from "../envelope";
 import { withCompanyDbConfirmed, confirmField } from "../tool-runtime";
+import { withCompanyDb } from "../tool-runtime";
+import { applyPurchaseVatPreflight, purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
 
 const vatTreatmentEnum = z
   .enum(["standard", "reverse_charge", "representation", "exempt", "non_deductible"])
@@ -40,6 +42,27 @@ const vatTreatmentEnum = z
   );
 
 export function registerExpenseTools(server: McpServer): void {
+  server.registerTool(
+    "expense_vat_preflight",
+    {
+      title: "Inspect purchase VAT preflight",
+      description: "Read-only dry-run for a purchase document. Shows derived region, required validation, evidence freshness/cache reuse and whether apply would contact the VAT provider. It never writes or calls a provider.",
+      inputSchema: { company: z.string().min(1), documentId: z.number().int().positive() }, outputSchema: envelopeShape,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    withCompanyDb<{ company: string; documentId: number }>(server, ({ db, args }) => wrapCoreResult(purchaseVatPreflightSnapshot(db, args.documentId))),
+  );
+  server.registerTool(
+    "expense_vat_preflight_apply",
+    {
+      title: "Apply purchase VAT preflight",
+      description: "Obtains required EU VAT validation evidence before purchase posting. Requires confirm:true and actor attribution; records safe durable evidence and a resumable exception when blocked. write-reversible.",
+      inputSchema: { company: z.string().min(1), documentId: z.number().int().positive(), confirm: confirmField }, outputSchema: envelopeShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    withCompanyDbConfirmed<{ company: string; documentId: number; confirm?: boolean }>(server, "expense_vat_preflight_apply", async ({ db, actor, args }) => wrapCoreResult(await applyPurchaseVatPreflight(db, args.documentId, actor.createdBy))),
+  );
+
   server.registerTool(
     "expense_book",
     {

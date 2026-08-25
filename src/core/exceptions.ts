@@ -18,6 +18,8 @@ export type RecordExceptionInput = {
   requiredAction?: string | null;
   sourceEvidence?: unknown;
   postingPreview?: unknown;
+  /** Stable identity for a resumable machine-created exception. */
+  resolutionKey?: string | null;
 };
 
 export type ListExceptionsInput = {
@@ -68,11 +70,13 @@ export function recordException(db: Database, input: RecordExceptionInput) {
   const requiredAction = input.requiredAction?.trim() || null;
   const sourceEvidence = serializeJson(input.sourceEvidence);
   const postingPreview = serializeJson(input.postingPreview);
+  const resolutionKey = input.resolutionKey?.trim() || null;
 
   const existing = db.query(
     `SELECT id
      FROM exceptions
      WHERE status = 'open'
+       AND (resolution_key = ? OR (resolution_key IS NULL AND ? IS NULL))
        AND type = ?
        AND COALESCE(related_bank_transaction_id, 0) = COALESCE(?, 0)
        AND COALESCE(related_document_id, 0) = COALESCE(?, 0)
@@ -80,6 +84,8 @@ export function recordException(db: Database, input: RecordExceptionInput) {
        AND COALESCE(required_action, '') = COALESCE(?, '')
      LIMIT 1`
   ).get(
+    resolutionKey,
+    resolutionKey,
     input.type.trim(),
     input.relatedBankTransactionId ?? null,
     input.relatedDocumentId ?? null,
@@ -92,8 +98,8 @@ export function recordException(db: Database, input: RecordExceptionInput) {
   const row = db.query(
     `INSERT INTO exceptions (
       type, severity, status, related_bank_transaction_id, related_document_id,
-      message, required_action, source_evidence, posting_preview
-    ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?)
+      message, required_action, source_evidence, posting_preview, resolution_key
+    ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
     RETURNING id`
   ).get(
     input.type.trim(),
@@ -104,6 +110,7 @@ export function recordException(db: Database, input: RecordExceptionInput) {
     requiredAction,
     sourceEvidence,
     postingPreview,
+    resolutionKey,
   ) as { id: number };
 
   return { ok: true, exceptionId: row.id, duplicate: false, errors: [] };

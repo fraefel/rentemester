@@ -23,8 +23,10 @@ export function emptyVatRubric(): VatRubric {
  * charge belongs in C and foreign reverse charge in B.
  */
 export function projectVatRubric(report: VatPeriodReport): VatRubric {
-  const momsAfVarekobUdland = 0;
-  const momsAfYdelseskobUdland = report.reverseChargePurchaseOutputVat;
+  const momsAfVarekobUdland = report.euGoodsAcquisitionPurchaseBase > 0
+    ? report.euGoodsAcquisitionOutputVat
+    : 0;
+  const momsAfYdelseskobUdland = report.reverseChargePurchaseOutputVat - momsAfVarekobUdland;
   const salgsmoms = subtractDkk(report.outputVat, momsAfYdelseskobUdland);
   const kobsmoms = report.inputVat;
   return {
@@ -33,7 +35,7 @@ export function projectVatRubric(report: VatPeriodReport): VatRubric {
     momsAfYdelseskobUdland,
     kobsmoms,
     momstilsvar: subtractDkk(addDkk(salgsmoms, momsAfVarekobUdland, momsAfYdelseskobUdland), kobsmoms),
-    rubrikA: report.reverseChargePurchaseBase,
+    rubrikA: addDkk(report.reverseChargePurchaseBase, report.euGoodsAcquisitionPurchaseBase),
     rubrikB: report.foreignReverseChargeSalesBase,
     rubrikC: addDkk(report.exemptSalesBase, report.domesticReverseChargeSalesBase),
   };

@@ -29,3 +29,23 @@ aldrig til klienten eller de strukturerede request-logs.
 Rentemester giver scanneren en privat bytekopi og afbryder den efter den
 konfigurerede hårde deadline. Den kan derfor ikke ændre de bytes, der
 hashes, MIME-valideres igen og publiceres eksklusivt som originalt bilag.
+
+## Fakturaudtræk
+
+Automatisk fakturaudtræk er kun aktivt, når drift eksplicit konfigurerer en
+processor. Det er aldrig en lokal fallback og PDF-indtag kræver ikke, at
+brugeren genindtaster synlige felter. Valgfri metadata sammenholdes i stedet
+med det citerede udtræk og skaber en exception ved konflikt.
+
+```text
+RENTEMESTER_INVOICE_EXTRACTION_PROVIDER=http-json-v1
+RENTEMESTER_INVOICE_EXTRACTION_URL=https://processor.example/invoice-extract
+RENTEMESTER_INVOICE_EXTRACTION_BEARER_TOKEN=<deployment-secret>
+RENTEMESTER_INVOICE_EXTRACTION_TIMEOUT_MS=15000
+```
+
+`http-json-v1` modtager kun PDF-bytes og SHA-256 via TLS og returnerer citede
+felter (`value`, `confidence`, `page`, `sourceText`, valgfri `box`). Drift skal
+have en databehandleraftale, overførselshjemmel og retention-/adgangskontroller
+for udbyderen, før den aktiveres. URL'er, tokens, filstier og providerdiagnoser
+returneres aldrig af CLI, MCP eller cockpit.

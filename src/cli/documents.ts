@@ -6,6 +6,8 @@ import { recordException } from "../core/exceptions";
 import { resolveDocumentMasterData } from "../core/master-data";
 import { openCommandDb } from "../cli-dispatch";
 import { formatKroner } from "../cli-format";
+import { extractDocumentInvoice, invoiceExtractionSurface } from "../server/invoice-extraction-surface";
+import { resolveConfiguredInvoiceExtractor } from "../server/invoice-extractor";
 import type { CommandDispatch } from "../cli-dispatch";
 
 export function register(dispatch: CommandDispatch): void {
@@ -128,5 +130,23 @@ export function register(dispatch: CommandDispatch): void {
       console.log(`  Status: ${row.status ?? "—"}`);
     }
     db.close();
+  });
+
+  dispatch.on("documents", "extract-invoice", async (ctx) => {
+    const id = Number(ctx.arg("--document-id"));
+    if (!Number.isInteger(id) || id <= 0) ctx.fatal("Missing required --document-id <n>");
+    const extractor = resolveConfiguredInvoiceExtractor();
+    if (!extractor) { ctx.fatal("invoice extraction requires a configured production provider"); return; }
+    const db = openCommandDb(ctx); migrate(db);
+    try { await extractDocumentInvoice(db, id, extractor, ctx.cliActor ?? ctx.inferredMutationActor() ?? "system:invoice-extraction"); ctx.emitResult({ ok: true, extraction: invoiceExtractionSurface(db, id) }); }
+    catch (error) { ctx.emitResult({ ok: false, errors: [error instanceof Error && /^EXTRACTION_[A-Z_]+$/.test(error.message) ? error.message : "EXTRACTION_FAILED"] }); }
+    finally { db.close(); }
+  });
+
+  dispatch.on("documents", "invoice-extraction", (ctx) => {
+    const id = Number(ctx.arg("--document-id"));
+    if (!Number.isInteger(id) || id <= 0) ctx.fatal("Missing required --document-id <n>");
+    const db = openCommandDb(ctx); migrate(db);
+    try { ctx.emitResult({ ok: true, extraction: invoiceExtractionSurface(db, id) }); } finally { db.close(); }
   });
 }

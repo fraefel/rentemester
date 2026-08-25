@@ -25,6 +25,7 @@ export type {
   DocumentBookExpenseSummary,
   DocumentBookingOptions,
   DocumentBookingOptionsDocument,
+  DocumentVatPreflight,
   DocumentIngestInput,
   DocumentIngestMetadata,
   ExpenseAccountOption,
@@ -75,6 +76,8 @@ import { statementsApi } from "./api/statements";
 import { systemApi } from "./api/system";
 import { vatApi } from "./api/vat";
 import { workspaceApi } from "./api/workspace";
+import { postingRulesApi } from "./api/posting-rules";
+import { bookkeepingBatchApi } from "./api/bookkeeping-batch";
 
 // One method per key — the earlier legacy `closePeriod` / `reopenPeriod` /
 // `resolveException` duplicates (#UI-9) have been deleted, so no spread-order
@@ -107,4 +110,6 @@ export const api = {
   ...agentSuggestionsApi,
   ...groupApi,
   ...workspaceApi,
+  ...postingRulesApi,
+  ...bookkeepingBatchApi,
 };

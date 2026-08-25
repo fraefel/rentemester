@@ -25,7 +25,7 @@ export type ValidateVatResult = {
 
 const RULE_ID = "DK-VAT-REVERSE-CHARGE-001";
 const DEFAULT_TTL_DAYS = 90;
-const DEFAULT_VIES_ENDPOINT = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number";
+export const OFFICIAL_EU_VIES_BASE_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api";
 /**
  * SEC-5 (Audit 2026-06-11): default timeout for the outgoing VIES request.
  * Without a bound a hung endpoint would block validation indefinitely; on
@@ -166,16 +166,25 @@ export function requireCachedViesValidation(db: Database, vatOrCvr: string | nul
  * validity field (schema change, partial outage, error body) — the caller
  * must NOT treat such a response as authoritative.
  */
-function extractValidity(json: any): boolean | undefined {
-  for (const candidate of [json?.valid, json?.isValid, json?.result?.valid]) {
-    if (typeof candidate === "boolean") return candidate;
-  }
-  return undefined;
+function extractValidity(json: unknown): boolean | undefined {
+  if (!json || typeof json !== "object") return undefined;
+  const body = json as { isValid?: unknown; valid?: unknown };
+  const values = [body.isValid, body.valid].filter((candidate): candidate is boolean => typeof candidate === "boolean");
+  // A response with two disagreeing booleans is not an authoritative answer.
+  // Accepting either field preserves both the official REST payload and the
+  // established local/test adapter contract without weakening fail-closed I/O.
+  return values.length > 0 && values.every((value) => value === values[0]) ? values[0] : undefined;
 }
 
 type ParsedValidationResponse =
   | { ok: true; record: ViesValidationRecord }
   | { ok: false; error: string };
+
+function availableIdentityText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed && trimmed !== "---" ? trimmed : null;
+}
 
 function parseValidationResponse(json: any, parsed: NormalizedEuVat, validatedAt: string): ParsedValidationResponse {
   const valid = extractValidity(json);
@@ -184,8 +193,8 @@ function parseValidationResponse(json: any, parsed: NormalizedEuVat, validatedAt
     // invalid" — refuse to cache an ambiguous body.
     return { ok: false, error: `VIES response for ${parsed.normalized} did not contain a recognised boolean validity field` };
   }
-  const name = typeof (json?.name ?? json?.traderName ?? json?.result?.name) === "string" ? (json?.name ?? json?.traderName ?? json?.result?.name) : null;
-  const address = typeof (json?.address ?? json?.traderAddress ?? json?.result?.address) === "string" ? (json?.address ?? json?.traderAddress ?? json?.result?.address) : null;
+  const name = availableIdentityText(json?.name ?? json?.traderName ?? json?.result?.name);
+  const address = availableIdentityText(json?.address ?? json?.traderAddress ?? json?.result?.address);
   return {
     ok: true,
     record: {
@@ -200,52 +209,51 @@ function parseValidationResponse(json: any, parsed: NormalizedEuVat, validatedAt
   };
 }
 
+/** Injectable bounded adapter for the official EU VIES REST endpoint. */
+export function createOfficialEuViesProvider(options: { fetchImpl?: typeof fetch; timeoutMs?: number; baseUrl?: string; clock?: () => Date } = {}) {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_VIES_TIMEOUT_MS;
+  const baseUrl = (options.baseUrl ?? OFFICIAL_EU_VIES_BASE_URL).replace(/\/$/, "");
+  return {
+    async validate(input: NormalizedEuVat): Promise<{ status: "valid" | "invalid" | "inconclusive" | "unavailable"; name?: string | null; address?: string | null; rawResponse?: string | null }> {
+      // Path components are validated again at the network boundary. This
+      // avoids turning a malformed persisted identity into a request path.
+      if (!/^[A-Z]{2}$/.test(input.countryCode) || !/^[A-Z0-9]{2,14}$/.test(input.vatNumber) || input.normalized !== `${input.countryCode}${input.vatNumber}` || !EU_VAT_COUNTRY_CODES.has(input.countryCode)) {
+        return { status: "inconclusive", rawResponse: "invalid normalized VIES path parameters" };
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const requestedAt = (options.clock ?? (() => new Date()))().toISOString();
+      try {
+        const response = await fetchImpl(`${baseUrl}/ms/${encodeURIComponent(input.countryCode)}/vat/${encodeURIComponent(input.vatNumber)}`, { method: "GET", headers: { accept: "application/json" }, signal: controller.signal });
+        let body: any;
+        try { body = await response.json(); } catch { return { status: "inconclusive", rawResponse: JSON.stringify({ requestedAt, httpStatus: response.status, providerStatus: "malformed-json" }) }; }
+        const rawResponse = JSON.stringify({ requestedAt, resultAt: (options.clock ?? (() => new Date()))().toISOString(), httpStatus: response.status, providerStatus: body?.userError ?? body?.status ?? null, response: body });
+        if (!response.ok) return { status: "unavailable", rawResponse };
+        const validity = extractValidity(body);
+        // The official service can report `userError: VALID` alongside an
+        // authoritative isValid boolean. Keep that provider status in the
+        // raw evidence, but do not reject the actual validation result.
+        const providerStatus = typeof body?.userError === "string" ? body.userError.trim() : "";
+        if (validity === undefined || (providerStatus && providerStatus !== "VALID")) return { status: "inconclusive", rawResponse };
+        return { status: validity ? "valid" : "invalid", name: availableIdentityText(body.name), address: availableIdentityText(body.address), rawResponse };
+      } catch (error) {
+        const timedOut = controller.signal.aborted || (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"));
+        return { status: "unavailable", rawResponse: JSON.stringify({ requestedAt, resultAt: (options.clock ?? (() => new Date()))().toISOString(), providerStatus: timedOut ? "timeout" : "network-error" }) };
+      } finally { clearTimeout(timer); }
+    },
+  };
+}
+/** Backwards-friendly spelling for callers that use a provider noun. */
+export const officialEuViesProvider = createOfficialEuViesProvider;
+
 export async function validateVatAgainstVies(db: Database, vatOrCvr: string, options: { endpoint?: string; fetchImpl?: typeof fetch; timeoutMs?: number } = {}): Promise<ValidateVatResult> {
   const parsed = normalizeEuVatNumber(vatOrCvr);
   if (!parsed) return { ok: false, appliedRules: [RULE_ID], errors: ["cvr must be a plausible EU VAT number"] };
 
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const endpoint = options.endpoint ?? process.env.RENTEMESTER_VIES_ENDPOINT ?? DEFAULT_VIES_ENDPOINT;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_VIES_TIMEOUT_MS;
-  let response: Response;
-  try {
-    response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ countryCode: parsed.countryCode, vatNumber: parsed.vatNumber }),
-      // SEC-5: bound the request so a hung VIES endpoint cannot block forever.
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (error) {
-    const aborted =
-      error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-    return {
-      ok: false,
-      appliedRules: [RULE_ID],
-      errors: [
-        aborted
-          ? `VIES lookup timed out after ${timeoutMs} ms`
-          : `VIES lookup failed: ${error instanceof Error ? error.message : "network error"}`,
-      ],
-    };
-  }
-
-  if (!response.ok) {
-    return { ok: false, appliedRules: [RULE_ID], errors: [`VIES lookup failed with HTTP ${response.status}`] };
-  }
-
-  let json: unknown;
-  try {
-    json = await response.json();
-  } catch {
-    return { ok: false, appliedRules: [RULE_ID], errors: ["VIES returned a non-JSON response body"] };
-  }
-  const parsedResponse = parseValidationResponse(json, parsed, new Date().toISOString());
-  if (!parsedResponse.ok) {
-    // Ambiguous / error body — do NOT write to vies_validations so a later
-    // genuine lookup is not blocked for the full TTL window.
-    return { ok: false, appliedRules: [RULE_ID], errors: [parsedResponse.error] };
-  }
-  const stored = storeViesValidation(db, parsedResponse.record);
+  const provider = createOfficialEuViesProvider({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs, baseUrl: options.endpoint ?? process.env.RENTEMESTER_VIES_ENDPOINT });
+  const result = await provider.validate(parsed);
+  if (result.status !== "valid" && result.status !== "invalid") return { ok: false, appliedRules: [RULE_ID], errors: [`VIES lookup ${result.status}`] };
+  const stored = storeViesValidation(db, { ...parsed, valid: result.status === "valid", name: result.name, address: result.address, rawResponse: result.rawResponse });
   return { ok: true, validation: stored, appliedRules: [RULE_ID], errors: [] };
 }

@@ -2,6 +2,13 @@ import type { CommandSpec } from "./_shared";
 
 export const expenseSpecs: CommandSpec[] = [
   {
+    key: "expense vat-preflight",
+    usage: "expense vat-preflight --company <path> --document-id <n> [--apply]",
+    description: "Viser købsmoms-preflight uden sideeffekter; --apply henter kun nødvendig EU-VAT-evidens.",
+    allowedFlags: ["--company", "--document-id", "--apply"],
+    inputNotes: ["Uden --apply er kommandoen en ren dry-run: region, krævet validering, cache-friskhed og provider-kald vises.", "--apply kræver actor-attribution og gemmer kun sikker, resumérbar evidens."],
+  },
+  {
     key: "expense book",
     usage:
       "expense book --company <path> --document-id <n> --bank-transaction-id <n> --expense-account <konto> [--vat-treatment standard|reverse_charge|representation|exempt|non_deductible] [--payment-account <konto>] [--date <YYYY-MM-DD>] [--text <tekst>]",

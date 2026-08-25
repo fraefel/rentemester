@@ -99,6 +99,8 @@ import { register as registerBudget } from "./cli/budget";
 // ===== END BUDGET + LIQUIDITY FORECAST =====
 // ===== PAYABLES / KREDITORSTYRING =====
 import { register as registerPayable } from "./cli/payable";
+import { register as registerPostingRules } from "./cli/posting-rules";
+import { register as registerBookkeepingBatch } from "./cli/bookkeeping-batch";
 // ===== END PAYABLES / KREDITORSTYRING =====
 import {
   findWorkspaceCompany,
@@ -346,6 +348,8 @@ for (const registerFn of [
   // ===== END BUDGET + LIQUIDITY FORECAST =====
   // ===== PAYABLES / KREDITORSTYRING =====
   registerPayable,
+  registerPostingRules,
+  registerBookkeepingBatch,
   // ===== END PAYABLES / KREDITORSTYRING =====
 ]) {
   registerFn(dispatch);
@@ -367,7 +371,9 @@ if (!cmd || cmd === "help") {
   // command — never for `help` / `--help`, which neither read nor write
   // company data. `restore-backup` writes to --target-company, not
   // --company, so resolve its policy root from that flag.
-  if (MUTATING_COMMANDS.has(commandKey)) {
+  // `expense vat-preflight` is read-only unless its explicit `--apply`
+  // switch is present. Only apply participates in actor and backup gates.
+  if (MUTATING_COMMANDS.has(commandKey) && !(commandKey === "expense vat-preflight" && !parsedArgs.flags.has("--apply"))) {
     const mutationRoot = commandKey === "system restore-backup"
       ? trimToNull(parsedArgs.flags.get("--target-company") as string | undefined)
       // The workspace handler performs an all-target actor + backup preflight

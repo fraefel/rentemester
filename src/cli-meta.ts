@@ -29,6 +29,8 @@ import { efakturaSpecs } from "./cli-meta/efaktura-specs";
 import { workspaceAccessSpecs } from "./cli-meta/workspace-access-specs";
 import { groupSpecs } from "./cli-meta/group-specs";
 import { workspaceSnapshotSpecs } from "./cli-meta/workspace-snapshot-specs";
+import { postingRulesSpecs } from "./cli-meta/posting-rules-specs";
+import { bookkeepingBatchSpecs } from "./cli-meta/bookkeeping-batch-specs";
 
 export type { CommandSpec } from "./cli-meta/_shared";
 export {
@@ -91,6 +93,8 @@ export const COMMAND_SPECS: CommandSpec[] = [
   ...workspaceAccessSpecs,
   ...workspaceSnapshotSpecs,
   ...groupSpecs,
+  ...postingRulesSpecs,
+  ...bookkeepingBatchSpecs,
 ];
 
 registerCommandSpecs(COMMAND_SPECS);

@@ -67,6 +67,19 @@ export const documentsApi = {
       `/api/companies/${encodeURIComponent(slug)}/documents/${documentId}/booking-options`,
     ).then((r) => r.options),
 
+  /** Read-only preflight: no provider call and no state change. */
+  documentVatPreflight: (slug: string, documentId: number) =>
+    request<{ ok: true; preflight: DocumentVatPreflight }>(
+      `/api/companies/${encodeURIComponent(slug)}/documents/${documentId}/vat-preflight`,
+    ).then((r) => r.preflight),
+
+  /** Actor-attributed provider call, gated by the same mutation boundary as posting. */
+  applyDocumentVatPreflight: (slug: string, documentId: number) =>
+    request<{ ok: true; preflight: DocumentVatPreflight }>(
+      `/api/companies/${encodeURIComponent(slug)}/documents/${documentId}/vat-preflight/apply`,
+      { method: "POST", body: JSON.stringify({ confirm: true }) },
+    ).then((r) => r.preflight),
+
   /**
    * #407 — books an ingested purchase document (bilag) as an expense against
    * an unmatched outgoing bank transaction. Third caller of the SAME
@@ -103,6 +116,16 @@ export type ExpenseAccountOption = {
   accountNo: string;
   name: string;
   defaultVatCode: string | null;
+};
+
+export type DocumentVatPreflight = {
+  ok: boolean;
+  derivedRegion: "DK" | "EU" | "NON_EU" | "CONFLICT";
+  requiredValidation: string | null;
+  cache: { reused: boolean; freshUntil: string | null };
+  applyWouldCallProvider: boolean;
+  errors: string[];
+  exception: { id: number; status: string; severity: string; message: string; requiredAction: string | null; createdAt: string } | null;
 };
 
 /** Wire type for one unmatched outgoing bank transaction (#407). */

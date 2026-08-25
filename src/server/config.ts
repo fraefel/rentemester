@@ -22,6 +22,7 @@ import { validateAuthEmailHttpJsonV1Config, type AuthEmailSender } from "./auth-
 import type { RequestLogSink } from "./observability";
 import type { DocumentScanner } from "../core/documents";
 import type { HttpJsonV1DocumentScannerConfig } from "./document-scanner";
+import type { InvoiceExtractor } from "../core/invoice-extraction";
 
 export const DEFAULT_APP_HOST = "127.0.0.1";
 export const DEFAULT_APP_PORT = 4319;
@@ -132,6 +133,8 @@ export type ServerConfig = {
   /** Runtime scanner seam. Local deployments intentionally leave this absent. */
   documentScanner?: DocumentScanner;
   documentScannerPolicy?: "off" | "required";
+  /** Optional explicit extraction provider; absence means extraction is unavailable. */
+  invoiceExtractor?: InvoiceExtractor;
   /**
    * Hosted identity provider. Its presence selects Better Auth sessions for
    * protected API routes; public routes remain anonymous. This is injected by

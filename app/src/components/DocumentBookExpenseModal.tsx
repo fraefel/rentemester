@@ -21,6 +21,7 @@ import {
   type DocumentBookExpenseSummary,
   type DocumentBookingOptions,
   type ExpenseVatTreatment,
+  type DocumentVatPreflight,
 } from "../lib/api";
 import { formatKroner } from "../lib/format";
 import { Banner } from "./Feedback";
@@ -63,6 +64,8 @@ export function DocumentBookExpenseModal({
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   const [done, setDone] = useState<DocumentBookExpenseSummary | null>(null);
+  const [preflight, setPreflight] = useState<DocumentVatPreflight | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   // Load the picker rows + the bilag once.
@@ -111,6 +114,26 @@ export function DocumentBookExpenseModal({
       cancelled = true;
     };
   }, [slug, documentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.documentVatPreflight(slug, documentId).then((result) => {
+      if (!cancelled) setPreflight(result);
+    }).catch(() => { /* Booking remains available; its core boundary still fails closed. */ });
+    return () => { cancelled = true; };
+  }, [slug, documentId]);
+
+  async function applyPreflight() {
+    setPreflightBusy(true);
+    setError(null);
+    try {
+      setPreflight(await api.applyDocumentVatPreflight(slug, documentId));
+    } catch (err) {
+      setError((err as MaybeApiError)?.message ?? "Momsvalideringen kunne ikke gennemføres.");
+    } finally {
+      setPreflightBusy(false);
+    }
+  }
 
   // Move focus into the dialog and let Escape dismiss it — basic modal hygiene.
   useEffect(() => {
@@ -250,6 +273,19 @@ export function DocumentBookExpenseModal({
                   {doc.purchaseVatLines && doc.purchaseVatLines.length > 0 && (
                     <div className="muted" role="group" aria-label="Momsfordeling">
                       Momsfordeling: {doc.purchaseVatLines.map((line) => `${line.classification}: ${formatKroner(line.netAmount, currency)} + ${formatKroner(line.vatAmount ?? 0, currency)}`).join(" · ")}
+                    </div>
+                  )}
+                  {preflight && (
+                    <div className="muted" role="status">
+                      Moms-preflight: {preflight.derivedRegion}
+                      {preflight.requiredValidation ? ` · kræver ${preflight.requiredValidation}` : " · ingen ekstern validering kræves"}
+                      {preflight.cache.freshUntil ? ` · evidens gyldig til ${preflight.cache.freshUntil}` : ""}.
+                      {preflight.errors[0] ? ` ${preflight.errors[0]}` : " Klar til bogføring."}
+                      {preflight.applyWouldCallProvider && (
+                        <button type="button" className="btn btn-secondary" disabled={busy || preflightBusy} onClick={() => void applyPreflight()}>
+                          {preflightBusy ? "Validerer…" : "Hent momsvalidering"}
+                        </button>
+                      )}
                     </div>
                   )}
                 </>

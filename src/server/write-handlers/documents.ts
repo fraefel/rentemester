@@ -15,6 +15,8 @@ import { ApiError } from "../errors";
 import { withCockpitActor } from "../actor";
 import { withCompanyMutation } from "../mutations";
 import { removePathWithRetry } from "../../core/fs-cleanup";
+import { applyPurchaseVatPreflight } from "../../cli/purchase-vat-preflight";
+import { extractDocumentInvoice, invoiceExtractionSurface } from "../invoice-extraction-surface";
 import {
   MAX_UPLOAD_BODY_BYTES,
   okResponse,
@@ -222,11 +224,15 @@ export async function handleDocumentIngest(
           scanner: config.documentScanner,
           scannerTimeoutMs: config.hostedDocumentScanning?.provider?.timeoutMs,
         });
+        const extraction = ingested.ok && ingested.documentId && config.invoiceExtractor
+          ? await extractDocumentInvoice(ctx.db, ingested.documentId, config.invoiceExtractor, ctx.actor.createdBy)
+          : undefined;
         return {
           ok: ingested.ok,
           errors: ingested.errors,
           documentId: ingested.documentId,
           documentNo: ingested.documentNo,
+          ...(extraction ? { extraction: invoiceExtractionSurface(ctx.db, ingested.documentId!) } : {}),
         };
       } finally {
         removePathWithRetry(tmpDir);
@@ -237,8 +243,8 @@ export async function handleDocumentIngest(
 
   return okResponse({
     document: {
-      id: result.documentId ?? null,
-      documentNo: result.documentNo ?? null,
+      id: result.ok ? result.documentId ?? null : null,
+      documentNo: result.ok ? result.documentNo ?? null : null,
     },
   });
 }
@@ -340,4 +346,15 @@ export async function handleDocumentBookExpense(
       fxRateToDkk: result.fxRateToDkk ?? null,
     },
   });
+}
+
+/** POST /documents/:id/vat-preflight/apply — actor-attributed provider call. */
+export async function handleDocumentVatPreflightApply(config: ServerConfig, request: Request, slug: string, idRaw: string): Promise<Response> {
+  const documentId = Number(idRaw);
+  if (!Number.isInteger(documentId) || documentId <= 0) throw ApiError.badRequest("document id must be a positive integer");
+  const result = await withCompanyMutation(request, config, slug, async (ctx) => {
+    const preflight = await applyPurchaseVatPreflight(ctx.db, documentId, ctx.actor.createdBy);
+    return { ok: preflight.ok, errors: preflight.errors, preflight };
+  }, { requireConfirm: true });
+  return okResponse({ preflight: result.preflight });
 }

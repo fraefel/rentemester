@@ -1,0 +1,3 @@
+{
+  "sql": "ALTER TABLE invoice_extraction_attempts ADD COLUMN initiated_by TEXT;\nALTER TABLE invoice_extraction_results ADD COLUMN initiated_by TEXT;\n"
+}

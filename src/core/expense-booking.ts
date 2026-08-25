@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { getCompanySettings } from "./company";
 import { postJournalEntry, type JournalLineInput, type JournalPostResult } from "./ledger";
-import { postForeignServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
+import { postEuGoodsAcquisitionPurchase, postForeignServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
 import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
 import { parsePurchaseVatLinesPayload, type PurchaseVatLine } from "./documents";
@@ -18,6 +18,7 @@ import { deductibleDanishPurchaseSupplierErrors } from "./supplier-identity";
 export type ExpenseVatTreatment =
   | "standard"
   | "reverse_charge"
+  | "eu_goods_acquisition"
   | "representation"
   | "exempt"
   | "non_deductible";
@@ -105,6 +106,7 @@ function inferVatTreatment(
   // so the core post path refuses it with the § 50 b guidance rather than
   // silently hiding an owed-VAT liability.
   if (defaultVatCode === "EU_SERVICE_REVERSE_CHARGE") return "reverse_charge";
+  if (defaultVatCode === "EU_GOODS_ACQUISITION") return "eu_goods_acquisition";
   if (defaultVatCode === "REPRESENTATION_SPECIAL") {
     return companyIsVatRegistered ? "representation" : "non_deductible";
   }
@@ -207,8 +209,8 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0) errors.push("bankTransactionId must be a positive integer");
   if (typeof input.expenseAccountNo !== "string" || input.expenseAccountNo.trim().length === 0) errors.push("expenseAccountNo is required");
-  if (input.vatTreatment && !["standard", "reverse_charge", "representation", "exempt", "non_deductible"].includes(input.vatTreatment)) {
-    errors.push("vatTreatment must be one of standard, reverse_charge, representation, exempt, non_deductible when present");
+  if (input.vatTreatment && !["standard", "reverse_charge", "eu_goods_acquisition", "representation", "exempt", "non_deductible"].includes(input.vatTreatment)) {
+    errors.push("vatTreatment must be one of standard, reverse_charge, eu_goods_acquisition, representation, exempt, non_deductible when present");
   }
   if (errors.length > 0) return { ok: false, appliedRules: [], errors };
 
@@ -442,6 +444,12 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       createdByProgram: input.createdByProgram,
       ...journalMetadata,
     });
+    return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment, ...fxSummary, netAmountDkk: grossAmountDkk, vatAmountDkk: 0 };
+  }
+
+  if (vatTreatment === "eu_goods_acquisition") {
+    if (vatAmount !== 0) return { ok: false, appliedRules: [], errors: ["EU-goods acquisition expense booking requires document vat_amount = 0"] };
+    const result = postEuGoodsAcquisitionPurchase(db, { transactionDate, text, documentId: input.documentId, netAmount: grossAmountDkk, expenseAccountNo: account.account_no, paymentAccountNo, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata });
     return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment, ...fxSummary, netAmountDkk: grossAmountDkk, vatAmountDkk: 0 };
   }
 

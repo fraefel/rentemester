@@ -1,0 +1,6 @@
+import type { CommandSpec } from "./_shared";
+export const bookkeepingBatchSpecs: CommandSpec[] = [
+  { key: "bookkeeping-batch dry-run", usage: "bookkeeping-batch dry-run --company <path> --company-id <n> --accounting-from <YYYY-MM-DD> --accounting-to <YYYY-MM-DD> --bank-from <YYYY-MM-DD> --bank-to <YYYY-MM-DD>", description: "Ren, deterministisk batchplan med fire partitioner og plan-hash.", allowedFlags: ["--company", "--company-id", "--accounting-from", "--accounting-to", "--bank-from", "--bank-to"] },
+  { key: "bookkeeping-batch apply", usage: "bookkeeping-batch apply --company <path> --run-key <key> --company-id <n> --accounting-from <YYYY-MM-DD> --accounting-to <YYYY-MM-DD> --bank-from <YYYY-MM-DD> --bank-to <YYYY-MM-DD> --confirm", description: "Opretter/genoptager en hash-bundet batch med actor og eksplicit bekræftelse.", allowedFlags: ["--company", "--run-key", "--company-id", "--accounting-from", "--accounting-to", "--bank-from", "--bank-to", "--confirm", "--actor"] },
+  { key: "bookkeeping-batch status", usage: "bookkeeping-batch status --company <path> --run-id <n>", description: "Viser append-only run-state, item-forsøg og endelig evidens.", allowedFlags: ["--company", "--run-id"] },
+];

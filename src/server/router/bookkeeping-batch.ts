@@ -1,0 +1,11 @@
+import type { ServerConfig } from "../config";
+import { ApiError } from "../errors";
+import { withCompanyMutation } from "../mutations";
+import { okResponse } from "./_shared";
+import { companyRootForSlug } from "../../core/workspace";
+import { companyPaths } from "../../core/paths";
+import { migrate, openDb } from "../../core/db";
+import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, planBookkeepingBatch } from "../../core/bookkeeping-batch";
+function scope(body: Record<string, unknown>) { const get=(k:string)=>body[k]; if (!Number.isInteger(get("companyId")) || !["accountingFrom","accountingTo","bankFrom","bankTo"].every(k=>typeof get(k)==="string")) throw ApiError.badRequest("companyId and four ISO date bounds are required"); return { companyId:get("companyId") as number, accountingFrom:get("accountingFrom") as string, accountingTo:get("accountingTo") as string, bankFrom:get("bankFrom") as string, bankTo:get("bankTo") as string }; }
+export function handleBookkeepingBatchDryRun(config:ServerConfig, slug:string, url:URL):Response { const s=scope({companyId:Number(url.searchParams.get("companyId")),accountingFrom:url.searchParams.get("accountingFrom"),accountingTo:url.searchParams.get("accountingTo"),bankFrom:url.searchParams.get("bankFrom"),bankTo:url.searchParams.get("bankTo")}); const db=openDb(companyPaths(companyRootForSlug(config.workspaceRoot,slug)).db); try { migrate(db); return okResponse({dryRun:true,plan:planBookkeepingBatch(db,s)}); } finally { db.close(); } }
+export async function handleBookkeepingBatchApply(config:ServerConfig, request:Request, slug:string):Promise<Response> { const result=await withCompanyMutation(request,config,slug,({db,actor},body)=>{ const runKey=body.runKey; if(typeof runKey!=="string"||!runKey) throw ApiError.badRequest("runKey is required"); const plan=planBookkeepingBatch(db,scope(body)); const run=createBookkeepingBatchRun(db,{...plan,runKey,actor:actor.createdBy}); approveBookkeepingBatchPlan(db,{runId:run.runId,planHash:run.plan.planHash,actor:actor.createdBy}); return { ...applyBookkeepingBatch(db,{runId:run.runId,planHash:run.plan.planHash,actor:actor.createdBy}),runId:run.runId,plan:run.plan}; },{requireConfirm:true}); return okResponse(result); }

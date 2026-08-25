@@ -79,6 +79,32 @@ export const INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(INTERNAL_VOUCHER_EVIDENCE_MIGRATION_ARTIFACT)
   .digest("hex");
 export const INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME = "rentemester-internal-voucher-evidence-v10";
+const PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0011-purchase-vat-preflight.json"),
+);
+export const PURCHASE_VAT_PREFLIGHT_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const PURCHASE_VAT_PREFLIGHT_MIGRATION_NAME = "rentemester-purchase-vat-preflight-v11";
+const POSTING_RULES_MIGRATION_ARTIFACT = readFileSync(
+  join(import.meta.dir, "migrations", "0012-posting-rules.json"),
+);
+export const POSTING_RULES_MIGRATION_CHECKSUM = createHash("sha256")
+  .update(POSTING_RULES_MIGRATION_ARTIFACT)
+  .digest("hex");
+export const POSTING_RULES_MIGRATION_NAME = "rentemester-posting-rules-v12";
+const BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0013-bookkeeping-batches.json"));
+export const BOOKKEEPING_BATCHES_MIGRATION_CHECKSUM = createHash("sha256").update(BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT).digest("hex");
+export const BOOKKEEPING_BATCHES_MIGRATION_NAME = "rentemester-bookkeeping-batches-v13";
+const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0014-invoice-extraction-evidence.json"));
+export const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM = createHash("sha256").update(INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT).digest("hex");
+export const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME = "rentemester-invoice-extraction-evidence-v14";
+const BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0015-bookkeeping-batch-retries.json"));
+export const BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM = createHash("sha256").update(BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT).digest("hex");
+export const BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME = "rentemester-bookkeeping-batch-retries-v15";
+const INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0016-invoice-extraction-actors.json"));
+export const INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM = createHash("sha256").update(INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT).digest("hex");
+export const INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME = "rentemester-invoice-extraction-actors-v16";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -111,6 +137,12 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM },
   { id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM },
   { id: 10, name: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME, checksum: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM },
+  { id: 11, name: PURCHASE_VAT_PREFLIGHT_MIGRATION_NAME, checksum: PURCHASE_VAT_PREFLIGHT_MIGRATION_CHECKSUM },
+  { id: 12, name: POSTING_RULES_MIGRATION_NAME, checksum: POSTING_RULES_MIGRATION_CHECKSUM },
+  { id: 13, name: BOOKKEEPING_BATCHES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCHES_MIGRATION_CHECKSUM },
+  { id: 14, name: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM },
+  { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM },
+  { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -311,6 +343,12 @@ export function applySchemaMigrations(db: Database): void {
     { id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM, artifact: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT },
     { id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM, artifact: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT },
     { id: 10, name: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME, checksum: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM, artifact: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_ARTIFACT },
+    { id: 11, name: PURCHASE_VAT_PREFLIGHT_MIGRATION_NAME, checksum: PURCHASE_VAT_PREFLIGHT_MIGRATION_CHECKSUM, artifact: PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT },
+    { id: 12, name: POSTING_RULES_MIGRATION_NAME, checksum: POSTING_RULES_MIGRATION_CHECKSUM, artifact: POSTING_RULES_MIGRATION_ARTIFACT },
+    { id: 13, name: BOOKKEEPING_BATCHES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCHES_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT },
+    { id: 14, name: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT },
+    { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT },
+    { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -350,14 +388,23 @@ export function applySchemaMigrations(db: Database): void {
         // committed tables and guards remain. The migration is deliberately
         // replay-safe: remove only its canonical trigger names, then let the
         // IF NOT EXISTS table definitions preserve the recorded evidence.
-        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10) {
+        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10 || migration.id === 11 || migration.id === 12 || migration.id === 13 || migration.id === 14 || migration.id === 15) {
           const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
           for (const statement of triggerStatements) {
             const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
             if (name) db.exec(`DROP TRIGGER IF EXISTS ${name};`);
           }
         }
-        db.exec(parsed.sql);
+        // v11 may be replayed against a baseline-shaped ledger after only the
+        // migration rows were lost. SQLite has no ADD COLUMN IF NOT EXISTS.
+        let sql = migration.id === 11 && (db.query("PRAGMA table_info(exceptions)").all() as Array<{ name: string }>).some((column) => column.name === "resolution_key")
+          ? parsed.sql.replace(/ALTER TABLE exceptions ADD COLUMN resolution_key TEXT;\s*/, "")
+          : parsed.sql;
+        if (migration.id === 16) {
+          if ((db.query("PRAGMA table_info(invoice_extraction_attempts)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_attempts ADD COLUMN initiated_by TEXT;\s*/, "");
+          if ((db.query("PRAGMA table_info(invoice_extraction_results)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_results ADD COLUMN initiated_by TEXT;\s*/, "");
+        }
+        if (sql.trim()) db.exec(sql);
       }
       db.query(`INSERT INTO schema_migrations (id, name, checksum, applied_by_version, applied_by_commit) VALUES (?, ?, ?, ?, ?)`)
         .run(migration.id, migration.name, migration.checksum, build.version, build.gitCommit);
@@ -410,6 +457,12 @@ export function applySchemaMigrations(db: Database): void {
         db.exec(`DROP TRIGGER IF EXISTS ${name};`);
         db.exec(statement);
       }
+      // v11 originally permitted an in-place started→posted update. Reassert
+      // a strict append-only application ledger on every open instead; callers
+      // reserve and link inside one transaction and insert the final row.
+      db.exec("DROP TRIGGER IF EXISTS purchase_posting_applications_no_update;");
+      db.exec("CREATE TRIGGER purchase_posting_applications_no_update BEFORE UPDATE ON purchase_posting_applications BEGIN SELECT RAISE(ABORT, 'purchase posting applications are append-only'); END;");
+      db.exec("CREATE TRIGGER IF NOT EXISTS purchase_posting_applications_no_delete BEFORE DELETE ON purchase_posting_applications BEGIN SELECT RAISE(ABORT, 'purchase posting applications are append-only'); END;");
     }).immediate();
   }
 
@@ -476,5 +529,39 @@ export function applySchemaMigrations(db: Database): void {
         db.exec(statement);
       }
     }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 11").get()) {
+    const parsed = JSON.parse(PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => {
+      for (const statement of triggerStatements) {
+        const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
+        if (!name) continue;
+        db.exec(`DROP TRIGGER IF EXISTS ${name};`);
+        db.exec(statement);
+      }
+    }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 12").get()) {
+    const parsed = JSON.parse(POSTING_RULES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => {
+      for (const statement of triggerStatements) {
+        const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
+        if (!name) continue;
+        db.exec(`DROP TRIGGER IF EXISTS ${name};`);
+        db.exec(statement);
+      }
+    }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 13").get()) {
+    const parsed = JSON.parse(BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 14").get()) {
+    const parsed = JSON.parse(INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
 }

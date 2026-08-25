@@ -74,6 +74,8 @@ import {
 import { handleCompanyVat } from "./router/vat";
 import {
   handleCompanyDocumentBookingOptions,
+  handleCompanyDocumentVatPreflight,
+  handleCompanyDocumentInvoiceExtraction,
   handleCompanyDocumentFile,
   handleCompanyDocuments,
 } from "./router/documents";
@@ -84,6 +86,7 @@ import {
 } from "./router/invoices";
 import { handleCompanyContacts } from "./router/contacts";
 import { handleCompanyAccountingDraft, handleCompanyAccountingDrafts } from "./router/accounting-drafts";
+import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
 import {
   handleAssetNextDepreciation,
   handleCompanyAssets,
@@ -135,6 +138,7 @@ import {
   handleDeleteVendor,
   handleDataImport,
   handleDocumentBookExpense,
+  handleDocumentVatPreflightApply,
   handleDocumentIngest,
   handleGenerateRecurringInvoice,
   handleInvoiceCreditNote,
@@ -163,6 +167,8 @@ import {
   handleReviseAccountingDraft,
   handleSubmitAccountingDraft,
 } from "./write-handlers";
+import { handlePostingRuleMutation } from "./write-handlers/posting-rules";
+import { handleBookkeepingBatchApply, handleBookkeepingBatchDryRun } from "./router/bookkeeping-batch";
 
 // --------------------------------------------------------------------------
 // Route handlers — reads + workspace management only.
@@ -260,6 +266,12 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.export", method: "GET", pattern: "/api/companies/:slug/trial-balance/export", summary: "Saldobalance som CSV-download (#372)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/journal", summary: "Journalposter." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accounting-drafts", summary: "Bogføringskladder og deres seneste reviewtilstand." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/posting-rules", summary: "Selskabslokale posteringsregler." },
+  { scope: "company", effect: "read", permission: "company.read", method: "POST", pattern: "/api/companies/:slug/posting-rules/explain", summary: "Dry-run med præcise match- og afvigelsesårsager." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/posting-rules/propose", summary: "Opretter et regel-forslag med confirm." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/posting-rules/approve", summary: "Godkender en præcis regelversion med confirm." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/posting-rules/disable", summary: "Deaktiverer en regelversion med confirm." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/posting-rules/supersede", summary: "Erstatter en regelversion med confirm." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accounting-drafts/:draftId", summary: "Én bogføringskladde med præcis event-hash." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/accounting-drafts", summary: "Opretter en append-only bogføringskladde." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/accounting-drafts/:draftId/revise", summary: "Opretter en ny version af en redigerbar bogføringskladde." },
@@ -276,6 +288,11 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents", summary: "Bilagsliste." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/file", summary: "Henter et bilag." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/booking-options", summary: "Forslagsdata til bogføring af et bilag." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/vat-preflight", summary: "Købsmoms-preflight uden provider-kald." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/invoice-extraction", summary: "Citeret fakturaudtræk uden filsti eller secrets." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bookkeeping-batch", summary: "Read-only batchplan med plan-hash og partitioner." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/apply", summary: "Anvender eller genoptager præcis hash-bundet batch med confirm." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/documents/:id/vat-preflight/apply", summary: "Henter nødvendig købsmoms-evidens før bogføring." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/recurring-invoices", summary: "Gentagende fakturaer." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/recurring-invoices", summary: "Opretter faktura-skabelon (#386)." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/recurring-invoices/:id/generate", summary: "Materialiserer en gentagende faktura." },
@@ -698,6 +715,10 @@ export async function handleRequest(
       const slug = decodeURIComponent(dashboardMatch[1]!);
       return handleCompanyDashboard(config, slug, url);
     }
+    const bookkeepingBatchApplyMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch\/apply$/.exec(path);
+    if (bookkeepingBatchApplyMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleBookkeepingBatchApply(config, request, decodeURIComponent(bookkeepingBatchApplyMatch[1]!)); }
+    const bookkeepingBatchMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch$/.exec(path);
+    if (bookkeepingBatchMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingBatchDryRun(config, decodeURIComponent(bookkeepingBatchMatch[1]!), url); }
 
     const fiscalYearsMatch = /^\/api\/companies\/([^/]+)\/fiscal-years$/.exec(path);
     if (fiscalYearsMatch) {
@@ -843,6 +864,17 @@ export async function handleRequest(
       );
     }
 
+    const documentVatPreflightMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/vat-preflight$/.exec(path);
+    if (documentVatPreflightMatch) {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleCompanyDocumentVatPreflight(config, decodeURIComponent(documentVatPreflightMatch[1]!), documentVatPreflightMatch[2]!);
+    }
+    const documentExtractionMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/invoice-extraction$/.exec(path);
+    if (documentExtractionMatch) {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleCompanyDocumentInvoiceExtraction(config, decodeURIComponent(documentExtractionMatch[1]!), documentExtractionMatch[2]!);
+    }
+
     const recurringInvoicesMatch =
       /^\/api\/companies\/([^/]+)\/recurring-invoices$/.exec(path);
 
@@ -854,6 +886,17 @@ export async function handleRequest(
       if (method === "POST") return await handleCreateAccountingDraft(config, request, slug);
       throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
     }
+
+    const postingRulesExplainMatch = /^\/api\/companies\/([^/]+)\/posting-rules\/explain$/.exec(path);
+    if (postingRulesExplainMatch) {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      const body = await request.json() as Record<string, unknown>;
+      return handleCompanyPostingRuleExplain(config, decodeURIComponent(postingRulesExplainMatch[1]!), (body.context ?? {}) as Record<string, unknown>, typeof body.at === "string" ? body.at : undefined);
+    }
+    const postingRulesMatch = /^\/api\/companies\/([^/]+)\/posting-rules$/.exec(path);
+    if (postingRulesMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleCompanyPostingRules(config, decodeURIComponent(postingRulesMatch[1]!)); }
+    const postingRuleActionMatch = /^\/api\/companies\/([^/]+)\/posting-rules\/(propose|approve|disable|supersede)$/.exec(path);
+    if (postingRuleActionMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handlePostingRuleMutation(config, request, decodeURIComponent(postingRuleActionMatch[1]!), postingRuleActionMatch[2]! as "propose" | "approve" | "disable" | "supersede"); }
 
     const accountingDraftActionMatch =
       /^\/api\/companies\/([^/]+)\/accounting-drafts\/([^/]+)\/(revise|submit|reject|approve-and-post)$/.exec(path);
@@ -1251,6 +1294,12 @@ export async function handleRequest(
       if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
       const slug = decodeURIComponent(documentBookExpenseMatch[1]!);
       return await handleDocumentBookExpense(config, request, slug);
+    }
+
+    const documentVatPreflightApplyMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/vat-preflight\/apply$/.exec(path);
+    if (documentVatPreflightApplyMatch) {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleDocumentVatPreflightApply(config, request, decodeURIComponent(documentVatPreflightApplyMatch[1]!), documentVatPreflightApplyMatch[2]!);
     }
 
     // Bookkeeping write route (#213, slice 4): issue a sales invoice.

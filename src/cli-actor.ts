@@ -71,6 +71,7 @@ export const MUTATING_COMMANDS = new Set([
   "invoice claim-compensation",
   "invoice post-compensation",
   "documents ingest",
+  "documents extract-invoice",
   "bank import",
   "bank link-journal",
   // ===== BANK CLUSTER (#187) =====
@@ -78,6 +79,8 @@ export const MUTATING_COMMANDS = new Set([
   "bank-account update",
   // ===== END BANK CLUSTER (#187) =====
   "expense book",
+  "expense vat-preflight",
+  "bookkeeping-batch apply",
   "vat post-eu-service-purchase",
   "vat post-representation-purchase",
   "period close",
@@ -158,6 +161,10 @@ export const MUTATING_COMMANDS = new Set([
   // ===== PAYABLES / KREDITORSTYRING =====
   "payable register",
   "payable pay",
+  "posting-rules propose",
+  "posting-rules approve",
+  "posting-rules disable",
+  "posting-rules supersede",
   // ===== END PAYABLES / KREDITORSTYRING =====
   // ===== DIGISENSE E-FAKTURA (#efaktura) =====
   // `efaktura registrer` skriver virksomheds-/participant-state + audit_log til

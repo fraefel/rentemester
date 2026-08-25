@@ -13,6 +13,8 @@ import { recordException } from "../../core/exceptions";
 import { envelopeShape, errorEnvelope, successEnvelope, wrapCoreResult } from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 import { applyPagination, paginationFields, paginationDescriptionSuffix } from "../pagination";
+import { extractDocumentInvoice, invoiceExtractionSurface } from "../../server/invoice-extraction-surface";
+import { resolveConfiguredInvoiceExtractor } from "../../server/invoice-extractor";
 
 const documentPartySchema = z.object({
   name: z.string().optional().describe("Party name."),
@@ -105,6 +107,8 @@ const documentMetadataSchema = z
   );
 
 export function registerDocumentTools(server: McpServer): void {
+  server.registerTool("documents_invoice_extraction", { title: "Read invoice extraction", description: "Returns cited invoice values, confidence, provenance, conflicts, hash, resolutions and exception state; no paths or secrets.", inputSchema: { company: z.string().min(1), documentId: z.number().int().positive() }, outputSchema: envelopeShape, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyDb<{ company: string; documentId: number }>(server, ({ db, args }) => successEnvelope({ extraction: invoiceExtractionSurface(db, args.documentId) })));
+  server.registerTool("documents_extract_invoice", { title: "Extract invoice", description: "Extracts cited evidence from a stored PDF. Requires confirm:true and a configured production extraction provider. write-reversible.", inputSchema: { company: z.string().min(1), documentId: z.number().int().positive(), confirm: confirmField.optional() }, outputSchema: envelopeShape, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyDbConfirmed<{ company: string; documentId: number; confirm?: boolean }>(server, "documents_extract_invoice", async ({ db, actor, args }) => { const extractor = resolveConfiguredInvoiceExtractor(); if (!extractor) return errorEnvelope(["EXTRACTION_PROVIDER_UNAVAILABLE"]); try { await extractDocumentInvoice(db, args.documentId, extractor, actor.createdBy); return successEnvelope({ extraction: invoiceExtractionSurface(db, args.documentId) }); } catch (error) { return errorEnvelope([error instanceof Error && /^EXTRACTION_[A-Z_]+$/.test(error.message) ? error.message : "EXTRACTION_FAILED"]); } }));
   server.registerTool(
     "documents_list",
     {

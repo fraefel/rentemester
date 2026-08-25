@@ -17,7 +17,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SERVER_NAME, SERVER_VERSION } from "../server";
+import { PRODUCT_VERSION } from "../../core/build-identity";
 import { currentRuleBundleVersion } from "../../core/rules-metadata";
 import { envelopeShape, successEnvelope } from "../envelope";
 import { envelopeToCallResult } from "../envelope";
@@ -30,6 +30,13 @@ const CONTRACT_DOCS = [
   "docs/confirm-contract.md",
   "docs/cli-contract.md",
 ] as const;
+
+// Do not import these from ../server: registry -> meta -> server -> registry
+// makes the stdio entrypoint register tools while this module is still in its
+// temporal dead zone. Keeping the immutable identity beside its consumer
+// breaks that initialization cycle.
+const MCP_SERVER_NAME = "rentemester-mcp";
+const MCP_SERVER_VERSION = PRODUCT_VERSION;
 
 export function registerMetaTools(server: McpServer): void {
   server.registerTool(
@@ -71,8 +78,8 @@ export function registerMetaTools(server: McpServer): void {
         }
       })();
       const envelope = successEnvelope({
-        serverName: SERVER_NAME,
-        serverVersion: SERVER_VERSION,
+        serverName: MCP_SERVER_NAME,
+        serverVersion: MCP_SERVER_VERSION,
         build: getBuildIdentity(),
         provenance: getReleaseProvenance(),
         toolCount,

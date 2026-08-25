@@ -1,0 +1,10 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, planBookkeepingBatch } from "../../core/bookkeeping-batch";
+import { envelopeShape, wrapCoreResult } from "../envelope";
+import { confirmField, withCompanyDb, withCompanyDbConfirmed } from "../tool-runtime";
+const dates = { companyId: z.number().int().positive(), accountingFrom: z.string(), accountingTo: z.string(), bankFrom: z.string(), bankTo: z.string() };
+export function registerBookkeepingBatchTools(server: McpServer): void {
+ server.registerTool("bookkeeping_batch_dry_run", { title: "Plan bookkeeping batch", description: "Read-only shared batch plan with plan hash and ready/suggested/missing/human partitions.", inputSchema: { company: z.string().min(1), ...dates }, outputSchema: envelopeShape, annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false } }, withCompanyDb<any>(server, ({db,args}) => wrapCoreResult({ ok:true, dryRun:true, plan: planBookkeepingBatch(db,args) })));
+ server.registerTool("bookkeeping_batch_apply", { title: "Apply bookkeeping batch", description: "Creates or resumes exactly the hash-bound batch. Requires actor attribution and confirm:true; returns durable run evidence. write-irreversible.", inputSchema: { company:z.string().min(1), runKey:z.string().min(1), ...dates, confirm:confirmField }, outputSchema: envelopeShape, annotations: { readOnlyHint:false, destructiveHint:false, idempotentHint:false, openWorldHint:false } }, withCompanyDbConfirmed<any>(server,"bookkeeping_batch_apply",({db,actor,args}) => { const plan=planBookkeepingBatch(db,args); const run=createBookkeepingBatchRun(db,{...plan,runKey:args.runKey,actor:actor.createdBy}); approveBookkeepingBatchPlan(db,{runId:run.runId,planHash:run.plan.planHash,actor:actor.createdBy}); return wrapCoreResult({ ...applyBookkeepingBatch(db,{runId:run.runId,planHash:run.plan.planHash,actor:actor.createdBy}), runId:run.runId, plan:run.plan }); }));
+}

@@ -73,6 +73,8 @@ import { GroupOverviewView } from "./views/GroupOverviewView";
 import { AccountingDraftsView } from "./views/AccountingDraftsView";
 import { InvitationView } from "./views/InvitationView";
 import { WorkspaceAccessView } from "./views/WorkspaceAccessView";
+import { PostingRulesView } from "./views/PostingRulesView";
+import { BookkeepingBatchView } from "./views/BookkeepingBatchView";
 
 export function App() {
   const health = useAsync(() => api.health(), []);
@@ -165,6 +167,8 @@ function CockpitApp() {
             element={<JournalView />}
           />
           <Route path="/companies/:slug/kladder" element={<AccountingDraftsView />} />
+          <Route path="/companies/:slug/posteringsregler" element={<PostingRulesView />} />
+          <Route path="/companies/:slug/batchbogfoering" element={<BookkeepingBatchView />} />
           <Route path="/companies/:slug/bank" element={<BankView />} />
           <Route path="/companies/:slug/moms" element={<VatView />} />
           <Route path="/companies/:slug/bilag" element={<DocumentsView />} />

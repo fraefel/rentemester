@@ -11,6 +11,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   MIGRATION_OPEN_ITEMS_MIGRATION_NAME,
   readSchemaMigrations,
+  validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
 
 const hash = (letter: string) => letter.repeat(64);
@@ -45,7 +46,7 @@ function bank(db: Database, id: number, amount: number) {
 describe("migration open items v5", () => {
   test("migrates a fresh database through the current schema and preserves v4 provenance when upgrading", () => {
     const db = setup();
-    expect(CURRENT_SCHEMA_VERSION).toBe(10);
+    expect(CURRENT_SCHEMA_VERSION).toBe(16);
     expect(readSchemaMigrations(db)).toContainEqual(expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME }));
     db.exec(`
       DROP VIEW bank_journal_reconciliations;
@@ -67,6 +68,12 @@ describe("migration open items v5", () => {
     `);
     expect(readSchemaMigrations(db).at(-1)?.id).toBe(4);
     migrate(db);
+    const migrations = readSchemaMigrations(db);
+    // This upgrade is deliberately checked as an ordered, checksummed prefix
+    // rather than merely by count: a restore must never silently skip or
+    // rewrite an immutable migration artifact.
+    expect(() => validateSchemaMigrationHistory(migrations)).not.toThrow();
+    expect(migrations).toHaveLength(CURRENT_SCHEMA_VERSION);
     expect(db.query("SELECT id FROM dinero_import_attempts WHERE id = 1").get()).toEqual({ id: 1 });
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration_open_items'").get()).not.toBeNull();
     db.close();

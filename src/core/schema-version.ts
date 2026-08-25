@@ -105,6 +105,9 @@ export const BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME = "rentemester-bookkeeping
 const INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0016-invoice-extraction-actors.json"));
 export const INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM = createHash("sha256").update(INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT).digest("hex");
 export const INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME = "rentemester-invoice-extraction-actors-v16";
+const DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0017-document-pdf-parses.json"));
+export const DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT).digest("hex");
+export const DOCUMENT_PDF_PARSES_MIGRATION_NAME = "rentemester-document-pdf-parses-v17";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -143,6 +146,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 14, name: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM },
   { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM },
   { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM },
+  { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -354,6 +358,7 @@ export function applySchemaMigrations(db: Database): void {
     { id: 14, name: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT },
     { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT },
     { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT },
+    { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM, artifact: DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -393,7 +398,7 @@ export function applySchemaMigrations(db: Database): void {
         // committed tables and guards remain. The migration is deliberately
         // replay-safe: remove only its canonical trigger names, then let the
         // IF NOT EXISTS table definitions preserve the recorded evidence.
-        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10 || migration.id === 11 || migration.id === 12 || migration.id === 13 || migration.id === 14 || migration.id === 15) {
+        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10 || migration.id === 11 || migration.id === 12 || migration.id === 13 || migration.id === 14 || migration.id === 15 || migration.id === 17) {
           const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
           for (const statement of triggerStatements) {
             const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
@@ -408,6 +413,12 @@ export function applySchemaMigrations(db: Database): void {
         if (migration.id === 16) {
           if ((db.query("PRAGMA table_info(invoice_extraction_attempts)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_attempts ADD COLUMN initiated_by TEXT;\s*/, "");
           if ((db.query("PRAGMA table_info(invoice_extraction_results)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_results ADD COLUMN initiated_by TEXT;\s*/, "");
+        }
+        if (migration.id === 17 && db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_pdf_parses'").get()) {
+          // Recovery after a migration-ledger loss: retain immutable rows,
+          // rebuild just this migration's indexes and append-only guards.
+          sql = sql.replace(/^CREATE TABLE document_pdf_parses[\s\S]*?;\nCREATE TABLE document_pdf_parse_pages[\s\S]*?;\n/, "")
+            .replaceAll("CREATE INDEX idx_", "CREATE INDEX IF NOT EXISTS idx_");
         }
         if (sql.trim()) db.exec(sql);
       }

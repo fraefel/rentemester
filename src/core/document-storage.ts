@@ -8,8 +8,11 @@
 import { constants, closeSync, fsyncSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, unlinkSync, writeSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
+import type { Database } from "bun:sqlite";
 
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+/** PDF parsing deliberately has a tighter cap than general voucher storage. */
+export const MAX_PDF_PARSE_BYTES = 10 * 1024 * 1024;
 
 export type DocumentSnapshot = {
   bytes: Buffer;
@@ -19,11 +22,11 @@ export type DocumentSnapshot = {
 
 type StableStat = { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number };
 
-function stableStat(fd: number): StableStat {
+function stableStat(fd: number, maxBytes = MAX_DOCUMENT_BYTES): StableStat {
   const stat = fstatSync(fd);
   if (!stat.isFile()) throw new Error("document source is not a regular file");
   if (stat.size <= 0) throw new Error("document source is empty");
-  if (stat.size > MAX_DOCUMENT_BYTES) throw new Error(`document source exceeds ${MAX_DOCUMENT_BYTES} byte limit`);
+  if (stat.size > maxBytes) throw new Error(`document source exceeds ${maxBytes} byte limit`);
   return { dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs };
 }
 
@@ -32,11 +35,11 @@ function sameStat(a: StableStat, b: StableStat): boolean {
 }
 
 /** Open once with O_NOFOLLOW, fstat and snapshot the exact bounded bytes. */
-export function snapshotDocumentSource(path: string): DocumentSnapshot {
+export function snapshotDocumentSource(path: string, maxBytes = MAX_DOCUMENT_BYTES): DocumentSnapshot {
   let fd: number | undefined;
   try {
     fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const before = stableStat(fd);
+    const before = stableStat(fd, maxBytes);
     const bytes = Buffer.allocUnsafe(before.size);
     let offset = 0;
     while (offset < bytes.length) {
@@ -44,7 +47,7 @@ export function snapshotDocumentSource(path: string): DocumentSnapshot {
       if (count <= 0) throw new Error("document source changed while being read");
       offset += count;
     }
-    const after = stableStat(fd);
+    const after = stableStat(fd, maxBytes);
     if (!sameStat(before, after)) throw new Error("document source changed while being read");
     return { bytes, sha256: createHash("sha256").update(bytes).digest("hex"), filename: basename(path) };
   } catch (error) {
@@ -56,6 +59,35 @@ export function snapshotDocumentSource(path: string): DocumentSnapshot {
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+/**
+ * Resolve an already registered PDF solely below this company's originals
+ * directory.  Historical stored_path is treated as metadata, never as an
+ * authority to open an arbitrary host path.
+ */
+export function snapshotRegisteredPdfDocument(db: Database, companyRoot: string, documentId: number): DocumentSnapshot {
+  const row = db.query(`SELECT stored_path, sha256_hash, mime_type FROM documents WHERE id = ?`).get(documentId) as {
+    stored_path: string | null; sha256_hash: string | null; mime_type: string | null;
+  } | null;
+  if (!row) throw new Error("registered PDF document does not exist");
+  if (row.mime_type !== "application/pdf") throw new Error("registered document is not a PDF");
+  if (!row.stored_path || !/^[a-f0-9]{64}$/i.test(row.sha256_hash ?? "")) throw new Error("registered PDF document has invalid evidence metadata");
+  const root = realpathSync(resolve(companyRoot));
+  const store = join(root, "documents", "originals");
+  const storeInfo = lstatSync(store);
+  if (storeInfo.isSymbolicLink() || !storeInfo.isDirectory()) throw new Error("PDF originals store is not a regular directory");
+  const canonicalStore = realpathSync(store);
+  if (!contained(root, canonicalStore)) throw new Error("PDF originals store escapes company root");
+  const name = basename(row.stored_path);
+  if (!name || name !== row.stored_path.split(/[\\/]/).at(-1)) throw new Error("registered PDF path is invalid");
+  const candidate = join(canonicalStore, name);
+  const info = lstatSync(candidate);
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error("registered PDF source is not a regular file");
+  if (info.size > MAX_PDF_PARSE_BYTES) throw new Error(`registered PDF source exceeds ${MAX_PDF_PARSE_BYTES} byte limit`);
+  const snapshot = snapshotDocumentSource(candidate, MAX_PDF_PARSE_BYTES);
+  if (snapshot.sha256 !== row.sha256_hash!.toLowerCase()) throw new Error("registered PDF source sha256 does not match document register");
+  return snapshot;
 }
 
 function contained(root: string, candidate: string): boolean {

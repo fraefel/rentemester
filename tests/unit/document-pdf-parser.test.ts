@@ -22,3 +22,10 @@ test("PDF parser extracts deterministic text and layout from the synthetic fixtu
   expect(parsed.pages[0]?.width).toBe(612);
   expect(parsed.pages[0]?.height).toBe(792);
 });
+
+test("PDF parser observes each launched child without making observation part of parsing", async () => {
+  let launches = 0;
+  const parsed = await parsePdfBytes(syntheticTextPdf(), { onChildWorkerLaunch: () => { launches += 1; } });
+  expect(parsed.status).toBe("ok");
+  expect(launches).toBe(1);
+});

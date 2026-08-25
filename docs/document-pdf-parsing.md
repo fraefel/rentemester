@@ -28,12 +28,15 @@ are read-only. The container uses non-root execution; run it with a read-only
 root filesystem, `--network none`, and resource limits for isolated parsing.
 
 `bun run benchmark:pdf-parser --verify` creates a temporary synthetic company
-and documents, ingests a deterministic text-bearing PDF, and measures actual
-pdf.js cold, persisted-cache, serial and parallel parses. Its JSON reports
-documents/pages per second, coordinator child bound and process RSS when
-available. The artificial 35 ms delay is used only to demonstrate coordinator
-parallelism; parse and cache figures still come from real pdf.js children.
-It also requires a malformed PDF to fail without affecting successful parses.
+and nine documents (more than the production concurrency bound), including one
+malformed PDF in the same production `parseRegisteredPdfBatch` invocation. Its
+`coldParser` figures are real pdf.js child-parser throughput and pages/second;
+`delayOnlySchedulerComparison` is separately labelled deterministic sleep-only
+coordination evidence and is not parser performance. The report proves the
+bounded batch slots, stable output/current-key completion, malformed-status
+isolation, a nonzero cold pages/second value, and cache reuse. Cache reuse is
+proved by the parser's narrow child-launch observer reporting zero warm-cache
+launches, rather than by inferring it from database rows.
 
 ## Stable public responses
 

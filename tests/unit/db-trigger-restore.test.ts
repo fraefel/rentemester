@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { migrate, openDb } from "../../src/core/db";
+import { inspectSchemaViews, repairCanonicalSchemaViews } from "../../src/core/ledger-inspection";
 
 function failOneCanonicalTriggerCreate(realDb: any) {
   return new Proxy(realDb, {
@@ -49,7 +50,7 @@ describe("database trigger restoration", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("migrate does not silently repair a weakened interest-correction authority view", () => {
+  test("migrate leaves a stale view for explicit canonical repair", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-view-restore-"));
     const db = openDb(join(root, "ledger.sqlite"));
     migrate(db);
@@ -65,6 +66,16 @@ describe("database trigger restoration", () => {
         WHERE type = 'view' AND name = 'invoice_interest_correction_authorized_claims'`,
     ).get() as { sql: string } | null)?.sql ?? "";
     expect(restoredSql).toContain("sentinel");
+    expect(inspectSchemaViews(db).ok).toBe(false);
+
+    const repaired = repairCanonicalSchemaViews(db);
+    expect(repaired.ok).toBe(true);
+    const canonicalSql = (db.query(
+      `SELECT sql FROM sqlite_master
+        WHERE type = 'view' AND name = 'invoice_interest_correction_authorized_claims'`,
+    ).get() as { sql: string } | null)?.sql ?? "";
+    expect(canonicalSql).toContain("WITH RECURSIVE");
+    expect(canonicalSql).not.toContain("sentinel");
 
     db.close();
     rmSync(root, { recursive: true, force: true });

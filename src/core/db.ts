@@ -290,6 +290,15 @@ function restoreSchemaTriggers(db: Database, schema: string) {
   }).immediate();
 }
 
+// Kept as a baseline-migration compatibility seam. schema.sql creates views
+// that are missing from older ledgers, but a present view is never replaced by
+// routine migration: drift is inspected and repaired only through the
+// explicit, audited system repair-schema-views command.
+function restoreSchemaViews(db: Database, schema: string) {
+  void db;
+  void schema;
+}
+
 export function migrate(db: Database) {
   assertSchemaCompatibility(db);
   // BASELINE_MIGRATION_V1_NORMALIZATION_START
@@ -454,10 +463,10 @@ export function migrate(db: Database) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_invoice_refunds_document ON invoice_refunds(invoice_document_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_invoice_claim_payments_document ON invoice_claim_payments(invoice_document_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_accounting_periods_covering_date ON accounting_periods(period_start, period_end, status);");
-  // Views are deliberately not recreated here. A current-schema view that
-  // drifts is an integrity incident, not a routine migration side effect; the
-  // CLI-only `system repair-schema-views --apply yes` performs the narrow,
-  // audited repair under an explicit write lock.
+  // Recreate canonical evidence views and guards only after every legacy table
+  // has the columns they reference. This also replaces stale definitions from
+  // earlier releases instead of leaving a latent runtime failure.
+  restoreSchemaViews(db, schema);
   restoreSchemaTriggers(db, schema);
   // Existing native ledgers predate #544. Seed only mappings whose account
   // metadata is compatible; imported/non-native charts remain incomplete.

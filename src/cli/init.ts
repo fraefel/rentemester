@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { companyPaths } from "../core/paths";
+import { inspectLedger } from "../core/ledger-inspection";
 import {
   initialiseCompanyVolume,
   summariseCompanyVolume,
@@ -257,6 +258,11 @@ export function register(dispatch: CommandDispatch): void {
     for (const [name, pass] of checks) {
       console.log(`${pass ? "OK" : "FAIL"} ${name}`);
       if (!pass) ok = false;
+    }
+    if (existsSync(p.db)) {
+      const schema = inspectLedger(p.db);
+      console.log(`${schema.status === "current" ? "OK" : "FAIL"} schema_${schema.status} current=${schema.currentVersion} required=${schema.requiredVersion}`);
+      if (schema.status !== "current") ok = false;
     }
     if (!ok) process.exit(1);
   });

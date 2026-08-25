@@ -1,5 +1,6 @@
 import { migrate } from "../core/db";
-import { CURRENT_SCHEMA_VERSION } from "../core/schema-version";
+import { inspectLedger, openLedgerReadOnly } from "../core/ledger-inspection";
+import { companyPaths } from "../core/paths";
 import { bookExpenseFromBank } from "../core/expense-booking";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandDispatch } from "../cli-dispatch";
@@ -12,22 +13,28 @@ export function register(dispatch: CommandDispatch): void {
       console.error("Missing required --document-id <n>");
       process.exit(2);
     }
-    const db = openCommandDb(ctx);
+    const apply = ctx.arg("--apply");
+    if (apply !== undefined && apply !== "yes") ctx.fatal("--apply must be exactly yes");
     // A dry-run is observational.  It must never bootstrap or upgrade a
     // ledger merely to render a decision.
-    if (!ctx.hasFlag("--apply")) {
-      const row = db.query("SELECT MAX(id) AS version FROM schema_migrations").get() as { version: number | null };
-      if (row.version !== CURRENT_SCHEMA_VERSION) {
-        ctx.emitResult({ ok: false, errors: ["migration-required: apply ledger migrations before VAT preflight dry-run"] });
-        db.close();
+    if (apply === undefined) {
+      const inspection = inspectLedger(companyPaths(ctx.companyRoot()).db);
+      if (inspection.status !== "current") {
+        ctx.emitResult({ ok: false, errors: [`migration-required: schema_${inspection.status}: current=${inspection.currentVersion} required=${inspection.requiredVersion}`], schema: inspection });
         process.exit(1);
       }
-    } else {
+      const db = openLedgerReadOnly(companyPaths(ctx.companyRoot()).db);
+      const result = purchaseVatPreflightSnapshot(db, documentId);
+      ctx.emitResult(result as Record<string, unknown>);
+      db.close();
+      if (!result.ok) process.exit(1);
+      return;
+    }
+    const db = openCommandDb(ctx);
+    if (apply === "yes") {
       migrate(db);
     }
-    const result = ctx.hasFlag("--apply")
-      ? await applyPurchaseVatPreflight(db, documentId, ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? "unknown")
-      : purchaseVatPreflightSnapshot(db, documentId);
+    const result = await applyPurchaseVatPreflight(db, documentId, ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? "unknown");
     ctx.emitResult(result as Record<string, unknown>);
     db.close();
     if (!result.ok) process.exit(1);

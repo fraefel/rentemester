@@ -17,6 +17,7 @@ import { z } from "zod";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
 import { openDb, migrate } from "../core/db";
+import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
 import { companyPaths } from "../core/paths";
 import { isValidSlug, resolveConfiguredWorkspaceRoot, resolveWorkspaceSlug } from "../core/workspace";
 import {
@@ -286,6 +287,27 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
     // SEC-2: every confirmed MCP write passes the same actor allowlist gate as
     // the CLI. `confirm: true` alone is no longer sufficient.
     return withCompanyDb(server, handler, { enforceActorAllowlist: true })(args);
+  };
+}
+
+/** Read-only company wrapper: never migrates, changes journal mode, or creates sidecars. */
+export function withCompanyReadOnlyDb<TArgs extends { company: string }>(
+  handler: (ctx: { db: Database; args: TArgs }) => Envelope | Promise<Envelope>,
+): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
+  return async (args) => {
+    const resolved = resolveCompanyArg(args.company);
+    if (!resolved.ok) return envelopeToCallResult(errorEnvelope(resolved.error));
+    let db: Database | undefined;
+    try {
+      db = openLedgerReadOnly(companyPaths(resolved.companyRoot).db);
+      const schema = inspectOpenLedger(db);
+      if (schema.status !== "current") return envelopeToCallResult(errorEnvelope(`schema_${schema.status}: current=${schema.currentVersion} required=${schema.requiredVersion}`, { schema }));
+      return envelopeToCallResult(await handler({ db, args: { ...args, company: resolved.companyRoot } }));
+    } catch (error) {
+      return envelopeToCallResult(safeErrorEnvelope("withCompanyReadOnlyDb", error instanceof Error ? error.message : String(error)));
+    } finally {
+      db?.close();
+    }
   };
 }
 

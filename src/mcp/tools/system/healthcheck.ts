@@ -10,6 +10,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { existsSync } from "node:fs";
 import { companyPaths } from "../../../core/paths";
+import { inspectLedger } from "../../../core/ledger-inspection";
 import { envelopeShape, errorEnvelope, successEnvelope } from "../../envelope";
 
 export function registerSystemHealthcheckTools(server: McpServer): void {
@@ -49,10 +50,14 @@ export function registerSystemHealthcheckTools(server: McpServer): void {
         { name: "config", ok: existsSync(p.config) },
       ];
       const missing = checks.filter((c) => !c.ok).map((c) => c.name);
+      const inspection = checks.find((check) => check.name === "ledger")?.ok
+        ? inspectLedger(p.db)
+        : undefined;
+      if (inspection && inspection.status !== "current") missing.push("schema");
       const env =
         missing.length === 0
-          ? successEnvelope({ ok: true, missing: [], checks })
-          : { ...errorEnvelope(missing.map((m) => `missing: ${m}`)), data: { ok: false, missing, checks } };
+          ? successEnvelope({ ok: true, missing: [], checks, schema: inspection })
+          : { ...errorEnvelope(missing.map((m) => m === "schema" ? `schema_${inspection?.status}: current=${inspection?.currentVersion} required=${inspection?.requiredVersion}` : `missing: ${m}`)), data: { ok: false, missing, checks, schema: inspection } };
       return {
         content: [{ type: "text" as const, text: JSON.stringify(env) }],
         isError: !env.ok,

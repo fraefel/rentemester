@@ -146,6 +146,11 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
+/** Immutable migration catalogue for read-only compatibility inspection. */
+export function supportedSchemaMigrations(): readonly SupportedSchemaMigration[] {
+  return SUPPORTED_SCHEMA_MIGRATIONS;
+}
+
 type MigrationRow = {
   id: number;
   name: string;

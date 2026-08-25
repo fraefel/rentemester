@@ -34,6 +34,7 @@ export const MUTATING_COMMANDS = new Set([
   // bug-klasse som `company sync-cvr`. Den skal være actor-gated.
   "company set-profile",
   "system backup",
+  "system migrate",
   "system backup-archive",
   "system backup-add-destination",
   "system backup-remove-destination",

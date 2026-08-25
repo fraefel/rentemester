@@ -1,5 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { migrate } from "../core/db";
+import { insertAuditLog } from "../core/actor";
+import { inspectLedger } from "../core/ledger-inspection";
+import { companyPaths } from "../core/paths";
 import {
   createSystemBackup,
   exportBackupPublicKey,
@@ -97,6 +100,43 @@ function runExportPackage(
 }
 
 export function register(dispatch: CommandDispatch, remoteProviderAdapter?: RemoteBackupProviderAdapter): void {
+  dispatch.on("system", "migrate", (ctx) => {
+    const apply = ctx.arg("--apply");
+    if (apply !== undefined && apply !== "yes") ctx.fatal("--apply must be exactly yes");
+    const p = companyPaths(ctx.companyRoot());
+    const before = inspectLedger(p.db);
+    if (apply === undefined) {
+      ctx.emitResult(before.status === "pending"
+        ? { ok: false, errors: [`schema_outdated: current=${before.currentVersion} required=${before.requiredVersion}`], schema: before }
+        : { ok: before.status === "current", errors: before.status === "current" ? [] : [before.error], schema: before });
+      if (before.status !== "current") process.exit(1);
+      return;
+    }
+    if (before.status !== "pending") {
+      ctx.emitResult(before.status === "current" ? { ok: true, migrated: false, schema: before } : { ok: false, errors: [before.error], schema: before });
+      if (before.status !== "current") process.exit(1);
+      return;
+    }
+    const db = openCommandDb(ctx);
+    try {
+      const from = before.currentVersion;
+      db.transaction(() => {
+        migrate(db);
+        insertAuditLog(db, {
+          eventType: "schema_migrated", entityType: "schema", entityId: String(from),
+          message: `Schema migrated from ${from} to ${before.requiredVersion}`,
+          createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined,
+          createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
+        });
+      }).immediate();
+      const after = inspectLedger(p.db);
+      ctx.emitResult(after.status === "current" ? { ok: true, migrated: true, from, to: after.currentVersion, schema: after } : { ok: false, errors: [after.error ?? "schema verification failed"], schema: after });
+      if (after.status !== "current") process.exit(1);
+    } finally {
+      db.close();
+    }
+  });
+
   dispatch.on("system", "backup", (ctx) => {
     const db = openCommandDb(ctx);
     migrate(db);

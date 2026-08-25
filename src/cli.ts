@@ -367,13 +367,22 @@ if (!cmd || cmd === "help") {
     console.log(renderGlobalUsage());
     process.exit(2);
   }
+  // These commands use a value-bearing apply capability. Validate its exact
+  // spelling before actor policy so malformed requests are usage errors.
+  const applyValue = parsedArgs.flags.get("--apply");
+  if ((commandKey === "expense vat-preflight" || commandKey === "system migrate") &&
+      applyValue !== undefined && applyValue !== "yes") {
+    fatal("--apply must be exactly yes");
+  }
   // Enforce the actor policy only when actually executing a mutating
   // command — never for `help` / `--help`, which neither read nor write
   // company data. `restore-backup` writes to --target-company, not
   // --company, so resolve its policy root from that flag.
   // `expense vat-preflight` is read-only unless its explicit `--apply`
   // switch is present. Only apply participates in actor and backup gates.
-  if (MUTATING_COMMANDS.has(commandKey) && !(commandKey === "expense vat-preflight" && !parsedArgs.flags.has("--apply"))) {
+  if (MUTATING_COMMANDS.has(commandKey) &&
+      !(commandKey === "expense vat-preflight" && applyValue !== "yes") &&
+      !(commandKey === "system migrate" && applyValue !== "yes")) {
     const mutationRoot = commandKey === "system restore-backup"
       ? trimToNull(parsedArgs.flags.get("--target-company") as string | undefined)
       // The workspace handler performs an all-target actor + backup preflight

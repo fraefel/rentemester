@@ -10,8 +10,7 @@ import { z } from "zod";
 import { bookExpenseFromBank } from "../../core/expense-booking";
 import { withActor } from "../actor";
 import { envelopeShape, wrapCoreResult } from "../envelope";
-import { withCompanyDbConfirmed, confirmField } from "../tool-runtime";
-import { withCompanyDb } from "../tool-runtime";
+import { withCompanyDbConfirmed, confirmField, withCompanyReadOnlyDb } from "../tool-runtime";
 import { applyPurchaseVatPreflight, purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
 
 const vatTreatmentEnum = z
@@ -50,7 +49,7 @@ export function registerExpenseTools(server: McpServer): void {
       inputSchema: { company: z.string().min(1), documentId: z.number().int().positive() }, outputSchema: envelopeShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    withCompanyDb<{ company: string; documentId: number }>(server, ({ db, args }) => wrapCoreResult(purchaseVatPreflightSnapshot(db, args.documentId))),
+    withCompanyReadOnlyDb<{ company: string; documentId: number }>(({ db, args }) => wrapCoreResult(purchaseVatPreflightSnapshot(db, args.documentId))),
   );
   server.registerTool(
     "expense_vat_preflight_apply",

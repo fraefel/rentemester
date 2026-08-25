@@ -22,6 +22,14 @@ requires `confirm:true`; GET `/parse-status` and `/parsed-text?offset=0&limit=10
 are read-only. The container uses non-root execution; run it with a read-only
 root filesystem, `--network none`, and resource limits for isolated parsing.
 
+`bun run benchmark:pdf-parser --verify` creates a temporary synthetic company
+and documents, ingests a deterministic text-bearing PDF, and measures actual
+pdf.js cold, persisted-cache, serial and parallel parses. Its JSON reports
+documents/pages per second, coordinator child bound and process RSS when
+available. The artificial 35 ms delay is used only to demonstrate coordinator
+parallelism; parse and cache figures still come from real pdf.js children.
+It also requires a malformed PDF to fail without affecting successful parses.
+
 ## Stable public responses
 
 CLI, HTTP and MCP use the same verified DTO. `parse-status` returns `{ parse }`,

@@ -141,6 +141,13 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain("image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8");
     expect(candidate).toContain("run: bun run container:reproducibility");
     expect(candidate).toContain("run: bun run container:test");
+    expect(containerTest).toContain('"--network", "none"');
+    expect(containerTest).toContain('"--memory", "512m"');
+    expect(containerTest).toContain('"--pids-limit", "128"');
+    expect(containerTest).toContain("syntheticTextPdf()");
+    expect(containerTest).toContain("syntheticNoTextPdf()");
+    expect(containerTest).toContain("PDF parse cache was not reused");
+    expect(containerTest).toContain("verified PDF text/layout missing");
     expect(candidate.match(/RELEASE_VERSION: \$\{\{ steps\.identity\.outputs\.version \}\}/g)?.length).toBeGreaterThanOrEqual(2);
     expect(candidate.match(/RELEASE_GIT_COMMIT: \$\{\{ steps\.identity\.outputs\.commit \}\}/g)?.length).toBeGreaterThanOrEqual(2);
     expect(candidate.match(/SOURCE_DATE_EPOCH: \$\{\{ steps\.identity\.outputs\.source_date_epoch \}\}/g)?.length).toBeGreaterThanOrEqual(2);
@@ -153,6 +160,7 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain("SPDX SBOM");
     expect(candidate).toContain("Extract digest-bound SPDX SBOM evidence");
     expect(candidate).toContain("sbom.spdx.json.sha256");
+    expect(candidate).toContain("SBOM must contain pdfjs-dist@6.2.108");
   });
 
   test("binds promotion to one successful trusted run and its attestation", () => {

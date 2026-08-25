@@ -42,13 +42,17 @@ Workflowet:
 - bygger to rene, timestamp-normaliserede OCI-exports og kræver identisk
   manifestdigest og arkiv-SHA-256;
 - kører containeren non-root mod en ny persistent volume, kræver grøn
-  readiness og verificerer en idempotent genstart;
+  readiness og verificerer en idempotent genstart; den samme smoke kører med
+  read-only root, `--network none`, memory/CPU/PID/tmpfs-grænser og opretter
+  syntetisk virksomhed/PDF gennem HTTP. Den verificerer rigtig pdf.js-tekst og
+  layout, cache-genbrug samt det dokumenterede `no_text_layer`-udfald;
 - bygger ét `linux/amd64` Docker-image og pusher kun kandidat-tagget;
 - attesterer image-proveniens, før evidensartefaktet publiceres;
 - publicerer en BuildKit-genereret SPDX-SBOM som OCI-attestation bundet til
   kandidatens immutable digest;
 - udtrækker den samme SBOM til `sbom.spdx.json`, uploader den med egen SHA-256
-  og binder checksummen ind i release-manifestet sammen med approval-schemaet.
+  og binder checksummen ind i release-manifestet sammen med approval-schemaet;
+  kandidaten afviser desuden en SBOM uden den låste `pdfjs-dist@6.2.108`.
 
 Den fulde testsuite er en lokal releasegate, fordi den stærke udviklingsmaskine
 kører den parallelt med Bun. Kandidatworkflowets ansvar er at bevise, at den

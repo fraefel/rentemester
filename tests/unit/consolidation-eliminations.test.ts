@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,12 +36,22 @@ function post(workspace: string, slug: string, amount: number, left: boolean) {
   } finally { db.close(); }
 }
 
+function checkpointLedger(path: string) {
+  const db = new Database(path);
+  try {
+    db.query("PRAGMA wal_checkpoint(TRUNCATE)").get();
+  } finally {
+    db.close();
+  }
+}
+
 describe("workspace-only consolidation eliminations", () => {
   test("derives a balanced elimination from matched evidence, requires four eyes, applies and reverses without ledger writes", () => {
     const { workspace, left, right, control } = setup();
     try {
       post(workspace, left, 250, true); post(workspace, right, 250, false);
       const paths = [left, right].map((slug) => companyPaths(companyRootForSlug(workspace, slug)).db);
+      paths.forEach(checkpointLedger);
       const before = paths.map((path) => createHash("sha256").update(readFileSync(path)).digest("hex"));
       const proposal = proposeBalanceElimination(control, workspace, { id: "eliminate-reciprocal", mappingId: "reciprocal", asOf: "2026-12-31", evidenceRefs: ["review-pack-1"] }, { createdBy: "agent:proposer", createdByProgram: "unit-test" });
       expect(() => approveBalanceElimination(control, workspace, proposal.eliminationId, proposal.payloadHash, { createdBy: "agent:proposer", createdByProgram: "unit-test" })).toThrow("distinct reviewer");

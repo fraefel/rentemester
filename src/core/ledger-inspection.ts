@@ -100,6 +100,8 @@ export function openLedgerReadOnly(path: string): Database {
   const stat = lstatSync(path);
   if (stat.isSymbolicLink()) throw new Error("ledger must not be a symbolic link");
   if (!stat.isFile()) throw new Error("ledger must be a regular file");
+  // URI immutable=1 would ignore an active WAL, so use SQLite's readonly
+  // snapshot semantics: it sees committed WAL frames without creating files.
   const db = new Database(path, { readonly: true });
   db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON;");
   return db;

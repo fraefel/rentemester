@@ -23,7 +23,7 @@ export type { RoutePermission } from "../core/access-permissions";
 
 import { isValidSlug } from "../core/workspace";
 import { authorizeWorkspaceRoute } from "../core/workspace-access";
-import { insertWorkspaceAuthorizationAudit, openWorkspaceControlDb } from "../core/workspace-control";
+import { insertWorkspaceAuthorizationAudit, openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
 import { authMiddleware, type Principal } from "./auth";
 import { recordHostedDocumentAccess } from "./document-access-audit";
 import { ApiError, toErrorResponse } from "./errors";
@@ -493,7 +493,7 @@ function authorizeCatalogRoute(
   // checked against append-only workspace/company membership events.
   if (!config.betterAuthProvider || principal?.via !== "better-auth") return;
   const userId = principal.id.slice("user:".length);
-  const db = openWorkspaceControlDb(config.workspaceRoot);
+  const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
   let allowed = false;
   try {
     const decision = authorizeWorkspaceRoute(db, config.workspaceRoot, {
@@ -502,18 +502,13 @@ function authorizeCatalogRoute(
       companySlug: route.companySlug,
     });
     allowed = decision.allowed;
-    if (!allowed) {
-      insertWorkspaceAuthorizationAudit(db, {
-        actor: principal.id,
-        method: route.entry.method,
-        routeTemplate: route.entry.pattern,
-        permission: route.entry.permission,
-        companySlug: route.companySlug,
-        requestId: config.requestId ?? null,
-      });
-    }
   } finally {
     db.close();
+  }
+  if (!allowed) {
+    const auditDb = openWorkspaceControlDb(config.workspaceRoot);
+    try { insertWorkspaceAuthorizationAudit(auditDb, { actor: principal.id, method: route.entry.method, routeTemplate: route.entry.pattern, permission: route.entry.permission, companySlug: route.companySlug, requestId: config.requestId ?? null }); }
+    finally { auditDb.close(); }
   }
   if (allowed) return;
   const resourceType = route.entry.pattern === "/api/companies/:slug/documents/:id/file"

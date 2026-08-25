@@ -10,6 +10,11 @@ Use `documents parse --company <path> --document-id 12 --confirm yes`, or MCP
 and is limited to 100 documents; a text read is limited to 10 pages. Reads are
 `parse-status` and `parsed-text` and do not mutate the ledger.
 
+Read verification re-snapshots the registered PDF below `documents/originals`
+and proves its MIME type, path containment and SHA-256 before returning parser
+evidence. Any mismatch is returned as the stable `PDF_EVIDENCE_TAMPERED` code;
+the surfaces never return source paths or parser diagnostics.
+
 Results are deterministic and offline. Status is one of `ok`, `no_text_layer`,
 `malformed_pdf`, `encrypted_pdf`, `unsupported_pdf`, or `resource_limit`; errors
 are stable codes, never child stderr, paths, or secrets. `no_text_layer` retains
@@ -37,7 +42,8 @@ where `parse` is `null` or `{ documentId, sourceSha256, parserId, parserVersion,
 contractVersion, status, errorCode, pageCount, itemCount, textLength,
 resultHash }`. It contains no database id, path, child command, stdout or stderr.
 
-`parsed-text` returns `{ parse, pages, offset, limit, nextOffset }`; `limit` is
+`parsed-text` returns `{ parse, pages, offset, limit, nextOffset }`; `nextOffset`
+is null on the final partial or full page, and `limit` is
 1–10. A page contains decoded `text`, dimensions, rotation, `itemCount`, and
 `layoutHash`, never layout coordinates. The four tools are `documents_parse`,
 `documents_parse_pending`, `documents_parse_status`, and

@@ -8,6 +8,8 @@ import { insertAuditLog, resolveActor } from "./actor";
 import { snapshotRegisteredPdfDocument } from "./document-storage";
 
 export const PDF_PARSER_ID = "pdfjs-dist", PDF_PARSER_VERSION = "6.2.108", PDF_PARSER_CONTRACT_VERSION = "document-pdf-text-v1", PDF_PARSE_TIMEOUT_MS = 15_000;
+/** Stable public marker: persisted PDF evidence no longer verifies. */
+export const PDF_EVIDENCE_TAMPERED = "PDF_EVIDENCE_TAMPERED";
 const MAX_STDOUT = 16 * 1024 * 1024, MAX_STDERR = 64 * 1024, MAX_PAGES = 200, MAX_ITEMS_PAGE = 25_000, MAX_ITEMS = 200_000, MAX_TEXT = 5 * 1024 * 1024;
 export const PDF_PARSE_ERROR_CODES = ["source_invalid","source_unavailable","timeout","stdout_limit","stderr_limit","crashed","protocol_violation","no_text_layer","malformed_pdf","encrypted_pdf","unsupported_pdf","page_limit","item_limit","text_limit","tampered_result","internal"] as const;
 export type PdfParseErrorCode = typeof PDF_PARSE_ERROR_CODES[number];
@@ -27,13 +29,23 @@ function valid(result: unknown, expectedHash: string): result is PdfParseResult 
 /** Child protocol is stdin/stdout only; diagnostic bytes are never surfaced. */
 export async function parsePdfBytes(bytes: Uint8Array, options: { timeoutMs?: number; workerPath?: string } = {}): Promise<PdfParseResult> { const expected = inputHash(bytes), timeout = options.timeoutMs ?? PDF_PARSE_TIMEOUT_MS; if (!Number.isInteger(timeout) || timeout < 1 || timeout > PDF_PARSE_TIMEOUT_MS) throw new PdfParseError("internal"); const cwd=mkdtempSync(join(tmpdir(),"rentemester-pdf-")); let child: Bun.PipedSubprocess | undefined; try { child=Bun.spawn({cmd:[process.execPath,"run",options.workerPath ?? join(import.meta.dir,"document-pdf-parser-worker.ts")],cwd,env:{PATH:process.env.PATH ?? "",TZ:"UTC",LANG:"C"},stdin:"pipe",stdout:"pipe",stderr:"pipe"}); child.stdin.write(bytes); child.stdin.end(); let killed=false,timedOut=false; const kill=()=>{ if (!killed) { killed=true; try { child!.kill(); } catch {} } }; const timer=setTimeout(()=>{timedOut=true;kill();},timeout); try { const [out,err,exit] = await Promise.all([readBounded(child.stdout,MAX_STDOUT,kill),readBounded(child.stderr,MAX_STDERR,kill),child.exited]); if(timedOut) throw new PdfParseError("timeout"); if(exit!==0) throw new PdfParseError("crashed"); if(err.length) throw new PdfParseError("protocol_violation"); let parsed: unknown; try { parsed=JSON.parse(out.toString("utf8")); } catch { throw new PdfParseError("protocol_violation"); } if(!valid(parsed,expected)) throw new PdfParseError("protocol_violation"); return parsed; } catch(error) { kill(); await Promise.race([child.exited,new Promise(resolve=>setTimeout(resolve,250))]); if (timedOut) throw new PdfParseError("timeout"); throw toPdfParseError(error); } finally { clearTimeout(timer); } } finally { try { child?.kill(); } catch {} rmSync(cwd,{recursive:true,force:true}); } }
 function pageFrom(row:any): PdfParsePage { return { pageNumber:row.page_number,width:row.width,height:row.height,rotation:row.rotation,text:row.text,layout:JSON.parse(row.layout_json) }; }
-function hydrateVerified(db: Database,row:any,cached:boolean): PdfParseRun { let result: PdfParseResult; try { result=JSON.parse(row.result_json); } catch { throw new PdfParseError("tampered_result"); } const pages=(db.query("SELECT * FROM document_pdf_parse_pages WHERE result_id=? ORDER BY page_number").all(row.id) as any[]).map(pageFrom); if(!valid(result,row.source_sha256_hash) || hash(result)!==row.result_sha256_hash || pages.length!==result.pages.length || pages.some((p,i)=>hash(p)!==(db.query("SELECT page_sha256_hash FROM document_pdf_parse_pages WHERE result_id=? AND page_number=?").get(row.id,i+1) as any)?.page_sha256_hash || canonical(p)!==canonical(result.pages[i]))) throw new PdfParseError("tampered_result"); return {...result,cached,parseId:row.id,resultHash:row.result_sha256_hash}; }
+function hydrateVerified(db: Database,row:any,cached:boolean): PdfParseRun { let result: PdfParseResult; try { result=JSON.parse(row.result_json); } catch { throw new PdfParseError("tampered_result"); }
+  const rows=db.query("SELECT result_id,page_number,width,height,rotation,text,layout_json,item_count,page_sha256_hash FROM document_pdf_parse_pages WHERE result_id=? ORDER BY page_number").all(row.id) as any[];
+  let pages: PdfParsePage[]; try { pages=rows.map(pageFrom); } catch { throw new PdfParseError("tampered_result"); }
+  if (row.parser_id!==PDF_PARSER_ID || row.parser_version!==PDF_PARSER_VERSION || row.contract_version!==PDF_PARSER_CONTRACT_VERSION || row.document_id == null || !valid(result,row.source_sha256_hash) || canonical(result)!==row.result_json || hash(result)!==row.result_sha256_hash || rows.length!==result.pages.length || rows.some((stored,i) => {
+    const page=pages[i]!, expected=result.pages[i];
+    return stored.result_id!==row.id || stored.page_number!==i+1 || stored.item_count!==page.layout.length || !/^[a-f0-9]{64}$/i.test(stored.page_sha256_hash ?? "") || hash(page)!==stored.page_sha256_hash || canonical(page)!==canonical(expected);
+  })) throw new PdfParseError("tampered_result");
+  return {...result,cached,parseId:row.id,resultHash:row.result_sha256_hash};
+}
 export type VerifiedPdfParseDto = { parse: { documentId:number; sourceSha256:string; parserId:string; parserVersion:string; contractVersion:string; status:string; errorCode:string|null; pageCount:number; itemCount:number; textLength:number; resultHash:string }; pages: Array<{pageNumber:number;width:number;height:number;rotation:number;text:string;itemCount:number;layoutHash:string}> };
 /** Read persisted evidence only after proving its source, result and page links. */
-export function readVerifiedPdfParse(db: Database, documentId: number): VerifiedPdfParseDto | null {
-  const row = db.query("SELECT r.*, d.sha256_hash AS document_sha256_hash FROM document_pdf_parse_results r JOIN documents d ON d.id=r.document_id WHERE r.document_id=? ORDER BY r.id DESC LIMIT 1").get(documentId) as any;
+export function readVerifiedPdfParse(db: Database, companyRoot: string, documentId: number): VerifiedPdfParseDto | null {
+  const row = db.query("SELECT r.*, d.sha256_hash AS document_sha256_hash, d.mime_type AS document_mime_type FROM document_pdf_parse_results r JOIN documents d ON d.id=r.document_id WHERE r.document_id=? ORDER BY r.id DESC LIMIT 1").get(documentId) as any;
   if (!row) return null;
-  if (row.document_sha256_hash !== row.source_sha256_hash) throw new PdfParseError("tampered_result");
+  let source: ReturnType<typeof snapshotRegisteredPdfDocument>;
+  try { source=snapshotRegisteredPdfDocument(db,companyRoot,documentId); } catch { throw new PdfParseError("tampered_result"); }
+  if (row.document_id!==documentId || row.document_mime_type!=="application/pdf" || row.document_sha256_hash!==row.source_sha256_hash || source.sha256!==row.source_sha256_hash) throw new PdfParseError("tampered_result");
   const run = hydrateVerified(db, row, true);
   const itemCount=run.pages.reduce((n,p)=>n+p.layout.length,0), textLength=run.pages.reduce((n,p)=>n+p.text.length,0);
   if (row.page_count !== run.pages.length || row.item_count !== itemCount || row.text_length !== textLength || row.status !== run.status || row.error_code !== run.errorCode) throw new PdfParseError("tampered_result");

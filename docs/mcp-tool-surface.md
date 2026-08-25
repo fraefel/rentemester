@@ -235,6 +235,9 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 `documents_parse_status` and `documents_parsed_text` are read-only. The latter
 is capped at ten pages and returns decoded text plus a `layoutHash` per page,
 never layout coordinates, stored paths, child stderr, or worker details. The
+registered source file is re-snapshotted before either response. A failed
+evidence check returns `{ ok:false, code:"PDF_EVIDENCE_TAMPERED",
+errors:["PDF_EVIDENCE_TAMPERED"] }` without paths or diagnostics.
 paired writes are `documents_parse` and `documents_parse_pending`; both require
 `confirm:true`, the normal actor allow-list, and return bounded summaries only.
 Parsing is evidence, not bookkeeping authority.

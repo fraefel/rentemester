@@ -1,8 +1,7 @@
 // Document list, file serve, and booking-options read handlers.
 
 import { purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
-import { readVerifiedPdfParse } from "../../core/document-pdf-parser";
-import { migrate, openDb } from "../../core/db";
+import { PDF_EVIDENCE_TAMPERED, PdfParseError, readVerifiedPdfParse } from "../../core/document-pdf-parser";
 import { inspectOpenLedger, openLedgerReadOnly } from "../../core/ledger-inspection";
 import { companyPaths } from "../../core/paths";
 import { companyRootForSlug } from "../../core/workspace";
@@ -47,9 +46,9 @@ export function handleCompanyDocumentBookingOptions(
 export function handleCompanyDocumentVatPreflight(config: ServerConfig, slug: string, idRaw: string): Response {
   const id = Number(idRaw);
   if (!Number.isInteger(id) || id <= 0) throw ApiError.badRequest("document id must be a positive integer");
-  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
+  const db = openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
   try {
-    migrate(db);
+    if (inspectOpenLedger(db).status !== "current") throw ApiError.notFound("company ledger is not ready");
     return okResponse({ preflight: purchaseVatPreflightSnapshot(db, id) });
   } finally {
     db.close();
@@ -60,8 +59,8 @@ export function handleCompanyDocumentVatPreflight(config: ServerConfig, slug: st
 export function handleCompanyDocumentInvoiceExtraction(config: ServerConfig, slug: string, idRaw: string): Response {
   const id = Number(idRaw);
   if (!Number.isInteger(id) || id <= 0) throw ApiError.badRequest("document id must be a positive integer");
-  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
-  try { migrate(db); return okResponse({ extraction: invoiceExtractionSurface(db, id) }); } finally { db.close(); }
+  const db = openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
+  try { if (inspectOpenLedger(db).status !== "current") throw ApiError.notFound("company ledger is not ready"); return okResponse({ extraction: invoiceExtractionSurface(db, id) }); } finally { db.close(); }
 }
 
 /**
@@ -75,14 +74,14 @@ export type DocumentPdfParseStatusDto = {
   contractVersion: string; status: string; errorCode: string | null; pageCount: number;
   itemCount: number; textLength: number; resultHash: string;
 };
-export function documentPdfParseStatus(db: any, documentId: number): DocumentPdfParseStatusDto | null {
-  return readVerifiedPdfParse(db, documentId)?.parse ?? null;
+export function documentPdfParseStatus(db: any, companyRoot: string, documentId: number): DocumentPdfParseStatusDto | null {
+  return readVerifiedPdfParse(db, companyRoot, documentId)?.parse ?? null;
 }
-export function documentPdfParsedText(db: any, documentId: number, offset = 0, limit = 10) {
-  const verified=readVerifiedPdfParse(db, documentId); const parse=verified?.parse ?? null;
+export function documentPdfParsedText(db: any, companyRoot: string, documentId: number, offset = 0, limit = 10) {
+  const verified=readVerifiedPdfParse(db, companyRoot, documentId); const parse=verified?.parse ?? null;
   if (!verified) return { parse, pages: [], offset, limit, nextOffset: null };
   const pages=verified.pages.slice(offset,offset+limit);
-  return { parse, pages, offset, limit, nextOffset: pages.length === limit ? offset + limit : null };
+  return { parse, pages, offset, limit, nextOffset: offset + pages.length < verified.pages.length ? offset + pages.length : null };
 }
 function openVerifiedRead(config: ServerConfig, slug: string) {
   const db = openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
@@ -93,13 +92,13 @@ function openVerifiedRead(config: ServerConfig, slug: string) {
 /** Read-only PDF parse state; parser errors are persisted as codes, not stderr. */
 export function handleCompanyDocumentParseStatus(config: ServerConfig, slug: string, idRaw: string): Response {
   const id = Number(idRaw); if (!Number.isInteger(id) || id <= 0) throw ApiError.badRequest("document id must be a positive integer");
-  const db = openVerifiedRead(config, slug); try { return okResponse({ parse: documentPdfParseStatus(db, id) }); } finally { db.close(); }
+  const db = openVerifiedRead(config, slug); try { return okResponse({ parse: documentPdfParseStatus(db, companyRootForSlug(config.workspaceRoot, slug), id) }); } catch (error) { if (error instanceof PdfParseError && error.code === "tampered_result") throw ApiError.conflict("PDF evidence integrity verification failed", { subcode: PDF_EVIDENCE_TAMPERED }); throw error; } finally { db.close(); }
 }
 /** Read-only parsed pages, capped at ten to bound agent and HTTP responses. */
 export function handleCompanyDocumentParsedText(config: ServerConfig, slug: string, idRaw: string, url: URL): Response {
   const id = Number(idRaw), offset = Number(url.searchParams.get("offset") ?? "0"), limit = Number(url.searchParams.get("limit") ?? "10");
   if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 10) throw ApiError.badRequest("document id, offset and limit (1..10) are invalid");
-  const db = openVerifiedRead(config, slug); try { return okResponse(documentPdfParsedText(db, id, offset, limit)); } finally { db.close(); }
+  const db = openVerifiedRead(config, slug); try { return okResponse(documentPdfParsedText(db, companyRootForSlug(config.workspaceRoot, slug), id, offset, limit)); } catch (error) { if (error instanceof PdfParseError && error.code === "tampered_result") throw ApiError.conflict("PDF evidence integrity verification failed", { subcode: PDF_EVIDENCE_TAMPERED }); throw error; } finally { db.close(); }
 }
 
 /**

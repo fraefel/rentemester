@@ -414,10 +414,11 @@ export function applySchemaMigrations(db: Database): void {
           if ((db.query("PRAGMA table_info(invoice_extraction_attempts)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_attempts ADD COLUMN initiated_by TEXT;\s*/, "");
           if ((db.query("PRAGMA table_info(invoice_extraction_results)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_results ADD COLUMN initiated_by TEXT;\s*/, "");
         }
-        if (migration.id === 17 && db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_pdf_parses'").get()) {
+        if (migration.id === 17 && db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_pdf_parse_results'").get()) {
           // Recovery after a migration-ledger loss: retain immutable rows,
           // rebuild just this migration's indexes and append-only guards.
-          sql = sql.replace(/^CREATE TABLE document_pdf_parses[\s\S]*?;\nCREATE TABLE document_pdf_parse_pages[\s\S]*?;\n/, "")
+          sql = sql.replace(/^CREATE TABLE document_pdf_parse_attempts[\s\S]*?;\nCREATE TABLE document_pdf_parse_results[\s\S]*?;\nCREATE TABLE document_pdf_parse_pages[\s\S]*?;\n/, "")
+            .replace(/CREATE VIEW document_pdf_parses[\s\S]*?;\n?/, "")
             .replaceAll("CREATE INDEX idx_", "CREATE INDEX IF NOT EXISTS idx_");
         }
         if (sql.trim()) db.exec(sql);

@@ -29,11 +29,11 @@ export type SchemaViewInspection = {
 };
 
 function normalizeViewSql(sql: string): string {
-  return sql
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/--[^\n\r]*/g, " ")
-    .replace(/CREATE\s+VIEW\s+IF\s+NOT\s+EXISTS/i, "CREATE VIEW")
-    .replace(/\s+/g, " ").trim().replace(/;$/, "").trim().toLowerCase();
+  // SQL keywords and insignificant whitespace are case-insensitive; quoted
+  // literals are not. Tokenise rather than lowercasing the whole definition.
+  const uncommented = sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n\r]*/g, " ").replace(/CREATE\s+VIEW\s+IF\s+NOT\s+EXISTS/i, "CREATE VIEW");
+  const tokens = uncommented.match(/'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]*\]|\s+|[^\s'"`\[]+/g) ?? [];
+  return tokens.map((token) => /^\s+$/.test(token) ? " " : (/^['"`\[]/.test(token) ? token : token.toLowerCase())).join("").replace(/\s+/g, " ").trim().replace(/;$/, "").trim();
 }
 
 function extractViews(sql: string): SchemaViewDefinition[] {

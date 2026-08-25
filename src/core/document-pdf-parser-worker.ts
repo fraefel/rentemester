@@ -20,8 +20,11 @@ async function main() {
       const content = await page.getTextContent({ includeMarkedContent: false, disableNormalization: false });
       const items = content.items.filter((item): item is any => "str" in item);
       if (items.length > MAX_ITEMS_PAGE || totalItems + items.length > MAX_ITEMS) return fail("item_limit", inputSha256);
-      const layout = items.map((item) => ({ text: String(item.str).normalize("NFC"), x: round(item.transform[4]), y: round(item.transform[5]), width: round(item.width), height: round(item.height), font: String(item.fontName ?? "") }));
-      const text = layout.map((item) => item.text).join("").normalize("NFC");
+      // pdf.js supplies both directional runs and explicit EOL boundaries.
+      // Keep them as evidence and make the rendered text deterministic without
+      // silently collapsing meaningful line endings.
+      const layout = items.map((item) => ({ text: String(item.str).normalize("NFC"), x: round(item.transform[4]), y: round(item.transform[5]), width: round(item.width), height: round(item.height), font: String(item.fontName ?? ""), dir: String(item.dir ?? ""), hasEol: Boolean(item.hasEOL) }));
+      const text = layout.map((item) => item.text + (item.hasEol ? "\n" : "")).join("").replace(/\r\n?/g, "\n").normalize("NFC");
       textLength += text.length; if (textLength > MAX_TEXT) return fail("text_limit", inputSha256);
       totalItems += layout.length;
       pages.push({ pageNumber, width: round(viewport.width), height: round(viewport.height), rotation: viewport.rotation, text, layout });

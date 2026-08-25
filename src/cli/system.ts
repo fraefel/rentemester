@@ -226,7 +226,7 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
         db.exec("PRAGMA query_only = ON;");
         const views = inspectSchemaViews(db);
         if (!views.ok) ctx.emitResult({ ok: true, errors: [], action: "repair_schema_views", wouldRepair: true, views });
-        else ctx.emitResult({ ok: false, errors: [schema.status === "current" ? "schema view inspection failed" : schema.error], schema, views });
+        else ctx.emitResult({ ok: true, errors: [], action: "repair_schema_views", wouldRepair: false, schema, views });
       } catch (error) {
         ctx.emitResult({ ok: false, errors: [error instanceof Error ? error.message : String(error)] });
       } finally { db?.close(); }

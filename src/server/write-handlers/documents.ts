@@ -3,20 +3,21 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
-import { ingestDocumentAsync, type DocumentMetadata } from "../../core/documents";
-import { resolveDocumentMasterData } from "../../core/master-data";
-import type { SupplierIdentifierKind } from "../../core/supplier-identity";
+import { applyPurchaseVatPreflight } from "../../cli/purchase-vat-preflight";
+import { parseRegisteredPdfBatch, parseRegisteredPdfDocument } from "../../core/document-pdf-parser";
+import { type DocumentMetadata, ingestDocumentAsync } from "../../core/documents";
 import {
   bookExpenseFromBank,
   type ExpenseVatTreatment,
 } from "../../core/expense-booking";
+import { removePathWithRetry } from "../../core/fs-cleanup";
+import { resolveDocumentMasterData } from "../../core/master-data";
+import type { SupplierIdentifierKind } from "../../core/supplier-identity";
+import { withCockpitActor } from "../actor";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
-import { withCockpitActor } from "../actor";
-import { withCompanyMutation } from "../mutations";
-import { removePathWithRetry } from "../../core/fs-cleanup";
-import { applyPurchaseVatPreflight } from "../../cli/purchase-vat-preflight";
 import { extractDocumentInvoice, invoiceExtractionSurface } from "../invoice-extraction-surface";
+import { withCompanyMutation } from "../mutations";
 import {
   MAX_UPLOAD_BODY_BYTES,
   okResponse,
@@ -25,6 +26,25 @@ import {
   requireBodyPositiveInt,
   requireBodyString,
 } from "./_shared";
+
+/** Parse routes are explicit opt-in: ingest never invokes this service. */
+export async function handleDocumentPdfParse(config: ServerConfig, request: Request, slug: string, idRaw: string): Promise<Response> {
+  const documentId = Number(idRaw); if (!Number.isInteger(documentId) || documentId <= 0) throw ApiError.badRequest("document id must be a positive integer");
+  const result = await withCompanyMutation(request, config, slug, async ({ db, actor, companyRoot }) => {
+    try { return { ok: true, parse: await parseRegisteredPdfDocument(db, companyRoot, { documentId, createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }) }; }
+    catch { return { ok: false, errors: ["PDF_PARSE_FAILED"] }; }
+  }, { requireConfirm: true });
+  return okResponse({ parse: result.parse });
+}
+
+export async function handleDocumentPdfParsePending(config: ServerConfig, request: Request, slug: string): Promise<Response> {
+  const result = await withCompanyMutation(request, config, slug, async ({ db, actor, companyRoot }, body) => {
+    const limit = body.limit === undefined ? 100 : Number(body.limit); if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw ApiError.badRequest("limit must be an integer between 1 and 100");
+    const ids = (db.query(`SELECT d.id FROM documents d WHERE d.mime_type='application/pdf' AND d.stored_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM document_pdf_parses p WHERE p.document_id=d.id) ORDER BY d.id LIMIT ?`).all(limit) as Array<{ id: number }>).map((row) => row.id);
+    return { ok: true, parses: await parseRegisteredPdfBatch(db, companyRoot, ids, { createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }) };
+  }, { requireConfirm: true });
+  return okResponse({ parses: result.parses });
+}
 
 /**
  * Parses + validates the `metadata` body field into a core `DocumentMetadata`.

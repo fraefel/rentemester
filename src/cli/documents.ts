@@ -1,14 +1,19 @@
 import { readFileSync } from "node:fs";
-import { companyPaths } from "../core/paths";
-import { openDb, migrate } from "../core/db";
+import type { CommandDispatch } from "../cli-dispatch";
+import { openCommandDb } from "../cli-dispatch";
+import { formatKroner } from "../cli-format";
+import { migrate, openDb } from "../core/db";
+import { parseRegisteredPdfBatch, parseRegisteredPdfDocument } from "../core/document-pdf-parser";
 import { ingestDocument, purchaseVatLinesFromPayload } from "../core/documents";
 import { recordException } from "../core/exceptions";
 import { resolveDocumentMasterData } from "../core/master-data";
-import { openCommandDb } from "../cli-dispatch";
-import { formatKroner } from "../cli-format";
+import { companyPaths } from "../core/paths";
 import { extractDocumentInvoice, invoiceExtractionSurface } from "../server/invoice-extraction-surface";
 import { resolveConfiguredInvoiceExtractor } from "../server/invoice-extractor";
-import type { CommandDispatch } from "../cli-dispatch";
+
+function parseStatus(db: any, documentId: number) {
+  return db.query(`SELECT id, document_id AS documentId, source_sha256_hash AS sourceSha256, parser_id AS parserId, parser_version AS parserVersion, contract_version AS contractVersion, status, error_code AS errorCode, page_count AS pageCount, item_count AS itemCount, text_length AS textLength, result_sha256_hash AS resultHash, created_at AS createdAt FROM document_pdf_parses WHERE document_id=? ORDER BY id DESC LIMIT 1`).get(documentId) ?? null;
+}
 
 export function register(dispatch: CommandDispatch): void {
   dispatch.on("documents", "ingest", (ctx) => {
@@ -149,4 +154,15 @@ export function register(dispatch: CommandDispatch): void {
     const db = openCommandDb(ctx); migrate(db);
     try { ctx.emitResult({ ok: true, extraction: invoiceExtractionSurface(db, id) }); } finally { db.close(); }
   });
+
+  dispatch.on("documents", "parse", async (ctx) => {
+    const id = Number(ctx.arg("--document-id")); if (!Number.isInteger(id) || id <= 0) ctx.fatal("Missing required --document-id <n>");
+    const db = openCommandDb(ctx); migrate(db); try { const result = await parseRegisteredPdfDocument(db, ctx.companyRoot(), { documentId: id, createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined, createdByProgram: "rentemester-cli" }); ctx.emitResult({ ok: true, parse: result }); } catch { ctx.emitResult({ ok: false, errors: ["PDF_PARSE_FAILED"] }); } finally { db.close(); }
+  });
+  dispatch.on("documents", "parse-pending", async (ctx) => {
+    const limit = ctx.arg("--limit") === undefined ? 100 : Number(ctx.arg("--limit")); if (!Number.isInteger(limit) || limit < 1 || limit > 100) ctx.fatal("--limit must be an integer between 1 and 100");
+    const db = openCommandDb(ctx); migrate(db); try { const ids = (db.query(`SELECT d.id FROM documents d WHERE d.mime_type='application/pdf' AND d.stored_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM document_pdf_parses p WHERE p.document_id=d.id) ORDER BY d.id LIMIT ?`).all(limit) as Array<{ id: number }>).map((x) => x.id); const parses = await parseRegisteredPdfBatch(db, ctx.companyRoot(), ids, { createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined, createdByProgram: "rentemester-cli" }); ctx.emitResult({ ok: true, parses }); } finally { db.close(); }
+  });
+  dispatch.on("documents", "parse-status", (ctx) => { const id = Number(ctx.arg("--document-id")); if (!Number.isInteger(id) || id <= 0) ctx.fatal("Missing required --document-id <n>"); const db = openCommandDb(ctx); migrate(db); try { ctx.emitResult({ ok: true, parse: parseStatus(db, id) }); } finally { db.close(); } });
+  dispatch.on("documents", "parsed-text", (ctx) => { const id = Number(ctx.arg("--document-id")); const offset = Number(ctx.arg("--offset") ?? 0); const limit = Number(ctx.arg("--limit") ?? 10); if (!Number.isInteger(id) || id <= 0) ctx.fatal("Missing required --document-id <n>"); if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 10) ctx.fatal("--offset >= 0 and --limit 1..10 are required"); const db = openCommandDb(ctx); migrate(db); try { const parse = parseStatus(db, id); const pages = parse ? db.query(`SELECT page_number AS pageNumber, width, height, rotation, text, item_count AS itemCount FROM document_pdf_parse_pages WHERE parse_id=? ORDER BY page_number LIMIT ? OFFSET ?`).all(parse.id, limit, offset) : []; ctx.emitResult({ ok: true, parse, pages, offset, limit, nextOffset: pages.length === limit ? offset + limit : null }); } finally { db.close(); } });
 }

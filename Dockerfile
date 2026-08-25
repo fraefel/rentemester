@@ -22,6 +22,7 @@ ARG RENTEMESTER_BUILT_AT
 WORKDIR /build/runtime
 COPY package.json bun.lock bunfig.toml ./
 COPY app/package.json ./app/package.json
+# pdfjs-dist is a locked production runtime dependency; keep its assets in the image.
 RUN bun install --frozen-lockfile --production --filter rentemester \
     && find node_modules -print0 | xargs -0 touch -d "${RENTEMESTER_BUILT_AT}"
 

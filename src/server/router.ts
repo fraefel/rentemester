@@ -16,81 +16,29 @@
 // lock, the confirm gate, actor attribution and the localhost hard-gate that
 // the agent CLI / MCP stacks enforce — the server does not inherit them.
 
-import type { ServerConfig } from "./config";
 import type { RoutePermission } from "../core/access-permissions";
+import type { ServerConfig } from "./config";
+
 export type { RoutePermission } from "../core/access-permissions";
-import { authMiddleware, type Principal } from "./auth";
-import { insertWorkspaceAuthorizationAudit, openWorkspaceControlDb } from "../core/workspace-control";
-import { authorizeWorkspaceRoute } from "../core/workspace-access";
-import { recordHostedDocumentAccess } from "./document-access-audit";
+
 import { isValidSlug } from "../core/workspace";
+import { authorizeWorkspaceRoute } from "../core/workspace-access";
+import { insertWorkspaceAuthorizationAudit, openWorkspaceControlDb } from "../core/workspace-control";
+import { authMiddleware, type Principal } from "./auth";
+import { recordHostedDocumentAccess } from "./document-access-audit";
 import { ApiError, toErrorResponse } from "./errors";
 import { assertHostedMutationOriginAllowed } from "./mutations";
-import { serveStatic } from "./static";
 import { jsonResponse } from "./router/_shared";
-import { AUTH_SESSION_FRESH_AGE_SECONDS } from "./security-policy";
-import {
-  handleHealth,
-  handleReadiness,
-  handleRules,
-  handleSystemCvrStatus,
-} from "./router/system";
-import {
-  handleCompanyList,
-  handlePortfolio,
-} from "./router/portfolio";
-import { handleMe } from "./router/me";
-import {
-  handleWorkspaceInvitationCancel,
-  handleWorkspaceInvitationClaim,
-  handleWorkspaceInvitationCreate,
-  handleWorkspaceInvitationList,
-} from "./router/workspace-invitations";
-import {
-  handleWorkspaceMemberAccessUpdate,
-  handleWorkspaceMemberCompanyUpdate,
-  handleWorkspaceMemberList,
-} from "./router/workspace-members";
-import { handleGroupConsolidatedReport, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
-import {
-  handleCompanyDashboard,
-  handleCompanyFiscalYears,
-  handleCompanyMultiYear,
-  handleCompanyOverview,
-} from "./router/dashboard";
-import {
-  handleCompanyBalance,
-  handleCompanyIncomeStatement,
-  handleCompanyJournal,
-  handleCompanyJournalExport,
-  handleCompanyStatementExport,
-  handleCompanyTrialBalance,
-  handleCompanyVatExport,
-} from "./router/statements";
-import {
-  handleCompanyBank,
-  handleCompanyBankAccounts,
-} from "./router/bank";
-import { handleCompanyVat } from "./router/vat";
-import {
-  handleCompanyDocumentBookingOptions,
-  handleCompanyDocumentVatPreflight,
-  handleCompanyDocumentInvoiceExtraction,
-  handleCompanyDocumentFile,
-  handleCompanyDocuments,
-} from "./router/documents";
-import {
-  handleCompanyInvoicePdf,
-  handleCompanyInvoices,
-  handleCompanyRecurringInvoices,
-} from "./router/invoices";
-import { handleCompanyContacts } from "./router/contacts";
 import { handleCompanyAccountingDraft, handleCompanyAccountingDrafts } from "./router/accounting-drafts";
-import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
 import {
   handleAssetNextDepreciation,
   handleCompanyAssets,
 } from "./router/assets";
+import {
+  handleCompanyBank,
+  handleCompanyBankAccounts,
+} from "./router/bank";
+import { handleBookkeepingBatchApply, handleBookkeepingBatchDryRun } from "./router/bookkeeping-batch";
 import {
   handleCompanyAccounts,
   handleCompanyAccruals,
@@ -111,64 +59,122 @@ import {
   handleCompanySettings,
   handleCompanySyncCvr,
 } from "./router/company";
+import { handleCompanyContacts } from "./router/contacts";
+import {
+  handleCompanyDashboard,
+  handleCompanyFiscalYears,
+  handleCompanyMultiYear,
+  handleCompanyOverview,
+} from "./router/dashboard";
+import {
+  handleCompanyDocumentBookingOptions,
+  handleCompanyDocumentFile,
+  handleCompanyDocumentInvoiceExtraction,
+  handleCompanyDocumentParsedText,
+  handleCompanyDocumentParseStatus,
+  handleCompanyDocuments,
+  handleCompanyDocumentVatPreflight,
+} from "./router/documents";
+import { handleGroupConsolidatedReport, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
+import {
+  handleCompanyInvoicePdf,
+  handleCompanyInvoices,
+  handleCompanyRecurringInvoices,
+} from "./router/invoices";
+import { handleMe } from "./router/me";
+import {
+  handleCompanyList,
+  handlePortfolio,
+} from "./router/portfolio";
+import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
+import {
+  handleCompanyBalance,
+  handleCompanyIncomeStatement,
+  handleCompanyJournal,
+  handleCompanyJournalExport,
+  handleCompanyStatementExport,
+  handleCompanyTrialBalance,
+  handleCompanyVatExport,
+} from "./router/statements";
+import {
+  handleHealth,
+  handleReadiness,
+  handleRules,
+  handleSystemCvrStatus,
+} from "./router/system";
+import { handleCompanyVat } from "./router/vat";
+import {
+  handleWorkspaceInvitationCancel,
+  handleWorkspaceInvitationClaim,
+  handleWorkspaceInvitationCreate,
+  handleWorkspaceInvitationList,
+} from "./router/workspace-invitations";
+import {
+  handleWorkspaceMemberAccessUpdate,
+  handleWorkspaceMemberCompanyUpdate,
+  handleWorkspaceMemberList,
+} from "./router/workspace-members";
 import {
   handleCompanyCreate,
   handleCompanyUpdate,
 } from "./router/workspace-writes";
+import { AUTH_SESSION_FRESH_AGE_SECONDS } from "./security-policy";
+import { serveStatic } from "./static";
 import {
   handleAccountantExport,
   handleApproveAgentSuggestion,
+  handleApproveAndPostAccountingDraft,
   handleAssetDepreciate,
   handleAssetRegister,
   handleAssetWriteOff,
   handleBankImport,
   handleClosePeriod,
-  handleCreateBankAccount,
-  handleUpdateBankAccount,
-  handleDeleteBilagsmailImapConfig,
-  handleGdprExport,
-  handleGdprErase,
-  handleSaveBilagsmailImapConfig,
-  handleSetBilagsmailAlias,
   handleCompanyProfile,
+  handleCreateAccountingDraft,
+  handleCreateBankAccount,
   handleCreateCustomer,
+  handleCreateRecurringInvoiceTemplate,
   handleCreateVendor,
   handleCvrLookup,
+  handleDataImport,
+  handleDeleteBilagsmailImapConfig,
   handleDeleteCustomer,
   handleDeleteVendor,
-  handleDataImport,
   handleDocumentBookExpense,
-  handleDocumentVatPreflightApply,
   handleDocumentIngest,
+  handleDocumentPdfParse,
+  handleDocumentPdfParsePending,
+  handleDocumentVatPreflightApply,
+  handleGdprErase,
+  handleGdprExport,
   handleGenerateRecurringInvoice,
   handleInvoiceCreditNote,
-  handleInvoiceSendPublic,
-  handleInvoiceSendPublicStatus,
-  handleInvoiceSendEmail,
-  handleInvoiceSendReminder,
   handleInvoiceIssue,
   handleInvoicePost,
-  handleCreateRecurringInvoiceTemplate,
   handleInvoicePreview,
+  handleInvoiceSendEmail,
+  handleInvoiceSendPublic,
+  handleInvoiceSendPublicStatus,
+  handleInvoiceSendReminder,
   handleInvoiceSettle,
   handleMileageCreate,
   handlePayablePay,
   handlePayableRegister,
+  handleRejectAccountingDraft,
   handleRejectAgentSuggestion,
   handleReopenPeriod,
   handleResolveException,
   handleRetireRecurringInvoiceTemplate,
+  handleReviseAccountingDraft,
+  handleSaveBilagsmailImapConfig,
+  handleSetBilagsmailAlias,
   handleSetBudget,
+  handleSubmitAccountingDraft,
+  handleUpdateBankAccount,
   handleUpdateCustomer,
   handleUpdateVendor,
-  handleApproveAndPostAccountingDraft,
-  handleCreateAccountingDraft,
-  handleRejectAccountingDraft,
-  handleReviseAccountingDraft,
-  handleSubmitAccountingDraft,
 } from "./write-handlers";
 import { handlePostingRuleMutation } from "./write-handlers/posting-rules";
-import { handleBookkeepingBatchApply, handleBookkeepingBatchDryRun } from "./router/bookkeeping-batch";
 
 // --------------------------------------------------------------------------
 // Route handlers — reads + workspace management only.
@@ -290,6 +296,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/booking-options", summary: "Forslagsdata til bogføring af et bilag." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/vat-preflight", summary: "Købsmoms-preflight uden provider-kald." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/invoice-extraction", summary: "Citeret fakturaudtræk uden filsti eller secrets." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/parse-status", summary: "PDF-parserstatus uden child-stderr." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/parsed-text", summary: "Pagineret PDF-tekst, højst 10 sider." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bookkeeping-batch", summary: "Read-only batchplan med plan-hash og partitioner." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/apply", summary: "Anvender eller genoptager præcis hash-bundet batch med confirm." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/documents/:id/vat-preflight/apply", summary: "Henter nødvendig købsmoms-evidens før bogføring." },
@@ -335,6 +343,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/import", summary: "Generel data-import." },
   { scope: "company", effect: "write", permission: "company.export", method: "POST", pattern: "/api/companies/:slug/accountant-export", summary: "Revisor-eksport (.tar)." },
   { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/ingest", summary: "Modtager et bilag." },
+  { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/:id/parse", summary: "Parser et gemt PDF-bilag med confirm." },
+  { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/parse-pending", summary: "Parser ventende PDF-bilag med confirm." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/documents/book-expense", summary: "Bogfører et bilag som udgift mod en banktransaktion." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/invoices/issue", summary: "Udsteder en faktura." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/invoices/preview", summary: "Forhåndsviser en faktura-PDF uden at udstede." },
@@ -874,6 +884,10 @@ export async function handleRequest(
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       return handleCompanyDocumentInvoiceExtraction(config, decodeURIComponent(documentExtractionMatch[1]!), documentExtractionMatch[2]!);
     }
+    const documentParseStatusMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/parse-status$/.exec(path);
+    if (documentParseStatusMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleCompanyDocumentParseStatus(config, decodeURIComponent(documentParseStatusMatch[1]!), documentParseStatusMatch[2]!); }
+    const documentParsedTextMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/parsed-text$/.exec(path);
+    if (documentParsedTextMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleCompanyDocumentParsedText(config, decodeURIComponent(documentParsedTextMatch[1]!), documentParsedTextMatch[2]!, url); }
 
     const recurringInvoicesMatch =
       /^\/api\/companies\/([^/]+)\/recurring-invoices$/.exec(path);
@@ -1283,6 +1297,10 @@ export async function handleRequest(
       const slug = decodeURIComponent(documentIngestMatch[1]!);
       return await handleDocumentIngest(config, request, slug);
     }
+    const documentParsePendingMatch = /^\/api\/companies\/([^/]+)\/documents\/parse-pending$/.exec(path);
+    if (documentParsePendingMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPdfParsePending(config, request, decodeURIComponent(documentParsePendingMatch[1]!)); }
+    const documentParseMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/parse$/.exec(path);
+    if (documentParseMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPdfParse(config, request, decodeURIComponent(documentParseMatch[1]!), documentParseMatch[2]!); }
 
     // Bookkeeping write route (#407): book an ingested purchase document
     // (bilag) against an unmatched outgoing bank transaction. Third caller

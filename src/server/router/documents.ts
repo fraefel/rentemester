@@ -1,20 +1,20 @@
 // Document list, file serve, and booking-options read handlers.
 
+import { purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
+import { migrate, openDb } from "../../core/db";
+import { companyPaths } from "../../core/paths";
+import { companyRootForSlug } from "../../core/workspace";
 import type { ServerConfig } from "../config";
-import { ApiError } from "../errors";
-import { recordHostedDocumentAccess } from "../document-access-audit";
 import {
   buildCompanyDocuments,
   buildDocumentBookingOptions,
   resolveCompanyDocumentFile,
 } from "../data";
-import { okResponse } from "./_shared";
-import { responseBodyFromBytes } from "../response-body";
-import { companyRootForSlug } from "../../core/workspace";
-import { companyPaths } from "../../core/paths";
-import { openDb, migrate } from "../../core/db";
-import { purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
+import { recordHostedDocumentAccess } from "../document-access-audit";
+import { ApiError } from "../errors";
 import { invoiceExtractionSurface } from "../invoice-extraction-surface";
+import { responseBodyFromBytes } from "../response-body";
+import { okResponse } from "./_shared";
 
 export function handleCompanyDocuments(config: ServerConfig, slug: string): Response {
   const data = buildCompanyDocuments(config.workspaceRoot, slug);
@@ -60,6 +60,21 @@ export function handleCompanyDocumentInvoiceExtraction(config: ServerConfig, slu
   if (!Number.isInteger(id) || id <= 0) throw ApiError.badRequest("document id must be a positive integer");
   const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
   try { migrate(db); return okResponse({ extraction: invoiceExtractionSurface(db, id) }); } finally { db.close(); }
+}
+
+function parsedStatus(db: any, documentId: number) {
+  return db.query(`SELECT id, document_id AS documentId, source_sha256_hash AS sourceSha256, parser_id AS parserId, parser_version AS parserVersion, contract_version AS contractVersion, status, error_code AS errorCode, page_count AS pageCount, item_count AS itemCount, text_length AS textLength, result_sha256_hash AS resultHash, created_at AS createdAt FROM document_pdf_parses WHERE document_id=? ORDER BY id DESC LIMIT 1`).get(documentId) ?? null;
+}
+/** Read-only PDF parse state; parser errors are persisted as codes, not stderr. */
+export function handleCompanyDocumentParseStatus(config: ServerConfig, slug: string, idRaw: string): Response {
+  const id = Number(idRaw); if (!Number.isInteger(id) || id <= 0) throw ApiError.badRequest("document id must be a positive integer");
+  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db); try { migrate(db); return okResponse({ parse: parsedStatus(db, id) }); } finally { db.close(); }
+}
+/** Read-only parsed pages, capped at ten to bound agent and HTTP responses. */
+export function handleCompanyDocumentParsedText(config: ServerConfig, slug: string, idRaw: string, url: URL): Response {
+  const id = Number(idRaw), offset = Number(url.searchParams.get("offset") ?? "0"), limit = Number(url.searchParams.get("limit") ?? "10");
+  if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 10) throw ApiError.badRequest("document id, offset and limit (1..10) are invalid");
+  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db); try { migrate(db); const parse = parsedStatus(db, id); const pages = parse ? db.query(`SELECT page_number AS pageNumber, width, height, rotation, text, item_count AS itemCount FROM document_pdf_parse_pages WHERE parse_id=? ORDER BY page_number LIMIT ? OFFSET ?`).all(parse.id, limit, offset) : []; return okResponse({ parse, pages, offset, limit, nextOffset: pages.length === limit ? offset + limit : null }); } finally { db.close(); }
 }
 
 /**

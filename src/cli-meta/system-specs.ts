@@ -52,6 +52,7 @@ export const localSpecs: CommandSpec[] = [
 export const systemSpecs: CommandSpec[] = [
   { key: "system healthcheck", usage: "system healthcheck --company <slug|path>", description: "Tjekker at virksomhedsmappen og kernefiler findes.", allowedFlags: ["--company"] },
   { key: "system migrate", usage: "system migrate --company <slug|path> [--apply yes]", description: "Viser skemastatus read-only; kun --apply yes udfører en ledger-migrering. CLI-only.", allowedFlags: ["--company", "--apply"] },
+  { key: "system repair-schema-views", usage: "system repair-schema-views --company <slug|path> --reason <text> [--apply yes]", description: "Viser eller reparerer drift i kanoniske SQL-views. Kun --apply yes ændrer databasen; reparationen er CLI-only og audit-logges.", allowedFlags: ["--company", "--reason", "--apply"] },
   { key: "system backup", usage: "system backup --company <path> [--at <ISO-8601>] [--sign-with-ed25519] [--archive]", description: "Opretter en revisionsklar backup. Med --sign-with-ed25519 tilføjes en asymmetrisk signatur som 3.-part kan verificere uafhængigt. Med --archive pakkes backuppen straks til én .tar-fil klar til off-site placering.", allowedFlags: ["--company", "--at", "--sign-with-ed25519", "--archive"] },
   { key: "system backup-status", usage: "system backup-status --company <path> [--as-of <ISO-8601>]", description: "Viser om backup-pligten er opfyldt.", allowedFlags: ["--company", "--as-of"] },
   {

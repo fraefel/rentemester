@@ -195,6 +195,10 @@ There is no enforced phase order, but the correct shape of work is
 3. **Verify.** After a posting, `audit_verify` confirms the hash chain is
    intact; `journal_list` / `invoice_status` confirm the new state.
 
+`audit_verify` åbner altid ledger'en read-only og fejler lukket ved ventende,
+nyere, korrupt eller driftet schema. Schema-view-reparation er bevidst ikke et
+MCP-tool; brug den actor-gatede CLI-kommando `system repair-schema-views`.
+
 Some tools genuinely depend on earlier ones (you cannot `invoice_post`
 before `invoice_issue`; you cannot `expense_book` without an ingested
 document and an imported bank transaction). When a dependency is missing the

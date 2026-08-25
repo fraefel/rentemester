@@ -49,7 +49,7 @@ describe("database trigger restoration", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("migrate replaces a weakened interest-correction authority view", () => {
+  test("migrate does not silently repair a weakened interest-correction authority view", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-view-restore-"));
     const db = openDb(join(root, "ledger.sqlite"));
     migrate(db);
@@ -64,14 +64,13 @@ describe("database trigger restoration", () => {
       `SELECT sql FROM sqlite_master
         WHERE type = 'view' AND name = 'invoice_interest_correction_authorized_claims'`,
     ).get() as { sql: string } | null)?.sql ?? "";
-    expect(restoredSql).toContain("WITH RECURSIVE");
-    expect(restoredSql).not.toContain("sentinel");
+    expect(restoredSql).toContain("sentinel");
 
     db.close();
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("migrate restores credit-note cardinality and claim-journal authority", () => {
+  test("migrate restores triggers but leaves view repair to the explicit command", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-claim-guard-restore-"));
     const db = openDb(join(root, "ledger.sqlite"));
     migrate(db);
@@ -124,11 +123,9 @@ describe("database trigger restoration", () => {
     expect(creditTrigger).toContain("only one accounting journal");
     expect(reversalTrigger).toContain("one existing unreversed posted original");
     expect(claimTrigger).toContain("exact DKK receivable/income journal");
-    expect(claimView).toContain("invalid_line_count");
-    expect(claimView).not.toContain("sentinel");
+    expect(claimView).toContain("sentinel");
     expect(badDebtTrigger).toContain("exact VAT-relief expense/output-VAT/receivable journal");
-    expect(badDebtView).toContain("is_valid");
-    expect(badDebtView).not.toContain("sentinel");
+    expect(badDebtView).toContain("sentinel");
 
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -94,6 +94,7 @@ for den tabel der pr. business-operation viser hvilke stakke der kræver hvad.
 | `efaktura modtag` / `modtag-workspace` | Henter og indlæser eksterne bilag i én eller flere ledgers | Exit `1`; workspace-varianten preflighter actor og backup-lås for alle aktive mål før første netværkskald. |
 | `expense vat-preflight --apply yes` | Henter nødvendig EU-VAT-evidens før købspostering | Kræver actor; uden `--apply` er samme kommando en ikke-mutérende dry-run. |
 | `system migrate --apply yes` | Anvender ventende, checksummede ledger-migreringer | CLI-only; kræver actor. Uden `--apply` er kommandoen en strikt read-only plan og returnerer succes med `wouldMigrate`. Apply tager én `IMMEDIATE`-transaktion, genlæser status under låsen og er no-op hvis schema allerede er aktuelt. Ugyldige tilstande afvises uden writes; en ventende migration skal nå aktuel status og får præcis én actor-attribueret `schema_migrated`-audit-hændelse før commit. |
+| `system repair-schema-views --apply yes` | Reparerer drift i indbyggede SQL-views | CLI-only; kræver allowlisted actor og `--reason` på 1–1000 tegn. Uden `--apply` returneres kun en read-only plan. Apply låser med `BEGIN IMMEDIATE`, reparerer kun den indbyggede katalogliste, verificerer igen og skriver præcis én `schema_views_repaired`-audit-hændelse atomisk. |
 
 `system healthcheck` er altid read-only. Med `--json` eller `--format json`
 udskrives én stabil JSON-resultatlinje med `checks`, `missing` og `schema`.

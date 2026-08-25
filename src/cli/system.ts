@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { lstatSync, writeFileSync } from "node:fs";
 import { migrate } from "../core/db";
 import { insertAuditLog } from "../core/actor";
-import { inspectLedger, inspectOpenLedger, type LedgerInspection } from "../core/ledger-inspection";
+import { inspectLedger, inspectOpenLedger, inspectSchemaViews, repairCanonicalSchemaViews, type LedgerInspection } from "../core/ledger-inspection";
 import { companyPaths } from "../core/paths";
 import {
   createSystemBackup,
@@ -30,6 +30,7 @@ import { exportSaftPackage } from "../core/saft-export";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 import { emitHumanReport } from "../cli-format";
+import { checkActorAllowlist } from "../cli-actor";
 
 function requireBool(ctx: CommandContext, flag: string): boolean {
   const value = ctx.arg(flag);
@@ -205,6 +206,67 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
     } finally {
       db.close();
     }
+  });
+
+  dispatch.on("system", "repair-schema-views", (ctx) => {
+    const apply = ctx.arg("--apply");
+    if (apply !== undefined && apply !== "yes") ctx.fatal("--apply must be exactly yes");
+    const reason = ctx.trimToNull(ctx.arg("--reason"));
+    if (apply === "yes" && (!reason || reason.length > 1000)) ctx.fatal("--reason is required and must contain 1 through 1000 characters");
+    const dbPath = companyPaths(ctx.companyRoot()).db;
+    if (apply === undefined) {
+      const schema = inspectLedger(dbPath);
+      if (schema.status !== "current" && schema.status !== "corrupt") {
+        ctx.emitResult({ ok: false, errors: [inspectionError(schema)], schema });
+        return;
+      }
+      let db: Database | undefined;
+      try {
+        db = new Database(dbPath, { readonly: true });
+        db.exec("PRAGMA query_only = ON;");
+        const views = inspectSchemaViews(db);
+        if (!views.ok) ctx.emitResult({ ok: true, errors: [], action: "repair_schema_views", wouldRepair: true, views });
+        else ctx.emitResult({ ok: false, errors: [schema.status === "current" ? "schema view inspection failed" : schema.error], schema, views });
+      } catch (error) {
+        ctx.emitResult({ ok: false, errors: [error instanceof Error ? error.message : String(error)] });
+      } finally { db?.close(); }
+      return;
+    }
+    const actor = resolveActorId(ctx) ?? ctx.fatal("actor required for mutations");
+    const actorDecision = checkActorAllowlist(ctx.companyRoot(), actor);
+    if (!actorDecision.allowed) ctx.fatal(actorDecision.reason);
+    const db = openExistingMigrationDb(dbPath);
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      const locked = inspectOpenLedger(db);
+      const views = inspectSchemaViews(db);
+      if (locked.status !== "current" && (locked.status !== "corrupt" || !locked.error.startsWith("SCHEMA_VIEW_DRIFT:"))) {
+        db.exec("ROLLBACK");
+        ctx.emitResult({ ok: false, errors: [inspectionError(locked)], schema: locked, views });
+        return;
+      }
+      if (views.ok) {
+        db.exec("COMMIT");
+        ctx.emitResult({ ok: true, repaired: false, action: "none", views });
+        return;
+      }
+      const before = views;
+      const after = repairCanonicalSchemaViews(db);
+      if (!after.ok) throw new Error(`canonical schema view repair failed: ${after.errors.join("; ")}`);
+      insertAuditLog(db, {
+        eventType: "schema_views_repaired",
+        entityType: "schema_views",
+        entityId: before.affectedNames.join(","),
+        message: JSON.stringify({ reason: reason!, affectedNames: before.affectedNames, beforeCatalogueDigest: before.catalogueDigest, beforeActualDigest: before.actualDigest, afterCatalogueDigest: after.catalogueDigest, afterActualDigest: after.actualDigest }),
+        createdBy: actor,
+        createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
+      });
+      db.exec("COMMIT");
+      ctx.emitResult({ ok: true, repaired: true, affectedNames: before.affectedNames, before, after });
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch { /* transaction already closed */ }
+      throw error;
+    } finally { db.close(); }
   });
 
   dispatch.on("system", "backup", (ctx) => {

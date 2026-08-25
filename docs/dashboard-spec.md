@@ -267,6 +267,9 @@ DESC`.
 - Ingen entries endnu: `success`-pill med tekst "OK · 0 entries". Ikke en fejl.
 - Fejl i kæden: `danger`-pill + kort uddrag (max 80 tegn) af første fejl. Hele
   fejlen kan ses via `rentemester audit verify`.
+- Schema-version eller kanoniske view-definitioner, der ikke kan verificeres,
+  vises også som `danger`; integrity-endpointet foretager ingen migration eller
+  reparation under læsning.
 
 **Tokens:** `success` / `danger` (pill-baggrund), `mono-family` (entry-tal),
 `alert-danger` (komponent-token) hvis fejl, `body-family` (fejlbesked).

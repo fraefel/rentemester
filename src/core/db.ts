@@ -290,24 +290,6 @@ function restoreSchemaTriggers(db: Database, schema: string) {
   }).immediate();
 }
 
-// Financial guards delegate deterministic money/shape checks to canonical SQL
-// views. CREATE VIEW IF NOT EXISTS would otherwise leave a stale or weakened
-// view in place forever, so migrations restore those definitions with the same
-// atomic drop+create discipline as protective triggers.
-function restoreSchemaViews(db: Database, schema: string) {
-  const viewStatements = schema.match(/CREATE VIEW[\s\S]*?;/gi) ?? [];
-  db.transaction(() => {
-    for (const statement of viewStatements) {
-      const nameMatch = /CREATE VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement);
-      if (!nameMatch) continue;
-      const name = nameMatch[1];
-      const canonical = statement.replace(/CREATE VIEW\s+IF\s+NOT\s+EXISTS/i, "CREATE VIEW");
-      db.run(`DROP VIEW IF EXISTS ${name}`);
-      db.exec(canonical);
-    }
-  }).immediate();
-}
-
 export function migrate(db: Database) {
   assertSchemaCompatibility(db);
   // BASELINE_MIGRATION_V1_NORMALIZATION_START
@@ -472,10 +454,10 @@ export function migrate(db: Database) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_invoice_refunds_document ON invoice_refunds(invoice_document_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_invoice_claim_payments_document ON invoice_claim_payments(invoice_document_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_accounting_periods_covering_date ON accounting_periods(period_start, period_end, status);");
-  // Recreate canonical evidence views and guards only after every legacy table
-  // has the columns they reference. This also replaces stale definitions from
-  // earlier releases instead of leaving a latent runtime failure.
-  restoreSchemaViews(db, schema);
+  // Views are deliberately not recreated here. A current-schema view that
+  // drifts is an integrity incident, not a routine migration side effect; the
+  // CLI-only `system repair-schema-views --apply yes` performs the narrow,
+  // audited repair under an explicit write lock.
   restoreSchemaTriggers(db, schema);
   // Existing native ledgers predate #544. Seed only mappings whose account
   // metadata is compatible; imported/non-native charts remain incomplete.

@@ -35,6 +35,7 @@ export const MUTATING_COMMANDS = new Set([
   "company set-profile",
   "system backup",
   "system migrate",
+  "system repair-schema-views",
   "system backup-archive",
   "system backup-add-destination",
   "system backup-remove-destination",

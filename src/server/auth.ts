@@ -11,7 +11,7 @@
 
 import type { ServerConfig } from "./config";
 import { ApiError } from "./errors";
-import { openWorkspaceControlDb } from "../core/workspace-control";
+import { openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
 import { hasCurrentBetterAuthSession } from "../core/workspace-access";
 
 /**
@@ -60,7 +60,7 @@ export async function authMiddleware(
     // the authorization boundary: both emergency invalidation and verified
     // first-MFA enrollment delete rows atomically, avoiding same-second
     // timestamp ambiguity and stale provider-response bypasses.
-    const db = openWorkspaceControlDb(config.workspaceRoot);
+    const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
     try {
       if (!hasCurrentBetterAuthSession(db, userId, sessionId)) {
         throw ApiError.unauthorized("missing or invalid credentials");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import {
   activateWorkspaceUser,
   disableWorkspaceUser,
@@ -9,7 +9,7 @@ import {
   invalidateUserSessions,
   revokeCompanyMembership,
 } from "../../../src/core/workspace-access";
-import { openWorkspaceControlDb } from "../../../src/core/workspace-control";
+import { openWorkspaceControlDb, workspaceControlPaths } from "../../../src/core/workspace-control";
 import { applyGroupManifest } from "../../../src/core/group-manifest";
 import { approveIntercompanyMapping, proposeIntercompanyMapping } from "../../../src/core/intercompany-reconciliation";
 import { initialiseCompanyVolume } from "../../../src/core/company";
@@ -31,6 +31,18 @@ import {
 } from "./_shared";
 
 const SESSION_CREATED_AT = new Date("2025-01-01T00:00:00.000Z");
+
+function directoryBytes(root: string) {
+  return readdirSync(root).sort().map((name) => {
+    const path = `${root}/${name}`;
+    const stat = lstatSync(path);
+    return {
+      name,
+      kind: stat.isFile() ? "file" : stat.isSymbolicLink() ? "symlink" : "other",
+      sha256: stat.isFile() ? createHash("sha256").update(readFileSync(path)).digest("hex") : null,
+    };
+  });
+}
 
 function actor() {
   return { createdBy: "agent:test", createdByProgram: "unit-test" };
@@ -371,6 +383,26 @@ describe("cockpit Better Auth + RBAC boundary", () => {
       disableDb.close();
       expect((await get(cfg, "/api/companies/allowed-aps/dashboard")).status).toBe(401);
     } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("hosted GET authentication sees committed WAL state without changing control DB sidecars", async () => {
+    const workspace = makeWorkspace("better-auth-readonly-wal", ["Allowed ApS"]);
+    const userId = addUser(workspace);
+    const control = openWorkspaceControlDb(workspace);
+    try {
+      control.run("PRAGMA journal_mode = WAL");
+      control.run('UPDATE "user" SET emailVerified = 1, twoFactorEnabled = 1 WHERE id = ?', [userId]);
+      addSession(control, userId);
+      activateWorkspaceUser(control, { userId, workspaceRole: "member", ...actor() });
+      grantCompanyMembership(control, workspace, { userId, companySlug: "allowed-aps", role: "reader", ...actor() });
+      const directory = workspaceControlPaths(workspace).directory;
+      const before = directoryBytes(directory);
+      expect((await get(hostedConfig(workspace, userId, { getSession: 0 }), "/api/companies/allowed-aps/dashboard")).status).toBe(200);
+      expect(directoryBytes(directory)).toEqual(before);
+    } finally {
+      control.close();
       rmSync(workspace, { recursive: true, force: true });
     }
   });

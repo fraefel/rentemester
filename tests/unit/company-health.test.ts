@@ -22,10 +22,6 @@ function directoryIdentity(root: string): Array<{ name: string; kind: string; sh
     const path = join(root, name);
     const stat = lstatSync(path);
     if (!stat.isFile()) return { name, kind: stat.isSymbolicLink() ? "symlink" : "other" };
-    // A read-only SQLite connection may update lock/co-ordination bytes in an
-    // existing shared-memory sidecar. Its presence must stay stable; business
-    // data lives in the main DB/WAL bytes asserted below.
-    if (name.endsWith("-shm")) return { name, kind: "sqlite-shm" };
     return {
       name,
       kind: "file",
@@ -94,6 +90,23 @@ describe("strictly read-only ledger health inspection", () => {
       expect(inspectLedger(symlinkPath)).toMatchObject({ status: "unavailable" });
       expect(directoryIdentity(root)).toEqual(before);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("observes committed WAL frames without changing DB, WAL or SHM bytes", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-company-health-wal-"));
+    const path = join(root, "active.sqlite");
+    const writer = openDb(path);
+    try {
+      migrate(writer);
+      writer.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      writer.run("UPDATE schema_migrations SET checksum = 'wal-only-tamper' WHERE id = 1");
+      const before = directoryIdentity(root);
+      expect(inspectLedger(path)).toMatchObject({ status: "corrupt" });
+      expect(directoryIdentity(root)).toEqual(before);
+    } finally {
+      writer.close();
       rmSync(root, { recursive: true, force: true });
     }
   });

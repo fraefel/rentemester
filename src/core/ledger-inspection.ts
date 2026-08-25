@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
@@ -7,6 +7,7 @@ import {
   supportedSchemaMigrations,
   type SchemaMigrationIdentity,
 } from "./schema-version";
+import { openSqliteReadOnlySnapshot } from "./sqlite-readonly-snapshot";
 
 export type LedgerInspection =
   | { status: "current"; currentVersion: number; requiredVersion: number; pending: [] }
@@ -97,14 +98,7 @@ export function repairCanonicalSchemaViews(db: Database): SchemaViewInspection {
  * or migration row. Callers must close the returned handle.
  */
 export function openLedgerReadOnly(path: string): Database {
-  const stat = lstatSync(path);
-  if (stat.isSymbolicLink()) throw new Error("ledger must not be a symbolic link");
-  if (!stat.isFile()) throw new Error("ledger must be a regular file");
-  // URI immutable=1 would ignore an active WAL, so use SQLite's readonly
-  // snapshot semantics: it sees committed WAL frames without creating files.
-  const db = new Database(path, { readonly: true });
-  db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON;");
-  return db;
+  return openSqliteReadOnlySnapshot(path);
 }
 
 function tableExists(db: Database, name: string): boolean {

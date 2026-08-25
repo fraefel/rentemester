@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveActor, type ResolveActorInput } from "./actor";
 import { getBuildIdentity } from "./build-identity";
+import { openSqliteReadOnlySnapshot } from "./sqlite-readonly-snapshot";
 
 /** Private workspace-owned state. Company ledgers are deliberately elsewhere. */
 export const WORKSPACE_CONTROL_DIRECTORY = ".rentemester";
@@ -516,9 +517,8 @@ export function openWorkspaceControlDb(workspaceRoot: string): Database {
 export function openWorkspaceControlReadOnlyDb(workspaceRoot: string): Database {
   const paths = workspaceControlPaths(workspaceRoot);
   if (!existsSync(paths.db)) throw new Error("workspace control database is unavailable");
-  const db = new Database(paths.db, { readonly: true });
+  const db = openSqliteReadOnlySnapshot(paths.db);
   try {
-    db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON");
     assertWorkspaceControlCompatibility(db);
     assertWorkspaceControlPrimitives(db);
     return db;

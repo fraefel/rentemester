@@ -82,7 +82,7 @@ export function buildCompanyIntegrity(
     const schema = inspectOpenLedger(db);
     if (schema.status !== "current") throw ApiError.conflict(schema.status === "pending" ? `schema_outdated: current=${schema.currentVersion} required=${schema.requiredVersion}` : schema.error);
     const companySettings = getCompanySettings(db);
-    const audit = verifyAuditChain(db);
+    const audit = verifyAuditChain(db, { companyRoot });
     const backup = getBackupComplianceStatus(db, companyRoot);
     const destinations = listBackupDestinations(companyRoot).map((d) => ({
       id: d.id,

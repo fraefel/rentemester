@@ -43,11 +43,11 @@ export function registerAuditTools(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    withCompanyReadOnlyDb<{ company: string }>(({ db }) => {
+    withCompanyReadOnlyDb<{ company: string }>(({ db, args }) => {
       // `withCompanyDb` already resolves + existsSync-guards `company` and
       // returns a *path-redacted* error envelope on a bad/missing directory,
       // so the absolute host path is never disclosed to the caller (#228).
-      return wrapCoreResult(verifyAuditChain(db));
+      return wrapCoreResult(verifyAuditChain(db, { companyRoot: args.company }));
     }),
   );
 

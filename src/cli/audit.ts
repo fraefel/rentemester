@@ -8,10 +8,11 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("audit", "verify", (ctx) => {
     let db: Database | undefined;
     try {
-      db = openLedgerReadOnly(companyPaths(ctx.companyRoot()).db);
+      const companyRoot = ctx.companyRoot();
+      db = openLedgerReadOnly(companyPaths(companyRoot).db);
       const schema = inspectOpenLedger(db);
       if (schema.status !== "current") ctx.emitResult({ ok: false, errors: [schema.status === "pending" ? `schema_outdated: current=${schema.currentVersion} required=${schema.requiredVersion}` : schema.error], schema });
-      else ctx.emitResult(verifyAuditChain(db) as Record<string, unknown>);
+      else ctx.emitResult(verifyAuditChain(db, { companyRoot }) as Record<string, unknown>);
     } catch (error) {
       ctx.emitResult({ ok: false, errors: [error instanceof Error ? error.message : String(error)] });
     } finally { db?.close(); }

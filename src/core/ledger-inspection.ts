@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 import { lstatSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 import {
   CURRENT_SCHEMA_VERSION,
   supportedSchemaMigrations,
@@ -27,25 +26,6 @@ export function openLedgerReadOnly(path: string): Database {
   if (stat.isSymbolicLink()) throw new Error("ledger must not be a symbolic link");
   if (!stat.isFile()) throw new Error("ledger must be a regular file");
   const db = new Database(path, { readonly: true });
-  db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON;");
-  return db;
-}
-
-/**
- * Opens a quiescent ledger snapshot for health/readiness probes. SQLite's
- * immutable URI prevents even WAL checkpoint/locking side effects, so hashing
- * the main DB and WAL before and after a probe is meaningful. Operational
- * read paths use openLedgerReadOnly instead because they may run alongside a
- * writer and must observe normal SQLite locking semantics.
- */
-export function openLedgerProbe(path: string): Database {
-  const stat = lstatSync(path);
-  if (stat.isSymbolicLink()) throw new Error("ledger must not be a symbolic link");
-  if (!stat.isFile()) throw new Error("ledger must be a regular file");
-  const uri = new URL(pathToFileURL(path));
-  uri.searchParams.set("mode", "ro");
-  uri.searchParams.set("immutable", "1");
-  const db = new Database(uri.href, { readonly: true });
   db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON;");
   return db;
 }
@@ -93,7 +73,7 @@ export function inspectOpenLedger(db: Database): LedgerInspection {
 export function inspectLedger(path: string): LedgerInspection {
   let db: Database | undefined;
   try {
-    db = openLedgerProbe(path);
+    db = openLedgerReadOnly(path);
     return inspectOpenLedger(db);
   } catch (error) {
     return unavailable(error instanceof Error ? error.message : String(error));

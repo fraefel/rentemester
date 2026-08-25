@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { lstatSync, writeFileSync } from "node:fs";
 import { migrate } from "../core/db";
 import { insertAuditLog } from "../core/actor";
 import { inspectLedger, inspectOpenLedger, type LedgerInspection } from "../core/ledger-inspection";
@@ -63,6 +64,21 @@ function inspectionError(
   return inspection.error;
 }
 
+/**
+ * `openDb` deliberately rejects a mismatched migration history before a
+ * writable handle exists. `system migrate --apply yes` needs to inspect that
+ * same state under its write lock so it can report a structured no-write
+ * rejection instead.
+ */
+function openExistingMigrationDb(path: string): Database {
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) throw new Error("ledger must not be a symbolic link");
+  if (!stat.isFile()) throw new Error("ledger must be a regular file");
+  const db = new Database(path);
+  db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 30000;");
+  return db;
+}
+
 // A placement record names who placed the backup (a human pressing the
 // button, or the agent pushing via its own tooling) — surfaced both ways.
 function placementActor(ctx: CommandContext): {
@@ -112,9 +128,9 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
   dispatch.on("system", "migrate", (ctx) => {
     const apply = ctx.arg("--apply");
     if (apply !== undefined && apply !== "yes") ctx.fatal("--apply must be exactly yes");
-    const p = companyPaths(ctx.companyRoot());
-    const before = inspectLedger(p.db);
     if (apply === undefined) {
+      const p = companyPaths(ctx.companyRoot());
+      const before = inspectLedger(p.db);
       if (before.status === "pending") {
         ctx.emitResult({
           ok: true,
@@ -138,48 +154,54 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
       }
       return;
     }
-    if (before.status !== "pending") {
-      if (before.status === "current") ctx.emitResult({ ok: true, migrated: false, schema: before });
-      else ctx.emitResult({ ok: false, errors: [inspectionError(before)], schema: before });
-      if (before.status !== "current") process.exit(1);
-      return;
-    }
     const actor = ctx.cliActor ?? ctx.inferredMutationActor();
     if (!actor) ctx.fatal("actor required for mutations");
-    const db = openCommandDb(ctx);
+    const dbPath = companyPaths(ctx.companyRoot()).db;
+    let db: Database;
     try {
+      db = openExistingMigrationDb(dbPath);
+    } catch (error) {
+      const schema = inspectLedger(dbPath);
+      const message = schema.status === "current"
+        ? (error instanceof Error ? error.message : String(error))
+        : inspectionError(schema);
+      ctx.emitResult({ ok: false, errors: [message], schema });
+      return;
+    }
+    try {
+      db.exec("BEGIN IMMEDIATE");
       const locked = inspectOpenLedger(db);
       if (locked.status !== "pending") {
         if (locked.status === "current") {
+          db.exec("COMMIT");
           ctx.emitResult({ ok: true, migrated: false, schema: locked });
         } else {
+          db.exec("ROLLBACK");
           ctx.emitResult({ ok: false, errors: [inspectionError(locked)], schema: locked });
         }
         return;
       }
       const from = locked.currentVersion;
-      insertAuditLog(db, {
-        eventType: "schema_migration_attempted",
-        entityType: "schema",
-        entityId: String(from),
-        message: `Schema migration requested from ${from} to ${locked.requiredVersion}`,
-        createdBy: actor,
-        createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
-      });
-      migrate(db);
-      const after = inspectOpenLedger(db);
-      if (after.status !== "current") {
-        throw new Error(`schema migration did not reach current state: ${inspectionError(after)}`);
+      try {
+        migrate(db);
+        const after = inspectOpenLedger(db);
+        if (after.status !== "current") {
+          throw new Error(`schema migration did not reach current state: ${inspectionError(after)}`);
+        }
+        insertAuditLog(db, {
+          eventType: "schema_migrated",
+          entityType: "schema",
+          entityId: String(from),
+          message: `Schema migrated from ${from} to ${after.currentVersion}`,
+          createdBy: actor,
+          createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
+        });
+        db.exec("COMMIT");
+        ctx.emitResult({ ok: true, migrated: true, from, to: after.currentVersion, schema: after });
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
       }
-      insertAuditLog(db, {
-        eventType: "schema_migration_completed",
-        entityType: "schema",
-        entityId: String(from),
-        message: `Schema migrated from ${from} to ${after.currentVersion}`,
-        createdBy: actor,
-        createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
-      });
-      ctx.emitResult({ ok: true, migrated: true, from, to: after.currentVersion, schema: after });
     } finally {
       db.close();
     }

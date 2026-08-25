@@ -114,12 +114,11 @@ describe("system healthcheck and explicit migration CLI contract", () => {
 
       const db = new Database(companyPaths(company).db, { readonly: true });
       const audit = db.query(
-        "SELECT event_type, actor FROM audit_log WHERE event_type LIKE 'schema_migration_%' ORDER BY id",
+        "SELECT event_type, actor FROM audit_log WHERE event_type = 'schema_migrated' ORDER BY id",
       ).all();
       db.close();
       expect(audit).toEqual([
-        { event_type: "schema_migration_attempted", actor: "user:tester via rentemester-cli" },
-        { event_type: "schema_migration_completed", actor: "user:tester via rentemester-cli" },
+        { event_type: "schema_migrated", actor: "user:tester via rentemester-cli" },
       ]);
 
       const currentBefore = ledgerIdentity(company);
@@ -151,6 +150,32 @@ describe("system healthcheck and explicit migration CLI contract", () => {
         expect(result.stderr).toContain("--apply");
         expect(existsSync(missingCompany)).toBe(false);
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("invalid schema states fail under the apply lock without writes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-migrate-invalid-"));
+    const company = join(root, "company");
+    try {
+      const actorEnv = isolatedEnv({ USER: "tester" });
+      expect((await run(["init", "--company", company], actorEnv)).exitCode).toBe(0);
+      const db = new Database(companyPaths(company).db);
+      db.run("UPDATE schema_migrations SET checksum = 'wrong' WHERE id = 1");
+      db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      db.close();
+      const before = ledgerIdentity(company);
+
+      const result = await run([
+        "system", "migrate", "--company", company, "--apply", "yes", "--actor", "user:tester",
+      ], actorEnv);
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: false,
+        schema: { status: "corrupt" },
+      });
+      expect(ledgerIdentity(company)).toEqual(before);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -64,6 +64,7 @@ function preflightTarget(target: Target, actor: string): boolean {
   if (!allowed.allowed) return false;
   const db = new Database(companyPaths(target.root).db, { readonly: true });
   try {
+    db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 30000;");
     const lock = evaluateBackupLock(db, target.root);
     return lock.errors.length === 0 && !lock.locked;
   } catch { return false; }

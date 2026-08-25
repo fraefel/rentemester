@@ -1,12 +1,15 @@
 // Tests: src/mcp/server.ts, src/mcp/tools (MCP server end-to-end)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { ensureCompanyDirs } from "../../src/core/paths";
+import { companyPaths, ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { ensureEd25519Keypair } from "../../src/core/system-backups";
+import { createCompany } from "../../src/core/company";
+import { companyRootForSlug, initWorkspace } from "../../src/core/workspace";
 
 /**
  * Integration-test for MCP-server-scaffolden (#77).
@@ -39,11 +42,12 @@ class StdioMcpClient {
   private buffer = "";
   private nextId = 1;
 
-  constructor() {
+  constructor(env: Record<string, string | undefined> = process.env) {
     this.proc = Bun.spawn(["bun", SERVER_PATH], {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
+      env,
     });
     this.stdoutReader = this.proc.stdout.getReader();
   }
@@ -480,6 +484,60 @@ describe("MCP tools full surface (#78)", () => {
     expect(structured?.ok).toBe(false);
     expect(structured?.data?.ok).toBe(false);
     expect(structured?.data?.missing).toContain("company_root");
+  });
+
+  test("system_healthcheck has read-only slug/path parity for a pending ledger", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "mcp-health-workspace-"));
+    let isolatedClient: StdioMcpClient | undefined;
+    try {
+      initWorkspace(workspace);
+      const created = createCompany(workspace, {
+        name: "MCP Pending Example",
+        onboardingActor: "user:tester",
+      });
+      const company = companyRootForSlug(workspace, created.slug);
+      const ledger = companyPaths(company).db;
+      const db = openDb(ledger);
+      db.run("DELETE FROM schema_migrations WHERE id > 10");
+      db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      db.close();
+      const identity = () => ({
+        entries: readdirSync(dirname(ledger)).sort(),
+        sha256: createHash("sha256").update(readFileSync(ledger)).digest("hex"),
+      });
+      const before = identity();
+
+      isolatedClient = new StdioMcpClient({ ...process.env, RENTEMESTER_WORKSPACE: workspace });
+      await isolatedClient.send("initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "rentemester-health-test", version: "0.0.1" },
+      });
+      await isolatedClient.notify("notifications/initialized");
+
+      const bySlug = await isolatedClient.send("tools/call", {
+        name: "system_healthcheck",
+        arguments: { company: created.slug },
+      });
+      const byPath = await isolatedClient.send("tools/call", {
+        name: "system_healthcheck",
+        arguments: { company },
+      });
+      for (const response of [bySlug, byPath]) {
+        expect(response.result?.structuredContent).toMatchObject({
+          ok: false,
+          data: {
+            schema_outdated: true,
+            schema: { status: "pending", currentVersion: 10 },
+          },
+        });
+      }
+      expect(bySlug.result?.structuredContent).toEqual(byPath.result?.structuredContent);
+      expect(identity()).toEqual(before);
+    } finally {
+      await isolatedClient?.close();
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   test("retention_status returns ok envelope", async () => {

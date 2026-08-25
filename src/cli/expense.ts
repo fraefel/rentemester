@@ -30,11 +30,16 @@ export function register(dispatch: CommandDispatch): void {
       if (!result.ok) process.exit(1);
       return;
     }
+    const actor = (
+      ctx.cliActor ??
+      process.env.RENTEMESTER_ACTOR ??
+      ctx.inferredMutationActor()
+    ) ?? ctx.fatal("actor required for mutations");
     const db = openCommandDb(ctx);
     if (apply === "yes") {
       migrate(db);
     }
-    const result = await applyPurchaseVatPreflight(db, documentId, ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? "unknown");
+    const result = await applyPurchaseVatPreflight(db, documentId, actor);
     ctx.emitResult(result as Record<string, unknown>);
     db.close();
     if (!result.ok) process.exit(1);

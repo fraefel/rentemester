@@ -93,7 +93,7 @@ for den tabel der pr. business-operation viser hvilke stakke der kræver hvad.
 | `efaktura konfigurer` / `onboard` / `registrer*` | Gemmer secret eller ændrer ekstern DigiSense/NemHandel-registrering | Exit `1`; ingen secret/state/netværksmutation udføres. |
 | `efaktura modtag` / `modtag-workspace` | Henter og indlæser eksterne bilag i én eller flere ledgers | Exit `1`; workspace-varianten preflighter actor og backup-lås for alle aktive mål før første netværkskald. |
 | `expense vat-preflight --apply yes` | Henter nødvendig EU-VAT-evidens før købspostering | Kræver actor; uden `--apply` er samme kommando en ikke-mutérende dry-run. |
-| `system migrate --apply yes` | Anvender ventende, checksummede ledger-migreringer | CLI-only; kræver actor. Uden `--apply` er kommandoen en strikt read-only preflight. Under apply tages én IMMEDIATE-lås, status genlæses i låsen, og én `schema_migrated`-audit-hændelse med actor skrives atomisk med migreringen. |
+| `system migrate --apply yes` | Anvender ventende, checksummede ledger-migreringer | CLI-only; kræver actor. Uden `--apply` er kommandoen en strikt read-only plan og returnerer succes med `wouldMigrate`. Apply genlæser status efter den skrivbare åbning og skriver actor-attribuerede `schema_migration_attempted`- og `schema_migration_completed`-hændelser omkring den eksisterende, replay-sikre migrationsmotor. En afbrudt migration må derfor efterlade et ærligt attempt-spor uden at hævde completion. |
 
 `system healthcheck` er altid read-only. Med `--json` eller `--format json`
 udskrives én stabil JSON-resultatlinje med `checks`, `missing` og `schema`.

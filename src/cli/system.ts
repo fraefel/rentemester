@@ -116,13 +116,26 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
     const before = inspectLedger(p.db);
     if (apply === undefined) {
       if (before.status === "pending") {
-        ctx.emitResult({ ok: false, errors: [`schema_outdated: current=${before.currentVersion} required=${before.requiredVersion}`], schema: before });
+        ctx.emitResult({
+          ok: true,
+          errors: [],
+          action: "migration_required",
+          wouldMigrate: true,
+          schema_outdated: true,
+          schema: before,
+        });
       } else if (before.status === "current") {
-        ctx.emitResult({ ok: true, errors: [], schema: before });
+        ctx.emitResult({
+          ok: true,
+          errors: [],
+          action: "none",
+          wouldMigrate: false,
+          schema_outdated: false,
+          schema: before,
+        });
       } else {
         ctx.emitResult({ ok: false, errors: [inspectionError(before)], schema: before });
       }
-      if (before.status !== "current") process.exit(1);
       return;
     }
     if (before.status !== "pending") {
@@ -135,37 +148,38 @@ export function register(dispatch: CommandDispatch, remoteProviderAdapter?: Remo
     if (!actor) ctx.fatal("actor required for mutations");
     const db = openCommandDb(ctx);
     try {
-      let outcome: { ok: true; migrated: boolean; from: number; schema: LedgerInspection } | { ok: false; schema: LedgerInspection; error: string } | undefined;
-      db.transaction(() => {
-        const locked = inspectOpenLedger(db);
+      const locked = inspectOpenLedger(db);
+      if (locked.status !== "pending") {
         if (locked.status === "current") {
-          outcome = { ok: true, migrated: false, from: locked.currentVersion, schema: locked };
-          return;
+          ctx.emitResult({ ok: true, migrated: false, schema: locked });
+        } else {
+          ctx.emitResult({ ok: false, errors: [inspectionError(locked)], schema: locked });
         }
-        if (locked.status !== "pending") {
-          outcome = { ok: false, schema: locked, error: inspectionError(locked) };
-          return;
-        }
-        const from = locked.currentVersion;
-        migrate(db);
-        const after = inspectOpenLedger(db);
-        if (after.status !== "current") {
-          throw new Error(`schema migration did not reach current state: ${inspectionError(after)}`);
-        }
-        insertAuditLog(db, {
-          eventType: "schema_migrated", entityType: "schema", entityId: String(from),
-          message: `Schema migrated from ${from} to ${after.currentVersion}`,
-          createdBy: actor,
-          createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
-        });
-        outcome = { ok: true, migrated: true, from, schema: after };
-      }).immediate();
-      if (!outcome) throw new Error("schema migration transaction completed without an outcome");
-      if (!outcome.ok) {
-        ctx.emitResult({ ok: false, errors: [outcome.error], schema: outcome.schema });
-        process.exit(1);
+        return;
       }
-      ctx.emitResult({ ok: true, migrated: outcome.migrated, from: outcome.from, to: outcome.schema.currentVersion, schema: outcome.schema });
+      const from = locked.currentVersion;
+      insertAuditLog(db, {
+        eventType: "schema_migration_attempted",
+        entityType: "schema",
+        entityId: String(from),
+        message: `Schema migration requested from ${from} to ${locked.requiredVersion}`,
+        createdBy: actor,
+        createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
+      });
+      migrate(db);
+      const after = inspectOpenLedger(db);
+      if (after.status !== "current") {
+        throw new Error(`schema migration did not reach current state: ${inspectionError(after)}`);
+      }
+      insertAuditLog(db, {
+        eventType: "schema_migration_completed",
+        entityType: "schema",
+        entityId: String(from),
+        message: `Schema migrated from ${from} to ${after.currentVersion}`,
+        createdBy: actor,
+        createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
+      });
+      ctx.emitResult({ ok: true, migrated: true, from, to: after.currentVersion, schema: after });
     } finally {
       db.close();
     }

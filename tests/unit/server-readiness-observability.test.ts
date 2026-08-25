@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, rmSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync, rmSync, unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { openWorkspaceControlDb, workspaceControlPaths } from "../../src/core/workspace-control";
 import { companyPaths } from "../../src/core/paths";
 import { companyRootForSlug, loadWorkspaceManifest, saveWorkspaceManifest } from "../../src/core/workspace";
@@ -101,6 +102,32 @@ describe("workspace readiness", () => {
         companyLedgers: "failed",
       });
       expect(JSON.stringify(result.body)).not.toContain("ready-example-aps");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps liveness green but readiness red for a pending ledger without migrating it", async () => {
+    const workspace = prepareReadyWorkspace("ready-pending-ledger");
+    try {
+      const ledger = companyPaths(companyRootForSlug(workspace, "ready-example-aps")).db;
+      const db = new Database(ledger);
+      db.run("DELETE FROM schema_migrations WHERE id > 10");
+      db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      db.close();
+      const before = { sha256: sha256(ledger), entries: readdirSync(dirname(ledger)).sort() };
+
+      const health = await get(config({ workspaceRoot: workspace }), "/api/health");
+      const readiness = await get(config({ workspaceRoot: workspace }), "/api/ready");
+
+      expect(health.status).toBe(200);
+      expect(readiness.status).toBe(503);
+      expect(readiness.body).toMatchObject({
+        ok: false,
+        ready: false,
+        checks: { companyLedgers: "failed" },
+      });
+      expect({ sha256: sha256(ledger), entries: readdirSync(dirname(ledger)).sort() }).toEqual(before);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

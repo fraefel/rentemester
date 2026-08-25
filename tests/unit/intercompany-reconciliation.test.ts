@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,6 +47,21 @@ function approve(control: ReturnType<typeof openWorkspaceControlDb>, workspace: 
   return approveIntercompanyMapping(control, workspace, proposal.mappingId, proposal.mappingHash, { createdBy: "agent:reviewer", createdByProgram: "unit-test" });
 }
 
+/**
+ * A completed writer may leave committed frames in a WAL until a later reader
+ * happens to checkpoint them. Fold those frames into the main file before the
+ * byte-level read-only proof, so reconciliation cannot be blamed for that
+ * unrelated deferred checkpoint.
+ */
+function checkpointLedger(path: string) {
+  const db = new Database(path);
+  try {
+    db.query("PRAGMA wal_checkpoint(TRUNCATE)").get();
+  } finally {
+    db.close();
+  }
+}
+
 describe("append-only intercompany mapping and read-only reconciliation", () => {
   test("requires a distinct reviewer, reconciles exact same-currency balances and leaves both ledgers byte-identical", () => {
     const { workspace, left, right, control, mapping } = setup();
@@ -56,6 +72,7 @@ describe("append-only intercompany mapping and read-only reconciliation", () => 
       expect(() => approveIntercompanyMapping(control, workspace, proposal.mappingId, proposal.mappingHash, { createdBy: "agent:proposer", createdByProgram: "unit-test" })).toThrow("distinct reviewer");
       approveIntercompanyMapping(control, workspace, proposal.mappingId, proposal.mappingHash, { createdBy: "agent:reviewer", createdByProgram: "unit-test" });
       const paths = [left, right].map((slug) => companyPaths(companyRootForSlug(workspace, slug)).db);
+      paths.forEach(checkpointLedger);
       const before = paths.map((path) => createHash("sha256").update(readFileSync(path)).digest("hex"));
       const result = buildIntercompanyReconciliation(control, workspace, new Set([left, right]), "2026-12-31");
       expect(result.rows).toHaveLength(1);

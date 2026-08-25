@@ -2,9 +2,9 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createCompany } from "../../src/core/company";
-import { openDb, migrate } from "../../src/core/db";
+import { migrate, openDb } from "../../src/core/db";
 import { parseRegisteredPdfBatch, planCurrentPdfParses } from "../../src/core/document-pdf-parser";
 import { ingestDocument } from "../../src/core/documents";
 import { companyPaths } from "../../src/core/paths";
@@ -43,6 +43,11 @@ test("PDF batch uses bounded real children, isolates malformed status, and reuse
       return result.documentId;
     };
     const documentIds = [ingest(), ingest(), ingest(true), ingest(), ingest(), ingest()];
+    const legacy = db.query("SELECT stored_path AS storedPath FROM documents WHERE id=?").get(documentIds[1]!) as { storedPath: string };
+    db.query("UPDATE documents SET stored_path=? WHERE id=?").run(
+      `/old-linux-company/documents/originals/${basename(legacy.storedPath)}`,
+      documentIds[1]!,
+    );
     let maxActive = 0, launches = 0;
     const batch = await parseRegisteredPdfBatch(db, companyRoot, documentIds, {
       concurrency: 2,

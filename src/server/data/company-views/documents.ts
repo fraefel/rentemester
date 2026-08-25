@@ -1,19 +1,19 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { companyPaths } from "../../../core/paths";
-import { openDb, migrate } from "../../../core/db";
 import { getCompanySettings } from "../../../core/company";
+import { migrate, openDb } from "../../../core/db";
 import { purchaseVatLinesFromPayload } from "../../../core/documents";
+import { companyPaths } from "../../../core/paths";
 import {
   companyRootForSlug,
   findWorkspaceCompany,
 } from "../../../core/workspace";
 import { ApiError } from "../../errors";
 import {
+  type EvidenceFileSnapshot,
   EvidenceFileUnavailable,
   evidenceDownloadFilename,
   readVerifiedEvidenceFile,
-  type EvidenceFileSnapshot,
 } from "../evidence-file";
 import {
   roundKroner,
@@ -258,17 +258,12 @@ export function resolveCompanyDocumentFile(
     if (!row?.storedPath || !row.sha256Hash) {
       throw ApiError.notFound("bilagsfil er ikke tilgængelig");
     }
-    const paths = companyPaths(companyRoot);
-    const evidenceRoot = row.documentType === "issued_invoice" ||
-      row.documentType === "issued_invoice_pdf" ||
-      row.documentType === "credit_note"
-      ? paths.invoicesIssued
-      : paths.documentsOriginals;
     try {
       return readVerifiedEvidenceFile({
-        evidenceRoot,
+        companyRoot,
         storedPath: row.storedPath,
         expectedSha256: row.sha256Hash,
+        documentType: row.documentType,
         mimeType: row.mimeType,
         filename: evidenceDownloadFilename(documentId, extensionForMime(row.mimeType)),
       });

@@ -1,23 +1,23 @@
-import { existsSync } from "node:fs";
-import { basename, extname, join } from "node:path";
-import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
-import { companyPaths } from "./paths";
+import { createHash } from "node:crypto";
+import { extname, join } from "node:path";
 import { insertAuditLog, resolveActor } from "./actor";
-import { companySequenceScope, currentUtcIsoDate, fiscalYearLabelFromDate, nextSequenceValue } from "./sequences";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { retainUntilForDate } from "./retention";
-import { asDocumentId, type DocumentId } from "./ids";
-import { resolveLegacySupplierIdentity, resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
-import { compareDkk, percentOfDkk, roundDkk, sumDkk } from "./money";
-import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
 import {
+  type DocumentSnapshot,
   ensureCanonicalDocumentStore,
   publishDocumentSnapshot,
   removePublishedSnapshot,
   snapshotDocumentSource,
-  type DocumentSnapshot,
+  snapshotRegisteredDocument,
 } from "./document-storage";
+import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
+import { asDocumentId, type DocumentId } from "./ids";
+import { compareDkk, percentOfDkk, roundDkk, sumDkk } from "./money";
+import { companyPaths } from "./paths";
+import { retainUntilForDate } from "./retention";
+import { companySequenceScope, currentUtcIsoDate, fiscalYearLabelFromDate, nextSequenceValue } from "./sequences";
+import { resolveLegacySupplierIdentity, resolveSupplierIdentity, type SupplierIdentifierKind } from "./supplier-identity";
 
 export type DocumentType =
   | "purchase_sale"
@@ -756,12 +756,9 @@ export type ResolvedDocumentFile = {
  * Resolves the stored file of an ingested document so a caller (the cockpit's
  * read route) can serve it back to a human.
  *
- * The file is resolved by its basename inside THIS company's canonical
- * evidence store (`invoices/issued` for issued invoice evidence, otherwise
- * `documents/originals`) — robust if the workspace directory moved since
- * ingest, and inherently free of path traversal because a basename cannot
- * carry a directory separator. Returns an error (never throws) when the
- * document is unknown, never had a stored file, or the file is gone from disk.
+ * The shared evidence resolver rebases only an exact known storage suffix
+ * below THIS company, then verifies the immutable bytes against the register.
+ * Returns an error (never throws) when evidence cannot be proven safe.
  */
 export function resolveDocumentFile(
   db: Database,
@@ -792,22 +789,16 @@ export function resolveDocumentFile(
   if (!row.storedPath) {
     return { ok: false, error: `document ${documentId} has no stored file` };
   }
-  const paths = companyPaths(companyRoot);
-  const isIssuedEvidence =
-    row.documentType === "issued_invoice" ||
-    row.documentType === "issued_invoice_pdf" ||
-    row.documentType === "credit_note";
-  const path = join(
-    isIssuedEvidence ? paths.invoicesIssued : paths.documentsOriginals,
-    basename(row.storedPath),
-  );
-  if (!existsSync(path)) {
+  let resolved: ReturnType<typeof snapshotRegisteredDocument>;
+  try {
+    resolved = snapshotRegisteredDocument(db, companyRoot, documentId);
+  } catch {
     return { ok: false, error: `document ${documentId} file is missing on disk` };
   }
   return {
     ok: true,
     file: {
-      path,
+      path: resolved.path,
       mimeType: row.mimeType ?? "application/octet-stream",
       filename: row.filename ?? row.documentNo ?? `bilag-${documentId}`,
     },

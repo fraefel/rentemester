@@ -2,15 +2,15 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ensureCompanyDirs } from "../../src/core/paths";
-import { openDb, migrate } from "../../src/core/db";
-import { issueInvoice } from "../../src/core/issued-invoices";
-import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
-import { ingestDocument } from "../../src/core/documents";
-import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
+import { join } from "node:path";
 import { exportAuthorityPackage } from "../../src/core/authority-export";
+import { migrate, openDb } from "../../src/core/db";
+import { ingestDocument } from "../../src/core/documents";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
+import { issueInvoice } from "../../src/core/issued-invoices";
+import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
+import { ensureCompanyDirs } from "../../src/core/paths";
 import { buildVatReport } from "../../src/core/vat";
 
 function sha256(path: string) {
@@ -35,6 +35,8 @@ describe("authority export", () => {
 
     const ingested = ingestDocument(db, companyRoot, join(process.cwd(), "examples/vendor-invoice.txt"), JSON.parse(readFileSync(join(process.cwd(), "examples/vendor-invoice.metadata.json"), "utf8")));
     expect(ingested.ok).toBe(true);
+    const historicalStoredPath = `/old-linux-company/documents/originals/${ingested.storedPath!.split("/").at(-1)!}`;
+    db.query("UPDATE documents SET stored_path=? WHERE id=?").run(historicalStoredPath, ingested.documentId!);
     const expense = postJournalEntry(db, JSON.parse(readFileSync(join(process.cwd(), "examples/journal-entry.expense.json"), "utf8")));
     expect(expense.ok).toBe(true);
 
@@ -142,6 +144,8 @@ describe("authority export", () => {
     });
     expect(exportedDocs.every((doc: any) => doc.exportedReadablePath === null || doc.exportedReadablePath.startsWith("documents-readable/"))).toBe(true);
     expect(exportedDocs.every((doc: any) => doc.storedPathRelativeToCompany === null || !doc.storedPathRelativeToCompany.startsWith("/"))).toBe(true);
+    expect(exportedDocs.find((doc: any) => doc.id === ingested.documentId).storedPath).toMatch(/^documents\/originals\//);
+    expect(JSON.stringify(exportedDocs)).not.toContain("/old-linux-company");
     expect(exportedDocs.every((doc: any) => typeof doc.retainUntil === "string")).toBe(true);
 
     const exportedJournal = JSON.parse(readFileSync(join(first.exportDir!, "machine-readable", "journal-entries.json"), "utf8"));

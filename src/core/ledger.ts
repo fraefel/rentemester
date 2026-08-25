@@ -1,30 +1,30 @@
-import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Database } from "bun:sqlite";
-import { getInvoiceStatus } from "./invoice-payments";
-import { currentRuleBundleVersion } from "./rules-metadata";
-import { insertAuditLog, resolveActor } from "./actor";
-import { validateJournalTransactionDate } from "./periods";
-import { verifyAuditLogIntegrity } from "./audit-log";
-import { companySequenceScope, fiscalYearLabelFromDate, nextSequenceValue } from "./sequences";
-import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { retainUntilForDate } from "./retention";
-import { resolveOpenExceptionsForBankTransaction } from "./exceptions";
-import { compareDkk, fromOre, roundDkk, roundRate6, toOre } from "./money";
-import { asJournalEntryId, type JournalEntryId } from "./ids";
+import { createHash } from "node:crypto";
+import { dirname, resolve } from "node:path";
 import { seedNativeAccountRoles } from "./account-roles";
+import { insertAuditLog, resolveActor } from "./actor";
+import { verifyAuditLogIntegrity } from "./audit-log";
+import { isValidIsoDate as looksLikeIsoDate } from "./dates";
+import { DocumentEvidenceError, isIssuedDocumentEvidence, snapshotRegisteredDocumentEvidence } from "./document-storage";
+import { resolveOpenExceptionsForBankTransaction } from "./exceptions";
+import { asJournalEntryId, type JournalEntryId } from "./ids";
 import {
   HISTORICAL_IMPORT_PROGRAM,
   isPersistedHistoricalImportProgram,
 } from "./import-provenance";
+import { validateInvoiceJournalEvidence } from "./invoice-journal-evidence";
+import { validateLegacyInvoiceRepairEvidence } from "./invoice-legacy-repair-evidence";
+import { getInvoiceStatus } from "./invoice-payments";
+import { compareDkk, fromOre, roundDkk, roundRate6, toOre } from "./money";
+import { companyPaths } from "./paths";
+import { validateJournalTransactionDate } from "./periods";
+import { retainUntilForDate } from "./retention";
+import { currentRuleBundleVersion } from "./rules-metadata";
+import { companySequenceScope, fiscalYearLabelFromDate, nextSequenceValue } from "./sequences";
 import {
   loadVatAccountSemantics,
   VAT_LINE_CODES,
 } from "./vat-account-semantics";
-import { validateInvoiceJournalEvidence } from "./invoice-journal-evidence";
-import { validateLegacyInvoiceRepairEvidence } from "./invoice-legacy-repair-evidence";
-import { companyPaths } from "./paths";
 
 export type JournalLineInput = {
   accountNo: string;
@@ -1089,17 +1089,11 @@ type AuditEvidenceDocument = {
   document_type: string;
 };
 
-function pathIsContained(root: string, candidate: string) {
-  const fromRoot = relative(root, candidate);
-  return fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(fromRoot));
-}
-
 /**
  * Validate one registered document without ever reading its historical
- * absolute `stored_path` directly. Only the basename is rebased into the
- * expected store below the company root, so moved backups remain portable and
- * attacker-controlled paths cannot make audit_verify read arbitrary host
- * files. Returned errors deliberately contain no absolute paths.
+ * absolute `stored_path` directly. The canonical evidence resolver rebases a
+ * known store suffix below the current company and verifies the exact bytes.
+ * Returned errors deliberately contain no absolute paths.
  */
 function verifyRegisteredDocumentEvidence(
   document: AuditEvidenceDocument,
@@ -1113,60 +1107,31 @@ function verifyRegisteredDocumentEvidence(
   }
   if (!companyRoot) return "cannot resolve the current company root";
 
-  const isIssuedEvidence =
-    document.document_type === "issued_invoice" ||
-    document.document_type === "issued_invoice_pdf" ||
-    document.document_type === "credit_note";
-  const expectedRelativeStore = isIssuedEvidence ? "invoices/issued" : "documents/originals";
-  const normalizedStoredPath = document.stored_path.trim().replaceAll("\\", "/").replace(/\/+/g, "/");
-  const rawSegments = normalizedStoredPath.split("/");
-  if (rawSegments.includes("..")) return "stored_path contains traversal segments";
-  const evidenceBasename = rawSegments.at(-1)?.trim() ?? "";
-  if (!evidenceBasename || evidenceBasename === "." || evidenceBasename === "..") {
-    return "stored_path has no safe filename";
-  }
-  // Accept portable basename-only legacy rows and historical absolute paths
-  // only when those absolute paths identify the same canonical store class.
-  if (
-    rawSegments.length > 1 &&
-    normalizedStoredPath !== `${expectedRelativeStore}/${evidenceBasename}` &&
-    !normalizedStoredPath.endsWith(`/${expectedRelativeStore}/${evidenceBasename}`)
-  ) {
-    return `stored_path is outside the ${expectedRelativeStore} evidence store`;
-  }
-
-  const paths = companyPaths(companyRoot);
-  const evidenceStore = isIssuedEvidence ? paths.invoicesIssued : paths.documentsOriginals;
-  const candidate = join(evidenceStore, basename(evidenceBasename));
+  const expectedRelativeStore = isIssuedDocumentEvidence(document.document_type)
+    ? "invoices/issued"
+    : "documents/originals";
   try {
-    const canonicalCompanyRoot = realpathSync(companyRoot);
-    const storeStat = lstatSync(evidenceStore);
-    if (storeStat.isSymbolicLink() || !storeStat.isDirectory()) {
-      return `${expectedRelativeStore} evidence store is not a regular directory`;
-    }
-    const canonicalStore = realpathSync(evidenceStore);
-    if (!pathIsContained(canonicalCompanyRoot, canonicalStore)) {
-      return `${expectedRelativeStore} evidence store escapes the company root`;
-    }
-    const candidateStat = lstatSync(candidate);
-    if (candidateStat.isSymbolicLink()) return "stored evidence file is a symbolic link";
-    if (!candidateStat.isFile()) return "stored evidence path is not a regular file";
-    const canonicalCandidate = realpathSync(candidate);
-    if (!pathIsContained(canonicalStore, canonicalCandidate)) {
-      return "stored evidence file escapes its canonical store";
-    }
-    let content: Buffer;
-    try {
-      content = readFileSync(candidate);
-    } catch {
-      return "stored evidence file cannot be read";
-    }
-    const actual = createHash("sha256").update(content).digest("hex");
-    if (actual !== document.sha256_hash.trim().toLowerCase()) {
-      return "stored evidence sha256 does not match the document register";
-    }
+    snapshotRegisteredDocumentEvidence(companyRoot, {
+      storedPath: document.stored_path,
+      expectedSha256: document.sha256_hash,
+      documentType: document.document_type,
+    });
     return null;
-  } catch {
+  } catch (error) {
+    if (error instanceof DocumentEvidenceError) {
+      if (error.reason === "hash_mismatch") {
+        return "stored evidence sha256 does not match the document register";
+      }
+      if (error.reason === "invalid_path") {
+        return `stored_path is invalid or outside the ${expectedRelativeStore} evidence store`;
+      }
+      if (error.reason === "unsafe_store") {
+        return `${expectedRelativeStore} evidence store is not a safe regular directory`;
+      }
+      if (error.reason === "unsafe_file" || error.reason === "invalid_size") {
+        return "stored evidence path is not a safe regular file";
+      }
+    }
     return "stored evidence file is missing or inaccessible";
   }
 }

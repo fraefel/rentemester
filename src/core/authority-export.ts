@@ -1,16 +1,17 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { basename, join, relative } from "node:path";
 import type { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { insertAuditLog } from "./actor";
-import { isValidIsoDate as looksLikeIsoDate } from "./dates";
-import { effectiveRetainUntil } from "./retention";
 import { writeFileAtomic } from "./atomic-file";
+import { isValidIsoDate as looksLikeIsoDate } from "./dates";
+import { snapshotRegisteredDocument } from "./document-storage";
+import { parsePurchaseVatLinesPayload } from "./documents";
 import { buildTrialBalance } from "./financial-statements";
 import { formatAmount } from "./money";
-import { parsePurchaseVatLinesPayload } from "./documents";
-import { buildVatReport } from "./vat";
 import { getReleaseProvenance } from "./release-provenance";
+import { effectiveRetainUntil } from "./retention";
+import { buildVatReport } from "./vat";
 
 const RULE_ID = "DK-BOOKKEEPING-AUTHORITY-EXPORT-001";
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
@@ -277,7 +278,16 @@ function packageRelativePath(exportDir: string, path: string) {
 function storedPathRelativeToCompany(companyRoot: string, storedPath: string | null) {
   if (!storedPath) return null;
   const rel = relative(companyRoot, storedPath).replace(/\\/g, "/");
-  return rel.startsWith("../") ? storedPath : rel;
+  if (rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel)) return rel;
+  const parts = storedPath.replaceAll("\\", "/").replace(/^\/+/, "").split("/");
+  const matches = parts.flatMap((part, index) =>
+    (part === "documents" && parts[index + 1] === "originals") ||
+      (part === "invoices" && parts[index + 1] === "issued")
+      ? [index]
+      : []
+  );
+  if (matches.length !== 1 || matches[0] !== parts.length - 3) return null;
+  return parts.slice(matches[0]).join("/");
 }
 
 function writeExportJson(exportDir: string, path: string, value: unknown, outputs: ExportedFileMeta[]) {
@@ -736,9 +746,11 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
   writeExportJson(exportDir, join(machineReadableDir, "journal-entries.json"), journalEntries, outputs);
   writeExportJson(exportDir, join(machineReadableDir, "documents.json"), documents.map((document) => {
     const { purchaseVatLinesErrors: _purchaseVatLinesErrors, ...exported } = document;
+    const portableStoredPath = storedPathRelativeToCompany(companyRoot, document.storedPath);
     return {
       ...exported,
-      storedPathRelativeToCompany: storedPathRelativeToCompany(companyRoot, document.storedPath),
+      storedPath: portableStoredPath,
+      storedPathRelativeToCompany: portableStoredPath,
       exportedReadablePath: document.storedPath ? join("documents-readable", exportFileName(document)).replace(/\\/g, "/") : null,
     };
   }), outputs);
@@ -789,14 +801,20 @@ export function exportAuthorityPackage(db: Database, companyRoot: string, input:
 
   const copiedDocuments: Array<{ documentId: number; sourcePathRelativeToCompany: string | null; exportedPath: string; sha256: string; sizeBytes: number }> = [];
   for (const document of documents) {
-    if (!document.storedPath || !existsSync(document.storedPath)) continue;
+    if (!document.storedPath) continue;
+    let snapshot: ReturnType<typeof snapshotRegisteredDocument>;
+    try {
+      snapshot = snapshotRegisteredDocument(db, companyRoot, document.id);
+    } catch {
+      continue;
+    }
     const target = join(documentsDir, exportFileName(document));
-    copyFileSync(document.storedPath, target);
+    writeFileAtomic(target, snapshot.bytes);
     recordExistingFile(exportDir, target, outputs);
     const output = outputs[outputs.length - 1]!;
     copiedDocuments.push({
       documentId: document.id,
-      sourcePathRelativeToCompany: storedPathRelativeToCompany(companyRoot, document.storedPath),
+      sourcePathRelativeToCompany: storedPathRelativeToCompany(companyRoot, snapshot.path),
       exportedPath: output.path,
       sha256: output.sha256,
       sizeBytes: output.sizeBytes,

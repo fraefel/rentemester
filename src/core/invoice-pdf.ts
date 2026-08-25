@@ -1,13 +1,14 @@
+import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Database } from "bun:sqlite";
-import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
-import type { InvoicePayload } from "./invoice";
-import { companyPaths } from "./paths";
 import { insertAuditLog } from "./actor";
 import { promoteTempFileExclusive, removeIfExists, writeTempFileFor } from "./atomic-file";
+import { snapshotRegisteredDocumentEvidence } from "./document-storage";
+import { strengthenGdprErasureAliasesForIdentity } from "./gdpr";
+import type { InvoicePayload } from "./invoice";
 import { formatAmount } from "./money";
+import { companyPaths } from "./paths";
 
 const RULE_ID = "DK-INVOICE-ISSUE-001";
 const PDF_DOCUMENT_TYPE = "issued_invoice_pdf";
@@ -804,20 +805,13 @@ export function renderIssuedInvoicePdf(db: Database, companyRoot: string, input:
         errors: [`issued invoice PDF evidence for ${invoiceNumber} is not bound to the immutable invoice snapshot; refusing to repair it`],
       };
     }
-    // `stored_path` is evidence metadata too.  Accept only the canonical path
-    // this renderer owns, so a tampered legacy row cannot make a render read
-    // arbitrary bytes elsewhere on disk.
-    if (evidence.stored_path !== storedPath) {
-      return {
-        ok: false,
-        appliedRules: [RULE_ID],
-        errors: [`issued invoice PDF evidence for ${invoiceNumber} has a non-canonical stored path; refusing to repair it`],
-      };
-    }
     try {
-      const existingBytes = readFileSync(storedPath);
-      const existingHash = sha256(existingBytes);
-      if (existingHash !== evidence.sha256_hash || !existingBytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+      const existing = snapshotRegisteredDocumentEvidence(companyRoot, {
+        storedPath: evidence.stored_path ?? "",
+        expectedSha256: evidence.sha256_hash,
+        documentType: PDF_DOCUMENT_TYPE,
+      });
+      if (!existing.bytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
         return {
           ok: false,
           appliedRules: [RULE_ID],

@@ -2,19 +2,19 @@
 // read route that serves the stored bilag file so a human can open it.
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { handleRequest } from "../../src/server/router";
-import type { ServerConfig } from "../../src/server/config";
+import { join } from "node:path";
 import { createCompany } from "../../src/core/company";
-import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
-import { companyPaths } from "../../src/core/paths";
-import { openDb, migrate } from "../../src/core/db";
+import { migrate, openDb } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
-import { openWorkspaceControlDb } from "../../src/core/workspace-control";
+import { companyPaths } from "../../src/core/paths";
+import { companyRootForSlug, initWorkspace } from "../../src/core/workspace";
 import { activateWorkspaceUser, grantCompanyMembership } from "../../src/core/workspace-access";
+import { openWorkspaceControlDb } from "../../src/core/workspace-control";
 import type { BetterAuthRequestProvider } from "../../src/server/better-auth";
+import type { ServerConfig } from "../../src/server/config";
+import { handleRequest } from "../../src/server/router";
 
 function makeWorkspace(label: string) {
   const root = mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -103,6 +103,28 @@ describe("cockpit API — document file (GET .../documents/:id/file)", () => {
       expect(res.headers.get("content-type")).toContain("text/plain");
       const body = await res.text();
       expect(body).toBe(readFileSync("examples/vendor-invoice.txt", "utf8"));
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("serves a legacy absolute host path from the mounted company evidence", async () => {
+    const { root: ws, slug } = makeWorkspace("docfile-legacy-path");
+    try {
+      const id = ingestSample(ws, slug);
+      const companyRoot = companyRootForSlug(ws, slug);
+      const db = openDb(companyPaths(companyRoot).db);
+      const row = db.query("SELECT stored_path AS storedPath FROM documents WHERE id=?").get(id) as { storedPath: string };
+      const historicalPath = `/old-macos-company/documents/originals/${row.storedPath.split("/").at(-1)!}`;
+      db.query("UPDATE documents SET stored_path=? WHERE id=?").run(historicalPath, id);
+      db.close();
+
+      const response = await getRaw(config(ws), `/api/companies/${slug}/documents/${id}/file`);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(readFileSync("examples/vendor-invoice.txt", "utf8"));
+      const check = openDb(companyPaths(companyRoot).db);
+      expect(check.query("SELECT stored_path AS storedPath FROM documents WHERE id=?").get(id)).toEqual({ storedPath: historicalPath });
+      check.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

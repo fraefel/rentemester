@@ -6,9 +6,9 @@ import { migrate, openDb } from "../core/db";
 import { PDF_EVIDENCE_TAMPERED, PdfParseError, parseRegisteredPdfBatch, parseRegisteredPdfDocument, planCurrentPdfParses } from "../core/document-pdf-parser";
 import { ingestDocument, purchaseVatLinesFromPayload } from "../core/documents";
 import { recordException } from "../core/exceptions";
+import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
 import { resolveDocumentMasterData } from "../core/master-data";
 import { companyPaths } from "../core/paths";
-import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
 import { extractDocumentInvoice, invoiceExtractionSurface } from "../server/invoice-extraction-surface";
 import { resolveConfiguredInvoiceExtractor } from "../server/invoice-extractor";
 import { documentPdfParsedText, documentPdfParseStatus } from "../server/router/documents";
@@ -143,7 +143,7 @@ export function register(dispatch: CommandDispatch): void {
     const extractor = resolveConfiguredInvoiceExtractor();
     if (!extractor) { ctx.fatal("invoice extraction requires a configured production provider"); return; }
     const db = openCommandDb(ctx); migrate(db);
-    try { await extractDocumentInvoice(db, id, extractor, ctx.cliActor ?? ctx.inferredMutationActor() ?? "system:invoice-extraction"); ctx.emitResult({ ok: true, extraction: invoiceExtractionSurface(db, id) }); }
+    try { await extractDocumentInvoice(db, ctx.companyRoot(), id, extractor, ctx.cliActor ?? ctx.inferredMutationActor() ?? "system:invoice-extraction"); ctx.emitResult({ ok: true, extraction: invoiceExtractionSurface(db, id) }); }
     catch (error) { ctx.emitResult({ ok: false, errors: [error instanceof Error && /^EXTRACTION_[A-Z_]+$/.test(error.message) ? error.message : "EXTRACTION_FAILED"] }); }
     finally { db.close(); }
   });

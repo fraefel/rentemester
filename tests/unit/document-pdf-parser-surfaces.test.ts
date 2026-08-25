@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ensureCompanyDirs, companyPaths } from "../../src/core/paths";
+import { join } from "node:path";
 import { migrate, openDb } from "../../src/core/db";
 import { inspectOpenLedger, openLedgerReadOnly } from "../../src/core/ledger-inspection";
+import { companyPaths, ensureCompanyDirs } from "../../src/core/paths";
 import { documentPdfParsedText, documentPdfParseStatus } from "../../src/server/router/documents";
-import { createHash } from "node:crypto";
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : value && typeof value === "object" ? `{${Object.keys(value as object).sort().map(k => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(value);
 const digest = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
@@ -21,7 +21,7 @@ describe("document PDF public surfaces", () => {
       const sourceHash = createHash("sha256").update(source).digest("hex");
       mkdirSync(join(root, "documents", "originals"), { recursive: true });
       writeFileSync(join(root, "documents", "originals", "safe.pdf"), source);
-      writable.query("INSERT INTO documents(document_no, source, original_filename, mime_type, status, stored_path, sha256_hash) VALUES(?,?,?,?,?,?,?)").run("D-1", "test", "safe.pdf", "application/pdf", "stored", "safe.pdf", sourceHash);
+      writable.query("INSERT INTO documents(document_no, source, original_filename, mime_type, status, stored_path, sha256_hash) VALUES(?,?,?,?,?,?,?)").run("D-1", "test", "safe.pdf", "application/pdf", "stored", "/old-macos-company/documents/originals/safe.pdf", sourceHash);
       const pages = [{ pageNumber: 1, width: 612, height: 792, rotation: 0, text: "hello", layout: [{ text: "hello", x: 1, y: 2, width: 3, height: 4, font: "F" }] }, { pageNumber: 2, width: 612, height: 792, rotation: 0, text: "world", layout: [] }];
       const evidence = { contractVersion: "document-pdf-text-v1", inputSha256: sourceHash, status: "ok", errorCode: null, pages };
       const resultHash = digest(evidence);

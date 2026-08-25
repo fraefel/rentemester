@@ -259,7 +259,7 @@ export async function handleDocumentIngest(
           scannerTimeoutMs: config.hostedDocumentScanning?.provider?.timeoutMs,
         });
         const extraction = ingested.ok && ingested.documentId && config.invoiceExtractor
-          ? await extractDocumentInvoice(ctx.db, ingested.documentId, config.invoiceExtractor, ctx.actor.createdBy)
+          ? await extractDocumentInvoice(ctx.db, ctx.companyRoot, ingested.documentId, config.invoiceExtractor, ctx.actor.createdBy)
           : undefined;
         return {
           ok: ingested.ok,

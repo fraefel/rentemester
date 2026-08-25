@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { resolveContainerBuildIdentity } from "./container-build-identity";
 import { SYNTHETIC_PDF_TEXT, syntheticNoTextPdf, syntheticTextPdf } from "../../tests/fixtures/pdf-parser/synthetic-text-pdf";
+import { resolveContainerBuildIdentity } from "./container-build-identity";
 
 type CommandResult = { stdout: string; stderr: string };
 
@@ -17,6 +17,18 @@ function run(command: string[], options: { allowFailure?: boolean } = {}): Comma
 async function api(container: string, path: string, body?: unknown): Promise<any> {
   const source = `const r=await fetch("http://127.0.0.1:4319${path}",{method:${JSON.stringify(body === undefined ? "GET" : "POST")},headers:{origin:"http://127.0.0.1:4319","content-type":"application/json"},${body === undefined ? "" : `body:${JSON.stringify(JSON.stringify(body))}`}});const value=await r.json();if(!r.ok)throw new Error(JSON.stringify(value));console.log(JSON.stringify(value));`;
   return JSON.parse(run(["docker", "exec", container, "bun", "-e", source]).stdout);
+}
+
+function setLegacyDocumentPath(container: string, slug: string, documentId: number): string {
+  const dbPath = `/workspace/${slug}/data/ledger.sqlite`;
+  const source = `import {Database} from "bun:sqlite";const db=new Database(${JSON.stringify(dbPath)});const row=db.query("SELECT stored_path FROM documents WHERE id=?").get(${documentId});const name=String(row.stored_path).replaceAll("\\\\","/").split("/").at(-1);const historical="/legacy-host/company/documents/originals/"+name;db.query("UPDATE documents SET stored_path=? WHERE id=?").run(historical,${documentId});db.close();console.log(historical);`;
+  return run(["docker", "exec", container, "bun", "-e", source]).stdout.trim();
+}
+
+function registeredDocumentPath(container: string, slug: string, documentId: number): string {
+  const dbPath = `/workspace/${slug}/data/ledger.sqlite`;
+  const source = `import {Database} from "bun:sqlite";const db=new Database(${JSON.stringify(dbPath)},{readonly:true});const row=db.query("SELECT stored_path FROM documents WHERE id=?").get(${documentId});db.close();console.log(row.stored_path);`;
+  return run(["docker", "exec", container, "bun", "-e", source]).stdout.trim();
 }
 
 function syntheticMetadata(invoiceNo: string) {
@@ -93,10 +105,12 @@ try {
   const textDocument = await ingest("synthetic-text.pdf", syntheticTextPdf(), "SYN-001");
   const textId = textDocument?.document?.id;
   if (!Number.isInteger(textId)) throw new Error(`synthetic text PDF ingest failed: ${JSON.stringify(textDocument)}`);
+  const historicalTextPath = setLegacyDocumentPath(first, slug, textId);
   const firstParse = await api(first, `/api/companies/${slug}/documents/${textId}/parse`, { confirm: true });
   if (firstParse?.parse?.status !== "ok" || firstParse.parse.pageCount !== 1 || firstParse.parse.cached !== false) throw new Error(`text PDF parse failed: ${JSON.stringify(firstParse)}`);
   const parsedText = await api(first, `/api/companies/${slug}/documents/${textId}/parsed-text`);
   if (parsedText?.pages?.[0]?.text !== SYNTHETIC_PDF_TEXT || parsedText?.pages?.[0]?.itemCount < 2) throw new Error(`verified PDF text/layout missing: ${JSON.stringify(parsedText)}`);
+  if (registeredDocumentPath(first, slug, textId) !== historicalTextPath) throw new Error("legacy stored_path was rewritten during container parsing");
   const cachedParse = await api(first, `/api/companies/${slug}/documents/${textId}/parse`, { confirm: true });
   if (cachedParse?.parse?.cached !== true || cachedParse?.parse?.resultHash !== firstParse.parse.resultHash) throw new Error(`PDF parse cache was not reused: ${JSON.stringify(cachedParse)}`);
   const noTextDocument = await ingest("synthetic-no-text.pdf", syntheticNoTextPdf(), "SYN-002");
@@ -120,7 +134,7 @@ try {
     companiesBody?.companies?.length !== 1 ||
     companiesBody.companies[0]?.slug !== "container-example-aps"
   ) throw new Error(JSON.stringify(companiesBody));
-  console.log("container integration passed: CLI example, constrained networkless non-root read-only runtime, synthetic PDF text/layout, cache, no-text outcome, persisted restart");
+  console.log("container integration passed: CLI example, constrained networkless non-root read-only runtime, legacy host-path PDF text/layout, cache, no-text outcome, persisted restart");
 } finally {
   run(["docker", "rm", "--force", first], { allowFailure: true });
   run(["docker", "rm", "--force", second], { allowFailure: true });

@@ -1,12 +1,12 @@
 // Tests: src/core/ledger.ts (audit-chain verification)
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import { ensureCompanyDirs } from "../../src/core/paths";
-import { openDb, migrate } from "../../src/core/db";
-import { hashEntry, postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { basename, join } from "node:path";
+import { migrate, openDb } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
+import { hashEntry, postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
+import { ensureCompanyDirs } from "../../src/core/paths";
 
 type ManualLine = {
   account_no: string;
@@ -163,14 +163,14 @@ describe("audit verify", () => {
     const directoryEvidence = join(root, "documents", "originals", "directory-evidence");
     mkdirSync(directoryEvidence);
     db.run("UPDATE documents SET stored_path = ? WHERE id = ?", directoryEvidence, documentId);
-    expect(expectEvidenceFailure("directory evidence")).toContain("not a regular file");
+    expect(expectEvidenceFailure("directory evidence")).toContain("not a safe regular file");
     db.run("UPDATE documents SET stored_path = ? WHERE id = ?", storedPath, documentId);
     rmSync(directoryEvidence, { recursive: true, force: true });
 
     const symlinkTarget = join(root, "symlink-target-evidence");
     renameSync(storedPath, symlinkTarget);
     symlinkSync(symlinkTarget, storedPath);
-    expect(expectEvidenceFailure("symlink evidence")).toContain("symbolic link");
+    expect(expectEvidenceFailure("symlink evidence")).toContain("not a safe regular file");
     unlinkSync(storedPath);
     renameSync(symlinkTarget, storedPath);
 

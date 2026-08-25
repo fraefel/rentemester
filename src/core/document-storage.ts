@@ -5,10 +5,11 @@
  * must derive every content property (hash, MIME and scanner input) from the
  * returned snapshot, never by opening the caller-controlled path again.
  */
-import { constants, closeSync, fsyncSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, unlinkSync, writeSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
-import { createHash, randomBytes } from "node:crypto";
+
 import type { Database } from "bun:sqlite";
+import { createHash, randomBytes } from "node:crypto";
+import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, unlinkSync, writeSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 /** PDF parsing deliberately has a tighter cap than general voucher storage. */
@@ -19,6 +20,48 @@ export type DocumentSnapshot = {
   sha256: string;
   filename: string;
 };
+
+export const DOCUMENT_EVIDENCE_MAX_BYTES = 50 * 1024 * 1024;
+
+export type DocumentEvidenceFailure =
+  | "invalid_metadata"
+  | "invalid_path"
+  | "unavailable"
+  | "unsafe_store"
+  | "unsafe_file"
+  | "invalid_size"
+  | "hash_mismatch";
+
+/** Stable, path-free failure for every registered-document reader. */
+export class DocumentEvidenceError extends Error {
+  readonly code: string;
+
+  constructor(readonly reason: DocumentEvidenceFailure) {
+    const code = reason === "hash_mismatch"
+      ? "DOCUMENT_EVIDENCE_INTEGRITY_MISMATCH"
+      : reason === "invalid_path" || reason === "invalid_metadata"
+        ? "DOCUMENT_EVIDENCE_INVALID"
+        : "DOCUMENT_EVIDENCE_UNAVAILABLE";
+    super(code);
+    this.name = "DocumentEvidenceError";
+    this.code = code;
+  }
+}
+
+export type RegisteredDocumentEvidenceInput = {
+  storedPath: string;
+  expectedSha256: string;
+  documentType: string;
+  maxBytes?: number;
+};
+
+export type RegisteredDocumentSnapshot = DocumentSnapshot & { path: string };
+
+export function isIssuedDocumentEvidence(documentType: string): boolean {
+  return documentType === "issued_invoice" ||
+    documentType === "issued_invoice_pdf" ||
+    documentType === "credit_note";
+}
 
 type StableStat = { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number };
 
@@ -61,38 +104,156 @@ export function snapshotDocumentSource(path: string, maxBytes = MAX_DOCUMENT_BYT
   }
 }
 
-/**
- * Resolve an already registered PDF solely below this company's originals
- * directory.  Historical stored_path is treated as metadata, never as an
- * authority to open an arbitrary host path.
- */
-export function snapshotRegisteredPdfDocument(db: Database, companyRoot: string, documentId: number): DocumentSnapshot {
-  const row = db.query(`SELECT stored_path, sha256_hash, mime_type FROM documents WHERE id = ?`).get(documentId) as {
-    stored_path: string | null; sha256_hash: string | null; mime_type: string | null;
-  } | null;
-  if (!row) throw new Error("registered PDF document does not exist");
-  if (row.mime_type !== "application/pdf") throw new Error("registered document is not a PDF");
-  if (!row.stored_path || !/^[a-f0-9]{64}$/i.test(row.sha256_hash ?? "")) throw new Error("registered PDF document has invalid evidence metadata");
-  const root = realpathSync(resolve(companyRoot));
-  const store = join(root, "documents", "originals");
-  const storeInfo = lstatSync(store);
-  if (storeInfo.isSymbolicLink() || !storeInfo.isDirectory()) throw new Error("PDF originals store is not a regular directory");
-  const canonicalStore = realpathSync(store);
-  if (!contained(root, canonicalStore)) throw new Error("PDF originals store escapes company root");
-  const name = basename(row.stored_path);
-  if (!name || name !== row.stored_path.split(/[\\/]/).at(-1)) throw new Error("registered PDF path is invalid");
-  const candidate = join(canonicalStore, name);
-  const info = lstatSync(candidate);
-  if (info.isSymbolicLink() || !info.isFile()) throw new Error("registered PDF source is not a regular file");
-  if (info.size > MAX_PDF_PARSE_BYTES) throw new Error(`registered PDF source exceeds ${MAX_PDF_PARSE_BYTES} byte limit`);
-  const snapshot = snapshotDocumentSource(candidate, MAX_PDF_PARSE_BYTES);
-  if (snapshot.sha256 !== row.sha256_hash!.toLowerCase()) throw new Error("registered PDF source sha256 does not match document register");
-  return snapshot;
-}
-
 function contained(root: string, candidate: string): boolean {
   const value = relative(root, candidate);
-  return value === "" || (!value.startsWith("..") && !value.includes(`..${process.platform === "win32" ? "\\" : "/"}`));
+  return value === "" ||
+    (value !== ".." && !value.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(value));
+}
+
+function evidencePathParts(storedPath: string, expectedStore: readonly [string, string]): string[] {
+  if (!storedPath || storedPath !== storedPath.trim() || /[\0-\x1f\x7f]/.test(storedPath)) {
+    throw new DocumentEvidenceError("invalid_path");
+  }
+  const normalized = storedPath.replaceAll("\\", "/");
+  const withoutLeadingSlash = normalized.replace(/^\/+/, "");
+  const parts = withoutLeadingSlash.split("/");
+  if (parts.length < 3 || parts.some((part) => !part || part === "." || part === "..")) {
+    throw new DocumentEvidenceError("invalid_path");
+  }
+
+  const knownStores: ReadonlyArray<readonly [string, string]> = [
+    ["documents", "originals"],
+    ["invoices", "issued"],
+  ];
+  const matches: Array<{ index: number; store: readonly [string, string] }> = [];
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    for (const store of knownStores) {
+      if (parts[index] === store[0] && parts[index + 1] === store[1]) {
+        matches.push({ index, store });
+      }
+    }
+  }
+  if (
+    matches.length !== 1 ||
+    matches[0]!.index !== parts.length - 3 ||
+    matches[0]!.store[0] !== expectedStore[0] ||
+    matches[0]!.store[1] !== expectedStore[1]
+  ) {
+    throw new DocumentEvidenceError("invalid_path");
+  }
+  return parts;
+}
+
+/**
+ * Resolve and snapshot immutable evidence inside the selected company only.
+ *
+ * A historical absolute path is metadata: the resolver trusts only one exact
+ * trailing `documents/originals/<file>` or `invoices/issued/<file>` identity,
+ * selected by document type, and rebases it below the current company root.
+ * A basename by itself is deliberately insufficient and therefore rejected.
+ */
+export function snapshotRegisteredDocumentEvidence(
+  companyRoot: string,
+  input: RegisteredDocumentEvidenceInput,
+): RegisteredDocumentSnapshot {
+  const expectedSha256 = input.expectedSha256.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expectedSha256) || !input.documentType) {
+    throw new DocumentEvidenceError("invalid_metadata");
+  }
+  const relativeStore = isIssuedDocumentEvidence(input.documentType)
+    ? (["invoices", "issued"] as const)
+    : (["documents", "originals"] as const);
+  const parts = evidencePathParts(input.storedPath, relativeStore);
+  const filename = parts.at(-1)!;
+  const maxBytes = input.maxBytes ?? DOCUMENT_EVIDENCE_MAX_BYTES;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+    throw new DocumentEvidenceError("invalid_metadata");
+  }
+
+  try {
+    const lexicalRoot = resolve(companyRoot);
+    const rootInfo = lstatSync(lexicalRoot);
+    if (!rootInfo.isDirectory()) throw new DocumentEvidenceError("unsafe_store");
+    const canonicalRoot = realpathSync(lexicalRoot);
+    let lexicalStore = lexicalRoot;
+    for (const segment of relativeStore) {
+      lexicalStore = join(lexicalStore, segment);
+      const info = lstatSync(lexicalStore);
+      if (info.isSymbolicLink() || !info.isDirectory()) {
+        throw new DocumentEvidenceError("unsafe_store");
+      }
+    }
+    const canonicalStore = realpathSync(lexicalStore);
+    if (!contained(canonicalRoot, canonicalStore)) {
+      throw new DocumentEvidenceError("unsafe_store");
+    }
+
+    const candidate = join(canonicalStore, filename);
+    const candidateInfo = lstatSync(candidate);
+    if (candidateInfo.isSymbolicLink() || !candidateInfo.isFile()) {
+      throw new DocumentEvidenceError("unsafe_file");
+    }
+    if (candidateInfo.size <= 0 || candidateInfo.size > maxBytes) {
+      throw new DocumentEvidenceError("invalid_size");
+    }
+    const canonicalCandidate = realpathSync(candidate);
+    if (!contained(canonicalStore, canonicalCandidate) || !contained(canonicalRoot, canonicalCandidate)) {
+      throw new DocumentEvidenceError("unsafe_file");
+    }
+
+    let snapshot: DocumentSnapshot;
+    try {
+      snapshot = snapshotDocumentSource(candidate, maxBytes);
+    } catch {
+      throw new DocumentEvidenceError("unavailable");
+    }
+    if (snapshot.sha256 !== expectedSha256) {
+      throw new DocumentEvidenceError("hash_mismatch");
+    }
+    return { ...snapshot, path: candidate };
+  } catch (error) {
+    if (error instanceof DocumentEvidenceError) throw error;
+    throw new DocumentEvidenceError("unavailable");
+  }
+}
+
+export function snapshotRegisteredDocument(
+  db: Database,
+  companyRoot: string,
+  documentId: number,
+  maxBytes = DOCUMENT_EVIDENCE_MAX_BYTES,
+): RegisteredDocumentSnapshot & { mimeType: string | null; documentType: string } {
+  const row = db.query(
+    `SELECT stored_path AS storedPath, sha256_hash AS sha256Hash,
+            mime_type AS mimeType, document_type AS documentType
+       FROM documents WHERE id = ?`,
+  ).get(documentId) as {
+    storedPath: string | null;
+    sha256Hash: string | null;
+    mimeType: string | null;
+    documentType: string;
+  } | null;
+  if (!row?.storedPath || !row.sha256Hash) {
+    throw new DocumentEvidenceError("invalid_metadata");
+  }
+  return {
+    ...snapshotRegisteredDocumentEvidence(companyRoot, {
+      storedPath: row.storedPath,
+      expectedSha256: row.sha256Hash,
+      documentType: row.documentType,
+      maxBytes,
+    }),
+    mimeType: row.mimeType,
+    documentType: row.documentType,
+  };
+}
+
+export function snapshotRegisteredPdfDocument(db: Database, companyRoot: string, documentId: number): DocumentSnapshot {
+  const snapshot = snapshotRegisteredDocument(db, companyRoot, documentId, MAX_PDF_PARSE_BYTES);
+  if (snapshot.mimeType !== "application/pdf") {
+    throw new DocumentEvidenceError("invalid_metadata");
+  }
+  return snapshot;
 }
 
 /**

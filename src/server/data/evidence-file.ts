@@ -6,11 +6,7 @@
 // copies a bounded byte snapshot from that descriptor, and hashes those exact
 // bytes before the descriptor is closed.
 
-import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from "node:fs";
-import { basename, relative, resolve } from "node:path";
-
-const MAX_EVIDENCE_BYTES = 50 * 1024 * 1024;
+import { snapshotRegisteredDocumentEvidence } from "../../core/document-storage";
 
 export type EvidenceFileSnapshot = {
   bytes: Uint8Array;
@@ -41,66 +37,27 @@ export function evidenceDownloadFilename(id: number, extension: string): string 
   return `rentemester-evidence-${safeId}${safeExtension}`;
 }
 
-function containedFinalPath(root: string, storedPath: string): string {
-  const name = basename(storedPath);
-  if (!name || name === "." || name === ".." || storedPath.includes("\0")) {
-    throw new EvidenceFileUnavailable();
-  }
-  // Resolve the trusted evidence directory before accepting the final basename.
-  // `basename` prevents a database value from selecting a parent/sibling.
-  let realRoot: string;
-  try {
-    realRoot = realpathSync(root);
-  } catch {
-    throw new EvidenceFileUnavailable();
-  }
-  const candidate = resolve(realRoot, name);
-  const relation = relative(realRoot, candidate);
-  if (!relation || relation.startsWith("..") || relation.includes("/..") || relation.includes("\\..")) {
-    throw new EvidenceFileUnavailable();
-  }
-  return candidate;
-}
-
 /**
  * Return a verified in-memory byte snapshot of a persisted evidence artifact.
  * No caller receives a filesystem path, so it cannot validate one inode and
  * stream another one later.  Errors deliberately carry no path/hash details.
  */
 export function readVerifiedEvidenceFile(input: {
-  evidenceRoot: string;
+  companyRoot: string;
   storedPath: string;
   expectedSha256: string;
+  documentType: string;
   mimeType: string | null;
   filename: string;
 }): EvidenceFileSnapshot {
-  if (!/^[a-f0-9]{64}$/i.test(input.expectedSha256)) throw new EvidenceFileUnavailable();
-  const path = containedFinalPath(input.evidenceRoot, input.storedPath);
-  let fd: number | undefined;
   try {
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const initial = fstatSync(fd);
-    if (!initial.isFile() || initial.size < 0 || initial.size > MAX_EVIDENCE_BYTES) {
-      throw new EvidenceFileUnavailable();
-    }
-    const bytes = Buffer.allocUnsafe(initial.size);
-    let offset = 0;
-    while (offset < bytes.length) {
-      const count = readSync(fd, bytes, offset, bytes.length - offset, offset);
-      if (count <= 0) throw new EvidenceFileUnavailable();
-      offset += count;
-    }
-    const final = fstatSync(fd);
-    if (final.dev !== initial.dev || final.ino !== initial.ino || final.size !== initial.size) {
-      throw new EvidenceFileUnavailable();
-    }
-    const actual = createHash("sha256").update(bytes).digest("hex");
-    if (actual !== input.expectedSha256.toLowerCase()) throw new EvidenceFileUnavailable();
-    return { bytes, mimeType: safeMimeType(input.mimeType), filename: input.filename };
-  } catch (error) {
-    if (error instanceof EvidenceFileUnavailable) throw error;
+    const snapshot = snapshotRegisteredDocumentEvidence(input.companyRoot, {
+      storedPath: input.storedPath,
+      expectedSha256: input.expectedSha256,
+      documentType: input.documentType,
+    });
+    return { bytes: snapshot.bytes, mimeType: safeMimeType(input.mimeType), filename: input.filename };
+  } catch {
     throw new EvidenceFileUnavailable();
-  } finally {
-    if (fd !== undefined) closeSync(fd);
   }
 }

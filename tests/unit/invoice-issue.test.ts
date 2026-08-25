@@ -1,17 +1,17 @@
 // Tests: src/core/issued-invoices.ts
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { ensureCompanyDirs, companyPaths } from "../../src/core/paths";
-import { openDb, migrate } from "../../src/core/db";
-import { issueInvoice } from "../../src/core/issued-invoices";
-import { issueCreditNote } from "../../src/core/credit-notes";
-import { seedAccounts } from "../../src/core/ledger";
-import { storeViesValidation } from "../../src/core/vies";
-import { readIssuedInvoicePdfText, renderIssuedInvoicePdf } from "../../src/core/invoice-pdf";
-import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
+import { join } from "node:path";
 import { addBankAccount } from "../../src/core/bank";
+import { issueCreditNote } from "../../src/core/credit-notes";
+import { migrate, openDb } from "../../src/core/db";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
+import { readIssuedInvoicePdfText, renderIssuedInvoicePdf } from "../../src/core/invoice-pdf";
+import { issueInvoice } from "../../src/core/issued-invoices";
+import { seedAccounts } from "../../src/core/ledger";
+import { companyPaths, ensureCompanyDirs } from "../../src/core/paths";
+import { storeViesValidation } from "../../src/core/vies";
 
 function failingDocumentInsertDb(realDb: any) {
   return new Proxy(realDb, {
@@ -155,6 +155,36 @@ describe("invoice issue", () => {
     expect(tampered.errors.join(" ")).toContain("refusing to repair");
     expect(readFileSync(issued.pdfStoredPath!)).toEqual(Buffer.from("tampered PDF bytes"));
     expect(db.query("SELECT sha256_hash, stored_path FROM documents WHERE id = ?").get(issued.pdfDocumentId!)).toEqual(before);
+
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("reuses issued PDF evidence registered with a legacy absolute host path", () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-issued-pdf-legacy-path-"));
+    const db = openDb(ensureCompanyDirs(root).db);
+    migrate(db);
+    const issued = issueInvoice(db, root, {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: "2026-05-16",
+      invoiceNumber: "2026-0001",
+      seller: { name: "Synthetic seller", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Synthetic buyer", address: "Testvej 2" },
+      lines: [{ description: "Service", quantity: 1, unitPriceExVat: 100, lineTotalExVat: 100 }],
+      totals: { netAmount: 100, vatRate: 0.25, vatAmount: 25, grossAmount: 125 },
+      currency: "DKK",
+    });
+    expect(issued.ok).toBe(true);
+    const historicalPath = `/old-linux-company/invoices/issued/${issued.pdfStoredPath!.split("/").at(-1)!}`;
+    db.exec("DROP TRIGGER issued_invoice_pdf_no_update");
+    db.query("UPDATE documents SET stored_path=? WHERE id=?").run(historicalPath, issued.pdfDocumentId!);
+
+    const reused = renderIssuedInvoicePdf(db, root, { invoiceDocumentId: issued.documentId! });
+    expect(reused).toMatchObject({ ok: true, renderDocumentId: issued.pdfDocumentId, sha256: issued.pdfSha256 });
+    expect(db.query("SELECT stored_path AS storedPath FROM documents WHERE id=?").get(issued.pdfDocumentId!)).toEqual({
+      storedPath: historicalPath,
+    });
 
     db.close();
     rmSync(root, { recursive: true, force: true });

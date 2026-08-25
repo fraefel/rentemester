@@ -1,18 +1,18 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { companyPaths } from "../../../core/paths";
-import { openDb, migrate } from "../../../core/db";
+import { migrate, openDb } from "../../../core/db";
 import { buildInvoiceList } from "../../../core/invoice-list";
+import { companyPaths } from "../../../core/paths";
 import {
   companyRootForSlug,
   findWorkspaceCompany,
 } from "../../../core/workspace";
 import { ApiError } from "../../errors";
 import {
+  type EvidenceFileSnapshot,
   EvidenceFileUnavailable,
   evidenceDownloadFilename,
   readVerifiedEvidenceFile,
-  type EvidenceFileSnapshot,
 } from "../evidence-file";
 import {
   resolveStatementContext,
@@ -75,9 +75,10 @@ export function resolveCompanyIssuedInvoicePdf(
     }
     try {
       return readVerifiedEvidenceFile({
-        evidenceRoot: companyPaths(companyRoot).invoicesIssued,
+        companyRoot,
         storedPath: pdfRows[0]!.storedPath!,
         expectedSha256: pdfRows[0]!.sha256Hash,
+        documentType: "issued_invoice_pdf",
         mimeType: pdfRows[0]!.mimeType,
         filename: evidenceDownloadFilename(invoiceDocumentId, ".pdf"),
       });

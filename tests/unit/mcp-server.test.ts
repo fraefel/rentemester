@@ -471,6 +471,17 @@ describe("MCP tools full surface (#78)", () => {
     expect(structured?.data?.ok).toBe(true);
   });
 
+  test("system_healthcheck reports data.ok=false when required paths are missing", async () => {
+    const response = await client.send("tools/call", {
+      name: "system_healthcheck",
+      arguments: { company: join(companyRoot, "missing-company-root") },
+    });
+    const structured = response.result?.structuredContent;
+    expect(structured?.ok).toBe(false);
+    expect(structured?.data?.ok).toBe(false);
+    expect(structured?.data?.missing).toContain("company_root");
+  });
+
   test("retention_status returns ok envelope", async () => {
     const response = await client.send("tools/call", {
       name: "retention_status",

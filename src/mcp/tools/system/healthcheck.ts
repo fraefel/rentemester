@@ -62,10 +62,10 @@ export function registerSystemHealthcheckTools(server: McpServer): void {
       if (inspection && inspection.status !== "current") missing.push("schema");
       const env =
         missing.length === 0
-          ? successEnvelope({ missing: [], checks, schema_outdated: false, schema: inspection })
+          ? successEnvelope({ ok: true, missing: [], checks, schema_outdated: false, schema: inspection })
           : errorEnvelopeWithData(
               missing.map((m) => m === "schema" ? `schema_${inspection?.status}: current=${inspection?.currentVersion} required=${inspection?.requiredVersion}` : `missing: ${m}`),
-              { missing, checks, schema_outdated: inspection?.status === "pending", schema: inspection },
+              { ok: false, missing, checks, schema_outdated: inspection?.status === "pending", schema: inspection },
             );
       return {
         content: [{ type: "text" as const, text: JSON.stringify(env) }],

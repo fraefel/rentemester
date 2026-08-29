@@ -36,7 +36,15 @@ function evidenceHash(evidence: PurchaseEvidence) { return hash({ document: evid
 /** Read-only planning creates a purchase action only for one unambiguous bank/document pair. */
 export function planBookkeepingBatch(db: Database, input: Omit<BookkeepingBatchPlan, "items" | "planHash">): BookkeepingBatchPlan {
   const s = scope(db, input);
-  const banks = db.query("SELECT id FROM bank_transactions WHERE transaction_date BETWEEN ? AND ? ORDER BY id").all(s.bankFrom, s.bankTo) as Array<{ id: number }>;
+  const banks = db.query(`SELECT bt.id
+    FROM bank_transactions bt
+    WHERE bt.transaction_date BETWEEN ? AND ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM bank_journal_reconciliations reconciliation
+        WHERE reconciliation.bank_transaction_id = bt.id
+      )
+    ORDER BY bt.id`).all(s.bankFrom, s.bankTo) as Array<{ id: number }>;
   const pairs = banks.flatMap((bank) => { const suggested = suggestBankMatches(db, { bankTransactionId: bank.id, max: 2 }); const match = suggested.ok ? suggested.rows[0]?.suggestions[0] : undefined; return match?.documentId ? [{ bankId: bank.id, documentId: match.documentId, suggestion: match }] : []; });
   const perDocument = new Map<number, number>(); for (const pair of pairs) perDocument.set(pair.documentId, (perDocument.get(pair.documentId) ?? 0) + 1);
   const items: BookkeepingBatchItem[] = [];

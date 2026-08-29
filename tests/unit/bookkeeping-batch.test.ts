@@ -1,14 +1,21 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { migrate } from "../../src/core/db";
+import { ensureCompanyDirs } from "../../src/core/paths";
+import { createSystemBackup } from "../../src/core/system-backups";
+import { restoreSystemBackup } from "../../src/core/system-restore";
+import { BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM, BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, readSchemaMigrations } from "../../src/core/schema-version";
 import { addBankAccount } from "../../src/core/bank";
 import { linkBankTransactionToJournal } from "../../src/core/bank-journal-reconciliation";
 import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, getBookkeepingBatchState, planBookkeepingBatch } from "../../src/core/bookkeeping-batch";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 import { approvePostingRuleVersion, createManualPostingProposal } from "../../src/core/posting-rules";
 
-function readyBatchFixture() {
-  const db = new Database(":memory:"); migrate(db); seedAccounts(db);
+function readyBatchFixture(filename = ":memory:") {
+  const db = new Database(filename); migrate(db); seedAccounts(db);
   db.exec("INSERT INTO companies(id,name,cvr) VALUES(1,'Synthetic','87654321')");
   const account = addBankAccount(db, { name: "Bank", slug: "bank", ledgerAccountNo: "2000" }).account!;
   for (const id of [1, 2]) {
@@ -142,5 +149,44 @@ describe("bookkeeping batches", () => {
     expect(resumed.results.map((item) => item.outcome)).toEqual(["duplicate","applied"]);
     expect(db.query("SELECT COUNT(*) AS n FROM journal_entries WHERE status='posted'").get()).toEqual({n:2});
     db.close();
+  });
+
+  test("two ledger connections cannot interleave a source write with apply and the second apply only reads receipts", () => {
+    const root=mkdtempSync(join(tmpdir(),"rentemester-batch-concurrent-")); const filename=join(root,"ledger.sqlite");
+    const { db:first, plan }=readyBatchFixture(filename); const second=new Database(filename);
+    try {
+      const run=createBookkeepingBatchRun(first,{...plan,runKey:"concurrent",actor:"agent:planner",principal:{kind:"user",subjectId:"planner"}});
+      approveBookkeepingBatchPlan(first,{runId:run.runId,planHash:plan.planHash,actor:"agent:reviewer",principal:{kind:"user",subjectId:"reviewer"}});
+      let blocked=false;
+      const applied=applyBookkeepingBatch(first,{runId:run.runId,planHash:plan.planHash,actor:"agent:apply",testOnly:{afterItem:()=>{try{second.query("INSERT INTO documents(source,sha256_hash,document_type,currency) VALUES('test','blocked-source','purchase_sale','DKK')").run();}catch{blocked=true;}}}});
+      expect(blocked).toBe(true); expect(applied.results.every((item)=>item.outcome==="applied")).toBe(true);
+      const replay=applyBookkeepingBatch(second,{runId:run.runId,planHash:plan.planHash,actor:"agent:retry"});
+      expect(replay.results.every((item)=>item.outcome==="duplicate")).toBe(true);
+      expect(second.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_item_receipts WHERE run_id=?").get(run.runId)).toEqual({n:2});
+      expect(second.query("SELECT COUNT(*) AS n FROM journal_entries WHERE status='posted'").get()).toEqual({n:2});
+    } finally { second.close(); first.close(); rmSync(root,{recursive:true,force:true}); }
+  });
+
+  test("v24 batch evidence survives a checksum-verified backup and restore", () => {
+    const root=mkdtempSync(join(tmpdir(),"rentemester-batch-backup-")); const company=join(root,"company"); const restored=join(root,"restored"); const paths=ensureCompanyDirs(company);
+    const db=new Database(paths.db); migrate(db); db.exec("INSERT INTO companies(id,name) VALUES(1,'Synthetic')");
+    const plan=planBookkeepingBatch(db,{companyId:1,accountingFrom:"2026-01-01",accountingTo:"2026-01-31",bankFrom:"2026-01-01",bankTo:"2026-01-31"});
+    try {
+      const run=createBookkeepingBatchRun(db,{...plan,runKey:"backup",actor:"agent:planner",principal:{kind:"user",subjectId:"planner"}});
+      approveBookkeepingBatchPlan(db,{runId:run.runId,planHash:plan.planHash,actor:"agent:reviewer",principal:{kind:"user",subjectId:"reviewer"}});
+      const revision=db.query("SELECT id FROM bookkeeping_batch_revisions WHERE run_id=?").get(run.runId) as {id:number};
+      const attempt=db.query("INSERT INTO bookkeeping_batch_apply_attempts_v2(revision_id,plan_hash,principal_kind,principal_subject_id,actor,started_at) VALUES(?,?,?,?,?,?) RETURNING id").get(revision.id,plan.planHash,"user","applier","agent:apply","2026-08-30T12:00:00.000Z") as {id:number};
+      for (const key of ["synthetic:1","synthetic:2"]) db.query("INSERT INTO bookkeeping_batch_item_receipts(run_id,action_key,receipt_json,created_at) VALUES(?,?,?,?)").run(run.runId,key,"{}","2026-08-30T12:00:00.000Z");
+      for (const name of ["audit_chain","trial_balance","reconciliation","vat"]) db.query("INSERT INTO bookkeeping_batch_final_checks_v2(apply_attempt_id,check_name,ok,detail_json,created_at) VALUES(?,?,?,?,?)").run(attempt.id,name,1,"{}","2026-08-30T12:00:00.000Z");
+      const backup=createSystemBackup(db,company,{createdAt:"2026-08-30T12:00:00.000Z"}); expect(backup.ok).toBe(true); db.close();
+      const result=restoreSystemBackup({backupDir:backup.backupDir!,targetCompanyRoot:restored}); expect(result.ok,result.errors.join("; ")).toBe(true);
+      const check=new Database(result.restoredDbPath!);
+      expect(readSchemaMigrations(check)).toContainEqual(expect.objectContaining({id:24,name:BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME,checksum:BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM}));
+      expect(check.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_revisions").get()).toEqual({n:1});
+      expect(check.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_revision_approvals").get()).toEqual({n:1});
+      expect(check.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_apply_attempts_v2").get()).toEqual({n:1});
+      expect(check.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_item_receipts").get()).toEqual({n:2});
+      expect(check.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_final_checks_v2").get()).toEqual({n:4}); check.close();
+    } finally { try{db.close()}catch{} rmSync(root,{recursive:true,force:true}); }
   });
 });

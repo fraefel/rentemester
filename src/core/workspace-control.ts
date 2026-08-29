@@ -48,6 +48,8 @@ export const WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_ID = 16;
 export const WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_NAME = "rentemester-corporate-records-v16";
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_ID = 17;
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_NAME = "rentemester-workspace-service-principals-v17";
+export const WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_ID = 18;
+export const WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_NAME = "rentemester-workspace-service-principal-saga-v18";
 
 const baselineArtifact = readFileSync(
   join(import.meta.dir, "workspace-migrations", "0001-workspace-control-baseline.json"),
@@ -76,6 +78,7 @@ const workspaceInvitationsArtifact = readFileSync(join(import.meta.dir, "workspa
 const workspacePartyRegistryArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0015-party-registry-v15.json"));
 const workspaceCorporateRecordsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0016-corporate-records-v16.json"));
 const workspaceServicePrincipalsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0017-service-principals-v17.json"));
+const workspaceServicePrincipalSagaArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0018-service-principal-saga-v18.json"));
 
 export const WORKSPACE_CONTROL_BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(baselineArtifact)
@@ -104,6 +107,7 @@ export const WORKSPACE_CONTROL_INVITATIONS_MIGRATION_CHECKSUM = createHash("sha2
 export const WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_CHECKSUM = createHash("sha256").update(workspacePartyRegistryArtifact).digest("hex");
 export const WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceCorporateRecordsArtifact).digest("hex");
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceServicePrincipalsArtifact).digest("hex");
+export const WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceServicePrincipalSagaArtifact).digest("hex");
 
 export type WorkspaceControlPaths = {
   root: string;
@@ -172,6 +176,7 @@ const migrations: readonly WorkspaceMigration[] = [
   { id: WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_ID, name: WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_CHECKSUM, artifact: workspacePartyRegistryArtifact },
   { id: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_ID, name: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_CHECKSUM, artifact: workspaceCorporateRecordsArtifact },
   { id: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_ID, name: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_CHECKSUM, artifact: workspaceServicePrincipalsArtifact },
+  { id: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_ID, name: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM, artifact: workspaceServicePrincipalSagaArtifact },
 ];
 
 /** Latest immutable control-schema migration this runtime can safely serve. */

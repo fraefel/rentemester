@@ -260,7 +260,17 @@ function securityGuardServer(server: McpServer, context?: McpSecurityContext | n
         const guarded = async (args: Record<string, unknown>, ...rest: unknown[]) => {
           const access = await authorizeMcpTool(context, name, args ?? {});
           if (!access) return envelopeToCallResult(errorEnvelope("missing or invalid credentials", { code: "MCP_UNAUTHORIZED" }));
-          return callback(access.root ? { ...args, company: access.root } : args, ...rest);
+          // A service-principal MCP session is bound to one canonical
+          // workspace root at startup.  Never let an untrusted tool argument
+          // select a second root; workspace fan-out handlers receive the
+          // verified canonical path, while company tools receive their
+          // verified canonical company root.
+          const securedArgs = access.root
+            ? { ...args, company: access.root }
+            : name === "efaktura_modtag_workspace" || name === "recurring_invoice_run_workspace" || (args && "workspace" in args)
+              ? { ...args, workspace: context.workspaceRoot }
+              : args;
+          return callback(securedArgs, ...rest);
         };
         return (target.registerTool as (...a: unknown[]) => unknown)(name, config, guarded);
       };

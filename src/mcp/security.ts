@@ -4,7 +4,7 @@ import { defaultKeyHasher } from "@better-auth/api-key";
 import type { RoutePermission } from "../core/access-permissions";
 import { authorizeWorkspaceRoute } from "../core/workspace-access";
 import { openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
-import { findWorkspaceCompany, isValidSlug } from "../core/workspace";
+import { findWorkspaceCompany, isValidSlug, listWorkspaceCompanies } from "../core/workspace";
 import { WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID } from "../server/better-auth";
 
 export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = Object.freeze(Object.fromEntries([
@@ -73,6 +73,17 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
     if (permission.startsWith("workspace.")) {
       if (args.workspace !== undefined && args.workspace !== context.workspaceRoot) return null;
       return authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission }).allowed ? {} : null;
+    }
+    // Workspace fan-out tools are not a single-company operation.  Authorize
+    // the complete active manifest before their handler opens the first
+    // ledger.  This prevents a partially-authorized key from learning about
+    // or mutating a later company through a best-effort loop.
+    if (name === "efaktura_modtag_workspace" || name === "recurring_invoice_run_workspace") {
+      if (args.workspace !== context.workspaceRoot) return null;
+      const active = listWorkspaceCompanies(context.workspaceRoot).filter((company) => !company.archived);
+      return active.every((company) => authorizeWorkspaceRoute(db, context.workspaceRoot, {
+        userId: principal.serviceAccountId, permission, companySlug: company.slug,
+      }).allowed) ? {} : null;
     }
     const company = resolveMcpWorkspaceCompany(context, args.company);
     if (!company) return null;

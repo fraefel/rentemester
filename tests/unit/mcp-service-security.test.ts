@@ -28,6 +28,11 @@ describe("MCP service principal guard", () => {
       expect(await authorizeMcpTool(context, "accounts_list", { company: "allowed-aps" })).not.toBeNull();
       expect(await authorizeMcpTool(context, "accounts_add", { company: "allowed-aps" })).toBeNull();
       expect(await authorizeMcpTool(context, "accounts_list", { company: "hidden-aps" })).toBeNull();
+      // Fan-out tools cannot use a partly authorized key.  The hidden active
+      // company is denied before the handler can inspect or mutate either
+      // ledger, and a caller cannot replace the canonical workspace root.
+      expect(await authorizeMcpTool(context, "recurring_invoice_run_workspace", { workspace })).toBeNull();
+      expect(await authorizeMcpTool(context, "efaktura_modtag_workspace", { workspace: outside })).toBeNull();
       expect(resolveMcpWorkspaceCompany(context, outside)).toBeNull();
       const link = join(workspace, "escape"); symlinkSync(outside, link);
       expect(resolveMcpWorkspaceCompany(context, link)).toBeNull();

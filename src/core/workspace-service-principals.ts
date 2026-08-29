@@ -15,6 +15,47 @@ export type WorkspaceServicePrincipal = {
   displayName: string;
 };
 
+type OperationType = "create" | "rotate" | "revoke";
+type OperationStatus = "pending" | "completed" | "failed";
+
+function operationId(value?: string): string {
+  const normalized = value?.trim() ?? randomUUID();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+    throw new Error("operationId must be a UUID");
+  }
+  return normalized.toLowerCase();
+}
+
+function appendOperation(
+  db: Database,
+  input: { operationId: string; type: OperationType; status: OperationStatus; actor: string; serviceAccountId?: string; credentialId?: string; replacementCredentialId?: string },
+): void {
+  db.query(`INSERT INTO rm_workspace_service_principal_operation_events
+    (operation_id, operation_type, operation_status, user_id, credential_id, replacement_credential_id, actor)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+    input.operationId, input.type, input.status, input.serviceAccountId ?? null,
+    input.credentialId ?? null, input.replacementCredentialId ?? null, input.actor,
+  );
+}
+
+function beginOperation(
+  db: Database,
+  input: { operationId?: string; type: OperationType; actor: string; serviceAccountId?: string; credentialId?: string },
+): string {
+  const id = operationId(input.operationId);
+  const existing = db.query(`SELECT operation_status FROM rm_workspace_service_principal_operation_events
+    WHERE operation_id = ? ORDER BY id DESC LIMIT 1`).get(id) as { operation_status?: OperationStatus } | null;
+  if (existing?.operation_status === "pending") throw new Error("service credential operation is pending; retry with the same operationId later");
+  if (existing?.operation_status === "completed") throw new Error("service credential operation already completed; credential secrets are shown only once");
+  if (existing?.operation_status === "failed") throw new Error("service credential operation failed; start a new operationId after inspection");
+  appendOperation(db, { operationId: id, type: input.type, status: "pending", actor: input.actor, serviceAccountId: input.serviceAccountId, credentialId: input.credentialId });
+  return id;
+}
+
+function failOperation(db: Database, input: { operationId: string; type: OperationType; actor: string; serviceAccountId?: string; credentialId?: string }): void {
+  db.transaction(() => appendOperation(db, { ...input, status: "failed" }))();
+}
+
 function nonBlank(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${label} is required`);
@@ -33,11 +74,12 @@ function serviceAccountId(): string {
 export async function createWorkspaceServicePrincipal(
   db: Database,
   auth: Auth<any>,
-  input: { displayName: string; actor: string; expiresInSeconds?: number },
+  input: { displayName: string; actor: string; expiresInSeconds?: number; operationId?: string },
 ): Promise<IssuedWorkspaceServiceCredential> {
   const displayName = nonBlank(input.displayName, "displayName");
   const actor = nonBlank(input.actor, "actor");
   const id = serviceAccountId();
+  const operation = beginOperation(db, { operationId: input.operationId, type: "create", actor });
   const now = new Date().toISOString();
   const email = `${id}@service.invalid`;
   db.transaction(() => {
@@ -58,12 +100,16 @@ export async function createWorkspaceServicePrincipal(
     const credentialId = created.id?.trim() ?? "";
     const secret = created.key?.trim() ?? "";
     if (!credentialId || !secret) throw new Error("service credential could not be issued");
-    db.query("INSERT INTO rm_workspace_service_principal_events (user_id, credential_id, event_type, actor) VALUES (?, ?, 'credential_issued', ?)").run(id, credentialId, actor);
+    db.transaction(() => {
+      db.query("INSERT INTO rm_workspace_service_principal_events (user_id, credential_id, event_type, actor) VALUES (?, ?, 'credential_issued', ?)").run(id, credentialId, actor);
+      appendOperation(db, { operationId: operation, type: "create", status: "completed", actor, serviceAccountId: id, credentialId, replacementCredentialId: credentialId });
+    })();
     return { serviceAccountId: id, credentialId, secret };
   } catch (error) {
     // The identity is retained as immutable evidence but cannot be used without
     // an issued key or membership. Do not include provider error text: it may
     // contain credential-adjacent data.
+    failOperation(db, { operationId: operation, type: "create", actor, serviceAccountId: id });
     throw new Error("service credential could not be issued");
   }
 }
@@ -71,12 +117,13 @@ export async function createWorkspaceServicePrincipal(
 export async function rotateWorkspaceServiceCredential(
   db: Database,
   auth: Auth<any>,
-  input: { serviceAccountId: string; credentialId: string; actor: string; expiresInSeconds?: number },
+  input: { serviceAccountId: string; credentialId: string; actor: string; expiresInSeconds?: number; operationId?: string },
 ): Promise<IssuedWorkspaceServiceCredential> {
   const serviceAccountId = nonBlank(input.serviceAccountId, "serviceAccountId");
   const credentialId = nonBlank(input.credentialId, "credentialId");
   const actor = nonBlank(input.actor, "actor");
   if (!isWorkspaceServicePrincipal(db, serviceAccountId)) throw new Error("service principal was not found");
+  const operation = beginOperation(db, { operationId: input.operationId, type: "rotate", actor, serviceAccountId, credentialId });
   const created = await (auth.api as any).createApiKey({
     body: {
       configId: WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID,
@@ -96,11 +143,13 @@ export async function rotateWorkspaceServiceCredential(
   } catch {
     // Never leave a surprise second live key after a failed rotation.
     await (auth.api as any).updateApiKey({ body: { configId: WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID, keyId: newCredentialId, userId: serviceAccountId, enabled: false } }).catch(() => undefined);
+    failOperation(db, { operationId: operation, type: "rotate", actor, serviceAccountId, credentialId });
     throw new Error("service credential could not be rotated");
   }
   db.transaction(() => {
     db.query("INSERT INTO rm_workspace_service_principal_events (user_id, credential_id, event_type, actor) VALUES (?, ?, 'credential_rotated', ?)").run(serviceAccountId, newCredentialId, actor);
     db.query("INSERT INTO rm_workspace_service_principal_events (user_id, credential_id, event_type, actor) VALUES (?, ?, 'credential_revoked', ?)").run(serviceAccountId, credentialId, actor);
+    appendOperation(db, { operationId: operation, type: "rotate", status: "completed", actor, serviceAccountId, credentialId, replacementCredentialId: newCredentialId });
   })();
   return { serviceAccountId, credentialId: newCredentialId, secret };
 }
@@ -108,20 +157,28 @@ export async function rotateWorkspaceServiceCredential(
 export async function revokeWorkspaceServiceCredential(
   db: Database,
   auth: Auth<any>,
-  input: { serviceAccountId: string; credentialId: string; actor: string },
+  input: { serviceAccountId: string; credentialId: string; actor: string; operationId?: string },
 ): Promise<void> {
   const serviceAccountId = nonBlank(input.serviceAccountId, "serviceAccountId");
   const credentialId = nonBlank(input.credentialId, "credentialId");
   const actor = nonBlank(input.actor, "actor");
   if (!isWorkspaceServicePrincipal(db, serviceAccountId)) throw new Error("service principal was not found");
-  const updated = await (auth.api as any).updateApiKey({
-    body: { configId: WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID, keyId: credentialId, userId: serviceAccountId, enabled: false },
-  }) as { id?: string };
-  if (!updated?.id) throw new Error("service credential could not be revoked");
-  db.query("INSERT INTO rm_workspace_service_principal_events (user_id, credential_id, event_type, actor) VALUES (?, ?, 'credential_revoked', ?)").run(serviceAccountId, credentialId, actor);
+  const operation = beginOperation(db, { operationId: input.operationId, type: "revoke", actor, serviceAccountId, credentialId });
+  try {
+    const updated = await (auth.api as any).updateApiKey({
+      body: { configId: WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID, keyId: credentialId, userId: serviceAccountId, enabled: false },
+    }) as { id?: string };
+    if (!updated?.id) throw new Error("old credential could not be disabled");
+    db.transaction(() => {
+      db.query("INSERT INTO rm_workspace_service_principal_events (user_id, credential_id, event_type, actor) VALUES (?, ?, 'credential_revoked', ?)").run(serviceAccountId, credentialId, actor);
+      appendOperation(db, { operationId: operation, type: "revoke", status: "completed", actor, serviceAccountId, credentialId });
+    })();
+  } catch {
+    failOperation(db, { operationId: operation, type: "revoke", actor, serviceAccountId, credentialId });
+    throw new Error("service credential could not be revoked");
+  }
 }
 
 export function isWorkspaceServicePrincipal(db: Database, userId: string): boolean {
   return db.query("SELECT 1 FROM rm_workspace_service_principals WHERE user_id = ?").get(userId) != null;
 }
-

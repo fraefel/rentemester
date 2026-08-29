@@ -337,7 +337,9 @@ type SurfaceBaseline = { count: number; hash: string };
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   mcp: { count: 138, hash: "04e7992b5c7cd42049ba48b0442e65173c3b37f0d8d14b11f20160b9cd6d21a4" },
   cli: { count: 202, hash: "8c6a29dc29b970e6034be510e8b33700f3d9490dec4028ef8855cbad0dcc5816" },
-  http: { count: 137, hash: "34da7a46d32569652ea2b2a69e3350960405e7e279f3ca761a36ddb8d5484b03" },
+  // #573 service-principal lifecycle routes are public runtime operations and
+  // therefore deliberately part of the identity-bound discovery surface.
+  http: { count: 141, hash: "ea6d0985720da68ce8db3f5791a6b869c4839177417c80e8d3087b41fa1dd1b2" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

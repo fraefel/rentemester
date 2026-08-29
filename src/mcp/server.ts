@@ -2,7 +2,7 @@
 /**
  * Rentemester MCP-server (stdio transport).
  *
- * Eksponerer hele Rentemester-tool-surface'en (131 tools, jf.
+ * Eksponerer hele Rentemester-tool-surface'en (138 tools, jf.
  * docs/mcp-tool-surface.md) over stdio, så Claude Desktop / Cursor /
  * Claude Code / Codex kan tale med Rentemester-kernen som MCP-tools.
  * Tools registreres pr. domæne af `registerAllTools` i `./registry`.
@@ -68,7 +68,16 @@ async function main(): Promise<void> {
     },
   );
 
-  registerAllTools(server, createMcpSecurityContextFromEnv());
+  const security = createMcpSecurityContextFromEnv();
+  // Hosted/service MCP is an authenticated product boundary.  The local
+  // single-owner CLI remains deliberately explicit and is the only mode that
+  // may start without a service credential.
+  const serviceMode = process.env.RENTEMESTER_DEPLOYMENT_PROFILE === "hosted"
+    || process.env.RENTEMESTER_MCP_SERVICE_MODE === "true";
+  if (serviceMode && !security) {
+    throw new Error("MCP service mode requires RENTEMESTER_SERVICE_PRINCIPAL_TOKEN and RENTEMESTER_WORKSPACE");
+  }
+  registerAllTools(server, security);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

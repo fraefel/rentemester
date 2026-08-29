@@ -270,13 +270,14 @@ Branch on that case before reading `errors[]`.
 
 ## Idempotency — retries are NOT automatically safe
 
-- **There is no general `idempotencyKey` mechanism.** Writes do *not* accept
-  a client-supplied `idempotencyKey` backed by a retry cache. Re-sending the
-  same write after an unresolved network error **can double-post** — most
-  importantly `journal_post`, which appends a fresh entry every call. Do not
-  blindly retry a write whose outcome is unknown: first read back the state
-  (`journal_list`, `invoice_status`, …) and only re-issue the write if the
-  earlier attempt verifiably did not land.
+- **Confirmed company writes accept `idempotencyKey` (maximum 128 characters).**
+  A receipt is scoped to the resolved company, operation and actor and hashes
+  the validated business payload canonically. An identical retry returns the
+  original envelope with `data.idempotency.replayed: true`; a changed payload
+  returns `IDEMPOTENCY_CONFLICT` without a mutation. Authorization, actor
+  policy, confirmation, backup and period gates still run before replay.
+  A crash-boundary reservation returns `IDEMPOTENCY_IN_PROGRESS`; read back
+  canonical state rather than retrying it blindly. Receipts expire after 30 days.
 - Several tools *are* idempotent **by nature** (`annotations.idempotentHint`)
   — they de-dupe on content or period, not on a client key: intake polls
   (`mail_intake_ingest`, `imap_intake_poll`), `bank_import` (row-fingerprint
@@ -288,8 +289,8 @@ Branch on that case before reading `errors[]`.
   agent is responsible for retry-safety via read-back. The authoritative
   list is the live `annotations.idempotentHint` flags in `tools/list` — as
   of this writing exactly the seven write tools above carry it.
-- A general write-idempotency cache is a possible future feature; until it
-  ships, treat this section as the contract.
+- Writes without a supplied key retain their documented domain-specific retry
+  behaviour; this contract never converts an unknown outcome into a safe retry.
 
 ## The append-only invariant
 

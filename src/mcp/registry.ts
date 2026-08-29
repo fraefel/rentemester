@@ -35,7 +35,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { migrate, openDb } from "../core/db";
 import { companyPaths } from "../core/paths";
 import { evaluateBackupLock } from "../core/backup-governance";
-import { resolveCompanyArg } from "./tool-runtime";
+import { idempotencyKeyField, resolveCompanyArg } from "./tool-runtime";
 import { envelopeToCallResult, errorEnvelope } from "./envelope";
 import { registerAccountsTools } from "./tools/accounts";
 import { registerAuditTools } from "./tools/audit";
@@ -147,8 +147,15 @@ function lockGuardServer(server: McpServer): McpServer {
   return new Proxy(server, {
     get(target, prop, receiver) {
       if (prop === "registerTool") {
-        return (name: string, config: { annotations?: { readOnlyHint?: boolean } }, callback: (...a: unknown[]) => unknown) => {
+        return (name: string, config: { annotations?: { readOnlyHint?: boolean }; inputSchema?: Record<string, unknown> }, callback: (...a: unknown[]) => unknown) => {
           const readOnly = config?.annotations?.readOnlyHint === true;
+          // The field is exposed on every write. Company-backed write tools
+          // execute it in withCompanyDbConfirmed; the remaining filesystem or
+          // workspace tools must not claim a key until they have a durable
+          // workspace receipt backend of their own.
+          if (!readOnly && name !== "company_add" && !name.startsWith("system_restore") && config.inputSchema && !config.inputSchema.idempotencyKey) {
+            config.inputSchema.idempotencyKey = idempotencyKeyField;
+          }
           const guarded =
             readOnly || name.startsWith("system_") ? callback : lockGuardedCallback(name, callback);
           return (target.registerTool as (...a: unknown[]) => unknown)(name, config, guarded);

@@ -34,6 +34,7 @@ import {
 } from "./envelope";
 import { deriveMcpActor, type McpActor } from "./actor";
 import { checkActorAllowlist } from "../cli-actor";
+import { executeIdempotently, IdempotencyError, withoutIdempotencyTransportFields, validateIdempotencyKey } from "../core/idempotency";
 
 /**
  * Redacts absolute filesystem paths from a message destined for the
@@ -148,12 +149,9 @@ export const confirmField = z
 /**
  * Delt `idempotencyKey`-felt for irreversible-write-tools (Batch F-3).
  *
- * **Currently RESERVED — not yet enforced server-side.** Adding the schema
- * field NOW (forward-compatible surface) lets an agent code its retry
- * pipeline against a stable contract while the actual dedup-cache lands in a
- * later release. The server presently logs the key into the audit chain so
- * an operator can correlate retries, but a duplicate call with the same
- * `idempotencyKey` will STILL double-book until the cache ships.
+ * Reuse a key only for an identical retry. The confirmed-write runtime
+ * persists a bounded, actor- and company-scoped receipt; replay returns the
+ * original envelope without executing the business mutation again.
  *
  * Recommended shape: any caller-generated unique string (UUIDv4, ULID,
  * `<tool>:<biz-key>:<attempt>`, …) ≤ 128 chars. The key only needs to be
@@ -166,13 +164,9 @@ export const idempotencyKeyField = z
   .max(128)
   .optional()
   .describe(
-    "RESERVED: caller-generated unique key (UUID, ULID, or any ≤128-char " +
-      "string) for write-deduplication on retry. The MCP server records the " +
-      "key in the audit log NOW so retries are correlatable, but the actual " +
-      "server-side dedup cache is not yet active — a duplicate call with the " +
-      "same key currently STILL double-books. Add the key on every retry of " +
-      "the same logical write; the dedup cache will be activated in a later " +
-      "release without breaking the schema contract.",
+    "Caller-generated retry key (UUID/ULID, ≤128 chars). An identical retry " +
+      "returns the durable original envelope with data.idempotency.replayed=true; " +
+      "a different validated payload returns IDEMPOTENCY_CONFLICT.",
   );
 
 /**
@@ -267,7 +261,7 @@ export function withCompanyDb<TArgs extends { company: string }>(
  * Hvis flaget mangler/er falsk returneres en fejl-envelope uden at databasen
  * overhovedet åbnes.
  */
-export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?: boolean }>(
+export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?: boolean; idempotencyKey?: string }>(
   server: McpServer,
   toolName: string,
   handler: (ctx: { db: Database; actor: McpActor; args: TArgs }) => Envelope | Promise<Envelope>,
@@ -287,7 +281,30 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
     }
     // SEC-2: every confirmed MCP write passes the same actor allowlist gate as
     // the CLI. `confirm: true` alone is no longer sufficient.
-    return withCompanyDb(server, handler, { enforceActorAllowlist: true })(args);
+    return withCompanyDb<TArgs>(server, async (ctx) => {
+      let key: string | undefined;
+      try {
+        key = validateIdempotencyKey(ctx.args.idempotencyKey);
+        const execution = await executeIdempotently(ctx.db, {
+          key,
+          operation: toolName,
+          // A resolved company root is an unambiguous company/tenant scope.
+          workspaceScope: ctx.args.company,
+          companyScope: ctx.args.company,
+          actorScope: ctx.actor.createdBy,
+          payload: withoutIdempotencyTransportFields(ctx.args as Record<string, unknown>),
+          execute: () => handler(ctx),
+        });
+        if (!execution.receipt) return execution.result;
+        const data = execution.result.data && typeof execution.result.data === "object"
+          ? { ...execution.result.data, idempotency: execution.receipt }
+          : { idempotency: execution.receipt };
+        return { ...execution.result, data };
+      } catch (error) {
+        if (error instanceof IdempotencyError) return errorEnvelope(error.message, { code: error.code });
+        throw error;
+      }
+    }, { enforceActorAllowlist: true })(args);
   };
 }
 

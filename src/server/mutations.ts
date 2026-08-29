@@ -35,6 +35,7 @@ import type { ServerConfig } from "./config";
 import { ApiError } from "./errors";
 import type { Principal } from "./auth";
 import { resolveCockpitActor } from "./actor";
+import { executeIdempotently, IdempotencyError, withoutIdempotencyTransportFields, validateIdempotencyKey } from "../core/idempotency";
 
 /**
  * The context handed to a write handler once every gate has passed:
@@ -50,6 +51,11 @@ export type MutationContext = {
 
 /** A core-style business result — what `resolveException` and friends return. */
 export type CoreResult = { ok: boolean; errors?: string[] };
+
+function httpMutationOperation(request: Request): string {
+  const path = new URL(request.url).pathname.replace(/\/companies\/[^/]+/g, "/companies/:company");
+  return `${request.method.toUpperCase()} ${path}`;
+}
 
 export type WithCompanyMutationOptions = {
   /**
@@ -316,6 +322,17 @@ export async function withCompanyMutation<T extends CoreResult>(
   }
 
   const body = await readMutationBody(request, options.maxBodyBytes);
+  const headerKey = request.headers.get("idempotency-key") ?? undefined;
+  let idempotencyKey: string | undefined;
+  try {
+    if (headerKey !== undefined && body.idempotencyKey !== undefined && headerKey !== body.idempotencyKey) {
+      throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "Idempotency-Key header must match body.idempotencyKey when both are supplied");
+    }
+    idempotencyKey = validateIdempotencyKey(headerKey ?? body.idempotencyKey);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "invalid idempotency key";
+    throw ApiError.badRequest(message, { subcode: "IDEMPOTENCY_KEY_INVALID" });
+  }
 
   // (3) Confirm gate for destructive actions.
   if (options.requireConfirm && body.confirm !== true) {
@@ -343,8 +360,28 @@ export async function withCompanyMutation<T extends CoreResult>(
     // (6) Actor resolution — fixed Phase-1 web actor.
     const actor = resolveCockpitActor(principal);
 
-    // (7) Handler.
-    const result = await handler({ db, actor, companyRoot, principal }, body);
+    // (7) Authorization, confirmation, policy and period gates above run for
+    // every call. Only a completed, matching receipt skips the executor.
+    let execution: Awaited<ReturnType<typeof executeIdempotently<T>>>;
+    try {
+      execution = await executeIdempotently(db, {
+        key: idempotencyKey,
+        operation: httpMutationOperation(request),
+        workspaceScope: config.workspaceRoot,
+        companyScope: companyRoot,
+        actorScope: actor.createdBy,
+        payload: withoutIdempotencyTransportFields(body),
+        execute: () => handler({ db, actor, companyRoot, principal }, body),
+      });
+    } catch (error) {
+      if (error instanceof IdempotencyError) {
+        throw ApiError.conflict(error.message, { subcode: error.code });
+      }
+      throw error;
+    }
+    const result = execution.receipt
+      ? Object.assign(execution.result, { idempotency: execution.receipt })
+      : execution.result;
 
     // (8) Business-result map. A core rejection is the caller's fault, not the
     // server's — surface it as a 400 (or 409 for a conflict-shaped message),

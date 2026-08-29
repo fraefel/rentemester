@@ -9,8 +9,8 @@
 // `requireConfirm: true`.
 
 import {
-  registerPayable as corePayableRegister,
-  payPayableFromBank as corePayablePayFromBank,
+  registerPayableInCurrentTransaction as corePayableRegister,
+  payPayableFromBankInCurrentTransaction as corePayablePayFromBank,
 } from "../../core/payables";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
@@ -96,7 +96,7 @@ export async function handlePayableRegister(
         entryNo: registered.entryNo,
       };
     },
-    { requireConfirm: true },
+    { requireConfirm: true, keyIdempotent: "payable_register" },
   );
 
   return okResponse({
@@ -169,7 +169,7 @@ export async function handlePayablePay(
         openBalance: paid.openBalance,
       };
     },
-    { requireConfirm: true },
+    { requireConfirm: true, keyIdempotent: "payable_pay" },
   );
 
   return okResponse({

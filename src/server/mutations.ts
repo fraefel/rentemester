@@ -35,6 +35,7 @@ import type { ServerConfig } from "./config";
 import { ApiError } from "./errors";
 import type { Principal } from "./auth";
 import { resolveCockpitActor } from "./actor";
+import { executeLocalIdempotentMutation, IdempotencyError, RETRY_CLASS_BY_OPERATION, validateIdempotencyKey, withoutIdempotencyTransportFields, type StablePrincipal } from "../core/idempotency";
 
 /**
  * The context handed to a write handler once every gate has passed:
@@ -72,6 +73,7 @@ export type WithCompanyMutationOptions = {
    * body is a tiny JSON object (slice 1's resolve-exception) leave this off.
    */
   maxBodyBytes?: number;
+  keyIdempotent?: keyof typeof RETRY_CLASS_BY_OPERATION;
 };
 
 /**
@@ -350,7 +352,19 @@ export async function withCompanyMutation<T extends CoreResult>(
 
     // (7) Authorization, confirmation, policy and period gates above run for
     // every call. Only a completed, matching receipt skips the executor.
-    const result = await handler({ db, actor, companyRoot, principal }, body);
+    const result = options.keyIdempotent
+      ? (() => {
+          try {
+            const stable: StablePrincipal | undefined = principal.userId ? { kind: principal.via === "service-principal" ? "service-account" : "user", subjectId: principal.userId } : undefined;
+            const run = executeLocalIdempotentMutation(db, { key: validateIdempotencyKey(request.headers.get("idempotency-key") ?? body.idempotencyKey), operation: options.keyIdempotent, workspaceScope: config.workspaceRoot, companyScope: companyRoot, principal: stable, payload: withoutIdempotencyTransportFields(body), actor, execute: () => {
+              const value = handler({ db, actor, companyRoot, principal }, body);
+              if (value instanceof Promise) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "key-idempotent HTTP operation must execute synchronously");
+              return value;
+            }});
+            return run.receipt ? Object.assign(run.result, { idempotency: run.receipt }) : run.result;
+          } catch (error) { if (error instanceof IdempotencyError) throw ApiError.conflict(error.message, { subcode: error.code }); throw error; }
+        })()
+      : await handler({ db, actor, companyRoot, principal }, body);
 
     // (8) Business-result map. A core rejection is the caller's fault, not the
     // server's — surface it as a 400 (or 409 for a conflict-shaped message),

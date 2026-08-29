@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { migrate } from "../../src/core/db";
 import { addBankAccount } from "../../src/core/bank";
 import { linkBankTransactionToJournal } from "../../src/core/bank-journal-reconciliation";
-import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, planBookkeepingBatch } from "../../src/core/bookkeeping-batch";
+import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, getBookkeepingBatchState, planBookkeepingBatch } from "../../src/core/bookkeeping-batch";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 
 describe("bookkeeping batches", () => {
@@ -94,6 +94,20 @@ describe("bookkeeping batches", () => {
     const result=applyBookkeepingBatch(db,{runId:run.runId,planHash:plan.planHash,actor:"agent:apply",principal:{kind:"service-account",subjectId:"svc-a"}});
     expect(result).toMatchObject({ok:false,error:{code:"STALE_PLAN"}});
     expect(db.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_apply_attempts_v2").get()).toEqual({n:1});
+    db.close();
+  });
+
+  test("status is derived from immutable revision and attempt records", () => {
+    const db = new Database(":memory:"); migrate(db);
+    db.exec("INSERT INTO companies(id,name) VALUES(1,'Synthetic')");
+    const input={companyId:1,accountingFrom:"2026-01-01",accountingTo:"2026-01-31",bankFrom:"2026-01-01",bankTo:"2026-01-31"};
+    const plan=planBookkeepingBatch(db,input);
+    const run=createBookkeepingBatchRun(db,{...plan,runKey:"status",actor:"agent:planner",principal:{kind:"user",subjectId:"planner"}});
+    approveBookkeepingBatchPlan(db,{runId:run.runId,planHash:plan.planHash,actor:"agent:reviewer",principal:{kind:"user",subjectId:"reviewer"}});
+    const state=getBookkeepingBatchState(db,run.runId)!;
+    expect(state.revisions).toMatchObject([{planHash:plan.planHash,plannerSubjectId:"planner",approverSubjectId:"reviewer"}]);
+    expect(() => db.exec("UPDATE bookkeeping_batch_revisions SET planner_actor='user:other' WHERE run_id=1")).toThrow();
+    expect(() => db.exec("UPDATE bookkeeping_batch_revision_approvals SET actor='user:other' WHERE revision_id=1")).toThrow();
     db.close();
   });
 });

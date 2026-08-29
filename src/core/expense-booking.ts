@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { getCompanySettings } from "./company";
 import { postJournalEntry, type JournalLineInput, type JournalPostResult } from "./ledger";
 import { postEuGoodsAcquisitionPurchase, postForeignServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
-import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk, subtractDkk, toOre } from "./money";
+import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk, roundRate6, subtractDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
 import { parsePurchaseVatLinesPayload, type PurchaseVatLine } from "./documents";
 import { deductibleDanishPurchaseSupplierErrors } from "./supplier-identity";
@@ -47,6 +47,10 @@ export type BookExpenseFromBankResult = JournalPostResult & {
   netAmountDkk?: number;
   vatAmountDkk?: number;
   fxRateToDkk?: number;
+  /** Whether the FX rate was imported with the bank row or derived from its DKK settlement. */
+  fxRateSource?: "imported_bank" | "derived_dkk_settlement";
+  /** DKK amount reconstructed from the persisted six-decimal rate minus the settlement. */
+  fxReconstructionDifferenceDkk?: number;
 };
 
 type FxBookingBasis = {
@@ -54,6 +58,8 @@ type FxBookingBasis = {
   grossAmountForeign: number;
   grossAmountDkk: number;
   fxRateToDkk: number;
+  fxRateSource?: "imported_bank" | "derived_dkk_settlement";
+  fxReconstructionDifferenceDkk?: number;
 };
 
 // Internal-only union: "unknown" is never exposed via the public
@@ -141,26 +147,28 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
   }
 
   const bankCurrency = normalizeCurrency(bank.currency);
-  const fxRateToDkk = bank.fx_rate_to_dkk == null ? NaN : Number(bank.fx_rate_to_dkk);
-  if (!(fxRateToDkk > 0)) {
-    if (bankCurrency === "DKK") {
-      return {
-        ok: false,
-        error: "foreign-currency expense booking requires bank amount_dkk and fx_rate_to_dkk for DKK-settled payments; re-import the bank CSV with amount_dkk and fx_rate_to_dkk columns",
-      };
-    }
-    return { ok: false, error: "foreign-currency expense booking requires bank fx_rate_to_dkk" };
-  }
-
-  const expectedAmountDkk = roundDkk(grossAmountForeign * fxRateToDkk);
-
   if (bankCurrency === "DKK") {
     const grossAmountDkk = roundDkk(Math.abs(Number(bank.amount)));
     if (bank.amount_dkk != null && compareDkk(Math.abs(Number(bank.amount_dkk)), grossAmountDkk) !== 0) {
       return { ok: false, error: `bank transaction ${bank.id} amount_dkk ${roundDkk(Math.abs(Number(bank.amount_dkk)))} does not match DKK settlement amount ${grossAmountDkk}` };
     }
+    const importedFxRate = bank.fx_rate_to_dkk == null ? NaN : Number(bank.fx_rate_to_dkk);
+    const fxRateSource = importedFxRate > 0 ? "imported_bank" as const : "derived_dkk_settlement" as const;
+    if (!(grossAmountForeign > 0)) return { ok: false, error: `document foreign gross amount must be positive to derive DKK settlement FX rate` };
+    // A DKK bank row is itself the settlement evidence. When the import did
+    // not include a rate, derive one once and retain precisely the six-decimal
+    // value that journal metadata persists. Reject rates whose stored precision
+    // cannot reproduce the settlement to the øre: silently persisting a rate
+    // that changes the documented payment would undermine reconciliation.
+    const fxRateToDkk = importedFxRate > 0
+      ? importedFxRate
+      : roundRate6(grossAmountDkk / grossAmountForeign);
+    const expectedAmountDkk = roundDkk(grossAmountForeign * fxRateToDkk);
+    const fxReconstructionDifferenceDkk = subtractDkk(expectedAmountDkk, grossAmountDkk);
     if (compareDkk(grossAmountDkk, expectedAmountDkk) !== 0) {
-      return { ok: false, error: `bank transaction amount ${grossAmountDkk} DKK does not match document gross amount ${grossAmountForeign} ${currency} at fx_rate_to_dkk ${roundDkk(fxRateToDkk)} (${expectedAmountDkk} DKK)` };
+      return { ok: false, error: fxRateSource === "derived_dkk_settlement"
+        ? `derived fx_rate_to_dkk ${fxRateToDkk} cannot reconstruct DKK settlement ${grossAmountDkk} from document gross amount ${grossAmountForeign} ${currency} (${expectedAmountDkk} DKK)`
+        : `bank transaction amount ${grossAmountDkk} DKK does not match document gross amount ${grossAmountForeign} ${currency} at fx_rate_to_dkk ${roundDkk(fxRateToDkk)} (${expectedAmountDkk} DKK)` };
     }
     return {
       ok: true,
@@ -169,9 +177,15 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
         grossAmountForeign,
         grossAmountDkk,
         fxRateToDkk,
+        fxRateSource,
+        fxReconstructionDifferenceDkk,
       },
     };
   }
+
+  const fxRateToDkk = bank.fx_rate_to_dkk == null ? NaN : Number(bank.fx_rate_to_dkk);
+  if (!(fxRateToDkk > 0)) return { ok: false, error: "foreign-currency expense booking requires bank fx_rate_to_dkk" };
+  const expectedAmountDkk = roundDkk(grossAmountForeign * fxRateToDkk);
 
   if (bankCurrency !== currency) {
     return { ok: false, error: `bank transaction ${bank.id} currency ${bankCurrency} does not match document currency ${currency} or DKK settlement` };
@@ -200,6 +214,8 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
       grossAmountForeign,
       grossAmountDkk,
       fxRateToDkk,
+      fxRateSource: "imported_bank",
+      fxReconstructionDifferenceDkk: subtractDkk(expectedAmountDkk, grossAmountDkk),
     },
   };
 }
@@ -367,6 +383,10 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     grossAmountForeign: fxBasis.basis.grossAmountForeign,
     grossAmountDkk: fxBasis.basis.grossAmountDkk,
     fxRateToDkk: fxBasis.basis.fxRateToDkk,
+    ...(fxBasis.basis.currency === "DKK" ? {} : {
+      fxRateSource: fxBasis.basis.fxRateSource,
+      fxReconstructionDifferenceDkk: fxBasis.basis.fxReconstructionDifferenceDkk,
+    }),
   };
 
   const parsedPurchaseVatLines = parsePurchaseVatLinesPayload(document.payload_json, {
@@ -518,4 +538,25 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   // forces a compile-time error rather than a silent runtime fall-through.
   const _exhaustive: never = vatTreatment;
   throw new Error(`unhandled vatTreatment: ${_exhaustive}`);
+}
+
+/**
+ * Runs the exact expense-booking path in an immediate transaction that is
+ * always rolled back. This keeps preview validation, journal metadata,
+ * reconciliation and audit behavior aligned with an applied booking without
+ * exposing a second booking implementation or retaining any writes.
+ */
+export function previewBookExpenseFromBank(db: Database, input: BookExpenseFromBankInput): BookExpenseFromBankResult {
+  let result: BookExpenseFromBankResult | undefined;
+  const rollback = new Error("expense booking preview rollback");
+  try {
+    db.transaction(() => {
+      result = bookExpenseFromBank(db, input);
+      throw rollback;
+    }).immediate();
+  } catch (error) {
+    if (error !== rollback) throw error;
+  }
+  if (!result) throw new Error("expense booking preview completed without a result");
+  return result;
 }

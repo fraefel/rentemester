@@ -25,6 +25,7 @@ export const expenseSpecs: CommandSpec[] = [
       "  non_deductible = moms uden fradragsret (fx udenlandsk lokal skat eller bilag hos en ikke-momsregistreret virksomhed): hele bilaget bogføres brutto på udgiftskontoen, ingen 4000 Købsmoms-linje, momsen indgår i kostprisen. Kan vælges eksplicit også i et momsregistreret selskab.",
       "  Har kontoen ingen (eller en umappet) default_vat_code, er --vat-treatment påkrævet",
       "--payment-account: betalingskontoen udgiften krediteres på; standard er 2000 (Bank) — sæt den kun, hvis betalingen kom fra en anden konto",
+      "Ved bilag i fremmed valuta og en bankpost i DKK bruges bankpostens DKK-beløb som afregning; mangler importeret fx_rate_to_dkk, udledes den deterministisk af bilagets bruttobeløb og DKK-afregningen.",
       "--date: bogføringsdato YYYY-MM-DD; udelades den, bruges bankpostens dato",
     ],
   },

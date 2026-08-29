@@ -131,8 +131,8 @@ describe("expense book CLI", () => {
       paymentDetails: "Card payment"
     }, null, 2));
     writeFileSync(bankCsv, [
-      "transaction_date,booking_date,text,amount,currency,fx_rate_to_dkk,reference",
-      "2026-05-16,2026-05-16,CLOUD VENDOR,-746,DKK,7.46,REF-CLI-FX-1"
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-16,2026-05-16,CLOUD VENDOR,-746,DKK,REF-CLI-FX-1"
     ].join("\n"));
 
     await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
@@ -163,5 +163,6 @@ describe("expense book CLI", () => {
     expect(parsed.vatTreatment).toBe("exempt");
     expect(parsed.grossAmount).toBe(100);
     expect(parsed.netAmount).toBe(746);
+    expect(parsed).toMatchObject({ fxRateToDkk: 7.46, fxRateSource: "derived_dkk_settlement", fxReconstructionDifferenceDkk: 0 });
   });
 });

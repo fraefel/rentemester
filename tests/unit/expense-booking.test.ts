@@ -9,7 +9,7 @@ import { seedAccounts } from "../../src/core/ledger";
 import { importBankCsv } from "../../src/core/bank";
 import { ingestDocument } from "../../src/core/documents";
 import { buildBankReconciliationReport } from "../../src/core/reconciliation";
-import { bookExpenseFromBank } from "../../src/core/expense-booking";
+import { bookExpenseFromBank, previewBookExpenseFromBank } from "../../src/core/expense-booking";
 import { storeViesValidation } from "../../src/core/vies";
 import { buildVatReport, postRepresentationPurchase } from "../../src/core/vat";
 import { registerPayable } from "../../src/core/payables";
@@ -450,8 +450,8 @@ describe("expense booking", () => {
     const csv = join(root, "transactions.csv");
     const sourceFile = join(inbox, "vendor.txt");
     writeFileSync(csv, [
-      "transaction_date,booking_date,text,amount,currency,fx_rate_to_dkk,reference",
-      "2026-05-16,2026-05-16,CLOUD VENDOR,-746,DKK,7.46,REF-FX-1"
+      "transaction_date,booking_date,text,amount,currency,reference",
+      "2026-05-16,2026-05-16,CLOUD VENDOR,-746,DKK,REF-FX-1"
     ].join("\n"));
     writeFileSync(sourceFile, "Invoice\n100 EUR\n");
 
@@ -477,6 +477,19 @@ describe("expense booking", () => {
     expect(doc.ok).toBe(true);
 
     const bankRow = db.query("SELECT id FROM bank_transactions WHERE reference = 'REF-FX-1'").get() as { id: number };
+    const auditCountBeforePreview = (db.query("SELECT COUNT(*) AS count FROM audit_log").get() as { count: number }).count;
+    const preview = previewBookExpenseFromBank(db, {
+      documentId: doc.documentId!,
+      bankTransactionId: bankRow.id,
+      expenseAccountNo: "3000",
+      vatTreatment: "exempt"
+    });
+
+    expect(preview).toMatchObject({ ok: true, entryNo: "2026-00001", grossAmountDkk: 746, fxRateToDkk: 7.46, fxRateSource: "derived_dkk_settlement", fxReconstructionDifferenceDkk: 0 });
+    expect(db.query("SELECT COUNT(*) AS count FROM journal_entries").get()).toEqual({ count: 0 });
+    expect(db.query("SELECT COUNT(*) AS count FROM audit_log").get()).toEqual({ count: auditCountBeforePreview });
+    expect(db.query("SELECT fx_rate_to_dkk FROM bank_transactions WHERE id = ?").get(bankRow.id)).toEqual({ fx_rate_to_dkk: null });
+
     const booked = bookExpenseFromBank(db, {
       documentId: doc.documentId!,
       bankTransactionId: bankRow.id,
@@ -489,10 +502,12 @@ describe("expense booking", () => {
     expect(booked.netAmount).toBe(746);
     expect(booked.vatAmount).toBe(0);
     expect(booked.vatTreatment).toBe("exempt");
-    expect(booked).toMatchObject({ grossAmountForeign: 100, grossAmountDkk: 746, netAmountDkk: 746, vatAmountDkk: 0, fxRateToDkk: 7.46 });
+    expect(booked).toMatchObject({ grossAmountForeign: 100, grossAmountDkk: 746, netAmountDkk: 746, vatAmountDkk: 0, fxRateToDkk: 7.46, fxRateSource: "derived_dkk_settlement", fxReconstructionDifferenceDkk: 0 });
 
     const entry = db.query("SELECT currency, amount_foreign, amount_dkk, fx_rate_to_dkk FROM journal_entries WHERE id = ?").get(booked.entryId!) as any;
     expect(entry).toEqual({ currency: "EUR", amount_foreign: 100, amount_dkk: 746, fx_rate_to_dkk: 7.46 });
+    expect(db.query("SELECT COUNT(*) AS count FROM audit_log WHERE entity_type = 'journal_entry'").get()).toEqual({ count: 1 });
+    expect(bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bankRow.id, expenseAccountNo: "3000", vatTreatment: "exempt" }).ok).toBe(false);
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -529,23 +544,23 @@ describe("expense booking", () => {
     expect(bankRow.amount_dkk).toBe(-746);
     const booked = bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bankRow.id, expenseAccountNo: "3000", vatTreatment: "exempt" });
     expect(booked.ok).toBe(true);
-    expect(booked).toMatchObject({ grossAmountForeign: 100, grossAmountDkk: 746, netAmountDkk: 746, vatAmountDkk: 0, fxRateToDkk: 7.46 });
+    expect(booked).toMatchObject({ grossAmountForeign: 100, grossAmountDkk: 746, netAmountDkk: 746, vatAmountDkk: 0, fxRateToDkk: 7.46, fxRateSource: "imported_bank", fxReconstructionDifferenceDkk: 0 });
     expect(db.query("SELECT amount_foreign, amount_dkk, fx_rate_to_dkk FROM journal_entries WHERE id = ?").get(booked.entryId!)).toEqual({ amount_foreign: 100, amount_dkk: 746, fx_rate_to_dkk: 7.46 });
     db.close();
     rmSync(root, { recursive: true, force: true });
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("blocks foreign-currency expense booking when the DKK settlement lacks FX basis", () => {
+  test("fails closed when a DKK settlement cannot be reconstructed at øre precision from a six-decimal derived FX rate", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-expense-book-fx-missing-"));
     const inbox = mkdtempSync(join(tmpdir(), "rentemester-expense-book-fx-missing-inbox-"));
     const csv = join(root, "transactions.csv");
     const sourceFile = join(inbox, "vendor.txt");
     writeFileSync(csv, [
       "transaction_date,booking_date,text,amount,currency,reference",
-      "2026-05-16,2026-05-16,CLOUD VENDOR,-746,DKK,REF-FX-MISSING"
+      "2026-05-16,2026-05-16,CLOUD VENDOR,-7460000.01,DKK,REF-FX-MISSING"
     ].join("\n"));
-    writeFileSync(sourceFile, "Invoice\n100 EUR\n");
+    writeFileSync(sourceFile, "Invoice\n1000000 EUR\n");
 
     const db = openDb(ensureCompanyDirs(root).db);
     migrate(db);
@@ -559,7 +574,7 @@ describe("expense booking", () => {
       issueDate: "2026-05-16",
       invoiceNo: "FX-1002",
       deliveryDescription: "Cloud subscription",
-      amountIncVat: 100,
+      amountIncVat: 1000000,
       currency: "EUR",
       sender: { name: "Cloud Vendor GmbH", address: "Berlin", vatOrCvr: "DE123456789" },
       recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
@@ -577,7 +592,7 @@ describe("expense booking", () => {
     });
 
     expect(booked.ok).toBe(false);
-    expect(booked.errors).toContain("foreign-currency expense booking requires bank amount_dkk and fx_rate_to_dkk for DKK-settled payments; re-import the bank CSV with amount_dkk and fx_rate_to_dkk columns");
+    expect(booked.errors.join(" ")).toContain("derived fx_rate_to_dkk 7.46 cannot reconstruct DKK settlement 7460000.01");
 
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -644,16 +659,16 @@ describe("expense booking", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("uses reverse-charge flow when the expense account defaults to EU reverse charge", () => {
+  test("uses reverse-charge flow for an EU service with no Danish invoice VAT and a derived DKK-settlement rate", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-expense-book-rc-"));
     const inbox = mkdtempSync(join(tmpdir(), "rentemester-expense-book-rc-inbox-"));
     const csv = join(root, "transactions.csv");
     const sourceFile = join(inbox, "vendor.txt");
     writeFileSync(csv, [
       "transaction_date,booking_date,text,amount,currency,reference",
-      "2026-05-16,2026-05-16,EU SUPPLIER,-1000,DKK,REF-EU-1"
+      "2026-05-16,2026-05-16,EU SUPPLIER,-746,DKK,REF-EU-1"
     ].join("\n"));
-    writeFileSync(sourceFile, "Invoice\n1000 DKK\n");
+    writeFileSync(sourceFile, "Invoice\n100 EUR\n");
 
     const db = openDb(ensureCompanyDirs(root).db);
     migrate(db);
@@ -667,8 +682,8 @@ describe("expense booking", () => {
       issueDate: "2026-05-16",
       invoiceNo: "EU-1001",
       deliveryDescription: "EU software service",
-      amountIncVat: 1000,
-      currency: "DKK",
+      amountIncVat: 100,
+      currency: "EUR",
       sender: { name: "EU Supplier GmbH", address: "Berlin", vatOrCvr: "DE123456789" },
       recipient: { name: "Rentemester ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
       vatAmount: 0,
@@ -691,6 +706,7 @@ describe("expense booking", () => {
 
     expect(booked.ok).toBe(true);
     expect(booked.vatTreatment).toBe("reverse_charge");
+    expect(booked).toMatchObject({ grossAmountDkk: 746, fxRateToDkk: 7.46, fxRateSource: "derived_dkk_settlement", fxReconstructionDifferenceDkk: 0 });
     const report = buildBankReconciliationReport(db, "2026-05-01", "2026-05-31");
     expect(report.matchedCount).toBe(1);
     expect(report.unmatchedCount).toBe(0);

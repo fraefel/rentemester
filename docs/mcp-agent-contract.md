@@ -2,7 +2,7 @@
 
 This is the operating contract for an **external agent** (Claude Desktop,
 Cursor, Claude Code, Codex, …) that drives Rentemester through the **MCP
-server's 133 loose tools**.
+server's 135 loose tools**.
 
 It is the sibling of [`docs/runtime-agent-contract.md`](runtime-agent-contract.md),
 which covers the *packaged* `agent run` loop — a deterministic, replayable
@@ -16,9 +16,31 @@ the `initialize` response's `instructions` field. This file is the full
 form. The authoritative tool catalogue is
 [`docs/mcp-tool-surface.md`](mcp-tool-surface.md).
 
+## Runtime outcome discovery (#584)
+
+Start every new integration with `meta_about`. Its `data.catalogue` carries a
+schema version, deterministic SHA-256 hash, and the entry point
+`meta_about -> agent_capability_search -> agent_workflow_describe`. Call
+`agent_capability_search` with a narrow outcome query (and follow its cursor)
+before calling `agent_workflow_describe` for the selected `id`. The description
+resolves its MCP operation references against this running server's `tools/list`
+registrations and returns annotation-derived safety plus the ordered
+read/dry-run/review/approval/apply boundaries. It does not mutate a company.
+
+Example: to reconcile bank activity, call `meta_about`, search `reconcile bank`,
+describe `bank-reconciliation-batch`, then follow its read and dry-run steps,
+review the proposed batch, and only enter the apply boundary with the stated
+actor and confirmation. Read back the canonical reconciliation and journal
+records after an acknowledged write; do not retry an uncertain write blindly.
+
+The equivalent read-only HTTP representation is `GET /api/agent-capabilities`
+(`query`, `cursor`, `limit`) and `GET /api/agent-workflows/:id`. HTTP resolves
+its canonical HTTP and CLI references; use MCP `tools/list`/describe when the
+live MCP registration and annotations are required.
+
 ## What the surface is
 
-Rentemester exposes its bookkeeping core as **133 MCP tools** over stdio
+Rentemester exposes its bookkeeping core as **135 MCP tools** over stdio
 (`src/mcp/server.ts`, registered by `src/mcp/registry.ts`). Each tool maps
 to a single core operation — issue an invoice, post a journal entry, list
 bank transactions, take a backup, and so on.

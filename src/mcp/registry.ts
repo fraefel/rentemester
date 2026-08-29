@@ -1,7 +1,7 @@
 /**
  * Central tools-registrering for Rentemester-MCP-serveren.
  *
- * `registerAllTools` registrerer hele tool-surface'en — 133 tools fordelt
+ * `registerAllTools` registrerer hele tool-surface'en — 135 tools fordelt
  * på de domæne-funktioner der kaldes herunder. Den autoritative liste
  * (klassifikation, inputs, CLI-mapping) står i docs/mcp-tool-surface.md;
  * driv en kørende server med `tools/list` for den faktiske, aktuelle liste.
@@ -97,6 +97,8 @@ import { registerCompanyProfileTools } from "./tools/company";
 import { registerMetaTools } from "./tools/meta";
 import { registerPostingRuleTools } from "./tools/posting-rules";
 import { registerBookkeepingBatchTools } from "./tools/bookkeeping-batch";
+import { registerAgentDiscoveryTools } from "./tools/agent-discovery";
+import type { LiveTool } from "../agent-discovery-catalog";
 // ===== END META / SERVER ABOUT =====
 
 // Wraps a write tool's callback with the opt-in backup lock. The MCP tool
@@ -158,8 +160,24 @@ function lockGuardServer(server: McpServer): McpServer {
   });
 }
 
+function recordingServer(server: McpServer, tools: LiveTool[]): McpServer {
+  return new Proxy(server, {
+    get(target, prop, receiver) {
+      if (prop === "registerTool") {
+        return (name: string, config: { annotations?: LiveTool["annotations"] }, callback: (...args: unknown[]) => unknown) => {
+          tools.push({ name, annotations: config.annotations });
+          return (target.registerTool as (...args: unknown[]) => unknown)(name, config, callback);
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export function registerAllTools(server: McpServer): void {
-  server = lockGuardServer(server);
+  const liveTools: LiveTool[] = [];
+  server = recordingServer(lockGuardServer(server), liveTools);
   registerAccountsTools(server);
   registerAuditTools(server);
   registerBankTools(server);
@@ -217,8 +235,10 @@ export function registerAllTools(server: McpServer): void {
   registerCompanyProfileTools(server);
   // ===== END COMPANY PROFILE READ =====
   // ===== META / SERVER ABOUT =====
-  registerMetaTools(server);
+  registerMetaTools(server, () => liveTools);
   registerPostingRuleTools(server);
   registerBookkeepingBatchTools(server);
+  // Must be last: workflow descriptions resolve the live registered tool set.
+  registerAgentDiscoveryTools(server, () => liveTools);
   // ===== END META / SERVER ABOUT =====
 }

@@ -18,6 +18,8 @@
 
 import type { RoutePermission } from "../core/access-permissions";
 import type { ServerConfig } from "./config";
+import { describeWorkflow, searchCapabilities } from "../agent-discovery-catalog";
+import { COMMAND_SPECS } from "../cli-meta";
 
 export type { RoutePermission } from "../core/access-permissions";
 
@@ -243,6 +245,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/health", summary: "Alias for GET /api." },
   { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/ready", summary: "Read-only readiness for workspace, control DB and registered ledgers." },
   { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/rules", summary: "Lovgrundlag — bundler, regler og SHA-256-citationer (#347)." },
+  { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/agent-capabilities", summary: "Versioneret, pagineret agent-kapabilitetssøgning (#584)." },
+  { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/agent-workflows/:id", summary: "Versioneret agent-workflow med live HTTP/CLI-opløsning (#584)." },
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/system/cvr-status", summary: "Er CVR-login konfigureret på serveren? (#402)" },
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/portfolio", summary: "Workspace-portfolio." },
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/me", summary: "Sikker hosted bruger- og medlemskabs-kontekst." },
@@ -706,6 +710,24 @@ export async function handleRequest(
     if (path === "/api/rules") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       return handleRules();
+    }
+
+    if (path === "/api/agent-capabilities") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const cursor = Number(url.searchParams.get("cursor") ?? "0");
+      const limit = Number(url.searchParams.get("limit") ?? "10");
+      if (!Number.isInteger(cursor) || cursor < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+        throw ApiError.badRequest("cursor must be >= 0 and limit must be between 1 and 50");
+      }
+      return jsonResponse({ ok: true, ...searchCapabilities(url.searchParams.get("query") ?? undefined, cursor, limit) });
+    }
+
+    const agentWorkflowMatch = /^\/api\/agent-workflows\/([^/]+)$/.exec(path);
+    if (agentWorkflowMatch) {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const description = describeWorkflow(decodeURIComponent(agentWorkflowMatch[1]!), { commands: COMMAND_SPECS, routes: ROUTE_CATALOG, unavailableSurfaces: ["mcp"] });
+      if (!description) throw ApiError.notFound("ukendt agent-workflow");
+      return jsonResponse({ ok: true, ...description });
     }
 
     if (path === "/api/companies") {

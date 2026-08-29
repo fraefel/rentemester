@@ -39,6 +39,7 @@ export const SERVER_VERSION = PRODUCT_VERSION;
  */
 const SERVER_INSTRUCTIONS = [
   "Rentemester er et dansk, append-only bogføringssystem. Du driver det via løse tools — der er ingen samtale-state mellem kald.",
+  "Start discovery with meta_about, then agent_capability_search, then agent_workflow_describe. These read-only tools return the versioned catalogue and live operation safety; do not guess tool names or capabilities.",
   "",
   "Identifikation: hvert tool tager en eksplicit absolut `company`-sti (workspace-tools tager `workspace`). Der er aldrig en implicit \"current company\".",
   "",

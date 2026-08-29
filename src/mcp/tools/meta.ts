@@ -23,6 +23,7 @@ import { envelopeShape, successEnvelope } from "../envelope";
 import { envelopeToCallResult } from "../envelope";
 import { getBuildIdentity } from "../../core/build-identity";
 import { getReleaseProvenance } from "../../core/release-provenance";
+import { catalogueIdentity, type LiveTool } from "../../agent-discovery-catalog";
 
 const CONTRACT_DOCS = [
   "docs/mcp-agent-contract.md",
@@ -38,7 +39,7 @@ const CONTRACT_DOCS = [
 const MCP_SERVER_NAME = "rentemester-mcp";
 const MCP_SERVER_VERSION = PRODUCT_VERSION;
 
-export function registerMetaTools(server: McpServer): void {
+export function registerMetaTools(server: McpServer, liveTools: () => readonly LiveTool[]): void {
   server.registerTool(
     "meta_about",
     {
@@ -62,14 +63,7 @@ export function registerMetaTools(server: McpServer): void {
       },
     },
     async () => {
-      // Count tools registered on this server. The SDK exposes them under
-      // `_registeredTools`; if that internal changes shape we fall back to
-      // null so the agent gets serverName/version even on a future SDK.
-      let toolCount: number | null = null;
-      const registered = (server as unknown as { _registeredTools?: unknown })._registeredTools;
-      if (registered && typeof registered === "object") {
-        toolCount = Object.keys(registered as Record<string, unknown>).length;
-      }
+      const toolCount = liveTools().length;
       const ruleBundleVersion = (() => {
         try {
           return currentRuleBundleVersion();
@@ -85,6 +79,7 @@ export function registerMetaTools(server: McpServer): void {
         toolCount,
         ruleBundleVersion,
         contractDocs: Array.from(CONTRACT_DOCS),
+        catalogue: catalogueIdentity(),
       });
       return envelopeToCallResult(envelope);
     },

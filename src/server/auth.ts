@@ -22,7 +22,13 @@ export type Principal = {
   /** Canonical actor id, e.g. `system:localhost` or `user:<id>`. */
   id: string;
   /** How the principal was established — useful for audit + diagnostics. */
-  via: "localhost-trusted" | "shared-secret" | "better-auth";
+  via: "localhost-trusted" | "shared-secret" | "better-auth" | "service-principal";
+  /** Trusted provider identity; never inferred from actor metadata. */
+  userId?: string;
+  /** Present only for a verified, live service principal. */
+  serviceAccountId?: string;
+  /** Better Auth API-key id, safe for security scope/audit but not a secret. */
+  credentialId?: string;
   /** Present only for a Better Auth principal and safe to include in audit. */
   sessionId?: string;
   /** Session creation time is retained for append-only invalidation checks. */
@@ -48,6 +54,23 @@ export async function authMiddleware(
   config: ServerConfig,
 ): Promise<Principal> {
   if (config.betterAuthProvider) {
+    const service = await config.betterAuthProvider.verifyServicePrincipal?.(request) ?? null;
+    if (service) {
+      const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
+      try {
+        const row = db.query("SELECT 1 FROM rm_workspace_service_principals WHERE user_id = ?").get(service.userId);
+        if (!row) throw ApiError.unauthorized("missing or invalid credentials");
+      } finally {
+        db.close();
+      }
+      return {
+        id: `user:${service.userId}`,
+        userId: service.userId,
+        serviceAccountId: service.userId,
+        credentialId: service.credentialId,
+        via: "service-principal",
+      };
+    }
     const session = await config.betterAuthProvider.getSession(request);
     const userId = session?.user?.id?.trim() ?? "";
     const sessionId = session?.session?.id?.trim() ?? "";
@@ -70,6 +93,7 @@ export async function authMiddleware(
     }
     return {
       id: `user:${userId}`,
+      userId,
       via: "better-auth",
       sessionId,
       sessionCreatedAt: createdAt,

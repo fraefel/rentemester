@@ -34,7 +34,7 @@ export const COCKPIT_ACTOR_PROGRAM = "rentemester-cockpit";
  * `system:` strings into a trusted web actor if a provider seam is malformed.
  */
 export function resolveCockpitActor(principal: Principal): ActorContext {
-  if (principal.via === "better-auth") {
+  if (principal.via === "better-auth" || principal.via === "service-principal") {
     if (!isCanonicalBetterAuthActorId(principal.id)) {
       throw ApiError.unauthorized("missing or invalid credentials");
     }

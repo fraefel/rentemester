@@ -148,6 +148,15 @@ function isSecurityReady(user: BetterAuthUserRow | null): boolean {
   return user?.emailVerified === 1 && user.twoFactorEnabled === 1;
 }
 
+function isAuthorizedIdentity(db: Database, user: BetterAuthUserRow | null): boolean {
+  if (!user) return false;
+  if (isSecurityReady(user)) return true;
+  // A service account is intentionally not MFA-capable and has no browser
+  // password/account row. It is admitted only after credential verification
+  // and through the same workspace/company membership events as humans.
+  return db.query("SELECT 1 FROM rm_workspace_service_principals WHERE user_id = ?").get(user.id) != null;
+}
+
 function currentWorkspaceOwnerUserIds(db: Database): string[] {
   return (db.query(
     `SELECT current.user_id
@@ -335,7 +344,7 @@ export function getWorkspaceSessionContext(
   const normalizedUserId = typeof userId === "string" ? userId.trim() : "";
   if (!normalizedUserId) return null;
   const user = readBetterAuthUser(db, normalizedUserId);
-  if (!user || !isSecurityReady(user)) return null;
+  if (!user || !isAuthorizedIdentity(db, user)) return null;
   const access = getWorkspaceUserAccess(db, normalizedUserId);
   if (!access.active || !access.workspaceRole) return null;
 
@@ -560,7 +569,7 @@ export function authorizeWorkspaceRoute(
     return { allowed: true };
   }
   const userId = typeof input.userId === "string" ? input.userId.trim() : "";
-  if (!userId || !isSecurityReady(readBetterAuthUser(db, userId))) return { allowed: false };
+  if (!userId || !isAuthorizedIdentity(db, readBetterAuthUser(db, userId))) return { allowed: false };
 
   const workspace = getWorkspaceUserAccess(db, userId);
   if (!workspace.active || !workspace.workspaceRole) return { allowed: false };

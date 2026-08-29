@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { createHmac } from "node:crypto";
 import { betterAuth, type Auth, type User } from "better-auth";
 import { twoFactor } from "better-auth/plugins";
+import { apiKey } from "@better-auth/api-key";
 import { openWorkspaceControlDb } from "../core/workspace-control";
 import { appendAuthTelemetryEvent, authAuditIdentityHash, type AuthTelemetryEndpoint } from "../core/auth-audit";
 import {
@@ -86,6 +87,12 @@ export type WorkspaceBetterAuthRuntime = {
  */
 export type BetterAuthRequestProvider = {
   getSession(request: Request): Promise<BetterAuthSession | null>;
+  /**
+   * Verifies the dedicated service-principal credential header.  This never
+   * manufactures a browser session: callers receive an identity only after
+   * the API-key plugin has checked hash, expiry and enabled state.
+   */
+  verifyServicePrincipal?(request: Request): Promise<BetterAuthServicePrincipal | null>;
   handle(request: Request): Promise<Response>;
 };
 
@@ -93,6 +100,14 @@ export type BetterAuthSession = {
   user: { id: string };
   session: { id: string; createdAt: Date | string };
 };
+
+export type BetterAuthServicePrincipal = {
+  userId: string;
+  credentialId: string;
+};
+
+export const WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID = "workspace-service-principal";
+export const WORKSPACE_SERVICE_PRINCIPAL_HEADER = "x-rentemester-service-key";
 
 /** A CLI-only facility. It intentionally has no HTTP handler property. */
 export type PrivateBootstrapService = {
@@ -347,6 +362,24 @@ function createBetterAuth(
         backupCodeOptions: { storeBackupCodes: "encrypted" },
         accountLockout: { enabled: true, maxFailedAttempts: 10, durationSeconds: 900 },
       }),
+      // Service credentials are intentionally separate from browser sessions.
+      // Their only authority is the existing workspace/company membership
+      // event model; a key itself never carries a role or actor identity.
+      apiKey({
+        configId: WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID,
+        apiKeyHeaders: WORKSPACE_SERVICE_PRINCIPAL_HEADER,
+        defaultPrefix: "rms_",
+        requireName: true,
+        keyExpiration: {
+          defaultExpiresIn: 90 * 24 * 60 * 60 * 1000,
+          disableCustomExpiresTime: false,
+          minExpiresIn: 1,
+          maxExpiresIn: 365,
+        },
+        rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 600 },
+        enableSessionForAPIKeys: false,
+        references: "user",
+      }),
     ],
   }) as Auth<any>;
 
@@ -428,6 +461,22 @@ export function createBetterAuthRequestProvider(
   return {
     async getSession(request) {
       return await auth.api.getSession({ headers: request.headers }) as BetterAuthSession | null;
+    },
+    async verifyServicePrincipal(request) {
+      const key = request.headers.get(WORKSPACE_SERVICE_PRINCIPAL_HEADER)?.trim();
+      if (!key) return null;
+      try {
+        const result = await (auth.api as any).verifyApiKey({
+          body: { key, configId: WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID },
+        }) as { valid?: boolean; key?: { id?: string; referenceId?: string } | null };
+        const userId = result.key?.referenceId?.trim() ?? "";
+        const credentialId = result.key?.id?.trim() ?? "";
+        return result.valid === true && userId && credentialId ? { userId, credentialId } : null;
+      } catch {
+        // Credential details, including whether a key was disabled or expired,
+        // are intentionally non-disclosing at the HTTP boundary.
+        return null;
+      }
     },
     async handle(request) {
       return await auth.handler(request);

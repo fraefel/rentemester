@@ -14,8 +14,8 @@ import { listWorkspaceCompanies } from "../../core/workspace";
  * behaviour for single-owner installations.
  */
 function hostedVisibleCompanySlugs(config: ServerConfig): string[] | null {
-  if (!config.betterAuthProvider || config.requestPrincipal?.via !== "better-auth") return null;
-  const userId = config.requestPrincipal.id.slice("user:".length);
+  if (!config.betterAuthProvider || (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal")) return null;
+  const userId = config.requestPrincipal.userId ?? "";
   const db = openWorkspaceControlDb(config.workspaceRoot);
   try {
     return listActiveCompanyMembershipSlugs(db, config.workspaceRoot, userId);

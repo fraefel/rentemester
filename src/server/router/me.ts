@@ -11,10 +11,10 @@ import { okResponse } from "./_shared";
  * their existing UI path and never receive synthetic user identity fields.
  */
 export function handleMe(config: ServerConfig): Response {
-  if (config.requestPrincipal?.via !== "better-auth") {
+  if (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal") {
     throw ApiError.unauthorized("missing or invalid credentials");
   }
-  const userId = config.requestPrincipal.id.slice("user:".length);
+  const userId = config.requestPrincipal.userId ?? "";
   const db = openWorkspaceControlDb(config.workspaceRoot);
   try {
     const context = getWorkspaceSessionContext(db, config.workspaceRoot, userId);

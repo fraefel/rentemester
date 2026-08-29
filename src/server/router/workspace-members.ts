@@ -16,11 +16,10 @@ import { okResponse, readJsonBody, requireString } from "./_shared";
 
 function principalUserId(config: ServerConfig): string {
   const principal = config.requestPrincipal;
-  if (config.deploymentProfile !== "hosted" || principal?.via !== "better-auth" ||
-    !principal.id.startsWith("user:")) {
+  if (config.deploymentProfile !== "hosted" || (principal?.via !== "better-auth" && principal?.via !== "service-principal")) {
     throw ApiError.unauthorized("missing or invalid credentials");
   }
-  const userId = principal.id.slice("user:".length).trim();
+  const userId = principal.userId?.trim() ?? "";
   if (!userId) throw ApiError.unauthorized("missing or invalid credentials");
   return userId;
 }

@@ -13,9 +13,9 @@ import { okResponse } from "./_shared";
  * company ledger, call portfolio code, or perform a migration.
  */
 export function handleGroupOverview(config: ServerConfig, asOf: string | null): Response {
-  if (config.requestPrincipal?.via !== "better-auth") throw ApiError.unauthorized("missing or invalid credentials");
+  if (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal") throw ApiError.unauthorized("missing or invalid credentials");
   if (!asOf) throw ApiError.badRequest("asOf is required as YYYY-MM-DD");
-  const userId = config.requestPrincipal.id.slice("user:".length);
+  const userId = config.requestPrincipal.userId ?? "";
   const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
   try {
     const context = getWorkspaceSessionContext(db, config.workspaceRoot, userId);
@@ -31,9 +31,9 @@ export function handleGroupOverview(config: ServerConfig, asOf: string | null): 
 
 /** Membership-filtered, exact, read-only reciprocal balances. */
 export function handleGroupReconciliation(config: ServerConfig, asOf: string | null): Response {
-  if (config.requestPrincipal?.via !== "better-auth") throw ApiError.unauthorized("missing or invalid credentials");
+  if (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal") throw ApiError.unauthorized("missing or invalid credentials");
   if (!asOf) throw ApiError.badRequest("asOf is required as YYYY-MM-DD");
-  const userId = config.requestPrincipal.id.slice("user:".length);
+  const userId = config.requestPrincipal.userId ?? "";
   const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
   try {
     const context = getWorkspaceSessionContext(db, config.workspaceRoot, userId);
@@ -48,9 +48,9 @@ export function handleGroupReconciliation(config: ServerConfig, asOf: string | n
 }
 
 export function handleGroupEliminations(config: ServerConfig, asOf: string | null): Response {
-  if (config.requestPrincipal?.via !== "better-auth") throw ApiError.unauthorized("missing or invalid credentials");
+  if (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal") throw ApiError.unauthorized("missing or invalid credentials");
   if (!asOf) throw ApiError.badRequest("asOf is required as YYYY-MM-DD");
-  const userId = config.requestPrincipal.id.slice("user:".length);
+  const userId = config.requestPrincipal.userId ?? "";
   const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
   try {
     const context = getWorkspaceSessionContext(db, config.workspaceRoot, userId);
@@ -60,9 +60,9 @@ export function handleGroupEliminations(config: ServerConfig, asOf: string | nul
 }
 
 export function handleGroupReportProfiles(config: ServerConfig, asOf: string | null): Response {
-  if (config.requestPrincipal?.via !== "better-auth") throw ApiError.unauthorized("missing or invalid credentials");
+  if (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal") throw ApiError.unauthorized("missing or invalid credentials");
   if (!asOf) throw ApiError.badRequest("asOf is required as YYYY-MM-DD");
-  const userId = config.requestPrincipal.id.slice("user:".length);
+  const userId = config.requestPrincipal.userId ?? "";
   const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
   try {
     const context = getWorkspaceSessionContext(db, config.workspaceRoot, userId);
@@ -80,11 +80,11 @@ export function handleGroupReportProfiles(config: ServerConfig, asOf: string | n
 
 /** A report is returned only when every active group company is visible. */
 export function handleGroupConsolidatedReport(config: ServerConfig, profileId: string | null, from: string | null, asOf: string | null): Response {
-  if (config.requestPrincipal?.via !== "better-auth") throw ApiError.unauthorized("missing or invalid credentials");
+  if (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal") throw ApiError.unauthorized("missing or invalid credentials");
   if (!profileId) throw ApiError.badRequest("profileId is required");
   if (!from) throw ApiError.badRequest("from is required as YYYY-MM-DD");
   if (!asOf) throw ApiError.badRequest("asOf is required as YYYY-MM-DD");
-  const userId = config.requestPrincipal.id.slice("user:".length);
+  const userId = config.requestPrincipal.userId ?? "";
   const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
   try {
     const context = getWorkspaceSessionContext(db, config.workspaceRoot, userId);

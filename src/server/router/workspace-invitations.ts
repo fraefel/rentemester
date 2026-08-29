@@ -64,7 +64,7 @@ function invitationIdentityService(
 }
 
 function hostedActor(config: ServerConfig) {
-  if (config.requestPrincipal?.via !== "better-auth") {
+  if (config.requestPrincipal?.via !== "better-auth" && config.requestPrincipal?.via !== "service-principal") {
     throw ApiError.unauthorized("missing or invalid credentials");
   }
   return {
@@ -75,10 +75,10 @@ function hostedActor(config: ServerConfig) {
 
 function principalUserId(config: ServerConfig): string {
   const principal = config.requestPrincipal;
-  if (principal?.via !== "better-auth" || !principal.id.startsWith("user:")) {
+  if ((principal?.via !== "better-auth" && principal?.via !== "service-principal")) {
     throw ApiError.unauthorized("missing or invalid credentials");
   }
-  const userId = principal.id.slice("user:".length).trim();
+  const userId = principal.userId?.trim() ?? "";
   if (!userId) throw ApiError.unauthorized("missing or invalid credentials");
   return userId;
 }

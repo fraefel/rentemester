@@ -81,7 +81,7 @@ describe("Better Auth workspace foundation", () => {
       });
       expect(auth.options.rateLimit).toMatchObject({ enabled: true, storage: "database" });
       expect(JSON.stringify(auth.options)).toContain('"useSecureCookies":true');
-      expect(auth.options.plugins?.map((plugin: { id: string }) => plugin.id)).toEqual(["two-factor"]);
+      expect(auth.options.plugins?.map((plugin: { id: string }) => plugin.id)).toEqual(["two-factor", "api-key"]);
       expect(JSON.stringify(auth.options)).toContain('"storeBackupCodes":"encrypted"');
       expect(auth.options.advanced).toMatchObject({ disableOriginCheck: false, disableCSRFCheck: false });
       expect(auth.options.secrets).toEqual([{ version: 1, value: TEST_SECRET }]);

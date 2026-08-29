@@ -501,8 +501,8 @@ function authorizeCatalogRoute(
   // The two legacy modes are deliberately whole-workspace escape hatches for
   // local single-owner use only. Hosted Better Auth principals are always
   // checked against append-only workspace/company membership events.
-  if (!config.betterAuthProvider || principal?.via !== "better-auth") return;
-  const userId = principal.id.slice("user:".length);
+  if (!config.betterAuthProvider || (principal?.via !== "better-auth" && principal?.via !== "service-principal")) return;
+  const userId = principal.userId ?? "";
   const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
   let allowed = false;
   try {

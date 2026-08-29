@@ -161,6 +161,22 @@ export type PayablesListResult = {
   errors: string[];
 };
 
+/** Canonical, transport-neutral operation identity for #583 retries. */
+export function payablePayOperationPayload(input: {
+  payableId: number; bankTransactionId: number; amount?: number;
+  date?: string; paymentDate?: string; paymentAccount?: string;
+  paymentAccountNo?: string; note?: string;
+}): Record<string, unknown> {
+  return {
+    payableId: input.payableId,
+    bankTransactionId: input.bankTransactionId,
+    amount: input.amount ?? null,
+    date: input.date ?? input.paymentDate ?? null,
+    paymentAccount: input.paymentAccount ?? input.paymentAccountNo ?? null,
+    note: input.note ?? null,
+  };
+}
+
 type PayableRow = {
   id: number;
   document_id: number;
@@ -415,6 +431,10 @@ export function registerPayable(db: Database, input: RegisterPayableInput, inCur
     };
     return inCurrentTransaction ? apply() : db.transaction(apply).immediate();
   } catch (error) {
+    // The #583 receipt executor owns the outer transaction. It must see a
+    // post-write failure as an exception so it can roll back journal,
+    // payable/payment, receipt and audit together.
+    if (inCurrentTransaction) throw error;
     const parsed = parseTransactionError(error);
     return {
       ok: false,
@@ -585,6 +605,10 @@ export function payPayableFromBank(db: Database, input: PayPayableInput, inCurre
     };
     return inCurrentTransaction ? apply() : db.transaction(apply).immediate();
   } catch (error) {
+    // See registerPayable: do not turn an after-journal failure into an
+    // `{ ok:false }` result after writes have occurred in an outer receipt
+    // transaction.
+    if (inCurrentTransaction) throw error;
     const parsed = parseTransactionError(error);
     return {
       ok: false,

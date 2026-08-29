@@ -11,6 +11,7 @@
 import {
   registerPayableInCurrentTransaction as corePayableRegister,
   payPayableFromBankInCurrentTransaction as corePayablePayFromBank,
+  payablePayOperationPayload,
 } from "../../core/payables";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
@@ -169,7 +170,14 @@ export async function handlePayablePay(
         openBalance: paid.openBalance,
       };
     },
-    { requireConfirm: true, keyIdempotent: "payable_pay" },
+    { requireConfirm: true, keyIdempotent: "payable_pay", idempotencyPayload: (body) => payablePayOperationPayload({
+      payableId,
+      bankTransactionId: Number(body.bankTransactionId),
+      amount: typeof body.amount === "number" ? body.amount : undefined,
+      paymentDate: typeof body.paymentDate === "string" ? body.paymentDate : undefined,
+      paymentAccountNo: typeof body.paymentAccountNo === "string" ? body.paymentAccountNo : undefined,
+      note: typeof body.note === "string" ? body.note : undefined,
+    }) },
   );
 
   return okResponse({

@@ -64,7 +64,7 @@ export function registerEmailTools(server: McpServer): void {
       description:
         "Sender en udstedt faktura eller en betalingspaamindelse til kundens email via SMTP " +
         "med PDF'en vedhaeftet og registrerer afsendelsen append-only. " +
-        "Idempotent: en identisk afsendelse genudsendes ikke. " +
+        "SMTP har ingen provider-reconciliation-kontrakt: læs den append-only delivery-evidens før et retry. " +
         "SMTP-config laeses fra filen config/smtp.json i virksomhedsmappen; credentials gemmes " +
         "aldrig i bogføringstilstanden. config/smtp.json er et JSON-objekt med PAAKRAEVEDE felter " +
         "host (string), port (number) og fromAddress (string), samt VALGFRIE felter fromName, " +
@@ -103,7 +103,7 @@ export function registerEmailTools(server: McpServer): void {
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: true,
       },
     },

@@ -285,13 +285,15 @@ Branch on that case before reading `errors[]`.
   — they de-dupe on content or period, not on a client key: intake polls
   (`mail_intake_ingest`, `imap_intake_poll`), `bank_import` (row-fingerprint
   de-duplication; see [`bank-import-idempotency.md`](bank-import-idempotency.md)), `recurring_invoice_generate` (per
-  template/period), `invoice_render` (deterministic PDF),
-  `invoice_send_email` (reuses the send log) and
+  template/period), `invoice_render` (deterministic PDF) and
   `peppol_submit_public_invoice` (idempotent submission envelope).
   Re-running *these* produces no duplicate state. For every other write, the
   agent is responsible for retry-safety via read-back. The authoritative
   list is the live `annotations.idempotentHint` flags in `tools/list` — as
-  of this writing exactly the seven write tools above carry it.
+  of this writing exactly the reviewed tools above carry it.
+- `invoice_send_email` is **unsafe-read-back**: SMTP acceptance is not a
+  provider reconciliation contract. Read canonical delivery evidence before a
+  retry; never infer that a duplicate-send is safe from the input alone.
 - Writes without a supplied key retain their documented domain-specific retry
   behaviour; this contract never converts an unknown outcome into a safe retry.
 

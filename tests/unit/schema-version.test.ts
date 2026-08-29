@@ -44,6 +44,10 @@ import {
   DOCUMENT_PDF_PARSES_MIGRATION_NAME,
   DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM,
   DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME,
+  MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM,
+  MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME,
+  LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM,
+  LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -149,10 +153,10 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 19, name: "rentemester-document-company-contexts-v19" }),
-      expect.objectContaining({ id: 20, name: "rentemester-mutation-idempotency-receipts-v20" }),
+      expect.objectContaining({ id: 20, name: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME, checksum: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 21, name: "rentemester-bookkeeping-batch-revisions-v21" }),
       expect.objectContaining({ id: 22, name: "rentemester-period-close-readiness-v22" }),
-      expect.objectContaining({ id: 23, name: "rentemester-local-idempotency-tombstones-v23" }),
+      expect.objectContaining({ id: 23, name: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME, checksum: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM }),
     ]);
     db.close();
   });

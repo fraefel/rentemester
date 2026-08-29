@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { RETRY_OPERATION_NAMES } from "./core/idempotency";
 import { getBuildIdentity } from "./core/build-identity";
 import { getReleaseProvenance } from "./core/release-provenance";
 import { currentRuleBundleVersion } from "./core/rules-metadata";
@@ -141,7 +142,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("validate-invoice", mcp("invoice_validate"), "Validate the invoice payload.", { dependsOn: ["create-customer"], boundary: "dry-run" }),
     write("issue-invoice", mcp("invoice_issue"), "Issue immutable invoice evidence.", { dependsOn: ["validate-invoice"], outputIdentities: ["invoiceNumber", "documentId"], uncertainOutcomeReadBack: mcp("invoice_find"), canonicalRecords: ["issued invoices", "invoice documents"] }),
     write("post-invoice", mcp("invoice_post"), "Post the issued invoice.", { dependsOn: ["issue-invoice"], boundary: "irreversible", uncertainOutcomeReadBack: mcp("invoice_status"), canonicalRecords: ["journal entries", "invoice open balance"] }),
-    write("send-email", mcp("invoice_send_email"), "Send the issued invoice by configured email.", { dependsOn: ["issue-invoice"], condition: "Optional delivery branch.", expectedIdempotent: true, retryClass: "external-provider-reconciled", canonicalRecords: ["email delivery evidence"] }),
+    write("send-email", mcp("invoice_send_email"), "Send the issued invoice by configured email.", { dependsOn: ["issue-invoice"], condition: "Optional delivery branch. SMTP has no provider reconciliation contract: read canonical delivery evidence before any retry.", retryClass: "unsafe-read-back", canonicalRecords: ["email delivery evidence"] }),
     write("record-payment", mcp("invoice_settle_bank"), "Match a customer bank payment.", { dependsOn: ["post-invoice"], condition: "Payment branch.", boundary: "irreversible", uncertainOutcomeReadBack: mcp("invoice_status"), canonicalRecords: ["invoice payments", "bank reconciliations", "journal entries"] }),
     write("send-reminder", mcp("invoice_remind"), "Create an eligible overdue reminder.", { dependsOn: ["post-invoice"], condition: "Overdue branch.", canonicalRecords: ["invoice reminders"] }),
     write("credit-note", mcp("invoice_credit_note"), "Correct an issued invoice by credit note.", { dependsOn: ["issue-invoice"], condition: "Correction branch.", boundary: "irreversible", uncertainOutcomeReadBack: mcp("invoice_status"), canonicalRecords: ["credit notes", "journal entries"] }),
@@ -330,30 +331,17 @@ export type DiscoveryOperationBinding = {
 /** These are the only MCP mutations with a durable caller-key receipt. Keep
  * this list deliberately small: adding an entry is a transaction/audit change,
  * not a metadata-only promise. */
-export const KEY_IDEMPOTENT_MCP_OPERATIONS = new Set([
-  "journal_post",
-  "journal_reverse",
-  "expense_book",
-  "payable_register",
-  "payable_pay",
-]);
+export const KEY_IDEMPOTENT_MCP_OPERATIONS = RETRY_OPERATION_NAMES.keyIdempotent;
 /** Explicitly reviewed domain-deduplication contracts.  Do not derive this
  * class from `idempotentHint`: that hint is evidence which this list validates,
  * not a substitute for a retry contract. */
-const NATURAL_IDEMPOTENT_MCP_OPERATIONS = new Set([
-  "bank_import", "bookkeeping_batch_apply", "bookkeeping_batch_approve", "bookkeeping_batch_dry_run",
-  "documents_enrich", "documents_extract_invoice", "documents_parse", "documents_parse_pending", "documents_set_company_context",
-  "invoice_render", "posting_rule_propose", "recurring_invoice_generate", "recurring_invoice_run_workspace",
-]);
+const NATURAL_IDEMPOTENT_MCP_OPERATIONS = RETRY_OPERATION_NAMES.naturalIdempotent;
 
 /** Provider calls may have an accepted remote identity. They must be reconciled
  * with that identity/status before a retry, even where the local action itself
  * has de-duplication. */
-const EXTERNAL_PROVIDER_MCP_OPERATIONS = new Set([
-  "efaktura_konfigurer", "efaktura_onboard", "efaktura_registrer", "efaktura_send", "efaktura_modtag", "efaktura_modtag_workspace", "efaktura_status",
-  "peppol_submit_public_invoice", "invoice_send_email", "mail_intake_ingest", "imap_intake_poll",
-]);
-const NATURAL_IDEMPOTENT_CLI_OPERATIONS = new Set(["import contacts"]);
+const EXTERNAL_PROVIDER_MCP_OPERATIONS = RETRY_OPERATION_NAMES.externalProviderReconciled;
+const NATURAL_IDEMPOTENT_CLI_OPERATIONS = RETRY_OPERATION_NAMES.naturalIdempotentCli;
 
 export function retryClassForOperation(id: string, source: { safety: OperationSafety; idempotent: boolean | null; external?: boolean }): RetryClass {
   if (source.safety === "read") return "safe-read";

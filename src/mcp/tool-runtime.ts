@@ -266,7 +266,7 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
   server: McpServer,
   toolName: string,
   handler: (ctx: { db: Database; actor: McpActor; args: TArgs }) => Envelope | Promise<Envelope>,
-  options: { keyIdempotent?: keyof typeof RETRY_CLASS_BY_OPERATION } = {},
+  options: { keyIdempotent?: keyof typeof RETRY_CLASS_BY_OPERATION; idempotencyPayload?: (args: TArgs) => Record<string, unknown> } = {},
 ): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
   return async (args) => {
     if (args?.confirm !== true) {
@@ -292,7 +292,7 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
         const execution = executeLocalIdempotentMutation(ctx.db, {
           key, operation: options.keyIdempotent, workspaceScope: resolveConfiguredWorkspaceRoot() ?? ctx.args.company,
           companyScope: ctx.args.company, principal: principal && { kind: principal.kind, subjectId: principal.subjectId },
-          payload: withoutIdempotencyTransportFields(ctx.args as Record<string, unknown>), actor: ctx.actor,
+          payload: options.idempotencyPayload ? options.idempotencyPayload(ctx.args) : withoutIdempotencyTransportFields(ctx.args as Record<string, unknown>), actor: ctx.actor,
           execute: () => {
             const result = handler(ctx);
             if (result instanceof Promise) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "key-idempotent operation must execute synchronously");

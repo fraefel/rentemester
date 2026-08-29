@@ -17,6 +17,7 @@ import {
   registerPayableInCurrentTransaction,
   payPayableFromBankInCurrentTransaction,
   buildPayablesList,
+  payablePayOperationPayload,
 } from "../../core/payables";
 import { withActor } from "../actor";
 import { envelopeShape, wrapCoreResult } from "../envelope";
@@ -184,7 +185,7 @@ export function registerPayableTools(server: McpServer): void {
         ),
       );
       return wrapCoreResult(result);
-    }, { keyIdempotent: "payable_pay" }),
+    }, { keyIdempotent: "payable_pay", idempotencyPayload: (args) => payablePayOperationPayload(args) }),
   );
 
   server.registerTool(

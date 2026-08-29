@@ -10,10 +10,18 @@ export type RetryClass = "safe-read" | "key-idempotent" | "natural-idempotent" |
 export const RETRY_CLASS_BY_OPERATION: Readonly<Record<string, RetryClass>> = Object.freeze({
   journal_post: "key-idempotent", journal_reverse: "key-idempotent", expense_book: "key-idempotent", payable_register: "key-idempotent", payable_pay: "key-idempotent",
   bookkeeping_batch_apply: "natural-idempotent", reconcile_bank: "natural-idempotent", bank_import: "natural-idempotent",
-  efaktura_send: "external-provider-reconciled", invoice_send_email: "external-provider-reconciled",
+  efaktura_send: "external-provider-reconciled", invoice_send_email: "unsafe-read-back",
+});
+/** Single reviewed retry registry for runtime and agent discovery. */
+export const RETRY_OPERATION_NAMES = Object.freeze({
+  keyIdempotent: new Set(["journal_post", "journal_reverse", "expense_book", "payable_register", "payable_pay"]),
+  naturalIdempotent: new Set(["bank_import", "bookkeeping_batch_apply", "bookkeeping_batch_approve", "bookkeeping_batch_dry_run", "documents_enrich", "documents_extract_invoice", "documents_parse", "documents_parse_pending", "documents_set_company_context", "invoice_render", "posting_rule_propose", "recurring_invoice_generate", "recurring_invoice_run_workspace"]),
+  externalProviderReconciled: new Set(["efaktura_konfigurer", "efaktura_onboard", "efaktura_registrer", "efaktura_send", "efaktura_modtag", "efaktura_modtag_workspace", "efaktura_status", "peppol_submit_public_invoice", "mail_intake_ingest", "imap_intake_poll"]),
+  naturalIdempotentCli: new Set(["import contacts"]),
 });
 export type StablePrincipal = { kind: "user" | "service-account"; subjectId: string };
 export type IdempotencyReceipt = { replayed: boolean; receiptId: number; createdAt: string; expiresAt: string };
+export type BusinessRejection = { ok: false; errors?: string[] };
 export class IdempotencyError extends Error {
   constructor(readonly code: "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_OUTCOME_EXPIRED" | "IDEMPOTENCY_AUTH_REQUIRED" | "IDEMPOTENCY_STORAGE_FAILURE", message: string) { super(message); this.name = "IdempotencyError"; }
 }
@@ -37,13 +45,26 @@ export function withoutIdempotencyTransportFields(payload: Record<string, unknow
 function keyHash(key: string): string { return createHash("sha256").update(key).digest("hex"); }
 type Row = { id: number; payload_hash: string; outcome_json: string | null; created_at: string; expires_at: string };
 
+/** A real core rejection is a normal result, never a durable receipt. */
+export function isBusinessRejection(value: unknown): value is BusinessRejection {
+  return typeof value === "object" && value !== null && (value as { ok?: unknown }).ok === false;
+}
+class RollbackBusinessRejection<T> extends Error { constructor(readonly result: T) { super("rollback business rejection"); } }
+function ledgerUuid(db: Database): string {
+  const row = db.query("SELECT ledger_uuid FROM ledger_identity WHERE id = 1").get() as { ledger_uuid?: string } | null;
+  if (!row?.ledger_uuid) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "ledger identity is unavailable");
+  return row.ledger_uuid;
+}
+
 /**
- * The executor MUST use in-current-transaction core primitives. It is called
- * inside the same BEGIN IMMEDIATE as the immutable tombstone, outcome and
- * audit event. Actor and credential are evidence only; principal is scope.
+ * The executor owns one `BEGIN IMMEDIATE`: business write, immutable
+ * tombstone, replay outcome and audit. Paths, actor and credentials are not
+ * receipt identity; the ledger UUID + stable authenticated principal are.
  */
 export function executeLocalIdempotentMutation<T>(db: Database, input: {
-  key?: string; operation: keyof typeof RETRY_CLASS_BY_OPERATION; workspaceScope: string; companyScope: string;
+  key?: string; operation: keyof typeof RETRY_CLASS_BY_OPERATION;
+  /** Retained only for compatible callers; never used as receipt identity. */
+  workspaceScope?: string; companyScope?: string;
   principal?: StablePrincipal; payload: Record<string, unknown>; actor: { createdBy: string; createdByProgram: string }; now?: Date; execute: () => T;
 }): { result: T; receipt?: IdempotencyReceipt } {
   if (!input.key) return { result: input.execute() };
@@ -53,28 +74,37 @@ export function executeLocalIdempotentMutation<T>(db: Database, input: {
   let rejectedAudit: { eventType: "idempotency_conflict" | "idempotency_outcome_expired"; entityId: number; message: string } | undefined;
   try {
     return db.transaction(() => {
-    const prior = db.query(`SELECT id, payload_hash, outcome_json, created_at, expires_at FROM mutation_idempotency_tombstones WHERE client_key_hash = ? AND operation = ? AND workspace_scope = ? AND company_scope = ? AND principal_kind = ? AND principal_subject_id = ?`).get(keyHash(input.key!), input.operation, input.workspaceScope, input.companyScope, input.principal!.kind, input.principal!.subjectId) as Row | null;
-    if (prior) {
-      if (prior.payload_hash !== payloadHash) { rejectedAudit = { eventType: "idempotency_conflict", entityId: prior.id, message: `Rejected conflicting idempotency retry for ${input.operation}` }; throw new IdempotencyError("IDEMPOTENCY_CONFLICT", "idempotency key was already used with a different validated payload"); }
-      if (prior.outcome_json === null) { rejectedAudit = { eventType: "idempotency_outcome_expired", entityId: prior.id, message: `Idempotency outcome expired for ${input.operation}; key remains reserved` }; throw new IdempotencyError("IDEMPOTENCY_OUTCOME_EXPIRED", "idempotency outcome has expired; inspect canonical state and use a new key only for a new operation"); }
-      insertAuditLog(db, { eventType: "idempotency_replay", entityType: "idempotency_receipt", entityId: prior.id, message: `Replayed durable idempotency outcome for ${input.operation}`, ...input.actor });
-      return { result: JSON.parse(prior.outcome_json) as T, receipt: { replayed: true, receiptId: prior.id, createdAt: prior.created_at, expiresAt: prior.expires_at } };
-    }
-    const result = input.execute(); const outcome = JSON.stringify(result);
-    if (Buffer.byteLength(outcome, "utf8") > IDEMPOTENCY_PAYLOAD_MAX_BYTES) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "mutation outcome exceeds receipt limit");
-    const receiptId = Number(db.query(`INSERT INTO mutation_idempotency_tombstones (client_key_hash,operation,workspace_scope,company_scope,principal_kind,principal_subject_id,payload_hash,outcome_json,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(keyHash(input.key!), input.operation, input.workspaceScope, input.companyScope, input.principal!.kind, input.principal!.subjectId, payloadHash, outcome, createdAt, expiresAt).lastInsertRowid);
-    insertAuditLog(db, { eventType: "idempotency_original", entityType: "idempotency_receipt", entityId: receiptId, message: `Recorded idempotent ${input.operation} outcome`, ...input.actor });
-    return { result, receipt: { replayed: false, receiptId, createdAt, expiresAt } };
+      const ledger = ledgerUuid(db);
+      const prior = db.query(`SELECT t.id, t.payload_hash, o.outcome_json, t.created_at, t.expires_at
+        FROM mutation_idempotency_tombstones t
+        LEFT JOIN mutation_idempotency_outcomes o ON o.tombstone_id = t.id
+        WHERE t.client_key_hash = ? AND t.operation = ? AND t.ledger_uuid = ? AND t.principal_kind = ? AND t.principal_subject_id = ?`).get(keyHash(input.key!), input.operation, ledger, input.principal!.kind, input.principal!.subjectId) as Row | null;
+      if (prior) {
+        if (prior.payload_hash !== payloadHash) { rejectedAudit = { eventType: "idempotency_conflict", entityId: prior.id, message: `Rejected conflicting idempotency retry for ${input.operation}` }; throw new IdempotencyError("IDEMPOTENCY_CONFLICT", "idempotency key was already used with a different validated payload"); }
+        if (prior.outcome_json === null) { rejectedAudit = { eventType: "idempotency_outcome_expired", entityId: prior.id, message: `Idempotency outcome expired for ${input.operation}; key remains reserved` }; throw new IdempotencyError("IDEMPOTENCY_OUTCOME_EXPIRED", "idempotency outcome has expired; inspect canonical state and use a new key only for a new operation"); }
+        insertAuditLog(db, { eventType: "idempotency_replay", entityType: "idempotency_receipt", entityId: prior.id, message: `Replayed durable idempotency outcome for ${input.operation}`, ...input.actor });
+        return { result: JSON.parse(prior.outcome_json) as T, receipt: { replayed: true, receiptId: prior.id, createdAt: prior.created_at, expiresAt: prior.expires_at } };
+      }
+      const result = input.execute();
+      // A result-shaped validation/domain rejection must leave no business,
+      // receipt or audit writes and may be retried with the same key.
+      if (isBusinessRejection(result)) throw new RollbackBusinessRejection(result);
+      const outcome = JSON.stringify(result);
+      if (Buffer.byteLength(outcome, "utf8") > IDEMPOTENCY_PAYLOAD_MAX_BYTES) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "mutation outcome exceeds receipt limit");
+      const receiptId = Number(db.query(`INSERT INTO mutation_idempotency_tombstones (client_key_hash,ledger_uuid,operation,principal_kind,principal_subject_id,payload_hash,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?)`).run(keyHash(input.key!), ledger, input.operation, input.principal!.kind, input.principal!.subjectId, payloadHash, createdAt, expiresAt).lastInsertRowid);
+      db.query("INSERT INTO mutation_idempotency_outcomes(tombstone_id,outcome_json,created_at) VALUES (?,?,?)").run(receiptId, outcome, createdAt);
+      insertAuditLog(db, { eventType: "idempotency_original", entityType: "idempotency_receipt", entityId: receiptId, message: `Recorded idempotent ${input.operation} outcome`, ...input.actor });
+      return { result, receipt: { replayed: false, receiptId, createdAt, expiresAt } };
     }).immediate();
   } catch (error) {
-    // The rejected mutation transaction must roll back, but the attempt itself
-    // is security-relevant evidence. Append it in a separate transaction only
-    // after the immutable receipt lookup has completed.
+    if (error instanceof RollbackBusinessRejection) return { result: error.result };
     if (rejectedAudit) insertAuditLog(db, { ...rejectedAudit, entityType: "idempotency_receipt", ...input.actor });
     throw error;
   }
 }
-/** Retention prunes response material only; a key tombstone is never deleted. */
+/** Retention deletes replay material only; the immutable key tombstone remains. */
 export function pruneExpiredIdempotencyOutcomes(db: Database, now = new Date()): number {
-  return db.query("UPDATE mutation_idempotency_tombstones SET outcome_json = NULL, outcome_pruned_at = ? WHERE outcome_json IS NOT NULL AND expires_at <= ?").run(now.toISOString(), now.toISOString()).changes;
+  return db.query(`DELETE FROM mutation_idempotency_outcomes WHERE tombstone_id IN (
+    SELECT id FROM mutation_idempotency_tombstones WHERE expires_at <= ?
+  )`).run(now.toISOString()).changes;
 }

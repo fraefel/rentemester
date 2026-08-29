@@ -13,19 +13,18 @@ afterAll(async () => {
   await stopMcpFixture(companyRoot, client);
 });
 
-describe("#204 — journal_post no longer advertises an unbacked idempotencyKey", () => {
-  test("journal_post inputSchema does not contain idempotencyKey", async () => {
+describe("#583 — journal_post advertises its backed idempotencyKey", () => {
+  test("journal_post inputSchema contains the durable retry key", async () => {
     const response = await client.send("tools/list");
     const tool = (response.result?.tools ?? []).find(
       (t: any) => t.name === "journal_post",
     );
     expect(tool, "journal_post not found").toBeDefined();
     const props = tool.inputSchema?.properties ?? {};
-    // The field was documented as retry-safe but had no backing cache — #204
-    // removed the false promise. It must not reappear in the schema.
-    expect(props.idempotencyKey).toBeUndefined();
-    expect(Object.keys(props).sort()).toEqual(["company", "confirm", "payload"]);
+    expect(props.idempotencyKey).toBeDefined();
+    expect(Object.keys(props).sort()).toEqual(["company", "confirm", "idempotencyKey", "payload"]);
   });
+
 });
 
 describe("#238 — journal_post requires at least two lines", () => {

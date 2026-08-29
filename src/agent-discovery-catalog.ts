@@ -339,7 +339,7 @@ export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   cli: { count: 202, hash: "8c6a29dc29b970e6034be510e8b33700f3d9490dec4028ef8855cbad0dcc5816" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 141, hash: "ea6d0985720da68ce8db3f5791a6b869c4839177417c80e8d3087b41fa1dd1b2" },
+  http: { count: 142, hash: "e6c205aea08a0210c283f35c143a8f3541e5f39a4f063fca78c12981303f9b60" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

@@ -1,6 +1,6 @@
 import { authorizeWorkspaceRoute } from "../../core/workspace-access";
 import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../../core/workspace-control";
-import { createWorkspaceServicePrincipal, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../core/workspace-service-principals";
+import { createWorkspaceServicePrincipal, recoverWorkspaceServicePrincipalOperation, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../core/workspace-service-principals";
 import { openWorkspaceBetterAuth } from "../better-auth";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
@@ -71,5 +71,15 @@ export async function handleServicePrincipalRevoke(config: ServerConfig, request
   try {
     await revokeWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: requireString(body, "serviceAccountId"), credentialId: requireString(body, "credentialId"), actor, ...(typeof body.operationId === "string" ? { operationId: body.operationId } : {}) });
     return noStore(okResponse({ revoked: true }));
+  } finally { runtime.close(); db.close(); }
+}
+
+/** Owner-only recovery for a lifecycle call that lost its one-time secret. */
+export async function handleServicePrincipalRecover(config: ServerConfig, request: Request): Promise<Response> {
+  const body = await readJsonBody(request); if (body.confirm !== true) throw ApiError.badRequest("confirm: true is required");
+  const { db, actor } = requireOwner(config); const runtime = authRuntime(config);
+  try {
+    const recovered = await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: requireString(body, "operationId"), actor });
+    return noStore(okResponse(recovered));
   } finally { runtime.close(); db.close(); }
 }

@@ -112,7 +112,7 @@ import {
   handleWorkspaceInvitationCreate,
   handleWorkspaceInvitationList,
 } from "./router/workspace-invitations";
-import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
+import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
 import {
   handleWorkspaceMemberAccessUpdate,
   handleWorkspaceMemberCompanyUpdate,
@@ -263,6 +263,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals", summary: "Opretter servicekonto og viser credential én gang." },
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals/rotate", summary: "Roterer servicecredential og viser den nye nøgle én gang." },
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals/revoke", summary: "Tilbagekalder servicecredential." },
+  { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals/recover", summary: "Afslutter sikkert en afbrudt servicecredential-operation uden at vise en nøgle." },
   { scope: "public", effect: "write", permission: "public.invitation.claim", method: "POST", pattern: "/api/invitations/claim", summary: "Indløser en e-mailbundet invitation uden at oprette en session." },
   { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-overview", summary: "Koncernstruktur og status uden konsoliderede tal." },
   { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-reconciliation", summary: "Eksakt read-only mellemregningsafstemning med kildehenvisninger." },
@@ -672,6 +673,10 @@ export async function handleRequest(
     if (path === "/api/workspace/service-principals/revoke") {
       if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
       return await handleServicePrincipalRevoke(config, request);
+    }
+    if (path === "/api/workspace/service-principals/recover") {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleServicePrincipalRecover(config, request);
     }
 
     if (path === "/api/workspace/members") {

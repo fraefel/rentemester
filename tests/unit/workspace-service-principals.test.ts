@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBetterAuthRequestProvider, openWorkspaceBetterAuth, WORKSPACE_SERVICE_PRINCIPAL_HEADER } from "../../src/server/better-auth";
-import { createWorkspaceServicePrincipal, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../src/core/workspace-service-principals";
+import { createWorkspaceServicePrincipal, recoverWorkspaceServicePrincipalOperation, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../src/core/workspace-service-principals";
 import { activateWorkspaceUser, authorizeWorkspaceRoute, grantCompanyMembership } from "../../src/core/workspace-access";
 import { openWorkspaceControlDb } from "../../src/core/workspace-control";
 import { config, get, handleRequest, makeWorkspace } from "./server-api/_shared";
@@ -12,6 +12,43 @@ const SECRET = "I0UjL6i0-ScgvjfIgzMKJxPQyDpPXwg2mMKdLW3Y3WQ";
 const ORIGIN = "http://127.0.0.1:4319";
 
 describe("workspace service principals", () => {
+  test("recovers every crash boundary without leaving a surprise enabled key", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "rentemester-service-recovery-"));
+    const runtime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });
+    const db = openWorkspaceControlDb(workspace);
+    try {
+      const createId = "10000000-0000-4000-8000-000000000020";
+      await expect(createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "Recovery create", actor: "user:owner", operationId: createId, crashAt: "before-provider-create" })).rejects.toThrow("before-provider-create");
+      const createPending = db.query("SELECT user_id AS userId FROM rm_workspace_service_principal_operation_events WHERE operation_id=?").get(createId) as { userId: string };
+      expect(db.query('SELECT COUNT(*) AS count FROM "apikey" WHERE "referenceId"=? AND COALESCE("enabled",1)=1').get(createPending.userId)).toEqual({ count: 0 });
+      expect(await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: createId, actor: "user:owner" })).toEqual({ operationId: createId, status: "recovered", recovered: true });
+      expect(await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: createId, actor: "user:owner" })).toEqual({ operationId: createId, status: "recovered", recovered: true });
+      expect(db.query("SELECT operation_status AS status FROM rm_workspace_service_principal_operation_events WHERE operation_id=? ORDER BY id").all(createId)).toEqual([{ status: "pending" }, { status: "failed" }, { status: "recovered" }]);
+
+      const crashedCreateId = "10000000-0000-4000-8000-000000000021";
+      await expect(createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "Lost secret", actor: "user:owner", operationId: crashedCreateId, crashAt: "after-provider-create" })).rejects.toThrow("after-provider-create");
+      const crashedCreate = db.query("SELECT user_id AS userId FROM rm_workspace_service_principal_operation_events WHERE operation_id=?").get(crashedCreateId) as { userId: string };
+      expect(db.query('SELECT COUNT(*) AS count FROM "apikey" WHERE "referenceId"=? AND COALESCE("enabled",1)=1').get(crashedCreate.userId)).toEqual({ count: 1 });
+      await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: crashedCreateId, actor: "user:owner" });
+      expect(db.query('SELECT COUNT(*) AS count FROM "apikey" WHERE "referenceId"=? AND COALESCE("enabled",1)=1').get(crashedCreate.userId)).toEqual({ count: 0 });
+
+      const issued = await createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "Recovery rotate", actor: "user:owner" });
+      for (const crashAt of ["after-provider-create", "after-old-disabled", "before-completion-audit"] as const) {
+        const id = crashAt === "after-provider-create" ? "10000000-0000-4000-8000-000000000022" : crashAt === "after-old-disabled" ? "10000000-0000-4000-8000-000000000023" : "10000000-0000-4000-8000-000000000024";
+        await expect(rotateWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: issued.serviceAccountId, credentialId: issued.credentialId, actor: "user:owner", operationId: id, crashAt })).rejects.toThrow(crashAt);
+        await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: id, actor: "user:owner" });
+        // A crash before old-key disable keeps the known old credential live;
+        // every key created by the interrupted operation is disabled.
+        expect(db.query('SELECT COUNT(*) AS count FROM "apikey" WHERE "referenceId"=? AND COALESCE("enabled",1)=1').get(issued.serviceAccountId)).toEqual({ count: crashAt === "after-provider-create" ? 1 : 0 });
+      }
+
+      const revokeId = "10000000-0000-4000-8000-000000000025";
+      await expect(revokeWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: issued.serviceAccountId, credentialId: issued.credentialId, actor: "user:owner", operationId: revokeId, crashAt: "before-completion-audit" })).rejects.toThrow("before-completion-audit");
+      expect(await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: revokeId, actor: "user:owner" })).toEqual({ operationId: revokeId, status: "completed", recovered: true });
+      expect(JSON.stringify(db.query("SELECT * FROM rm_workspace_service_principal_operation_events WHERE operation_id=?").all(revokeId))).not.toContain("rms_");
+    } finally { db.close(); runtime.close(); rmSync(workspace, { recursive: true, force: true }); }
+  });
+
   test("issues, rotates and revokes a service credential without a browser account", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "rentemester-service-principal-"));
     const runtime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });
@@ -122,6 +159,25 @@ describe("workspace service principals", () => {
       expect(rawList.headers.get("cache-control")).toBe("no-store");
       const listed = await get(hosted, "/api/workspace/service-principals");
       expect(JSON.stringify(listed.body)).not.toContain(created.body.secret);
+      const recoveryOperation = "10000000-0000-4000-8000-000000000013";
+      const crashRuntime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });
+      try {
+        await expect(createWorkspaceServicePrincipal(db, crashRuntime.auth, { displayName: "Interrupted", actor: "user:mfa-owner", operationId: recoveryOperation, crashAt: "before-provider-create" })).rejects.toThrow("before-provider-create");
+      } finally { crashRuntime.close(); }
+      expect((await get(hosted, "/api/workspace/service-principals/recover", { method: "POST", headers, body: JSON.stringify({ operationId: recoveryOperation }) })).status).toBe(400);
+      expect((await get(memberConfig, "/api/workspace/service-principals/recover", { method: "POST", headers, body: JSON.stringify({ operationId: recoveryOperation, confirm: true }) })).status).toBe(401);
+      const unauthenticated = { ...hosted, betterAuthProvider: { async getSession() { return null; }, async handle() { return new Response(null, { status: 404 }); } } };
+      expect((await get(unauthenticated, "/api/workspace/service-principals/recover", { method: "POST", headers: { ...headers, actor: "user:attacker" }, body: JSON.stringify({ operationId: recoveryOperation, confirm: true }) })).status).toBe(401);
+      const deniedServiceRuntime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });
+      try {
+        const deniedService = { ...hosted, betterAuthProvider: createBetterAuthRequestProvider(deniedServiceRuntime.auth) };
+        expect((await get(deniedService, "/api/workspace/service-principals/recover", { method: "POST", headers: { ...headers, [WORKSPACE_SERVICE_PRINCIPAL_HEADER]: created.body.secret }, body: JSON.stringify({ operationId: recoveryOperation, confirm: true }) })).status).toBe(401);
+      } finally { deniedServiceRuntime.close(); }
+      const recovered = await get(hosted, "/api/workspace/service-principals/recover", { method: "POST", headers, body: JSON.stringify({ operationId: recoveryOperation, confirm: true }) });
+      expect(recovered.status).toBe(200);
+      const recoveredRaw = await handleRequest(new Request(`${ORIGIN}/api/workspace/service-principals/recover`, { method: "POST", headers, body: JSON.stringify({ operationId: recoveryOperation, confirm: true }) }), hosted);
+      expect(recoveredRaw.headers.get("cache-control")).toBe("no-store");
+      expect(JSON.stringify(recovered.body)).not.toContain("rms_");
       const beforeRotate = new Request(`${ORIGIN}/api`, { headers: { [WORKSPACE_SERVICE_PRINCIPAL_HEADER]: created.body.secret } });
       const verifierRuntime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });
       closeVerifier = verifierRuntime.close;

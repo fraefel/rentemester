@@ -710,4 +710,32 @@ describe("Cockpit write — payable pay", () => {
       rmSync(ws, { recursive: true, force: true });
     }
   });
+
+  test("a confirmed payable register exposes original/replay receipts while its route business gates remain ahead of replay", async () => {
+    const { root: ws, slug } = makeWorkspace("payable-register-idempotency");
+    const inbox = tmpRoot("payable-register-idempotency-inbox");
+    try {
+      const documentId = ingestPurchase(ws, slug, inbox, "Software ApS", "V-IDEM-1", 1250, 250);
+      const cfg = config({
+        workspaceRoot: ws,
+        authRequired: true,
+        authenticateRequest: () => ({ id: "user:http-idempotency", userId: "http-idempotency", via: "better-auth", sessionId: "synthetic-session", sessionCreatedAt: new Date() }),
+      });
+      const body = { documentId, billDate: "2026-01-10", dueDate: "2026-02-09", expenseAccountNo: "3000", confirm: true };
+      const headers = { "idempotency-key": "http-payable-register-key" };
+      const first = await post(cfg, `/api/companies/${slug}/payables`, body, headers);
+      expect(first.status).toBe(200);
+      expect(first.body.idempotency).toMatchObject({ replayed: false });
+      const replay = await post(cfg, `/api/companies/${slug}/payables`, body, headers);
+      expect(replay.status).toBe(200);
+      expect(replay.body.idempotency).toMatchObject({ replayed: true });
+      expect(replay.body.payable.payableId).toBe(first.body.payable.payableId);
+      // Confirmation is an authorization/safety gate, never a replay bypass.
+      const noConfirm = await post(cfg, `/api/companies/${slug}/payables`, { ...body, confirm: false }, headers);
+      expect(noConfirm.status).toBe(400);
+      const conflict = await post(cfg, `/api/companies/${slug}/payables`, { ...body, dueDate: "2026-02-10" }, headers);
+      expect(conflict.status).toBe(409);
+      withLedger(ws, slug, (db) => expect((db.query("SELECT COUNT(*) AS n FROM payables").get() as { n: number }).n).toBe(1));
+    } finally { rmSync(ws, { recursive: true, force: true }); rmSync(inbox, { recursive: true, force: true }); }
+  });
 });

@@ -101,6 +101,9 @@ export async function handlePayableRegister(
   );
 
   return okResponse({
+    // The shared mutation layer owns the durable receipt. Keep it on the
+    // public response so an HTTP caller can distinguish original from replay.
+    ...("idempotency" in result ? { idempotency: result.idempotency } : {}),
     payable: {
       payableId: result.payableId ?? null,
       documentId: result.documentId ?? null,
@@ -181,6 +184,7 @@ export async function handlePayablePay(
   );
 
   return okResponse({
+    ...("idempotency" in result ? { idempotency: result.idempotency } : {}),
     payment: {
       paymentId: result.paymentId ?? null,
       journalEntryId: result.journalEntryId ?? null,

@@ -143,7 +143,13 @@ export function evaluatePostingRules(db: Database, context: PostingRuleContext, 
   const match = matches[0]!; const row = rows.find((x) => x.rule_id === match.ruleId && x.version === match.version)!;
   return { decision: "proposed" as const, outcome: JSON.parse(row.outcome_json) as PostingRuleOutcome, matched: matches, explanations, reasons: [] as string[], ruleVersionId: row.id, payloadHash: row.payload_hash };
 }
-export function applyPostingRuleEvaluation(db: Database, context: PostingRuleContext, input: { applicationKey: string; at?: string }) {
+/**
+ * Applies one immutable rule decision inside a transaction owned by the
+ * caller.  This deliberately does not start a nested SQLite transaction: a
+ * batch item must be able to roll its rule decision, exception and later
+ * journal effects back as one unit.
+ */
+export function applyPostingRuleEvaluationInCurrentTransaction(db: Database, context: PostingRuleContext, input: { applicationKey: string; at?: string }) {
   const evaluation = evaluatePostingRules(db, context, { at: input.at });
   const existing = db.query("SELECT id FROM posting_rule_applications WHERE application_key=?").get(input.applicationKey) as { id: number } | null;
   if (existing) return { ...evaluation, applicationId: existing.id, duplicate: true, exceptionId: undefined };
@@ -152,7 +158,16 @@ export function applyPostingRuleEvaluation(db: Database, context: PostingRuleCon
   const exception = evaluation.decision === "human_decision" ? recordException(db, { type: "POSTING_RULE_HUMAN_DECISION", severity: "medium", relatedDocumentId: context.documentId ?? null, message: evaluation.reasons.join("; "), requiredAction: "Make and explicitly approve an exact posting-rule proposal or post a reviewed journal", resolutionKey: `posting-rule:${context.company}:${context.documentId ?? input.applicationKey}`, postingPreview: evaluation }) : undefined;
   return { ...evaluation, applicationId: row.id, duplicate: false, exceptionId: exception?.exceptionId };
 }
-export function linkDocumentVendorIdentity(db: Database, input: { companyId: number; documentId: number; vendorId?: number; supplierIdentity: string; provenance: string; rationale: string; creator: string; createdAt?: string }) {
+/** Standalone compatibility wrapper. */
+export function applyPostingRuleEvaluation(db: Database, context: PostingRuleContext, input: { applicationKey: string; at?: string }) {
+  return db.transaction(() => applyPostingRuleEvaluationInCurrentTransaction(db, context, input)).immediate();
+}
+/** Transaction-aware identity-link primitive for larger atomic workflows. */
+export function linkDocumentVendorIdentityInCurrentTransaction(db: Database, input: { companyId: number; documentId: number; vendorId?: number; supplierIdentity: string; provenance: string; rationale: string; creator: string; createdAt?: string }) {
   if (![input.companyId, input.documentId].every((x) => Number.isInteger(x) && x > 0) || !text(input.supplierIdentity, 256) || !text(input.provenance, 256) || !text(input.rationale, 2000) || !text(input.creator, 256)) return { ok: false, errors: ["invalid company-local document/vendor identity link"] };
   try { const row = db.query("INSERT INTO document_vendor_identity_links(company_id,document_id,vendor_id,supplier_identity,provenance,rationale,created_by,created_at) VALUES(?,?,?,?,?,?,?,?) RETURNING id").get(input.companyId, input.documentId, input.vendorId ?? null, input.supplierIdentity.trim(), input.provenance.trim(), input.rationale.trim(), input.creator.trim(), now(input.createdAt)) as { id: number }; return { ok: true, id: row.id, errors: [] as string[] }; } catch { return { ok: false, errors: ["document identity is already linked in this company"] }; }
+}
+/** Standalone compatibility wrapper. */
+export function linkDocumentVendorIdentity(db: Database, input: { companyId: number; documentId: number; vendorId?: number; supplierIdentity: string; provenance: string; rationale: string; creator: string; createdAt?: string }) {
+  return db.transaction(() => linkDocumentVendorIdentityInCurrentTransaction(db, input)).immediate();
 }

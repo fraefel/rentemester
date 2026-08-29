@@ -1,7 +1,14 @@
 import type { Database } from "bun:sqlite";
 import { getCompanySettings } from "./company";
 import { postJournalEntry, postJournalEntryInCurrentTransaction, type JournalLineInput, type JournalPostResult } from "./ledger";
-import { postEuGoodsAcquisitionPurchase, postForeignServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
+import {
+  postEuGoodsAcquisitionPurchase,
+  postEuGoodsAcquisitionPurchaseInCurrentTransaction,
+  postForeignServiceReverseChargePurchase,
+  postForeignServiceReverseChargePurchaseInCurrentTransaction,
+  postRepresentationPurchase,
+  postRepresentationPurchaseInCurrentTransaction,
+} from "./vat";
 import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk, roundRate6, subtractDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
 import { parsePurchaseVatLinesPayload, type PurchaseVatLine } from "./documents";
@@ -226,6 +233,9 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
 
 function bookExpenseFromBankInternal(db: Database, input: BookExpenseFromBankInput, inCurrentTransaction: boolean): BookExpenseFromBankResult {
   const post = inCurrentTransaction ? postJournalEntryInCurrentTransaction : postJournalEntry;
+  const postForeignService = inCurrentTransaction ? postForeignServiceReverseChargePurchaseInCurrentTransaction : postForeignServiceReverseChargePurchase;
+  const postEuGoods = inCurrentTransaction ? postEuGoodsAcquisitionPurchaseInCurrentTransaction : postEuGoodsAcquisitionPurchase;
+  const postRepresentation = inCurrentTransaction ? postRepresentationPurchaseInCurrentTransaction : postRepresentationPurchase;
   const errors: string[] = [];
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0) errors.push("bankTransactionId must be a positive integer");
@@ -471,7 +481,7 @@ function bookExpenseFromBankInternal(db: Database, input: BookExpenseFromBankInp
 
   if (vatTreatment === "reverse_charge") {
     if (vatAmount !== 0) return { ok: false, appliedRules: [], errors: ["reverse-charge expense booking requires document vat_amount = 0"] };
-    const result = postForeignServiceReverseChargePurchase(db, {
+    const result = postForeignService(db, {
       transactionDate,
       text,
       documentId: input.documentId,
@@ -488,13 +498,13 @@ function bookExpenseFromBankInternal(db: Database, input: BookExpenseFromBankInp
 
   if (vatTreatment === "eu_goods_acquisition") {
     if (vatAmount !== 0) return { ok: false, appliedRules: [], errors: ["EU-goods acquisition expense booking requires document vat_amount = 0"] };
-    const result = postEuGoodsAcquisitionPurchase(db, { transactionDate, text, documentId: input.documentId, netAmount: grossAmountDkk, expenseAccountNo: account.account_no, paymentAccountNo, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata });
+    const result = postEuGoods(db, { transactionDate, text, documentId: input.documentId, netAmount: grossAmountDkk, expenseAccountNo: account.account_no, paymentAccountNo, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata });
     return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: grossAmountDkk, vatAmount: 0, vatTreatment, ...fxSummary, netAmountDkk: grossAmountDkk, vatAmountDkk: 0 };
   }
 
   if (vatTreatment === "representation") {
     if (!(vatAmount > 0)) return { ok: false, appliedRules: [], errors: ["representation expense booking requires document vat_amount > 0"] };
-    const result = postRepresentationPurchase(db, {
+    const result = postRepresentation(db, {
       transactionDate,
       text,
       documentId: input.documentId,
@@ -560,7 +570,7 @@ function bookExpenseFromBankInternal(db: Database, input: BookExpenseFromBankInp
 }
 
 export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInput): BookExpenseFromBankResult {
-  return bookExpenseFromBankInternal(db, input, false);
+  return db.transaction(() => bookExpenseFromBankInternal(db, input, true)).immediate();
 }
 
 /** Exact path for #583's outer BEGIN IMMEDIATE. */
@@ -579,7 +589,7 @@ export function previewBookExpenseFromBank(db: Database, input: BookExpenseFromB
   const rollback = new Error("expense booking preview rollback");
   try {
     db.transaction(() => {
-      result = bookExpenseFromBank(db, input);
+      result = bookExpenseFromBankInCurrentTransaction(db, input);
       throw rollback;
     }).immediate();
   } catch (error) {

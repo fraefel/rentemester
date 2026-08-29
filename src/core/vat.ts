@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { postJournalEntry, type JournalPostResult } from "./ledger";
+import { postJournalEntry, postJournalEntryInCurrentTransaction, type JournalPostResult } from "./ledger";
 import { getCompanySettings } from "./company";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { requireCachedViesValidation, normalizeEuVatNumber } from "./vies";
@@ -200,6 +200,7 @@ function postServiceReverseChargeLines(
   vatCode: "EU_SERVICE_REVERSE_CHARGE" | "NON_EU_SERVICE_REVERSE_CHARGE",
   ruleId: string,
   sourceLabel: string,
+  inCurrentTransaction = false,
 ): JournalPostResult {
   const vatAmount = percentOfDkk(input.netAmount, 25);
   const inputVat = resolveAccountRole(db, "input_vat");
@@ -208,7 +209,8 @@ function postServiceReverseChargeLines(
   if (!inputVat.ok) return { ok: false, appliedRules: [ruleId], errors: [inputVat.error] };
   if (!outputVat.ok) return { ok: false, appliedRules: [ruleId], errors: [outputVat.error] };
   if (!bank.ok) return { ok: false, appliedRules: [ruleId], errors: [bank.error] };
-  const result = postJournalEntry(db, {
+  const post = inCurrentTransaction ? postJournalEntryInCurrentTransaction : postJournalEntry;
+  const result = post(db, {
     transactionDate: input.transactionDate,
     text: input.text.trim(),
     documentId: input.documentId,
@@ -233,7 +235,7 @@ function postServiceReverseChargeLines(
 }
 
 /** §11 acquisition VAT for goods bought from another EU member state. */
-export function postEuGoodsAcquisitionPurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+function postEuGoodsAcquisitionPurchaseInternal(db: Database, input: ReverseChargePurchaseInput, inCurrentTransaction: boolean): JournalPostResult {
   const errors = reverseChargeInputErrors(input);
   if (errors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors };
   if (!companyIsVatRegistered(db)) return { ok: false, appliedRules: [REGISTRATION_RULE_ID, REVERSE_CHARGE_RULE_ID], errors: [NON_REGISTERED_EU_SERVICE_MSG] };
@@ -256,13 +258,22 @@ export function postEuGoodsAcquisitionPurchase(db: Database, input: ReverseCharg
   if (!bank.ok) {
     return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors: [bank.error] };
   }
-  const result = postJournalEntry(db, { transactionDate: input.transactionDate, text: input.text, documentId: input.documentId, sourceBankTransactionId: input.sourceBankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, lines: [
+  const post = inCurrentTransaction ? postJournalEntryInCurrentTransaction : postJournalEntry;
+  const result = post(db, { transactionDate: input.transactionDate, text: input.text, documentId: input.documentId, sourceBankTransactionId: input.sourceBankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, lines: [
     { accountNo: input.expenseAccountNo, debitAmount: roundDkk(input.netAmount), vatCode: "EU_GOODS_ACQUISITION", text: "EU goods acquisition base" },
     { accountNo: inputVat.accountNo, debitAmount: vatAmount, text: "Deductible acquisition input VAT" },
     { accountNo: bank.accountNo, creditAmount: roundDkk(input.netAmount), text: "Payment / liability" },
     { accountNo: outputVat.accountNo, creditAmount: vatAmount, text: "Acquisition output VAT" },
   ] });
   return { ...result, appliedRules: [...new Set([REVERSE_CHARGE_RULE_ID, ...result.appliedRules])] };
+}
+
+export function postEuGoodsAcquisitionPurchaseInCurrentTransaction(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  return postEuGoodsAcquisitionPurchaseInternal(db, input, true);
+}
+
+export function postEuGoodsAcquisitionPurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  return db.transaction(() => postEuGoodsAcquisitionPurchaseInternal(db, input, true)).immediate();
 }
 
 function resolveDocumentSupplierIdentity(
@@ -432,7 +443,7 @@ export function postEuServiceReverseChargePurchase(db: Database, input: ReverseC
  * Country + non_eu classification is enough to ingest and retain a voucher,
  * while automatic input-VAT deduction additionally requires invoice evidence
  * checked below. */
-export function postNonEuServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+function postNonEuServiceReverseChargePurchaseInternal(db: Database, input: ReverseChargePurchaseInput, inCurrentTransaction: boolean): JournalPostResult {
   const errors = reverseChargeInputErrors(input);
   if (errors.length > 0) return { ok: false, appliedRules: [NON_EU_REVERSE_CHARGE_RULE_ID], errors };
   const splitErrors = unsupportedStructuredPurchaseLinesErrors(db, input.documentId, "reverse_charge");
@@ -453,7 +464,15 @@ export function postNonEuServiceReverseChargePurchase(db: Database, input: Rever
       errors: ["document requires human resolution before non-EU reverse-charge input-VAT deduction", ...evidenceErrors],
     };
   }
-  return postServiceReverseChargeLines(db, input, "NON_EU_SERVICE_REVERSE_CHARGE", NON_EU_REVERSE_CHARGE_RULE_ID, "Non-EU");
+  return postServiceReverseChargeLines(db, input, "NON_EU_SERVICE_REVERSE_CHARGE", NON_EU_REVERSE_CHARGE_RULE_ID, "Non-EU", inCurrentTransaction);
+}
+
+export function postNonEuServiceReverseChargePurchaseInCurrentTransaction(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  return postNonEuServiceReverseChargePurchaseInternal(db, input, true);
+}
+
+export function postNonEuServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  return db.transaction(() => postNonEuServiceReverseChargePurchaseInternal(db, input, true)).immediate();
 }
 
 /**
@@ -461,7 +480,7 @@ export function postNonEuServiceReverseChargePurchase(db: Database, input: Rever
  * reverse-charge action; the immutable supplier identity on the document
  * decides whether EU/VIES or non-EU provenance and VAT codes apply.
  */
-export function postForeignServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+function postForeignServiceReverseChargePurchaseInternal(db: Database, input: ReverseChargePurchaseInput, inCurrentTransaction: boolean): JournalPostResult {
   const errors = reverseChargeInputErrors(input);
   if (errors.length > 0) return { ok: false, appliedRules: [REVERSE_CHARGE_RULE_ID], errors };
   const splitErrors = unsupportedStructuredPurchaseLinesErrors(db, input.documentId, "reverse_charge");
@@ -478,14 +497,22 @@ export function postForeignServiceReverseChargePurchase(db: Database, input: Rev
     return { ok: false, appliedRules: [REGISTRATION_RULE_ID, ruleId], errors: [message] };
   }
   if (identity.identifierKind === "non_eu") {
-    return postNonEuServiceReverseChargePurchase(db, input);
+    return postNonEuServiceReverseChargePurchaseInternal(db, input, inCurrentTransaction);
   }
   const viesCheck = requireCachedViesValidation(db, identity.identifier, "document sender_vat_cvr");
   if (!viesCheck.ok) return { ok: false, appliedRules: [...new Set([REVERSE_CHARGE_RULE_ID, ...viesCheck.appliedRules])], errors: viesCheck.errors };
-  return postServiceReverseChargeLines(db, input, "EU_SERVICE_REVERSE_CHARGE", REVERSE_CHARGE_RULE_ID, "EU");
+  return postServiceReverseChargeLines(db, input, "EU_SERVICE_REVERSE_CHARGE", REVERSE_CHARGE_RULE_ID, "EU", inCurrentTransaction);
 }
 
-export function postRepresentationPurchase(db: Database, input: RepresentationPurchaseInput): JournalPostResult {
+export function postForeignServiceReverseChargePurchaseInCurrentTransaction(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  return postForeignServiceReverseChargePurchaseInternal(db, input, true);
+}
+
+export function postForeignServiceReverseChargePurchase(db: Database, input: ReverseChargePurchaseInput): JournalPostResult {
+  return db.transaction(() => postForeignServiceReverseChargePurchaseInternal(db, input, true)).immediate();
+}
+
+function postRepresentationPurchaseInternal(db: Database, input: RepresentationPurchaseInput, inCurrentTransaction: boolean): JournalPostResult {
   const errors: string[] = [];
   if (!looksLikeIsoDate(input.transactionDate)) errors.push("transactionDate must be YYYY-MM-DD");
   if (typeof input.text !== "string" || input.text.trim().length === 0) errors.push("text is required");
@@ -513,7 +540,8 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
   if (!inputVat.ok) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: [inputVat.error] };
   if (!payment.ok) return { ok: false, appliedRules: [REPRESENTATION_RULE_ID], errors: [payment.error] };
 
-  const result = postJournalEntry(db, {
+  const post = inCurrentTransaction ? postJournalEntryInCurrentTransaction : postJournalEntry;
+  const result = post(db, {
     transactionDate: input.transactionDate,
     text: input.text.trim(),
     documentId: input.documentId,
@@ -549,6 +577,14 @@ export function postRepresentationPurchase(db: Database, input: RepresentationPu
     ...result,
     appliedRules: result.ok ? [...new Set([...(result.appliedRules ?? []), REPRESENTATION_RULE_ID])] : [...new Set([REPRESENTATION_RULE_ID, ...(result.appliedRules ?? [])])],
   };
+}
+
+export function postRepresentationPurchaseInCurrentTransaction(db: Database, input: RepresentationPurchaseInput): JournalPostResult {
+  return postRepresentationPurchaseInternal(db, input, true);
+}
+
+export function postRepresentationPurchase(db: Database, input: RepresentationPurchaseInput): JournalPostResult {
+  return db.transaction(() => postRepresentationPurchaseInternal(db, input, true)).immediate();
 }
 
 export function buildVatReport(db: Database, periodStart: string, periodEnd: string): VatPeriodReport {

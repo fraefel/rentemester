@@ -58,7 +58,8 @@ export function inspectPurchaseVatPreflight(db: Database, documentId: number, op
  * Persist the local, provider-free preflight used by an atomic purchase
  * posting. EU evidence is never manufactured here: it must already be fresh.
  */
-export function applyStoredPurchaseVatPreflight(db: Database, documentId: number, options: { clock?: VatValidationClock; actor?: string } = {}) {
+/** Applies locally stored VAT evidence inside a caller-owned transaction. */
+export function applyStoredPurchaseVatPreflightInCurrentTransaction(db: Database, documentId: number, options: { clock?: VatValidationClock; actor?: string } = {}) {
   const clock = options.clock ?? systemVatValidationClock;
   const inspection = inspectPurchaseVatPreflight(db, documentId, { clock });
   const facts = classification(supplier(db, documentId));
@@ -73,6 +74,10 @@ export function applyStoredPurchaseVatPreflight(db: Database, documentId: number
   event(db, { documentId, eventType: "preflight_passed", classification: facts.classification, providerStatus: "local", country: facts.country, identifier: facts.identifier, actor: options.actor, expiresAt: null, at: now });
   const row = db.query("SELECT id FROM vat_validation_events WHERE document_id=? AND event_type='preflight_passed' ORDER BY id DESC LIMIT 1").get(documentId) as { id: number };
   return { ...inspection, vatPreflightId: row.id, exceptionId: undefined };
+}
+/** Standalone compatibility wrapper. */
+export function applyStoredPurchaseVatPreflight(db: Database, documentId: number, options: { clock?: VatValidationClock; actor?: string } = {}) {
+  return db.transaction(() => applyStoredPurchaseVatPreflightInCurrentTransaction(db, documentId, options)).immediate();
 }
 export async function ensurePurchaseVatPreflight(db: Database, documentId: number, provider: VatValidationProvider, options: { clock?: VatValidationClock; actor?: string } = {}) {
   const clock = options.clock ?? systemVatValidationClock;

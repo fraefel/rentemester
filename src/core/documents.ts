@@ -558,16 +558,16 @@ export function enrichDocumentMetadata(db: Database, documentId: number, metadat
         FROM documents WHERE id = ?`).get(documentId) as Record<string, unknown> | null;
       if (!row) return { ok: false, errors: [`document ${documentId} does not exist`] };
       if (row.document_type === "internal_voucher") return { ok: false, errors: ["internal voucher metadata cannot be enriched"] };
-      const enrichment = db.query("SELECT enriched_metadata_sha256 FROM document_metadata_enrichments WHERE document_id = ?").get(documentId) as { enriched_metadata_sha256: string } | null;
-      if (enrichment) return enrichment.enriched_metadata_sha256 === metadataHash
-        ? { ok: true, documentId: asDocumentId(documentId), enriched: false }
-        : { ok: false, errors: ["document metadata was already enriched with different metadata"] };
       if (row.status !== "ingested") return { ok: false, errors: ["document is already posted or otherwise non-enrichable"] };
       if (db.query("SELECT 1 FROM journal_entries WHERE document_id = ? LIMIT 1").get(documentId)
         || db.query("SELECT 1 FROM import_document_links WHERE document_id = ? AND journal_entry_id IS NOT NULL LIMIT 1").get(documentId)
         || db.query("SELECT 1 FROM dinero_import_document_links WHERE document_id = ? AND (journal_entry_id IS NOT NULL OR disposition = 'linked') LIMIT 1").get(documentId)) {
         return { ok: false, errors: ["document is linked to accounting evidence and cannot be enriched"] };
       }
+      const enrichment = db.query("SELECT enriched_metadata_sha256 FROM document_metadata_enrichments WHERE document_id = ?").get(documentId) as { enriched_metadata_sha256: string } | null;
+      if (enrichment) return enrichment.enriched_metadata_sha256 === metadataHash
+        ? { ok: true, documentId: asDocumentId(documentId), enriched: false }
+        : { ok: false, errors: ["document metadata was already enriched with different metadata"] };
       const originalPayloadJson = typeof row.payload_json === "string" ? row.payload_json : null;
       if (originalPayloadJson) {
         try {

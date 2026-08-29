@@ -62,7 +62,10 @@ describe("document metadata enrichment (#569)", () => {
       expect(bookExpenseFromBank(fixture.db, { documentId: fixture.id, bankTransactionId: bankId, expenseAccountNo: "3000", vatTreatment: "standard" }).ok).toBe(false);
       expect(enrichDocumentMetadata(fixture.db, fixture.id, completeMetadata).ok).toBe(true);
       expect(bookExpenseFromBank(fixture.db, { documentId: fixture.id, bankTransactionId: bankId, expenseAccountNo: "3000", vatTreatment: "standard" }).ok).toBe(true);
-      expect(enrichDocumentMetadata(fixture.db, fixture.id, completeMetadata)).toMatchObject({ ok: true, enriched: false });
+      expect(enrichDocumentMetadata(fixture.db, fixture.id, completeMetadata)).toMatchObject({
+        ok: false,
+        errors: ["document is linked to accounting evidence and cannot be enriched"],
+      });
     } finally { fixture.db.close(); rmSync(fixture.root, { recursive: true, force: true }); }
   });
 

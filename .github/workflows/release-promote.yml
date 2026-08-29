@@ -101,7 +101,14 @@ jobs:
 
       - name: Verify candidate evidence checksum
         working-directory: candidate
-        run: sha256sum --check release-manifest.json.sha256 sbom.spdx.json.sha256 supply-chain-evidence.json.sha256
+        run: sha256sum --check release-manifest.json.sha256 sbom.spdx.json.sha256 supply-chain-evidence.json.sha256 agent-discovery-coverage-report.json.sha256
+
+      - name: Verify agent-discovery evidence is bound to the candidate manifest
+        run: |
+          set -euo pipefail
+          actual="sha256:$(cut -d ' ' -f 1 candidate/agent-discovery-coverage-report.json.sha256)"
+          expected="$(jq -r '.evidence.agentDiscoverySha256' candidate/release-manifest.json)"
+          [ "$actual" = "$expected" ] || { echo "candidate agent-discovery coverage does not match release evidence" >&2; exit 1; }
 
       - name: Materialize supplied Digisense approval
         env:
@@ -132,8 +139,10 @@ jobs:
             console.log(`digest=${m.image.digest}`);
             if (!m.evidence?.sbomSha256) throw new Error("release manifest has no SBOM checksum");
             if (!m.evidence?.supplyChainSha256) throw new Error("release manifest has no supply-chain checksum");
+            if (!m.evidence?.agentDiscoverySha256) throw new Error("release manifest has no agent-discovery checksum");
             console.log(`sbom_sha256=${m.evidence.sbomSha256}`);
             console.log(`supply_chain_sha256=${m.evidence.supplyChainSha256}`);
+            console.log(`agent_discovery_sha256=${m.evidence.agentDiscoverySha256}`);
           ' >> "$GITHUB_OUTPUT"
 
       - name: Checkout approved source commit
@@ -169,6 +178,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SBOM_SHA256: ${{ steps.identity.outputs.sbom_sha256 }}
           SUPPLY_CHAIN_SHA256: ${{ steps.identity.outputs.supply_chain_sha256 }}
+          AGENT_DISCOVERY_SHA256: ${{ steps.identity.outputs.agent_discovery_sha256 }}
         run: |
           set -euo pipefail
           target="$REGISTRY_IMAGE:v$VERSION"
@@ -216,6 +226,16 @@ jobs:
           [ "$actual_sbom_sha256" = "$SBOM_SHA256" ] || { echo "candidate SBOM does not match approved evidence" >&2; exit 1; }
           actual_supply_chain_sha256="sha256:$(sha256sum candidate/supply-chain-evidence.json | cut -d ' ' -f 1)"
           [ "$actual_supply_chain_sha256" = "$SUPPLY_CHAIN_SHA256" ] || { echo "candidate supply-chain report does not match approved evidence" >&2; exit 1; }
+          docker run --rm --read-only \
+            -e RENTEMESTER_AGENT_DISCOVERY_IMAGE_DIGEST="$DIGEST" \
+            --entrypoint bun "$REGISTRY_IMAGE@$DIGEST" \
+            run src/agent-discovery-coverage-cli.ts > /tmp/rentemester-agent-discovery-coverage.json
+          cmp /tmp/rentemester-agent-discovery-coverage.json candidate/agent-discovery-coverage-report.json || {
+            echo "candidate runtime discovery coverage no longer matches approved evidence" >&2
+            exit 1
+          }
+          actual_agent_discovery_sha256="sha256:$(sha256sum /tmp/rentemester-agent-discovery-coverage.json | cut -d ' ' -f 1)"
+          [ "$actual_agent_discovery_sha256" = "$AGENT_DISCOVERY_SHA256" ] || { echo "candidate runtime discovery coverage checksum mismatch" >&2; exit 1; }
           attestation_json="$(gh attestation verify "oci://$REGISTRY_IMAGE@$DIGEST" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-candidate.yml" \
@@ -284,6 +304,8 @@ jobs:
             ../candidate/release-manifest.json.sha256 \
             ../candidate/supply-chain-evidence.json \
             ../candidate/supply-chain-evidence.json.sha256 \
+            ../candidate/agent-discovery-coverage-report.json \
+            ../candidate/agent-discovery-coverage-report.json.sha256 \
             ../candidate/digisense-approval.json
 
       - name: Promotion summary

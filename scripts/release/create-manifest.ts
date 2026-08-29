@@ -17,6 +17,7 @@ const workflowRunId = required("RELEASE_WORKFLOW_RUN_ID");
 const workflowRunAttempt = Number(required("RELEASE_WORKFLOW_RUN_ATTEMPT"));
 const sbomSha256 = required("RELEASE_SBOM_SHA256");
 const supplyChainSha256 = required("RELEASE_SUPPLY_CHAIN_SHA256");
+const agentDiscoverySha256 = required("RELEASE_AGENT_DISCOVERY_SHA256");
 
 if (!isValidSemVer(version)) {
   throw new Error(`invalid release SemVer: ${version}`);
@@ -35,6 +36,9 @@ if (!/^sha256:[0-9a-f]{64}$/i.test(sbomSha256)) {
 }
 if (!/^sha256:[0-9a-f]{64}$/i.test(supplyChainSha256)) {
   throw new Error("RELEASE_SUPPLY_CHAIN_SHA256 must be a sha256 digest");
+}
+if (!/^sha256:[0-9a-f]{64}$/i.test(agentDiscoverySha256)) {
+  throw new Error("RELEASE_AGENT_DISCOVERY_SHA256 must be a sha256 digest");
 }
 if (Number.isNaN(Date.parse(builtAt))) {
   throw new Error("RELEASE_BUILT_AT must be an ISO-8601 timestamp");
@@ -89,6 +93,7 @@ const manifest = {
   evidence: {
     sbomSha256,
     supplyChainSha256,
+    agentDiscoverySha256,
   },
   provenance,
 };

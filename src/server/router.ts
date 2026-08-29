@@ -19,7 +19,8 @@
 import type { RoutePermission } from "../core/access-permissions";
 import type { ServerConfig } from "./config";
 import { describeWorkflow, searchCapabilities } from "../agent-discovery-catalog";
-import { COMMAND_SPECS } from "../cli-meta";
+import { MUTATING_COMMANDS } from "../cli-actor";
+import { COMMAND_SPECS, SIDE_EFFECTING_COMMANDS } from "../cli-meta";
 
 export type { RoutePermission } from "../core/access-permissions";
 
@@ -719,7 +720,16 @@ export async function handleRequest(
       if (!Number.isInteger(cursor) || cursor < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) {
         throw ApiError.badRequest("cursor must be >= 0 and limit must be between 1 and 50");
       }
-      return jsonResponse({ ok: true, ...searchCapabilities(url.searchParams.get("query") ?? undefined, cursor, limit) });
+      return jsonResponse({ ok: true, ...searchCapabilities(url.searchParams.get("query") ?? undefined, cursor, limit, {
+        commands: COMMAND_SPECS.map((command) => ({
+          key: command.key,
+          allowedFlags: command.allowedFlags,
+          mutating: MUTATING_COMMANDS.has(command.key),
+          sideEffecting: SIDE_EFFECTING_COMMANDS.has(command.key),
+        })),
+        routes: ROUTE_CATALOG,
+        unavailableSurfaces: ["mcp"],
+      }) });
     }
 
     const agentWorkflowMatch = /^\/api\/agent-workflows\/([^/]+)$/.exec(path);

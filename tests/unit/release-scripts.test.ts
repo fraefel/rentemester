@@ -14,6 +14,7 @@ const bunVersion = "1.4.0";
 const baseImageDigest = `sha256:${"d".repeat(64)}`;
 const sbomSha256 = `sha256:${"e".repeat(64)}`;
 const supplyChainSha256 = `sha256:${"f".repeat(64)}`;
+const agentDiscoverySha256 = `sha256:${"1".repeat(64)}`;
 
 function runScript(script: string, args: string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync("bun", ["run", script, ...args], {
@@ -93,6 +94,7 @@ describe("release evidence scripts", () => {
       RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
       RELEASE_SBOM_SHA256: sbomSha256,
       RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
+      RELEASE_AGENT_DISCOVERY_SHA256: agentDiscoverySha256,
     });
     expect(created.status).not.toBe(0);
     expect(created.stderr).toContain("invalid release SemVer");
@@ -115,6 +117,7 @@ describe("release evidence scripts", () => {
         RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
         RELEASE_SBOM_SHA256: sbomSha256,
         RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
+        RELEASE_AGENT_DISCOVERY_SHA256: agentDiscoverySha256,
       });
       expect(created.status).toBe(0);
       expect(JSON.parse(created.stdout).workflow).toEqual({
@@ -122,7 +125,7 @@ describe("release evidence scripts", () => {
         runAttempt: 1,
       });
       expect(JSON.parse(created.stdout).runtime).toEqual({ bunVersion, baseImageDigest });
-      expect(JSON.parse(created.stdout).evidence).toEqual({ sbomSha256, supplyChainSha256 });
+      expect(JSON.parse(created.stdout).evidence).toEqual({ sbomSha256, supplyChainSha256, agentDiscoverySha256 });
       const manifestPath = join(directory, "release-manifest.json");
       writeFileSync(manifestPath, created.stdout);
       const releaseManifestDigest = `sha256:${createHash("sha256")
@@ -194,6 +197,7 @@ describe("release evidence scripts", () => {
       RENTEMESTER_BASE_IMAGE_DIGEST: "",
       RELEASE_SBOM_SHA256: sbomSha256,
       RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
+      RELEASE_AGENT_DISCOVERY_SHA256: agentDiscoverySha256,
     });
     expect(created.status).not.toBe(0);
     expect(created.stderr).toContain("runtime must declare Bun version and base image digest");
@@ -214,6 +218,7 @@ describe("release evidence scripts", () => {
       RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
       RELEASE_SBOM_SHA256: "",
       RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
+      RELEASE_AGENT_DISCOVERY_SHA256: agentDiscoverySha256,
     });
     expect(created.status).not.toBe(0);
     expect(created.stderr).toContain("RELEASE_SBOM_SHA256 is required");
@@ -234,8 +239,30 @@ describe("release evidence scripts", () => {
       RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
       RELEASE_SBOM_SHA256: sbomSha256,
       RELEASE_SUPPLY_CHAIN_SHA256: "",
+      RELEASE_AGENT_DISCOVERY_SHA256: agentDiscoverySha256,
     });
     expect(created.status).not.toBe(0);
     expect(created.stderr).toContain("RELEASE_SUPPLY_CHAIN_SHA256 is required");
+  });
+
+  test("refuses release evidence without the digest-bound agent-discovery checksum", () => {
+    const created = runScript("scripts/release/create-manifest.ts", [], {
+      RELEASE_VERSION: "0.2.0",
+      RELEASE_GIT_COMMIT: commit,
+      RELEASE_BUILT_AT: builtAt,
+      RELEASE_IMAGE_REPOSITORY: "ghcr.io/mikkelkrogsholm/rentemester",
+      RELEASE_IMAGE_DIGEST: imageDigest,
+      RELEASE_WORKFLOW_RUN_ID: "123456789",
+      RELEASE_WORKFLOW_RUN_ATTEMPT: "1",
+      RENTEMESTER_GIT_COMMIT: commit,
+      RENTEMESTER_BUILT_AT: builtAt,
+      RENTEMESTER_BUN_VERSION: bunVersion,
+      RENTEMESTER_BASE_IMAGE_DIGEST: baseImageDigest,
+      RELEASE_SBOM_SHA256: sbomSha256,
+      RELEASE_SUPPLY_CHAIN_SHA256: supplyChainSha256,
+      RELEASE_AGENT_DISCOVERY_SHA256: "",
+    });
+    expect(created.status).not.toBe(0);
+    expect(created.stderr).toContain("RELEASE_AGENT_DISCOVERY_SHA256 is required");
   });
 });

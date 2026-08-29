@@ -26,6 +26,8 @@ before calling `agent_workflow_describe` for the selected `id`. The description
 resolves its MCP operation references against this running server's `tools/list`
 registrations and returns annotation-derived safety plus the ordered
 read/dry-run/review/approval/apply boundaries. It does not mutate a company.
+Each search result also includes the live CLI, MCP and HTTP operation bindings
+for that capability, including safety, actor/confirmation and retry metadata.
 
 Example: to reconcile bank activity, call `meta_about`, search `reconcile bank`,
 describe `bank-reconciliation-batch`, then follow its read and dry-run steps,
@@ -37,6 +39,13 @@ The equivalent read-only HTTP representation is `GET /api/agent-capabilities`
 (`query`, `cursor`, `limit`) and `GET /api/agent-workflows/:id`. HTTP resolves
 its canonical HTTP and CLI references; use MCP `tools/list`/describe when the
 live MCP registration and annotations are required.
+
+`meta_about.data.catalogue.coverage` identifies the reviewed coverage rules and
+the three public surface baselines. CI runs the same deterministic gate against
+the live registries. A release candidate then runs that gate again inside the
+published digest-pinned image and binds the resulting report checksum to the
+release manifest. Adding, removing or misclassifying a public operation therefore
+fails before release instead of silently disappearing from agent discovery.
 
 ## What the surface is
 

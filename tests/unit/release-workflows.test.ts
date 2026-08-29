@@ -83,9 +83,20 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain("run: bun run supply-chain:audit");
     expect(candidate).toContain("bun run supply-chain:evidence > supply-chain-evidence.json");
     expect(candidate).toContain("RELEASE_SUPPLY_CHAIN_SHA256");
+    expect(candidate).toContain("RELEASE_AGENT_DISCOVERY_SHA256");
+    expect(candidate).toContain("Verify packaged agent-discovery coverage identity");
+    expect(candidate).toContain("agent-discovery-coverage-report.json");
+    expect(candidate).toContain("run src/agent-discovery-coverage-cli.ts > agent-discovery-coverage-report.json");
+    expect(candidate).toContain('RENTEMESTER_AGENT_DISCOVERY_IMAGE_DIGEST="$IMAGE_DIGEST"');
+    expect(candidate).not.toContain("/app/src/agent-discovery-coverage-report.json");
     expect(candidate).toContain("supply-chain-evidence.json.sha256");
     expect(promote).toContain("candidate supply-chain report does not match approved evidence");
     expect(promote).toContain("supply-chain-evidence.json.sha256");
+    expect(promote).toContain("agent-discovery-coverage-report.json.sha256");
+    expect(promote).toContain("candidate agent-discovery coverage does not match release evidence");
+    expect(promote).toContain("candidate/agent-discovery-coverage-report.json.sha256");
+    expect(promote).toContain("run src/agent-discovery-coverage-cli.ts > /tmp/rentemester-agent-discovery-coverage.json");
+    expect(promote).toContain("cmp /tmp/rentemester-agent-discovery-coverage.json candidate/agent-discovery-coverage-report.json");
   });
 
   test("uses the required smoke check only for image build and runtime verification", () => {

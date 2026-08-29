@@ -65,12 +65,14 @@ describe("black-box runtime agent discovery (#584/#585)", () => {
     const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
 
     const about = await call("tools/call", { name: "meta_about", arguments: {} });
-    const aboutData = about.result?.structuredContent?.data as { build: { version: string }; ruleBundleVersion: string; catalogue: { schemaVersion: string; hash: string; entryPoint: string } };
+    const aboutData = about.result?.structuredContent?.data as { build: { version: string }; ruleBundleVersion: string; catalogue: { schemaVersion: string; hash: string; entryPoint: string; coverage: { schemaVersion: string; rulesHash: string } } };
     expect(aboutData.build.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(aboutData.ruleBundleVersion).not.toBe("");
     expect(aboutData.catalogue.schemaVersion).toBe("rentemester-agent-discovery-v1");
     expect(aboutData.catalogue.hash).toMatch(/^[a-f0-9]{64}$/);
     expect(aboutData.catalogue.entryPoint).toContain("tools/list");
+    expect(aboutData.catalogue.coverage.schemaVersion).toBe("rentemester-agent-discovery-coverage-v1");
+    expect(aboutData.catalogue.coverage.rulesHash).toMatch(/^[a-f0-9]{64}$/);
 
     const catalogueSearch = await call("tools/call", {
       name: "agent_capability_search",
@@ -127,8 +129,14 @@ describe("black-box runtime agent discovery (#584/#585)", () => {
       { query: "restore backup", workflowId: "backup-health-audit", boundaries: ["read", "destructive"] },
     ]) {
       const search = await call("tools/call", { name: "agent_capability_search", arguments: { query: scenario.query, limit: 10 } });
-      const searchData = search.result?.structuredContent?.data as { items: Array<{ workflowIds: string[] }> };
+      const searchData = search.result?.structuredContent?.data as {
+        items: Array<{
+          workflowIds: string[];
+          operations: Array<{ id: string; safety: string; retryClass: string; requiresActor: boolean; requiresConfirmation: boolean }>;
+        }>;
+      };
       expect(searchData.items.some((item) => item.workflowIds.includes(scenario.workflowId))).toBe(true);
+      expect(searchData.items.flatMap((item) => item.operations).length).toBeGreaterThan(0);
 
       const workflow = described.get(scenario.workflowId)!;
       expect(workflow.live).toBe(true);

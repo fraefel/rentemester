@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck runtime and release scripts
         run: bun run typecheck:runtime
 
+      - name: Verify agent discovery coverage
+        run: bun run agent-discovery:coverage
+
       - name: Lint TypeScript and React sources
         run: bun run lint
 

@@ -259,11 +259,11 @@ export const AGENT_CATALOGUE_HASH = createHash("sha256").update(canonicalJson({ 
 export function catalogueIdentity() {
   let ruleBundleVersion: string | null = null;
   try { ruleBundleVersion = currentRuleBundleVersion(); } catch {}
-  return { schemaVersion: AGENT_CATALOGUE_SCHEMA_VERSION, hash: AGENT_CATALOGUE_HASH, entryPoint: AGENT_CATALOGUE_ENTRY_POINT, capabilityCount: AGENT_CAPABILITIES.length, workflowCount: AGENT_WORKFLOWS.length, build: getBuildIdentity(), provenance: getReleaseProvenance(), ruleBundleVersion };
+  return { schemaVersion: AGENT_CATALOGUE_SCHEMA_VERSION, hash: AGENT_CATALOGUE_HASH, entryPoint: AGENT_CATALOGUE_ENTRY_POINT, capabilityCount: AGENT_CAPABILITIES.length, workflowCount: AGENT_WORKFLOWS.length, coverage: coverageIdentity(), build: getBuildIdentity(), provenance: getReleaseProvenance(), ruleBundleVersion };
 }
 
 export type LiveTool = { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean } };
-export type LiveOperationSources = { tools?: readonly LiveTool[]; commands?: readonly { key: string }[]; routes?: readonly { method: string; pattern: string; effect?: string }[]; unavailableSurfaces?: Array<"mcp" | "cli" | "http"> };
+export type LiveOperationSources = { tools?: readonly LiveTool[]; commands?: readonly DiscoveryCommand[]; routes?: readonly DiscoveryRoute[]; unavailableSurfaces?: Array<"mcp" | "cli" | "http"> };
 
 export function operationId(reference: OperationReference): string { return reference.surface === "mcp" ? `mcp:${reference.name}` : reference.surface === "cli" ? `cli:${reference.key}` : `http:${reference.method} ${reference.pattern}`; }
 
@@ -280,10 +280,14 @@ function resolveOperation(reference: OperationReference, sources: LiveOperationS
   return route ? { ...reference, id: operationId(reference), resolved: true, safety: route.effect === "read" ? "read" : route.effect === "destructive" ? "destructive" : "write" } : { ...reference, id: operationId(reference), resolved: false, reason: "HTTP route is not catalogued." };
 }
 
-export function searchCapabilities(query: string | undefined, cursor: number, limit: number) {
+export function searchCapabilities(query: string | undefined, cursor: number, limit: number, sources?: LiveOperationSources) {
   const tokens = (query ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matching = AGENT_CAPABILITIES.filter((item) => { const haystack = [item.id, item.title, item.purpose, item.domain, ...item.outcomes, ...item.keywords].join(" ").toLowerCase(); return tokens.every((token) => haystack.includes(token)); });
-  const items = matching.slice(cursor, cursor + limit).map(({ canonicalState: _canonicalState, keywords: _keywords, ...item }) => item);
+  const bindings = sources ? discoverableOperationBindings(sources) : [];
+  const items = matching.slice(cursor, cursor + limit).map(({ canonicalState: _canonicalState, keywords: _keywords, ...item }) => ({
+    ...item,
+    operations: bindings.filter((binding) => binding.capabilityIds.includes(item.id)),
+  }));
   return { catalogue: catalogueIdentity(), total: matching.length, count: items.length, cursor, limit, hasMore: cursor + items.length < matching.length, nextCursor: cursor + items.length < matching.length ? cursor + items.length : null, items };
 }
 
@@ -297,3 +301,242 @@ export function describeWorkflow(id: string, sources: LiveOperationSources) {
 }
 
 export const AGENT_DISCOVERY_INTERNALS = { canonicalJson, resolveOperation };
+
+export type DiscoveryCommand = {
+  key: string;
+  mutating?: boolean;
+  sideEffecting?: boolean;
+  allowedFlags?: readonly string[];
+};
+export type DiscoveryRoute = {
+  method: string;
+  pattern: string;
+  effect?: string;
+};
+export type DiscoveryOperationBinding = {
+  id: string;
+  capabilityIds: string[];
+  safety: OperationSafety;
+  idempotent: boolean | null;
+  requiresActor: boolean;
+  requiresConfirmation: boolean;
+  retryClass: RetryClass;
+};
+
+type SurfaceName = "mcp" | "cli" | "http";
+type SurfaceBaseline = { count: number; hash: string };
+
+/**
+ * Reviewed identities of the three public operation registries. The live
+ * registries remain authoritative; these compact snapshots make additions and
+ * removals require an explicit discovery review without copying hundreds of
+ * operation names into a second hand-maintained catalogue.
+ */
+export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
+  mcp: { count: 135, hash: "175a7c5f83729f1c31a4491acc05c6e4c6a86cf6de33b8f6bbbd896a599586d3" },
+  cli: { count: 200, hash: "750c352fbcccc03c7a93024e5bd105082b8b6d3e71c3a3e7f4787aac5f6a6463" },
+  http: { count: 133, hash: "644bb5012c0cd55baac2c7d3f04e7959735bc0063077c69d0d2faa4345deec82" },
+};
+
+const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
+  { capabilityId: "digisense-nemhandel", pattern: /(?:efaktura|digisense|peppol|send-public)/ },
+  { capabilityId: "group-intercompany", pattern: /(?:group|portfolio)/ },
+  { capabilityId: "posting-rules", pattern: /(?:posting[_-]rules?|posting_rule|agent-suggestions)/ },
+  { capabilityId: "fixed-assets", pattern: /(?:asset|fixed-assets)/ },
+  { capabilityId: "mileage", pattern: /mileage/ },
+  { capabilityId: "privacy", pattern: /gdpr/ },
+  { capabilityId: "period-management", pattern: /(?:period|fiscal-years)/ },
+  { capabilityId: "vat", pattern: /(?:vat|moms|oss-report|eu-sales)/ },
+  { capabilityId: "bank-bookkeeping", pattern: /(?:bank|reconcile|bookkeeping[_-]batch)/ },
+  { capabilityId: "document-intake", pattern: /(?:documents?|mail[_-]intake|imap[_-]intake|bilagsmail)/ },
+  { capabilityId: "supplier-purchases", pattern: /(?:expense|payable|vendor|supplier)/ },
+  { capabilityId: "customer-invoicing", pattern: /(?:invoice|customer|recurring)/ },
+  { capabilityId: "exceptions-corrections", pattern: /(?:exceptions?|journal|accounting-draft|opening-balance)/ },
+  { capabilityId: "imports", pattern: /(?:import|archive\/:year)/ },
+  { capabilityId: "planning-reporting", pattern: /(?:report|dashboard|budget|cashflow|tax_return|tax\b|annual|accrual|compliance|obligations|multi-year)/ },
+  { capabilityId: "operations-assurance", pattern: /(?:system|audit|health|ready|retention|integrity|backup|meta_about|agent[_-]capabilit|agent[_-]workflow|agent run|reg coverage|reg citations|serve|local start)/ },
+  { capabilityId: "company-workspace", pattern: /(?:company|companies|workspace|accounts?|cvr|contacts|members|invitations|^cli:init$|^http:get \/api$|^http:get \/api\/health$|^http:get \/api\/rules$|^http:get \/api\/me$)/ },
+];
+
+export const AGENT_DISCOVERY_COVERAGE_RULES_HASH = createHash("sha256")
+  .update(canonicalJson({
+    schemaVersion: "rentemester-agent-discovery-coverage-v1",
+    baselines: AGENT_SURFACE_BASELINES,
+    rules: CAPABILITY_RULES.map((rule) => ({ capabilityId: rule.capabilityId, pattern: rule.pattern.source })),
+  }))
+  .digest("hex");
+
+export function coverageIdentity() {
+  return {
+    schemaVersion: "rentemester-agent-discovery-coverage-v1" as const,
+    rulesHash: AGENT_DISCOVERY_COVERAGE_RULES_HASH,
+    surfaceBaselines: AGENT_SURFACE_BASELINES,
+  };
+}
+
+export function capabilityIdsForOperation(id: string): string[] {
+  const normalized = id.toLowerCase();
+  return [...new Set(CAPABILITY_RULES.filter((rule) => rule.pattern.test(normalized)).map((rule) => rule.capabilityId))];
+}
+
+function surfaceHash(ids: readonly string[]): string {
+  return createHash("sha256").update([...ids].sort().join("\n")).digest("hex");
+}
+
+function sourceOperationIds(input: AgentDiscoveryCoverageInput): Record<SurfaceName, string[]> {
+  return {
+    mcp: input.tools.map((tool) => tool.name).sort(),
+    cli: input.commands.map((command) => command.key).sort(),
+    http: input.routes.map((route) => `${route.method} ${route.pattern}`).sort(),
+  };
+}
+
+function bindingForOperation(id: string, input: AgentDiscoveryCoverageInput): DiscoveryOperationBinding | null {
+  const capabilityIds = (input.classifyOperation ?? capabilityIdsForOperation)(id);
+  if (capabilityIds.length === 0) return null;
+  if (id.startsWith("mcp:")) {
+    const tool = input.tools.find((item) => item.name === id.slice(4));
+    if (!tool?.annotations || typeof tool.annotations.readOnlyHint !== "boolean") return null;
+    const safety = tool.annotations.readOnlyHint ? "read" : tool.annotations.destructiveHint ? "destructive" : "write";
+    return { id, capabilityIds, safety, idempotent: tool.annotations.idempotentHint === true, requiresActor: safety !== "read", requiresConfirmation: safety !== "read", retryClass: safety === "read" ? "safe-read" : safety === "destructive" ? "never-automatic" : tool.annotations.idempotentHint ? "stable-key-resume" : "read-back-before-retry" };
+  }
+  if (id.startsWith("cli:")) {
+    const command = input.commands.find((item) => item.key === id.slice(4));
+    if (!command) return null;
+    const safety: OperationSafety = command.mutating || command.sideEffecting ? "write" : "read";
+    return { id, capabilityIds, safety, idempotent: safety === "read" ? true : null, requiresActor: command.mutating === true, requiresConfirmation: command.allowedFlags?.includes("--confirm") === true, retryClass: safety === "read" ? "safe-read" : "read-back-before-retry" };
+  }
+  const routeId = id.slice(5);
+  const separator = routeId.indexOf(" ");
+  const route = input.routes.find((item) => item.method === routeId.slice(0, separator) && item.pattern === routeId.slice(separator + 1));
+  if (!route) return null;
+  const safety: OperationSafety = route.effect === "read" ? "read" : "write";
+  return { id, capabilityIds, safety, idempotent: safety === "read" ? true : null, requiresActor: false, requiresConfirmation: false, retryClass: route.effect === "external" ? "never-automatic" : safety === "read" ? "safe-read" : "read-back-before-retry" };
+}
+
+export function discoverableOperationBindings(sources: LiveOperationSources): DiscoveryOperationBinding[] {
+  const input: AgentDiscoveryCoverageInput = {
+    tools: sources.tools ?? [],
+    commands: sources.commands ?? [],
+    routes: sources.routes ?? [],
+  };
+  const ids = sourceOperationIds(input);
+  return [
+    ...ids.mcp.map((id) => `mcp:${id}`),
+    ...ids.cli.map((id) => `cli:${id}`),
+    ...ids.http.map((id) => `http:${id}`),
+  ]
+    .map((id) => bindingForOperation(id, input))
+    .filter((binding): binding is DiscoveryOperationBinding => binding !== null)
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export type AgentDiscoveryCoverageInput = {
+  tools: readonly LiveTool[];
+  commands: readonly DiscoveryCommand[];
+  routes: readonly DiscoveryRoute[];
+  workflows?: readonly AgentWorkflow[];
+  capabilities?: readonly AgentCapability[];
+  expectedOperationIds?: readonly string[];
+  classifyOperation?: (id: string) => string[];
+  standaloneOperationIds?: readonly string[];
+  imageDigest?: string | null;
+};
+
+export type AgentDiscoveryCoverageReport = {
+  schemaVersion: "rentemester-agent-discovery-coverage-v1";
+  ok: boolean;
+  catalogue: ReturnType<typeof catalogueIdentity>;
+  coverageHash: string;
+  imageDigest: string | null;
+  counts: { mcp: number; cli: number; http: number; capabilities: number; workflows: number; bindings: number };
+  bindings: DiscoveryOperationBinding[];
+  errors: string[];
+};
+
+export function validateAgentDiscoveryCoverage(input: AgentDiscoveryCoverageInput): AgentDiscoveryCoverageReport {
+  const capabilities = input.capabilities ?? AGENT_CAPABILITIES;
+  const workflows = input.workflows ?? AGENT_WORKFLOWS;
+  const capabilityIds = new Set(capabilities.map((item) => item.id));
+  const workflowIds = new Set(workflows.map((item) => item.id));
+  const surfaces = sourceOperationIds(input);
+  const liveIds = [...surfaces.mcp.map((id) => `mcp:${id}`), ...surfaces.cli.map((id) => `cli:${id}`), ...surfaces.http.map((id) => `http:${id}`)].sort();
+  const errors: string[] = [];
+
+  if (input.expectedOperationIds) {
+    const expected = new Set(input.expectedOperationIds);
+    const live = new Set(liveIds);
+    for (const id of liveIds) if (!expected.has(id)) errors.push(`${id}: new public operation is not in the reviewed discovery baseline; classify it and update the baseline.`);
+    for (const id of expected) if (!live.has(id)) errors.push(`${id}: reviewed operation is not live; restore it or remove its discovery classification.`);
+  } else {
+    for (const surface of ["mcp", "cli", "http"] as const) {
+      const actual = { count: surfaces[surface].length, hash: surfaceHash(surfaces[surface]) };
+      const expected = AGENT_SURFACE_BASELINES[surface];
+      if (actual.count !== expected.count || actual.hash !== expected.hash) {
+        errors.push(`${surface}: public surface identity changed (expected ${expected.count}/${expected.hash}, got ${actual.count}/${actual.hash}); review the live registrations, capability mappings and workflows, then update AGENT_SURFACE_BASELINES.`);
+      }
+    }
+  }
+
+  if ((input.standaloneOperationIds?.length ?? 0) > 0) {
+    errors.push(`standalone classifications are not accepted: ${input.standaloneOperationIds!.join(", ")}; link every public operation to a named capability.`);
+  }
+
+  const bindings: DiscoveryOperationBinding[] = [];
+  for (const id of liveIds) {
+    const binding = bindingForOperation(id, input);
+    if (!binding) {
+      errors.push(`${id}: no live, machine-readable capability binding; add an explicit classification rule and reviewed surface identity.`);
+      continue;
+    }
+    for (const capabilityId of binding.capabilityIds) {
+      if (!capabilityIds.has(capabilityId)) errors.push(`${id}: capability binding '${capabilityId}' does not exist in AGENT_CAPABILITIES.`);
+    }
+    bindings.push(binding);
+  }
+
+  for (const capability of capabilities) {
+    if (capability.workflowIds.length === 0) errors.push(`capability:${capability.id}: no canonical workflow is linked.`);
+    for (const workflowId of capability.workflowIds) if (!workflowIds.has(workflowId)) errors.push(`capability:${capability.id}: workflow '${workflowId}' does not exist.`);
+    if (!bindings.some((binding) => binding.capabilityIds.includes(capability.id))) errors.push(`capability:${capability.id}: no live public operation is discoverable through this capability.`);
+  }
+
+  for (const workflow of workflows) {
+    if (!capabilityIds.has(workflow.capabilityId)) errors.push(`workflow:${workflow.id}: capability '${workflow.capabilityId}' does not exist.`);
+    const capability = capabilities.find((item) => item.id === workflow.capabilityId);
+    if (!capability?.workflowIds.includes(workflow.id)) errors.push(`workflow:${workflow.id}: reverse link from capability '${workflow.capabilityId}' is missing.`);
+    const stepIds = new Set(workflow.steps.map((item) => item.id));
+    for (const workflowStep of workflow.steps) {
+      for (const dependencyGroup of workflowStep.dependsOn) {
+        for (const dependency of dependencyGroup.split("|")) if (!stepIds.has(dependency)) errors.push(`workflow:${workflow.id}/${workflowStep.id}: dangling dependency '${dependency}'.`);
+      }
+      const id = operationId(workflowStep.operation);
+      const binding = bindings.find((item) => item.id === id);
+      if (!binding) {
+        errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} is not live and capability-bound.`);
+        continue;
+      }
+      const dryRunVariant = workflowStep.operation.surface === "cli" && workflowStep.requiredArguments?.includes("--dry-run");
+      const actualSafety = dryRunVariant ? "read" : binding.safety;
+      if (actualSafety !== workflowStep.expectedSafety) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} safety claim '${workflowStep.expectedSafety}' contradicts live '${actualSafety}'.`);
+      if (workflowStep.operation.surface === "mcp" && binding.idempotent !== workflowStep.expectedIdempotent) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} idempotency claim '${workflowStep.expectedIdempotent}' contradicts live '${binding.idempotent}'.`);
+      if (workflowStep.operation.surface !== "http" && binding.requiresActor !== workflowStep.requiresActor) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} actor requirement contradicts the live surface.`);
+      if (workflowStep.operation.surface !== "http" && binding.requiresConfirmation !== workflowStep.requiresConfirmation) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} confirmation requirement contradicts the live surface.`);
+      if (actualSafety === "read" && workflowStep.retryClass !== "safe-read") errors.push(`workflow:${workflow.id}/${workflowStep.id}: read operation must use safe-read retry semantics.`);
+      if (actualSafety === "destructive" && workflowStep.retryClass !== "never-automatic") errors.push(`workflow:${workflow.id}/${workflowStep.id}: destructive operation must never retry automatically.`);
+    }
+  }
+
+  const sortedBindings = bindings.sort((a, b) => a.id.localeCompare(b.id));
+  const coverageHash = createHash("sha256").update(canonicalJson({ catalogueHash: AGENT_CATALOGUE_HASH, baselines: AGENT_SURFACE_BASELINES, bindings: sortedBindings, workflows: workflows.map((item) => item.id) })).digest("hex");
+  return {
+    schemaVersion: "rentemester-agent-discovery-coverage-v1",
+    ok: errors.length === 0,
+    catalogue: catalogueIdentity(),
+    coverageHash,
+    imageDigest: input.imageDigest ?? null,
+    counts: { mcp: input.tools.length, cli: input.commands.length, http: input.routes.length, capabilities: capabilities.length, workflows: workflows.length, bindings: sortedBindings.length },
+    bindings: sortedBindings,
+    errors,
+  };
+}

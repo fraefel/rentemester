@@ -86,6 +86,9 @@ jobs:
       - name: Typecheck runtime and release scripts
         run: bun run typecheck:runtime
 
+      - name: Verify agent discovery coverage
+        run: bun run agent-discovery:coverage
+
       - name: Lint TypeScript and React sources
         run: bun run lint
 
@@ -254,6 +257,30 @@ jobs:
           sha256sum sbom.spdx.json > sbom.spdx.json.sha256
           echo "sha256=sha256:$(cut -d " " -f 1 sbom.spdx.json.sha256)" >> "$GITHUB_OUTPUT"
 
+      - name: Verify packaged agent-discovery coverage identity
+        id: agent_discovery
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          EXPECTED_VERSION: ${{ steps.identity.outputs.version }}
+          EXPECTED_COMMIT: ${{ steps.identity.outputs.commit }}
+        run: |
+          set -euo pipefail
+          image="$REGISTRY_IMAGE@$IMAGE_DIGEST"
+          docker pull "$image"
+          docker run --rm --read-only \
+            -e RENTEMESTER_AGENT_DISCOVERY_IMAGE_DIGEST="$IMAGE_DIGEST" \
+            --entrypoint bun "$image" \
+            run src/agent-discovery-coverage-cli.ts > agent-discovery-coverage-report.json
+          bun -e '
+            const report=await Bun.file("agent-discovery-coverage-report.json").json();
+            if(report.ok!==true) throw new Error("packaged discovery gate is not green");
+            if(report.imageDigest!==process.env.IMAGE_DIGEST) throw new Error("coverage evidence is not bound to the image digest");
+            if(report.catalogue?.build?.version!==process.env.EXPECTED_VERSION) throw new Error("coverage evidence has the wrong version");
+            if(report.catalogue?.build?.gitCommit!==process.env.EXPECTED_COMMIT) throw new Error("coverage evidence has the wrong commit");
+          '
+          sha256sum agent-discovery-coverage-report.json > agent-discovery-coverage-report.json.sha256
+          echo "sha256=sha256:$(cut -d " " -f 1 agent-discovery-coverage-report.json.sha256)" >> "$GITHUB_OUTPUT"
+
       - name: Create digest-bound release manifest
         env:
           RELEASE_VERSION: ${{ steps.identity.outputs.version }}
@@ -269,6 +296,7 @@ jobs:
           RENTEMESTER_BASE_IMAGE_DIGEST: ${{ env.BUN_BASE_IMAGE_DIGEST }}
           RELEASE_SBOM_SHA256: ${{ steps.sbom.outputs.sha256 }}
           RELEASE_SUPPLY_CHAIN_SHA256: ${{ steps.supply_chain.outputs.sha256 }}
+          RELEASE_AGENT_DISCOVERY_SHA256: ${{ steps.agent_discovery.outputs.sha256 }}
         run: |
           bun run scripts/release/create-manifest.ts > release-manifest.json
           sha256sum release-manifest.json > release-manifest.json.sha256
@@ -293,6 +321,8 @@ jobs:
             sbom.spdx.json.sha256
             supply-chain-evidence.json
             supply-chain-evidence.json.sha256
+            agent-discovery-coverage-report.json
+            agent-discovery-coverage-report.json.sha256
             docs/release/digisense-approval.schema.json
           if-no-files-found: error
           retention-days: 90

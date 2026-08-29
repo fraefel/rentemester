@@ -5,6 +5,7 @@ import { openCommandDb } from "../cli-dispatch";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 import {
   actorMatchesAllowlist,
+  actorMayForcePeriodClose,
   inferredMutationActor,
   isCanonicalActorId,
   loadActorAllowlist,
@@ -63,6 +64,7 @@ export function register(dispatch: CommandDispatch): void {
       console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>");
       process.exit(2);
     }
+    const force = ctx.arg("--force") === "yes" || ctx.arg("--force") === "true";
     const db = openCommandDb(ctx);
     migrate(db);
     const result = closeAccountingPeriod(db, {
@@ -73,10 +75,12 @@ export function register(dispatch: CommandDispatch): void {
       reference: ctx.arg("--reference") ?? undefined,
       // Bypass the open-high/medium-exceptions safety guard (Batch D-7).
       // The bypass itself is visible in the close result + audit log.
-      force: ctx.arg("--force") === "yes" || ctx.arg("--force") === "true",
+      force,
       readinessPacketHash: ctx.arg("--packet-hash") ?? undefined,
       forceReason: ctx.arg("--reason") ?? undefined,
       createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR,
+      forceAuthorized: force && actorMayForcePeriodClose(ctx.companyRoot(), ctx.cliActor ?? process.env.RENTEMESTER_ACTOR),
+      forceConfirmed: !force || ctx.arg("--confirm") === "yes" || ctx.arg("--confirm") === "true",
     });
     ctx.emitResult(result as Record<string, unknown>);
     db.close();

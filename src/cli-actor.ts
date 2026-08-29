@@ -232,6 +232,24 @@ export function loadActorAllowlist(root: string): Set<string> {
   return allowlist;
 }
 
+/** Explicit, local policy for the exceptional forced period-close waiver. */
+export function actorMayForcePeriodClose(root: string, actor: string | null | undefined): boolean {
+  if (!actor) return false;
+  const policyPath = join(companyPaths(root).config, "policy.yaml");
+  if (!existsSync(policyPath)) return false;
+  let inSection = false;
+  for (const rawLine of readFileSync(policyPath, "utf8").split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (trimmed === "period_close_force_actors:") { inSection = true; continue; }
+    if (inSection && !/^\s/.test(rawLine)) break;
+    if (!inSection) continue;
+    const value = rawLine.match(/^\s*-\s*(.+?)\s*$/)?.[1]?.replace(/^['"]|['"]$/g, "");
+    if (value && normaliseActorForMatching(value) === normaliseActorForMatching(actor)) return true;
+  }
+  return false;
+}
+
 /**
  * #248 (follow-up): the allowlist comparison normalises case + surrounding
  * whitespace so that an explicit `--actor` form and its derived (USER) twin

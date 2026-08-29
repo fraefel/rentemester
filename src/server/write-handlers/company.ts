@@ -12,6 +12,12 @@ import {
   setCompanyVatPeriodType,
   normalizeVatPeriodType,
 } from "../../core/periods";
+import { createPeriodCloseReadinessPacket } from "../../core/period-close-readiness";
+import { companyPaths } from "../../core/paths";
+import { companyRootForSlug } from "../../core/workspace";
+import { openDb, migrate } from "../../core/db";
+import { openWorkspaceControlReadOnlyDb } from "../../core/workspace-control";
+import { getCompanyMembership } from "../../core/workspace-access";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
 import { withCompanyMutation } from "../mutations";
@@ -263,6 +269,11 @@ export async function handleClosePeriod(
         );
       }
       const force = body.force === true;
+      const forceAuthorized = !force || ctx.principal.via !== "better-auth" || (() => {
+        const control = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
+        try { return getCompanyMembership(control, ctx.principal.id.slice("user:".length), slug).role === "owner"; }
+        finally { control.close(); }
+      })();
       const packetHash = requireBodyString(body, "packetHash");
       const forceReason = optionalBodyString(body, "reason");
       const closed = closeAccountingPeriod(ctx.db, {
@@ -273,6 +284,8 @@ export async function handleClosePeriod(
         force,
         readinessPacketHash: packetHash,
         forceReason,
+        forceAuthorized,
+        forceConfirmed: true,
         createdBy: ctx.actor.createdBy,
         createdByProgram: ctx.actor.createdByProgram,
       });
@@ -300,6 +313,16 @@ export async function handleClosePeriod(
       reference: result.reference ?? null,
     },
   });
+}
+
+export function handlePeriodCloseReadiness(config: ServerConfig, slug: string, request: Request): Response {
+  const url = new URL(request.url);
+  const periodStart = url.searchParams.get("from")?.trim();
+  const periodEnd = url.searchParams.get("to")?.trim();
+  if (!periodStart || !periodEnd) throw ApiError.badRequest("query parameters 'from' and 'to' are required");
+  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
+  try { migrate(db); return okResponse({ packet: createPeriodCloseReadinessPacket(db, { periodStart, periodEnd }) }); }
+  finally { db.close(); }
 }
 
 // --------------------------------------------------------------------------

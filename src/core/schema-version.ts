@@ -120,6 +120,9 @@ export const MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME = "rentemester-mutatio
 const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0021-bookkeeping-batch-revisions.json"));
 export const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_CHECKSUM = createHash("sha256").update(BOOKKEEPING_BATCH_REVISIONS_MIGRATION_ARTIFACT).digest("hex");
 export const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_NAME = "rentemester-bookkeeping-batch-revisions-v21";
+const PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0022-period-close-readiness.json"));
+export const PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM = createHash("sha256").update(PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT).digest("hex");
+export const PERIOD_CLOSE_READINESS_MIGRATION_NAME = "rentemester-period-close-readiness-v22";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -163,6 +166,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 19, name: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME, checksum: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM },
   { id: 20, name: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME, checksum: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM },
   { id: 21, name: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_CHECKSUM },
+  { id: 22, name: PERIOD_CLOSE_READINESS_MIGRATION_NAME, checksum: PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -389,6 +393,7 @@ export function applySchemaMigrations(db: Database): void {
     { id: 19, name: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME, checksum: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM, artifact: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT },
     { id: 20, name: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME, checksum: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM, artifact: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_ARTIFACT },
     { id: 21, name: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_ARTIFACT },
+    { id: 22, name: PERIOD_CLOSE_READINESS_MIGRATION_NAME, checksum: PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM, artifact: PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -431,7 +436,7 @@ export function applySchemaMigrations(db: Database): void {
         // committed tables and guards remain. The migration is deliberately
         // replay-safe: remove only its canonical trigger names, then let the
         // IF NOT EXISTS table definitions preserve the recorded evidence.
-        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10 || migration.id === 11 || migration.id === 12 || migration.id === 13 || migration.id === 14 || migration.id === 15 || migration.id === 17 || migration.id === 18) {
+        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10 || migration.id === 11 || migration.id === 12 || migration.id === 13 || migration.id === 14 || migration.id === 15 || migration.id === 17 || migration.id === 18 || migration.id === 22) {
           const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
           for (const statement of triggerStatements) {
             const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
@@ -626,6 +631,11 @@ export function applySchemaMigrations(db: Database): void {
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 19").get()) {
     const parsed = JSON.parse(DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 22").get()) {
+    const parsed = JSON.parse(PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }

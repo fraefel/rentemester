@@ -3,7 +3,7 @@ import { insertAuditLog, resolveActor, type ResolveActorInput } from "./actor";
 import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { isValidIsoDate as looksLikeIsoDate, addDays, todayIsoDate, MONTH_NAMES_DA } from "./dates";
 import { loadVatAccountSemantics, VAT_LINE_CODES } from "./vat-account-semantics";
-import { createPeriodCloseReadinessPacket, recordForcedPeriodCloseOpenItems, type CloseReadinessPacket } from "./period-close-readiness";
+import { createPeriodCloseReadinessPacket, latestPeriodCloseDecision, recordForcedPeriodCloseOpenItems, recordPeriodCloseDecision, type CloseReadinessPacket } from "./period-close-readiness";
 
 /** `vat_period` is cadence-neutral; `vat_quarter` is read-only legacy compatibility. */
 export type AccountingPeriodKind = "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
@@ -458,6 +458,9 @@ export type CloseAccountingPeriodInput = {
   force?: boolean;
   readinessPacketHash?: string;
   forceReason?: string;
+  /** Set only by a trusted surface after policy/RBAC evaluation. */
+  forceAuthorized?: boolean;
+  forceConfirmed?: boolean;
 };
 
 export type CloseAccountingPeriodResult = {
@@ -665,7 +668,7 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
   const packet = createPeriodCloseReadinessPacket(db, { periodStart, periodEnd });
   if (input.readinessPacketHash !== packet.hash) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"], readinessPacket: packet };
   if (!input.force && packet.blockers > 0) return { ok: false, appliedRules, errors: [`PERIOD_CLOSE_BLOCKED:${packet.blockers}`], readinessPacket: packet };
-  if (input.force && (!input.forceReason?.trim() || !input.createdBy?.trim())) return { ok: false, appliedRules, errors: ["FORCED_CLOSE_REQUIRES_TRUSTED_ACTOR_AND_REASON"], readinessPacket: packet };
+  if (input.force && (!input.forceReason?.trim() || !input.createdBy?.trim() || input.forceAuthorized !== true || input.forceConfirmed !== true)) return { ok: false, appliedRules, errors: ["FORCED_CLOSE_REQUIRES_TRUSTED_ELEVATED_AUTHORITY_CONFIRM_ACTOR_AND_REASON"], readinessPacket: packet };
 
   if (kind === "vat_period") {
     const vatPeriodType = registeredVatPeriodType(db);
@@ -941,8 +944,9 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
     createdBy: input.createdBy,
     createdByProgram: input.createdByProgram,
   });
+  const decisionId = recordPeriodCloseDecision(db, { periodId: inserted.id, packet, decision: input.force ? "forced_closed" : "closed", actor: input.createdBy ?? "system", reason: input.force ? input.forceReason : undefined });
   if (input.force && packet.items.length > 0) {
-    recordForcedPeriodCloseOpenItems(db, inserted.id, packet, input.forceReason!.trim(), input.createdBy!);
+    recordForcedPeriodCloseOpenItems(db, inserted.id, decisionId, packet, input.forceReason!.trim(), input.createdBy!);
     insertAuditLog(db, { eventType: "PERIOD_CLOSED_WITH_OPEN_ITEMS", entityType: "accounting_period", entityId: inserted.id, message: `Forced close with ${packet.items.length} open readiness item(s): ${input.forceReason!.trim()}`, createdBy: input.createdBy, createdByProgram: input.createdByProgram });
   }
 
@@ -1097,6 +1101,11 @@ export function reopenAccountingPeriod(
     createdBy: input.createdBy,
     createdByProgram: input.createdByProgram,
   });
+  // A reopen never mutates the original close evidence. It appends a decision
+  // linked to a freshly persisted snapshot and explicitly supersedes the last
+  // lifecycle decision for this period.
+  const reopenPacket = createPeriodCloseReadinessPacket(db, { periodStart, periodEnd });
+  recordPeriodCloseDecision(db, { periodId: period.id, packet: reopenPacket, decision: "reopened", actor: actor.createdBy, reason, supersedesDecisionId: latestPeriodCloseDecision(db, period.id) });
 
   return {
     ok: true,

@@ -138,6 +138,11 @@ export function registerPeriodTools(server: McpServer): void {
         force: args.force,
         readinessPacketHash: args.packetHash,
         forceReason: args.reason,
+        // MCP actor attribution alone is not elevated authorization. The
+        // forced waiver is deliberately available only where trusted RBAC or
+        // local policy can be evaluated (HTTP owner / CLI policy).
+        forceAuthorized: false,
+        forceConfirmed: args.confirm === true,
         createdBy: actor.createdBy,
         createdByProgram: actor.createdByProgram,
       });

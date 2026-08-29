@@ -160,7 +160,8 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   ], alternatives: ["Use invoice_credit_note for an issued sales invoice."], unsupportedBoundaries: ["Posted entries and original documents are never overwritten or deleted."] }),
   workflow({ id: "period-close-reopen", capabilityId: "period-management", title: "Period readiness, close and reopen", intendedOutcome: "Inspect period readiness, close deliberately and reopen only through the supported correction path.", steps: [
     read("list-periods", mcp("period_list"), "Inspect period state and blockers."),
-    write("close-period", mcp("period_close"), "Close the selected period.", { dependsOn: ["list-periods"], boundary: "approval", canonicalRecords: ["period locks"] }),
+    read("close-readiness", mcp("period_close_readiness"), "Create the exact immutable packet and inspect only controls that ran.", { dependsOn: ["list-periods"], canonicalRecords: ["period close readiness packet"] }),
+    write("close-period", mcp("period_close"), "Close using the exact readiness packet hash; never retry after a stale packet.", { dependsOn: ["close-readiness"], boundary: "approval", canonicalRecords: ["period locks", "period close decision"] }),
     write("reopen-period", cli("period reopen"), "Reopen through the CLI-only audited operation.", { dependsOn: ["close-period"], condition: "Correction branch only.", boundary: "approval", requiresConfirmation: false, canonicalRecords: ["period reopen audit"] }),
     read("verify-period", mcp("period_list"), "Read back period state.", { dependsOn: ["close-period|reopen-period"] }),
   ], unsupportedBoundaries: ["Period reopen is CLI-only; no MCP parity is claimed."] }),
@@ -334,9 +335,9 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 137, hash: "9c8c05364e9626875051ace3cc2fad99166f35154176e005e0a5678bd490070b" },
-  cli: { count: 201, hash: "aa011c2bec158519d399663c54e9b7bf62fe9359364704e68a315c7e0af8650f" },
-  http: { count: 136, hash: "9777638c35ca6ba0bec4f5a0f543073ca93c0bf89c5123428d2c8f888e53a8db" },
+  mcp: { count: 138, hash: "04e7992b5c7cd42049ba48b0442e65173c3b37f0d8d14b11f20160b9cd6d21a4" },
+  cli: { count: 202, hash: "8c6a29dc29b970e6034be510e8b33700f3d9490dec4028ef8855cbad0dcc5816" },
+  http: { count: 137, hash: "34da7a46d32569652ea2b2a69e3350960405e7e279f3ca761a36ddb8d5484b03" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

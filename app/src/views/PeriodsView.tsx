@@ -201,6 +201,7 @@ function ClosePeriodModal({
   const [kind, setKind] = useState<AccountingPeriodKind>("vat_period");
   const [reference, setReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [packet, setPacket] = useState<{ hash: string; blockers: number; warnings: number; items: Array<{code:string;severity:"blocker"|"warning";count:number}> } | null>(null);
   // #301 — a period whose end lies in the future is not over yet. Require a
   // second, explicit acknowledgement before such a close can go through, the
   // same guard VatView's close-modal has.
@@ -217,11 +218,19 @@ function ClosePeriodModal({
     }
     setSubmitting(true);
     try {
+      const readiness = await api.closeReadiness(slug, periodStart, periodEnd);
+      setPacket(readiness);
+      if (readiness.blockers > 0) {
+        onError(`Perioden kan ikke lukkes: ${readiness.items.filter((item) => item.severity === "blocker").map((item) => item.code).join(", ")}`);
+        setSubmitting(false);
+        return;
+      }
       await api.closePeriod(slug, {
         periodStart,
         periodEnd,
         kind,
         ...(reference ? { reference } : {}),
+        packetHash: readiness.hash,
       });
       onDone();
     } catch (err) {
@@ -246,6 +255,7 @@ function ClosePeriodModal({
               required
             />
           </label>
+          {packet && <p className="muted">Readiness: {packet.blockers} blokeringer, {packet.warnings} advarsler. Hashen er bundet til dette øjebliksbillede.</p>}
           <label>
             Slut (YYYY-MM-DD)
             <input

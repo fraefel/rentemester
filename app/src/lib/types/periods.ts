@@ -21,7 +21,12 @@ export type ClosePeriodInput = {
   periodEnd: string;
   kind?: "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
   reference?: string;
+  packetHash?: string;
+  force?: boolean;
+  reason?: string;
 };
+
+export type PeriodCloseReadinessPacket = { hash: string; blockers: number; warnings: number; items: Array<{ code: string; severity: "blocker" | "warning"; count: number }> };
 
 /** The result of `POST /api/companies/:slug/periods/reopen` (#301). */
 export type ReopenPeriodResult = {
@@ -83,3 +88,5 @@ export type PeriodsResponse = {
   ok: true;
   periods: CompanyPeriods;
 };
+
+export type PeriodCloseReadinessResponse = { ok: true; packet: PeriodCloseReadinessPacket };

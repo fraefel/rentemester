@@ -42,6 +42,8 @@ export const WORKSPACE_CONTROL_AUTHORIZATION_DENIAL_AUDIT_MIGRATION_ID = 13;
 export const WORKSPACE_CONTROL_AUTHORIZATION_DENIAL_AUDIT_MIGRATION_NAME = "rentemester-authorization-denial-audit-v13";
 export const WORKSPACE_CONTROL_INVITATIONS_MIGRATION_ID = 14;
 export const WORKSPACE_CONTROL_INVITATIONS_MIGRATION_NAME = "rentemester-workspace-invitations-v14";
+export const WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_ID = 15;
+export const WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_NAME = "rentemester-party-registry-v15";
 
 const baselineArtifact = readFileSync(
   join(import.meta.dir, "workspace-migrations", "0001-workspace-control-baseline.json"),
@@ -67,6 +69,7 @@ const workspaceConsolidationProfileArtifact = readFileSync(join(import.meta.dir,
 const workspaceAuthRecoveryTelemetryArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0012-auth-recovery-telemetry-v12.json"));
 const workspaceAuthorizationDenialAuditArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0013-authorization-denial-audit-v13.json"));
 const workspaceInvitationsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0014-workspace-invitations-v14.json"));
+const workspacePartyRegistryArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0015-party-registry-v15.json"));
 
 export const WORKSPACE_CONTROL_BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(baselineArtifact)
@@ -92,6 +95,7 @@ export const WORKSPACE_CONTROL_CONSOLIDATION_PROFILE_MIGRATION_CHECKSUM = create
 export const WORKSPACE_CONTROL_AUTH_RECOVERY_TELEMETRY_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceAuthRecoveryTelemetryArtifact).digest("hex");
 export const WORKSPACE_CONTROL_AUTHORIZATION_DENIAL_AUDIT_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceAuthorizationDenialAuditArtifact).digest("hex");
 export const WORKSPACE_CONTROL_INVITATIONS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceInvitationsArtifact).digest("hex");
+export const WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_CHECKSUM = createHash("sha256").update(workspacePartyRegistryArtifact).digest("hex");
 
 export type WorkspaceControlPaths = {
   root: string;
@@ -157,6 +161,7 @@ const migrations: readonly WorkspaceMigration[] = [
   { id: WORKSPACE_CONTROL_AUTH_RECOVERY_TELEMETRY_MIGRATION_ID, name: WORKSPACE_CONTROL_AUTH_RECOVERY_TELEMETRY_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_AUTH_RECOVERY_TELEMETRY_MIGRATION_CHECKSUM, artifact: workspaceAuthRecoveryTelemetryArtifact },
   { id: WORKSPACE_CONTROL_AUTHORIZATION_DENIAL_AUDIT_MIGRATION_ID, name: WORKSPACE_CONTROL_AUTHORIZATION_DENIAL_AUDIT_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_AUTHORIZATION_DENIAL_AUDIT_MIGRATION_CHECKSUM, artifact: workspaceAuthorizationDenialAuditArtifact },
   { id: WORKSPACE_CONTROL_INVITATIONS_MIGRATION_ID, name: WORKSPACE_CONTROL_INVITATIONS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_INVITATIONS_MIGRATION_CHECKSUM, artifact: workspaceInvitationsArtifact },
+  { id: WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_ID, name: WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_CHECKSUM, artifact: workspacePartyRegistryArtifact },
 ];
 
 /** Latest immutable control-schema migration this runtime can safely serve. */
@@ -431,6 +436,7 @@ export function assertWorkspaceControlPrimitives(db: Database): void {
     "rm_intercompany_mapping_events",
     "rm_consolidation_elimination_events",
     "rm_consolidation_profile_events",
+    "rm_party_events",
   ]) {
     if (!tableExists(db, table)) {
       throw new Error(`workspace control access table '${table}' is missing`);

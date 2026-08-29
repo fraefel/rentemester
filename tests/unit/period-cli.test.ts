@@ -11,13 +11,15 @@ describe("period close CLI", () => {
 
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
 
+    const readiness = JSON.parse(await Bun.$`bun run src/cli.ts period readiness --company ${company} --from 2026-05-01 --to 2026-05-31 --format json`.text());
+
     const closeProc = Bun.spawn([
       "bun", "run", "src/cli.ts", "period", "close",
       "--company", company,
       "--from", "2026-05-01",
       "--to", "2026-05-31",
       "--kind", "vat_quarter",
-      "--reference", "SKAT-Q2-2026"
+      "--reference", "SKAT-Q2-2026", "--packet-hash", readiness.hash
     ], {
       cwd: process.cwd(),
       stdout: "pipe",
@@ -63,7 +65,8 @@ describe("period reopen CLI (#247)", () => {
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
 
     // Close 2026-05.
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer`.quiet();
+    const readiness = JSON.parse(await Bun.$`bun run src/cli.ts period readiness --company ${company} --from 2026-05-01 --to 2026-05-31 --format json`.text());
+    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer --packet-hash ${readiness.hash}`.quiet();
 
     // Reopen with no actor at all — must be refused (clearly attributable).
     const noActor = Bun.spawn(
@@ -122,7 +125,8 @@ describe("period reopen CLI (#247)", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-periodreopen-noreason-"));
     const company = join(root, "company");
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer`.quiet();
+    const readiness = JSON.parse(await Bun.$`bun run src/cli.ts period readiness --company ${company} --from 2026-05-01 --to 2026-05-31 --format json`.text());
+    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer --packet-hash ${readiness.hash}`.quiet();
 
     const proc = Bun.spawn(
       ["bun", "run", "src/cli.ts", "period", "reopen", "--company", company,

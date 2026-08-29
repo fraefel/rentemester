@@ -162,10 +162,12 @@ describe("Cockpit close period (#287)", () => {
     const { root: ws, slug } = makeWorkspace("close-period");
     try {
       postPnlEntry(ws, slug, "2026-02-15");
+      const readiness = await call(config(ws), `/api/companies/${slug}/periods/close-readiness?from=2026-01-01&to=2026-03-31`);
       const res = await post(config(ws), `/api/companies/${slug}/periods/close`, {
         periodStart: "2026-01-01",
         periodEnd: "2026-03-31",
         confirm: true,
+        packetHash: readiness.body.packet.hash,
       });
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
@@ -213,6 +215,8 @@ describe("Cockpit close period (#287)", () => {
         periodEnd: "2026-03-31",
         confirm: true,
       };
+      const readiness = await call(config(ws), `/api/companies/${slug}/periods/close-readiness?from=2026-01-01&to=2026-03-31`);
+      body.packetHash = readiness.body.packet.hash;
       const first = await post(config(ws), `/api/companies/${slug}/periods/close`, body);
       expect(first.status).toBe(200);
       const second = await post(config(ws), `/api/companies/${slug}/periods/close`, body);

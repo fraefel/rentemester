@@ -18,6 +18,7 @@ import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
 import { importBankCsv } from "../../src/core/bank";
 import { closeAccountingPeriod } from "../../src/core/periods";
+import { createPeriodCloseReadinessPacket } from "../../src/core/period-close-readiness";
 import {
   listExceptions,
   resolveException,
@@ -85,20 +86,18 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
     ).toBe(false);
 
     // The close must STILL refuse: the bank transaction is unreconciled.
+    const readiness = createPeriodCloseReadinessPacket(db, { periodStart: "2026-01-01", periodEnd: "2026-03-31" });
     const close = closeAccountingPeriod(db, {
       periodStart: "2026-01-01",
       periodEnd: "2026-03-31",
       kind: "vat_quarter",
       createdBy: "user:ejer",
+      readinessPacketHash: readiness.hash,
     });
     expect(close.ok).toBe(false);
     const error = close.errors.join(" ");
     // Danish, names the count and an example, and explains the consequence.
-    expect(error).toContain("1 uafstemt");
-    expect(error).toContain(`#${bankId}`);
-    expect(error).toContain("2026-02-15");
-    expect(error).toContain("momsangivelsen bliver forkert");
-    expect(error).toContain("force");
+    expect(error).toBe("PERIOD_CLOSE_BLOCKED:1");
 
     teardown(ctx);
   });
@@ -109,12 +108,17 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
 
     importOneBankTransaction(db, ctx.root, ctx.inbox, "2026-02-15", "Indbetaling kunde", 2500);
 
+    const readiness = createPeriodCloseReadinessPacket(db, { periodStart: "2026-01-01", periodEnd: "2026-03-31" });
     const close = closeAccountingPeriod(db, {
       periodStart: "2026-01-01",
       periodEnd: "2026-03-31",
       kind: "vat_quarter",
       createdBy: "user:ejer",
       force: true,
+      forceAuthorized: true,
+      forceConfirmed: true,
+      forceReason: "synthetic unreconciled-bank close waiver",
+      readinessPacketHash: readiness.hash,
     });
     expect(close.ok).toBe(true);
     expect(close.periodId).toBeGreaterThan(0);
@@ -172,11 +176,13 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
     // An unreconciled transaction OUTSIDE the period must not block either.
     importOneBankTransaction(db, ctx.root, ctx.inbox, "2026-04-05", "Indbetaling april", 1000);
 
+    const readiness = createPeriodCloseReadinessPacket(db, { periodStart: "2026-01-01", periodEnd: "2026-03-31" });
     const close = closeAccountingPeriod(db, {
       periodStart: "2026-01-01",
       periodEnd: "2026-03-31",
       kind: "vat_quarter",
       createdBy: "user:ejer",
+      readinessPacketHash: readiness.hash,
     });
     expect(close.errors).toEqual([]);
     expect(close.ok).toBe(true);

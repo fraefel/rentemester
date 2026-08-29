@@ -334,9 +334,9 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 135, hash: "175a7c5f83729f1c31a4491acc05c6e4c6a86cf6de33b8f6bbbd896a599586d3" },
-  cli: { count: 200, hash: "750c352fbcccc03c7a93024e5bd105082b8b6d3e71c3a3e7f4787aac5f6a6463" },
-  http: { count: 133, hash: "644bb5012c0cd55baac2c7d3f04e7959735bc0063077c69d0d2faa4345deec82" },
+  mcp: { count: 137, hash: "9c8c05364e9626875051ace3cc2fad99166f35154176e005e0a5678bd490070b" },
+  cli: { count: 201, hash: "aa011c2bec158519d399663c54e9b7bf62fe9359364704e68a315c7e0af8650f" },
+  http: { count: 136, hash: "9777638c35ca6ba0bec4f5a0f543073ca93c0bf89c5123428d2c8f888e53a8db" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

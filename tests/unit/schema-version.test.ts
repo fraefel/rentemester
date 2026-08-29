@@ -150,6 +150,7 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 19, name: "rentemester-document-company-contexts-v19" }),
       expect.objectContaining({ id: 20, name: "rentemester-mutation-idempotency-receipts-v20" }),
+      expect.objectContaining({ id: 21, name: "rentemester-bookkeeping-batch-revisions-v21" }),
     ]);
     db.close();
   });

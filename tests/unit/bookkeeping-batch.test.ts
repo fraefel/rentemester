@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { migrate } from "../../src/core/db";
 import { addBankAccount } from "../../src/core/bank";
 import { linkBankTransactionToJournal } from "../../src/core/bank-journal-reconciliation";
-import { approveBookkeepingBatchPlan, createBookkeepingBatchRun, planBookkeepingBatch } from "../../src/core/bookkeeping-batch";
+import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, planBookkeepingBatch } from "../../src/core/bookkeeping-batch";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 
 describe("bookkeeping batches", () => {
@@ -19,9 +19,9 @@ describe("bookkeeping batches", () => {
     // A document without one exact bank pair is intentionally not an action.
     expect(one.items.map(x => x.partition)).toEqual(["missingDocument"]);
     expect(db.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_runs").get()).toEqual(before);
-    const run = createBookkeepingBatchRun(db, { ...one, runKey: "batch-one", actor: "agent:test" });
+    const run = createBookkeepingBatchRun(db, { ...one, runKey: "batch-one", actor: "agent:test", principal: { kind: "user", subjectId: "planner" } });
     expect(run.duplicate).toBe(false);
-    expect(approveBookkeepingBatchPlan(db, { runId: run.runId, planHash: one.planHash, actor: "user:reviewer" }).ok).toBe(true);
+    expect(approveBookkeepingBatchPlan(db, { runId: run.runId, planHash: one.planHash, actor: "user:reviewer", principal: { kind: "user", subjectId: "reviewer" } }).ok).toBe(true);
     expect(() => approveBookkeepingBatchPlan(db, { runId: run.runId, planHash: "0".repeat(64), actor: "user:reviewer" })).toThrow("exact pending plan");
     db.close();
   });
@@ -77,6 +77,23 @@ describe("bookkeeping batches", () => {
     expect(one.items.filter((item) => item.partition === "missingDocument").map((item) => item.bankTransactionId)).toEqual([4]);
     expect(one.items.find((item) => item.bankTransactionId === 3)).toMatchObject({ documentId: 1, partition: "humanDecision" });
     expect(one.items.some((item) => item.bankTransactionId === 1 || item.bankTransactionId === 2)).toBe(false);
+    db.close();
+  });
+
+  test("binds the complete eligible candidate universe and stable principals", () => {
+    const db = new Database(":memory:"); migrate(db);
+    db.exec("INSERT INTO companies(id,name) VALUES(1,'Synthetic'); INSERT INTO documents(id,source,sha256_hash,document_type,currency,amount_inc_vat) VALUES(1,'test','a','purchase_sale','DKK',10);");
+    const input={companyId:1,accountingFrom:"2026-01-01",accountingTo:"2026-01-31",bankFrom:"2026-01-01",bankTo:"2026-01-31"};
+    const plan=planBookkeepingBatch(db,input);
+    const run=createBookkeepingBatchRun(db,{...plan,runKey:"principal-plan",actor:"agent:planner",principal:{kind:"service-account",subjectId:"svc-a"}});
+    expect(() => approveBookkeepingBatchPlan(db,{runId:run.runId,planHash:plan.planHash,actor:"user:another-audit-label",principal:{kind:"service-account",subjectId:"svc-a"}})).toThrow("SELF_APPROVAL_FORBIDDEN");
+    approveBookkeepingBatchPlan(db,{runId:run.runId,planHash:plan.planHash,actor:"agent:reviewer",principal:{kind:"user",subjectId:"reviewer"}});
+    // An undated still-open purchase participates in suggestion eligibility;
+    // adding a new one after review must stale, even outside the date scope.
+    db.exec("INSERT INTO documents(id,source,sha256_hash,document_type,currency,amount_inc_vat) VALUES(2,'test','b','purchase_sale','DKK',20)");
+    const result=applyBookkeepingBatch(db,{runId:run.runId,planHash:plan.planHash,actor:"agent:apply",principal:{kind:"service-account",subjectId:"svc-a"}});
+    expect(result).toMatchObject({ok:false,error:{code:"STALE_PLAN"}});
+    expect(db.query("SELECT COUNT(*) AS n FROM bookkeeping_batch_apply_attempts_v2").get()).toEqual({n:1});
     db.close();
   });
 });

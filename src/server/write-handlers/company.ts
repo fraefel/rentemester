@@ -263,12 +263,16 @@ export async function handleClosePeriod(
         );
       }
       const force = body.force === true;
+      const packetHash = requireBodyString(body, "packetHash");
+      const forceReason = optionalBodyString(body, "reason");
       const closed = closeAccountingPeriod(ctx.db, {
         periodStart,
         periodEnd,
         ...(kindRaw ? { kind: kindRaw } : {}),
         ...(reference ? { reference } : {}),
         force,
+        readinessPacketHash: packetHash,
+        forceReason,
         createdBy: ctx.actor.createdBy,
         createdByProgram: ctx.actor.createdByProgram,
       });

@@ -14,10 +14,12 @@ import {
   closeAccountingPeriod,
   type AccountingPeriodKind,
 } from "../../core/periods";
+import { createPeriodCloseReadinessPacket } from "../../core/period-close-readiness";
 import { envelopeShape, successEnvelope, wrapCoreResult } from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 
 export function registerPeriodTools(server: McpServer): void {
+  server.registerTool("period_close_readiness", { title: "Inspect close readiness", description: "Creates a deterministic immutable close-readiness packet. Supply its hash unchanged to period_close.", inputSchema: { company: z.string().min(1), from: z.string().min(1), to: z.string().min(1) }, outputSchema: envelopeShape, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyDb<{company:string;from:string;to:string}>(server, ({db,args}) => successEnvelope({ packet: createPeriodCloseReadinessPacket(db, { periodStart: args.from, periodEnd: args.to }) })));
   server.registerTool(
     "period_list",
     {
@@ -108,6 +110,8 @@ export function registerPeriodTools(server: McpServer): void {
               "error listing the open exception IDs that fall inside the period, " +
               "so the owner cannot silently hide outstanding items by closing.",
           ),
+        packetHash: z.string().length(64).describe("Exact hash returned by period_close_readiness.") ,
+        reason: z.string().min(1).optional().describe("Mandatory non-empty waiver reason when force is true."),
         confirm: confirmField,
       },
       outputSchema: envelopeShape,
@@ -121,8 +125,10 @@ export function registerPeriodTools(server: McpServer): void {
       status?: "closed" | "reported";
       reference?: string;
       force?: boolean;
+      packetHash: string;
+      reason?: string;
       confirm?: boolean;
-    }>(server, "period_close", ({ db, args }) => {
+    }>(server, "period_close", ({ db, actor, args }) => {
       const result = closeAccountingPeriod(db, {
         periodStart: args.from,
         periodEnd: args.to,
@@ -130,6 +136,10 @@ export function registerPeriodTools(server: McpServer): void {
         status: args.status,
         reference: args.reference,
         force: args.force,
+        readinessPacketHash: args.packetHash,
+        forceReason: args.reason,
+        createdBy: actor.createdBy,
+        createdByProgram: actor.createdByProgram,
       });
       return wrapCoreResult(result);
     }),

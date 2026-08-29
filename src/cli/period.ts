@@ -1,5 +1,6 @@
 import { migrate } from "../core/db";
 import { closeAccountingPeriod, reopenAccountingPeriod } from "../core/periods";
+import { createPeriodCloseReadinessPacket } from "../core/period-close-readiness";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 import {
@@ -48,6 +49,13 @@ function enforceReopenActor(ctx: CommandContext, root: string): void {
 }
 
 export function register(dispatch: CommandDispatch): void {
+  dispatch.on("period", "readiness", (ctx) => {
+    const from = ctx.arg("--from"); const to = ctx.arg("--to");
+    if (!from || !to) { console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>"); process.exit(2); }
+    const db = openCommandDb(ctx); migrate(db);
+    ctx.emitResult(createPeriodCloseReadinessPacket(db, { periodStart: from, periodEnd: to }) as unknown as Record<string, unknown>);
+    db.close();
+  });
   dispatch.on("period", "close", (ctx) => {
     const from = ctx.arg("--from");
     const to = ctx.arg("--to");
@@ -66,6 +74,9 @@ export function register(dispatch: CommandDispatch): void {
       // Bypass the open-high/medium-exceptions safety guard (Batch D-7).
       // The bypass itself is visible in the close result + audit log.
       force: ctx.arg("--force") === "yes" || ctx.arg("--force") === "true",
+      readinessPacketHash: ctx.arg("--packet-hash") ?? undefined,
+      forceReason: ctx.arg("--reason") ?? undefined,
+      createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR,
     });
     ctx.emitResult(result as Record<string, unknown>);
     db.close();

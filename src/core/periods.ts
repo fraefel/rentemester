@@ -3,6 +3,7 @@ import { insertAuditLog, resolveActor, type ResolveActorInput } from "./actor";
 import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { isValidIsoDate as looksLikeIsoDate, addDays, todayIsoDate, MONTH_NAMES_DA } from "./dates";
 import { loadVatAccountSemantics, VAT_LINE_CODES } from "./vat-account-semantics";
+import { createPeriodCloseReadinessPacket, recordForcedPeriodCloseOpenItems, type CloseReadinessPacket } from "./period-close-readiness";
 
 /** `vat_period` is cadence-neutral; `vat_quarter` is read-only legacy compatibility. */
 export type AccountingPeriodKind = "vat_period" | "vat_quarter" | "fiscal_year" | "custom";
@@ -455,6 +456,8 @@ export type CloseAccountingPeriodInput = {
    * A forced bypass is recorded on the period's close audit event.
    */
   force?: boolean;
+  readinessPacketHash?: string;
+  forceReason?: string;
 };
 
 export type CloseAccountingPeriodResult = {
@@ -467,6 +470,7 @@ export type CloseAccountingPeriodResult = {
   reference?: string;
   appliedRules: string[];
   errors: string[];
+  readinessPacket?: CloseReadinessPacket;
 };
 
 const PERIOD_RULE_ID = "DK-BOOKKEEPING-PERIOD-LOCK-001";
@@ -658,6 +662,10 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
 
   if (errors.length > 0) return { ok: false, appliedRules, errors };
   const kind = canonicalPeriodKind(requestedKind);
+  const packet = createPeriodCloseReadinessPacket(db, { periodStart, periodEnd });
+  if (input.readinessPacketHash !== packet.hash) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"], readinessPacket: packet };
+  if (!input.force && packet.blockers > 0) return { ok: false, appliedRules, errors: [`PERIOD_CLOSE_BLOCKED:${packet.blockers}`], readinessPacket: packet };
+  if (input.force && (!input.forceReason?.trim() || !input.createdBy?.trim())) return { ok: false, appliedRules, errors: ["FORCED_CLOSE_REQUIRES_TRUSTED_ACTOR_AND_REASON"], readinessPacket: packet };
 
   if (kind === "vat_period") {
     const vatPeriodType = registeredVatPeriodType(db);
@@ -933,6 +941,10 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
     createdBy: input.createdBy,
     createdByProgram: input.createdByProgram,
   });
+  if (input.force && packet.items.length > 0) {
+    recordForcedPeriodCloseOpenItems(db, inserted.id, packet, input.forceReason!.trim(), input.createdBy!);
+    insertAuditLog(db, { eventType: "PERIOD_CLOSED_WITH_OPEN_ITEMS", entityType: "accounting_period", entityId: inserted.id, message: `Forced close with ${packet.items.length} open readiness item(s): ${input.forceReason!.trim()}`, createdBy: input.createdBy, createdByProgram: input.createdByProgram });
+  }
 
   return {
     ok: true,
@@ -944,6 +956,7 @@ export function closeAccountingPeriod(db: Database, input: CloseAccountingPeriod
     reference,
     appliedRules,
     errors,
+    readinessPacket: packet,
   };
 }
 

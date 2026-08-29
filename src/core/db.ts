@@ -6,6 +6,7 @@ import { ensureNullableVatPeriodColumn } from "./companies-schema";
 import { backfillRetentionDeadlines } from "./retention";
 import { seedNativeAccountRoles } from "./account-roles";
 import { applySchemaMigrations, assertSchemaCompatibility, recordSchemaBaseline, schemaHistoryIsCurrent } from "./schema-version";
+import { ensurePeriodCloseReadinessSchema } from "./period-close-readiness";
 
 function hasColumn(db: Database, table: string, column: string) {
   const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -486,6 +487,7 @@ export function migrate(db: Database) {
   for (const view of missingCurrentViews) db.exec(`DROP VIEW IF EXISTS ${view}`);
   recordSchemaBaseline(db);
   applySchemaMigrations(db);
+  ensurePeriodCloseReadinessSchema(db);
   // #539 follows the immutable v1 normalisation. These guards apply equally
   // to freshly-created and legacy ledgers and are lossless on repeated opens.
   if (!hasColumn(db, "bank_accounts", "bic")) db.exec("ALTER TABLE bank_accounts ADD COLUMN bic TEXT;");

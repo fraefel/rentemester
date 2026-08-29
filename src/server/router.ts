@@ -16,11 +16,11 @@
 // lock, the confirm gate, actor attribution and the localhost hard-gate that
 // the agent CLI / MCP stacks enforce — the server does not inherit them.
 
-import type { RoutePermission } from "../core/access-permissions";
-import type { ServerConfig } from "./config";
 import { describeWorkflow, searchCapabilities } from "../agent-discovery-catalog";
 import { MUTATING_COMMANDS } from "../cli-actor";
 import { COMMAND_SPECS, SIDE_EFFECTING_COMMANDS } from "../cli-meta";
+import type { RoutePermission } from "../core/access-permissions";
+import type { ServerConfig } from "./config";
 
 export type { RoutePermission } from "../core/access-permissions";
 
@@ -90,6 +90,7 @@ import {
   handlePortfolio,
 } from "./router/portfolio";
 import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
+import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
 import {
   handleCompanyBalance,
   handleCompanyIncomeStatement,
@@ -112,7 +113,6 @@ import {
   handleWorkspaceInvitationCreate,
   handleWorkspaceInvitationList,
 } from "./router/workspace-invitations";
-import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
 import {
   handleWorkspaceMemberAccessUpdate,
   handleWorkspaceMemberCompanyUpdate,
@@ -133,7 +133,6 @@ import {
   handleAssetWriteOff,
   handleBankImport,
   handleClosePeriod,
-  handlePeriodCloseReadiness,
   handleCompanyProfile,
   handleCreateAccountingDraft,
   handleCreateBankAccount,
@@ -165,6 +164,7 @@ import {
   handleMileageCreate,
   handlePayablePay,
   handlePayableRegister,
+  handlePeriodCloseReadiness,
   handleRejectAccountingDraft,
   handleRejectAgentSuggestion,
   handleReopenPeriod,
@@ -226,7 +226,10 @@ export function validateRouteCatalog(entries: readonly RouteCatalogEntry[]): voi
       (entry.pattern !== "/api/invitations/claim" || entry.method !== "POST" || entry.effect !== "write")) {
       throw new Error("invitation claim permission is restricted to its one token-bearing route");
     }
-    if (entry.effect === "read" && /(?:\.write|\.manage|\.external)$/.test(entry.permission)) {
+    // Credential inventory is read-only but deliberately owner-only, because
+    // its service-account identities are sensitive workspace metadata.
+    const ownerOnlyCredentialInventory = entry.pattern === "/api/workspace/service-principals" && entry.permission === "workspace.manage";
+    if (entry.effect === "read" && /(?:\.write|\.manage|\.external)$/.test(entry.permission) && !ownerOnlyCredentialInventory) {
       throw new Error(`read route has mutating permission: ${entry.pattern}`);
     }
     if (entry.effect === "external" &&
@@ -259,7 +262,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "workspace", effect: "read", permission: "workspace.members.read", method: "GET", pattern: "/api/workspace/members", summary: "Lister aktive workspace-brugere og kun administrerbare selskabsmedlemskaber." },
   { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/members/access", summary: "Ændrer workspace-rolle eller deaktiverer en bruger append-only." },
   { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/members/company", summary: "Ændrer adgang til ét selskab append-only." },
-  { scope: "workspace", effect: "read", permission: "workspace.members.read", method: "GET", pattern: "/api/workspace/service-principals", summary: "Lister servicekonti uden credentials." },
+  { scope: "workspace", effect: "read", permission: "workspace.manage", method: "GET", pattern: "/api/workspace/service-principals", summary: "Lister servicekonti uden credentials." },
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals", summary: "Opretter servicekonto og viser credential én gang." },
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals/rotate", summary: "Roterer servicecredential og viser den nye nøgle én gang." },
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals/revoke", summary: "Tilbagekalder servicecredential." },

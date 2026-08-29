@@ -2,16 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBetterAuthRequestProvider, openWorkspaceBetterAuth, WORKSPACE_SERVICE_PRINCIPAL_HEADER } from "../../src/server/better-auth";
-import { createWorkspaceServicePrincipal, recoverWorkspaceServicePrincipalOperation, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../src/core/workspace-service-principals";
 import { activateWorkspaceUser, authorizeWorkspaceRoute, grantCompanyMembership } from "../../src/core/workspace-access";
 import { openWorkspaceControlDb } from "../../src/core/workspace-control";
+import { createWorkspaceServicePrincipal, recoverWorkspaceServicePrincipalOperation, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../src/core/workspace-service-principals";
+import { createBetterAuthRequestProvider, openWorkspaceBetterAuth, WORKSPACE_SERVICE_PRINCIPAL_HEADER } from "../../src/server/better-auth";
+import { ROUTE_CATALOG } from "../../src/server/router";
 import { config, get, handleRequest, makeWorkspace } from "./server-api/_shared";
 
 const SECRET = "I0UjL6i0-ScgvjfIgzMKJxPQyDpPXwg2mMKdLW3Y3WQ";
 const ORIGIN = "http://127.0.0.1:4319";
 
 describe("workspace service principals", () => {
+  test("does not disclose service account inventory through member-read metadata", () => {
+    expect(ROUTE_CATALOG.find((route) => route.method === "GET" && route.pattern === "/api/workspace/service-principals")?.permission).toBe("workspace.manage");
+  });
+
   test("recovers every crash boundary without leaving a surprise enabled key", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "rentemester-service-recovery-"));
     const runtime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });
@@ -23,7 +28,7 @@ describe("workspace service principals", () => {
       expect(db.query('SELECT COUNT(*) AS count FROM "apikey" WHERE "referenceId"=? AND COALESCE("enabled",1)=1').get(createPending.userId)).toEqual({ count: 0 });
       expect(await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: createId, actor: "user:owner" })).toEqual({ operationId: createId, status: "recovered", recovered: true });
       expect(await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: createId, actor: "user:owner" })).toEqual({ operationId: createId, status: "recovered", recovered: true });
-      expect(db.query("SELECT operation_status AS status FROM rm_workspace_service_principal_operation_events WHERE operation_id=? ORDER BY id").all(createId)).toEqual([{ status: "pending" }, { status: "failed" }, { status: "recovered" }]);
+      expect(db.query("SELECT operation_status AS status FROM rm_workspace_service_principal_operation_events WHERE operation_id=? ORDER BY id").all(createId)).toEqual([{ status: "pending" }, { status: "recovering" }, { status: "failed" }, { status: "recovered" }]);
 
       const crashedCreateId = "10000000-0000-4000-8000-000000000021";
       await expect(createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "Lost secret", actor: "user:owner", operationId: crashedCreateId, crashAt: "after-provider-create" })).rejects.toThrow("after-provider-create");
@@ -46,6 +51,20 @@ describe("workspace service principals", () => {
       await expect(revokeWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: issued.serviceAccountId, credentialId: issued.credentialId, actor: "user:owner", operationId: revokeId, crashAt: "before-completion-audit" })).rejects.toThrow("before-completion-audit");
       expect(await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: revokeId, actor: "user:owner" })).toEqual({ operationId: revokeId, status: "completed", recovered: true });
       expect(JSON.stringify(db.query("SELECT * FROM rm_workspace_service_principal_operation_events WHERE operation_id=?").all(revokeId))).not.toContain("rms_");
+
+      const concurrentId = "10000000-0000-4000-8000-000000000026";
+      await expect(createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "Concurrent recovery", actor: "user:owner", operationId: concurrentId, crashAt: "after-provider-create" })).rejects.toThrow("after-provider-create");
+      const outcomes = await Promise.all([
+        recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: concurrentId, actor: "user:owner" }),
+        recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: concurrentId, actor: "user:owner" }),
+      ]);
+      expect(outcomes.map((item) => item.status).sort()).toEqual(["recovered", "recovering"]);
+      expect(db.query("SELECT operation_status AS status FROM rm_workspace_service_principal_operation_events WHERE operation_id=? ORDER BY id").all(concurrentId)).toEqual([{ status: "pending" }, { status: "recovering" }, { status: "failed" }, { status: "recovered" }]);
+
+      const takeoverId = "10000000-0000-4000-8000-000000000027";
+      await expect(createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "Recovery takeover", actor: "user:owner", operationId: takeoverId, crashAt: "after-provider-create" })).rejects.toThrow("after-provider-create");
+      await expect(recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: takeoverId, actor: "user:owner", crashAt: "before-completion-audit" })).rejects.toThrow("before-completion-audit");
+      expect(await recoverWorkspaceServicePrincipalOperation(db, runtime.auth, { operationId: takeoverId, actor: "user:owner", recoveryLeaseMs: 0 })).toEqual({ operationId: takeoverId, status: "recovered", recovered: true });
     } finally { db.close(); runtime.close(); rmSync(workspace, { recursive: true, force: true }); }
   });
 
@@ -65,6 +84,7 @@ describe("workspace service principals", () => {
       expect(await provider.getSession(request)).toBeNull();
 
       await expect(createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "Synthetic automation", actor: "user:owner", operationId: createOperation })).rejects.toThrow("already completed");
+      expect(db.query("SELECT COUNT(*) AS count FROM rm_workspace_service_principals").get()).toEqual({ count: 1 });
       const rotateOperation = "10000000-0000-4000-8000-000000000002";
       const rotated = await rotateWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: issued.serviceAccountId, credentialId: issued.credentialId, actor: "user:owner", operationId: rotateOperation });
       expect(await provider.verifyServicePrincipal!(request)).toEqual({ state: "invalid" });

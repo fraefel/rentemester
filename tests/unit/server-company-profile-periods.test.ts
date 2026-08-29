@@ -207,7 +207,7 @@ describe("Cockpit close period (#287)", () => {
     }
   });
 
-  test("closing the same period twice is a 409 conflict", async () => {
+  test("closing twice with the reviewed pre-close packet is rejected as stale", async () => {
     const { root: ws, slug } = makeWorkspace("close-twice");
     try {
       const body = {
@@ -220,7 +220,8 @@ describe("Cockpit close period (#287)", () => {
       const first = await post(config(ws), `/api/companies/${slug}/periods/close`, body);
       expect(first.status).toBe(200);
       const second = await post(config(ws), `/api/companies/${slug}/periods/close`, body);
-      expect(second.status).toBe(409);
+      expect(second.status).toBe(400);
+      expect(second.body.errors).toContain("PERIOD_CLOSE_PACKET_STALE_OR_MISSING");
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

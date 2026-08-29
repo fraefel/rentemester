@@ -74,12 +74,30 @@ describe("agent discovery coverage gate (#585)", () => {
   });
 
   test("rejects false surface safety, idempotency, actor and confirmation claims", () => {
-    const falseClaims: AgentWorkflow = { ...workflow, steps: [{ ...workflow.steps[0]!, expectedSafety: "write", expectedIdempotent: false, requiresActor: true, requiresConfirmation: true, retryClass: "read-back-before-retry" }] };
+    const falseClaims: AgentWorkflow = { ...workflow, steps: [{ ...workflow.steps[0]!, expectedSafety: "write", expectedIdempotent: false, requiresActor: true, requiresConfirmation: true, retryClass: "unsafe-read-back" }] };
     const errors = validateAgentDiscoveryCoverage(fixture({ workflows: [falseClaims] })).errors.join("\n");
     expect(errors).toContain("safety claim 'write' contradicts live 'read'");
     expect(errors).toContain("idempotency claim 'false' contradicts live 'true'");
     expect(errors).toContain("actor requirement contradicts the live surface");
     expect(errors).toContain("confirmation requirement contradicts the live surface");
     expect(errors).toContain("read operation must use safe-read retry semantics");
+  });
+
+  test("rejects a false retry class and exposes only the canonical classes", () => {
+    const falseRetry: AgentWorkflow = { ...workflow, steps: [{ ...workflow.steps[0]!, retryClass: "unsafe-read-back" }] };
+    const errors = validateAgentDiscoveryCoverage(fixture({ workflows: [falseRetry] })).errors.join("\n");
+    expect(errors).toContain("retry class 'unsafe-read-back' contradicts live 'safe-read'");
+    const catalogue = JSON.stringify(validateAgentDiscoveryCoverage(fixture()).bindings);
+    expect(catalogue).not.toContain("read-back-before-retry");
+    expect(catalogue).not.toContain("stable-key-resume");
+    expect(catalogue).not.toContain("never-automatic");
+  });
+
+  test("rejects an unreviewed natural-idempotent hint instead of inferring a retry promise", () => {
+    const result = validateAgentDiscoveryCoverage(fixture({
+      tools: [{ name: "known", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } }],
+      workflows: [],
+    }));
+    expect(result.errors.join("\n")).toContain("mcp:known: live idempotentHint has no explicit retry classification");
   });
 });

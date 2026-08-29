@@ -132,16 +132,16 @@ describe("docs/mcp-tool-surface.md", () => {
     }
   });
 
-  test("does not promise an unbacked idempotencyKey on writes", () => {
+  test("documents only the backed idempotencyKey contract", () => {
     // #204 — the doc once promised retry-safe idempotency keys with a 24h
     // cache that was never implemented. The false promise must stay removed.
     const content = readFileSync(DOC_PATH, "utf8");
-    // journal_post's input row must not advertise the dropped field.
-    expect(content).not.toMatch(/journal_post[^\n]*idempotencyKey/);
-    // No example handshake may pass an idempotencyKey argument.
-    expect(content).not.toContain('"idempotencyKey"');
-    // The doc must explicitly state there is no general idempotency mechanism.
-    expect(content).toMatch(/[Ii]ngen generel idempotency-key/);
+    // Only the five durable receipt-backed writes may be documented as keyed.
+    expect(content).toContain("`journal_post`,");
+    expect(content).toContain("payable_pay");
+    expect(content).toContain("IDEMPOTENCY_OUTCOME_EXPIRED");
+    // It must never imply a generic write wrapper.
+    expect(content).not.toMatch(/all writes accept.*idempotency/i);
   });
 
   test("#245 — documents that the company argument also accepts a workspace slug", () => {
@@ -247,15 +247,11 @@ describe("docs/mcp-agent-contract.md", () => {
     expect(content).toMatch(/isError/);
   });
 
-  test("does not promise retry-safe idempotency keys (#204)", () => {
-    // #204 — the contract previously told agents that re-sending a write
-    // with the same idempotencyKey would not double-post. That mechanism
-    // does not exist; the contract must warn the opposite.
+  test("documents the bounded retry-safe idempotency keys (#583)", () => {
     const content = readFileSync(CONTRACT_PATH, "utf8");
-    expect(content).toMatch(/no general `idempotencyKey` mechanism/i);
-    expect(content).toMatch(/double-post/);
-    // It must not still claim a key-keyed retry returns the original result.
-    expect(content).not.toMatch(/same key does not double-post/);
+    expect(content).toMatch(/Five high-risk bookkeeping writes accept `idempotencyKey`/);
+    expect(content).toMatch(/never converts an unknown outcome into a safe retry/);
+    expect(content).toContain("IDEMPOTENCY_CONFLICT");
   });
 
   test("#245 — Identification section states company accepts a path OR a workspace slug", () => {

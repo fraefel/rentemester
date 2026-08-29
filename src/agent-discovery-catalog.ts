@@ -9,7 +9,9 @@ export const AGENT_CATALOGUE_ENTRY_POINT = "meta_about -> agent_capability_searc
 export type AgentScope = "company" | "workspace" | "legal-group" | "system";
 export type WorkflowBoundary = "read" | "dry-run" | "review" | "approval" | "apply" | "irreversible" | "destructive";
 export type OperationSafety = "read" | "write" | "destructive";
-export type RetryClass = "safe-read" | "read-back-before-retry" | "stable-key-resume" | "never-automatic";
+/** The only retry contracts exposed to agents.  A write never becomes safe
+ * merely because it accepts an arbitrary input field. */
+export type RetryClass = "safe-read" | "key-idempotent" | "natural-idempotent" | "external-provider-reconciled" | "unsafe-read-back";
 
 export type OperationReference =
   | { surface: "mcp"; name: string }
@@ -81,7 +83,7 @@ function read(id: string, operation: OperationReference, purpose: string, option
 }
 
 function write(id: string, operation: OperationReference, purpose: string, options: Partial<StepInput> = {}): AgentWorkflowStep {
-  return step({ id, operation, purpose, boundary: "apply", expectedSafety: "write", expectedIdempotent: false, requiresActor: true, requiresConfirmation: true, retryClass: "read-back-before-retry", ...options });
+  return step({ id, operation, purpose, boundary: "apply", expectedSafety: "write", expectedIdempotent: false, requiresActor: true, requiresConfirmation: true, retryClass: "unsafe-read-back", ...options });
 }
 
 function workflow(input: Pick<AgentWorkflow, "id" | "capabilityId" | "title" | "intendedOutcome" | "steps"> & Partial<Omit<AgentWorkflow, "id" | "capabilityId" | "title" | "intendedOutcome" | "steps">>): AgentWorkflow {
@@ -108,30 +110,30 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   ], unsupportedBoundaries: ["MCP does not initialize an arbitrary host path; CLI init is explicitly CLI-only.", "Discovery never exposes companies outside the caller's workspace access."] }),
   workflow({ id: "document-mail-intake", capabilityId: "document-intake", title: "Document and mail intake", intendedOutcome: "Store source evidence and review extraction without silently approving or posting it.", steps: [
     write("ingest-document", mcp("documents_ingest"), "Ingest supplied source evidence.", { outputIdentities: ["documentId", "documentNo", "sha256"], canonicalRecords: ["documents", "document originals"] }),
-    write("ingest-mail", mcp("mail_intake_ingest"), "Ingest an explicitly selected mail attachment.", { condition: "Use for mail intake instead of ingest-document.", expectedIdempotent: true, outputIdentities: ["documentId"], canonicalRecords: ["documents", "mail intake audit"] }),
-    write("poll-imap", mcp("imap_intake_poll"), "Poll configured IMAP intake and ingest accepted attachments.", { condition: "Use only when IMAP is configured and external access is intended.", expectedIdempotent: true, outputIdentities: ["intake batch identity"], canonicalRecords: ["documents", "mail intake audit"] }),
+    write("ingest-mail", mcp("mail_intake_ingest"), "Ingest an explicitly selected mail attachment.", { condition: "Use for mail intake instead of ingest-document.", expectedIdempotent: true, retryClass: "external-provider-reconciled", outputIdentities: ["documentId"], canonicalRecords: ["documents", "mail intake audit"] }),
+    write("poll-imap", mcp("imap_intake_poll"), "Poll configured IMAP intake and ingest accepted attachments.", { condition: "Use only when IMAP is configured and external access is intended.", expectedIdempotent: true, retryClass: "external-provider-reconciled", outputIdentities: ["intake batch identity"], canonicalRecords: ["documents", "mail intake audit"] }),
     read("list-documents", mcp("documents_list"), "Read back canonical document state.", { dependsOn: ["ingest-document|ingest-mail|poll-imap"], outputIdentities: ["documentId"] }),
     read("review-extraction", mcp("documents_invoice_extraction"), "Review cited invoice extraction where available.", { dependsOn: ["list-documents"], inputIdentities: ["documentId"] }),
   ], unsupportedBoundaries: ["Extraction is evidence for review, not approval or automatic posting.", "The catalogue contains no mailbox credentials or company routing."] }),
   workflow({ id: "bank-reconciliation-batch", capabilityId: "bank-bookkeeping", title: "Bank import, matching and bookkeeping batch", intendedOutcome: "Import bank activity, inspect matches and apply only a hash-bound reviewed bookkeeping batch.", steps: [
-    write("import-bank", mcp("bank_import"), "Import bank rows with duplicate protection.", { expectedIdempotent: true, outputIdentities: ["importBatchId", "bankTransactionIds"], canonicalRecords: ["bank_transactions", "bank import evidence"] }),
+    write("import-bank", mcp("bank_import"), "Import bank rows with duplicate protection.", { expectedIdempotent: true, retryClass: "natural-idempotent", outputIdentities: ["importBatchId", "bankTransactionIds"], canonicalRecords: ["bank_transactions", "bank import evidence"] }),
     read("suggest-matches", mcp("bank_suggest_matches"), "Generate read-only matching suggestions.", { dependsOn: ["import-bank"] }),
     read("reconciliation-report", mcp("reconcile_bank"), "Produce the read-only reconciliation report; this does not confirm matches.", { dependsOn: ["import-bank"] }),
-    write("batch-dry-run", mcp("bookkeeping_batch_dry_run"), "Persist the partitioned canonical plan and its hash for review.", { dependsOn: ["suggest-matches"], boundary: "dry-run", expectedIdempotent: true, inputIdentities: ["runKey"], outputIdentities: ["runId", "planHash"] }),
-    write("batch-approve", mcp("bookkeeping_batch_approve"), "Bind an authorised reviewer, time and exact hash to the persisted run.", { dependsOn: ["batch-dry-run"], boundary: "approval", expectedIdempotent: true, inputIdentities: ["runId", "planHash"] }),
-    write("batch-apply", mcp("bookkeeping_batch_apply"), "Apply or resume the exact approved run without replanning.", { dependsOn: ["batch-approve"], boundary: "irreversible", retryClass: "stable-key-resume", expectedIdempotent: true, inputIdentities: ["runId", "planHash"], outputIdentities: ["runId", "journalEntryIds"], uncertainOutcomeReadBack: mcp("bookkeeping_batch_status"), canonicalRecords: ["bookkeeping batch runs", "journal entries", "bank reconciliations"] }),
+    write("batch-dry-run", mcp("bookkeeping_batch_dry_run"), "Persist the partitioned canonical plan and its hash for review.", { dependsOn: ["suggest-matches"], boundary: "dry-run", expectedIdempotent: true, retryClass: "natural-idempotent", inputIdentities: ["runKey"], outputIdentities: ["runId", "planHash"] }),
+    write("batch-approve", mcp("bookkeeping_batch_approve"), "Bind an authorised reviewer, time and exact hash to the persisted run.", { dependsOn: ["batch-dry-run"], boundary: "approval", expectedIdempotent: true, retryClass: "natural-idempotent", inputIdentities: ["runId", "planHash"] }),
+    write("batch-apply", mcp("bookkeeping_batch_apply"), "Apply or resume the exact approved run without replanning.", { dependsOn: ["batch-approve"], boundary: "irreversible", retryClass: "natural-idempotent", expectedIdempotent: true, inputIdentities: ["runId", "planHash"], outputIdentities: ["runId", "journalEntryIds"], uncertainOutcomeReadBack: mcp("bookkeeping_batch_status"), canonicalRecords: ["bookkeeping batch runs", "journal entries", "bank reconciliations"] }),
     read("read-bank-state", mcp("bank_list"), "Read back imported and reconciled bank state.", { dependsOn: ["batch-apply"] }),
   ], unsupportedBoundaries: ["reconcile_bank is a report, not an apply operation.", "Suggested or human-review items are never auto-approved."] }),
   workflow({ id: "supplier-expense-booking", capabilityId: "supplier-purchases", title: "Supplier expense booking", intendedOutcome: "Book a documented supplier expense against a bank transaction with the correct VAT treatment.", steps: [
     read("review-document", mcp("documents_list"), "Select the ingested supplier document."),
     read("vat-preflight", mcp("expense_vat_preflight"), "Validate supplier identity, VAT evidence and treatment.", { dependsOn: ["review-document"], boundary: "dry-run" }),
-    write("book-expense", mcp("expense_book"), "Post the reviewed expense and bank reconciliation.", { dependsOn: ["vat-preflight"], boundary: "irreversible", inputIdentities: ["documentId", "bankTransactionId"], uncertainOutcomeReadBack: mcp("journal_list"), canonicalRecords: ["journal entries", "bank reconciliations", "document posting link"] }),
+    write("book-expense", mcp("expense_book"), "Post the reviewed expense and bank reconciliation.", { dependsOn: ["vat-preflight"], boundary: "irreversible", retryClass: "key-idempotent", inputIdentities: ["documentId", "bankTransactionId"], uncertainOutcomeReadBack: mcp("journal_list"), canonicalRecords: ["journal entries", "bank reconciliations", "document posting link"] }),
     read("verify-posting", mcp("journal_list"), "Read back the posting.", { dependsOn: ["book-expense"] }),
   ], relatedWorkflowIds: ["supplier-payable-handling", "vat-preparation"] }),
   workflow({ id: "supplier-payable-handling", capabilityId: "supplier-purchases", title: "Supplier payable handling", intendedOutcome: "Register a supplier invoice as an open payable and record its later bank payment.", steps: [
-    write("register-payable", mcp("payable_register"), "Register reviewed evidence as a payable.", { boundary: "irreversible", outputIdentities: ["payableId", "journalEntryId"], canonicalRecords: ["payables", "journal entries"] }),
+    write("register-payable", mcp("payable_register"), "Register reviewed evidence as a payable.", { boundary: "irreversible", retryClass: "key-idempotent", outputIdentities: ["payableId", "journalEntryId"], canonicalRecords: ["payables", "journal entries"] }),
     read("list-payables", mcp("payable_list"), "Read due/open state.", { dependsOn: ["register-payable"] }),
-    write("pay-payable", mcp("payable_pay"), "Match the selected bank payment.", { dependsOn: ["list-payables"], boundary: "irreversible", inputIdentities: ["payableId", "bankTransactionId"], uncertainOutcomeReadBack: mcp("payable_list"), canonicalRecords: ["payable payments", "bank reconciliations", "journal entries"] }),
+    write("pay-payable", mcp("payable_pay"), "Match the selected bank payment.", { dependsOn: ["list-payables"], boundary: "irreversible", retryClass: "key-idempotent", inputIdentities: ["payableId", "bankTransactionId"], uncertainOutcomeReadBack: mcp("payable_list"), canonicalRecords: ["payable payments", "bank reconciliations", "journal entries"] }),
     read("verify-payable", mcp("payable_list"), "Read back the payable balance.", { dependsOn: ["pay-payable"] }),
   ], relatedWorkflowIds: ["supplier-expense-booking"] }),
   workflow({ id: "customer-invoice-lifecycle", capabilityId: "customer-invoicing", title: "Customer and invoice lifecycle", intendedOutcome: "Create a customer, issue and post an invoice, then handle delivery, payment, reminder or credit-note branches.", steps: [
@@ -139,7 +141,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("validate-invoice", mcp("invoice_validate"), "Validate the invoice payload.", { dependsOn: ["create-customer"], boundary: "dry-run" }),
     write("issue-invoice", mcp("invoice_issue"), "Issue immutable invoice evidence.", { dependsOn: ["validate-invoice"], outputIdentities: ["invoiceNumber", "documentId"], uncertainOutcomeReadBack: mcp("invoice_find"), canonicalRecords: ["issued invoices", "invoice documents"] }),
     write("post-invoice", mcp("invoice_post"), "Post the issued invoice.", { dependsOn: ["issue-invoice"], boundary: "irreversible", uncertainOutcomeReadBack: mcp("invoice_status"), canonicalRecords: ["journal entries", "invoice open balance"] }),
-    write("send-email", mcp("invoice_send_email"), "Send the issued invoice by configured email.", { dependsOn: ["issue-invoice"], condition: "Optional delivery branch.", expectedIdempotent: true, canonicalRecords: ["email delivery evidence"] }),
+    write("send-email", mcp("invoice_send_email"), "Send the issued invoice by configured email.", { dependsOn: ["issue-invoice"], condition: "Optional delivery branch.", expectedIdempotent: true, retryClass: "external-provider-reconciled", canonicalRecords: ["email delivery evidence"] }),
     write("record-payment", mcp("invoice_settle_bank"), "Match a customer bank payment.", { dependsOn: ["post-invoice"], condition: "Payment branch.", boundary: "irreversible", uncertainOutcomeReadBack: mcp("invoice_status"), canonicalRecords: ["invoice payments", "bank reconciliations", "journal entries"] }),
     write("send-reminder", mcp("invoice_remind"), "Create an eligible overdue reminder.", { dependsOn: ["post-invoice"], condition: "Overdue branch.", canonicalRecords: ["invoice reminders"] }),
     write("credit-note", mcp("invoice_credit_note"), "Correct an issued invoice by credit note.", { dependsOn: ["issue-invoice"], condition: "Correction branch.", boundary: "irreversible", uncertainOutcomeReadBack: mcp("invoice_status"), canonicalRecords: ["credit notes", "journal entries"] }),
@@ -147,7 +149,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   ], unsupportedBoundaries: ["Issue does not imply delivery or payment.", "No external send is retried blindly after uncertainty."] }),
   workflow({ id: "vat-preparation", capabilityId: "vat", title: "Domestic purchase VAT and period preparation", intendedOutcome: "Validate purchase VAT evidence, post supported treatments and prepare reports without filing externally.", steps: [
     read("purchase-preflight", mcp("expense_vat_preflight"), "Validate domestic supplier and line-level VAT evidence.", { boundary: "dry-run" }),
-    write("post-domestic-purchase", mcp("expense_book"), "Post the reviewed domestic treatment.", { dependsOn: ["purchase-preflight"], condition: "Domestic branch.", boundary: "irreversible", uncertainOutcomeReadBack: mcp("vat_report"), canonicalRecords: ["journal entries with VAT codes"] }),
+    write("post-domestic-purchase", mcp("expense_book"), "Post the reviewed domestic treatment.", { dependsOn: ["purchase-preflight"], condition: "Domestic branch.", boundary: "irreversible", retryClass: "key-idempotent", uncertainOutcomeReadBack: mcp("vat_report"), canonicalRecords: ["journal entries with VAT codes"] }),
     write("post-reverse-charge", mcp("vat_post_eu_service_purchase"), "Post a supported EU-service reverse charge.", { dependsOn: ["purchase-preflight"], condition: "Reverse-charge branch.", boundary: "irreversible", uncertainOutcomeReadBack: mcp("vat_report"), canonicalRecords: ["reverse-charge journal entries"] }),
     read("vat-report", mcp("vat_report"), "Prepare the VAT period report.", { dependsOn: ["post-domestic-purchase|post-reverse-charge"] }),
     read("eu-sales-list", mcp("vat_eu_sales_list"), "Prepare EU sales evidence.", { dependsOn: ["vat-report"] }),
@@ -156,7 +158,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("list-exceptions", mcp("exceptions_list"), "Read unresolved exceptions."),
     write("resolve-exception", mcp("exception_resolve"), "Record the reviewed resolution.", { dependsOn: ["list-exceptions"], canonicalRecords: ["exception resolution audit"] }),
     read("review-journal", mcp("journal_list"), "Identify the exact entry requiring correction.", { dependsOn: ["resolve-exception"] }),
-    write("reverse-journal", mcp("journal_reverse"), "Append a documented reversal.", { dependsOn: ["review-journal"], boundary: "irreversible", uncertainOutcomeReadBack: mcp("journal_list"), canonicalRecords: ["reversal journal entry", "audit log"] }),
+    write("reverse-journal", mcp("journal_reverse"), "Append a documented reversal.", { dependsOn: ["review-journal"], boundary: "irreversible", retryClass: "key-idempotent", uncertainOutcomeReadBack: mcp("journal_list"), canonicalRecords: ["reversal journal entry", "audit log"] }),
   ], alternatives: ["Use invoice_credit_note for an issued sales invoice."], unsupportedBoundaries: ["Posted entries and original documents are never overwritten or deleted."] }),
   workflow({ id: "period-close-reopen", capabilityId: "period-management", title: "Period readiness, close and reopen", intendedOutcome: "Inspect period readiness, close deliberately and reopen only through the supported correction path.", steps: [
     read("list-periods", mcp("period_list"), "Inspect period state and blockers."),
@@ -172,7 +174,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     write("create-backup", mcp("system_backup"), "Create the confirmed snapshot/archive.", { dependsOn: ["backup-status"], uncertainOutcomeReadBack: mcp("system_backup_status"), canonicalRecords: ["backup manifest", "backup audit"] }),
     write("place-backup", mcp("system_backup_place"), "Place the archive at a configured destination.", { dependsOn: ["create-backup"], canonicalRecords: ["backup placement evidence"] }),
     write("verify-placement", mcp("system_backup_verify_remote_placement"), "Verify placement against its checksum.", { dependsOn: ["place-backup"], canonicalRecords: ["verified placement evidence"] }),
-    write("restore", mcp("system_restore_backup"), "Restore only to the explicitly confirmed target.", { dependsOn: ["create-backup"], condition: "Disaster-recovery branch only.", boundary: "destructive", expectedSafety: "destructive", retryClass: "never-automatic", canonicalRecords: ["restored company root", "restore evidence"] }),
+    write("restore", mcp("system_restore_backup"), "Restore only to the explicitly confirmed target.", { dependsOn: ["create-backup"], condition: "Disaster-recovery branch only.", boundary: "destructive", expectedSafety: "destructive", retryClass: "unsafe-read-back", canonicalRecords: ["restored company root", "restore evidence"] }),
   ], unsupportedBoundaries: ["Rentemester does not choose provider retention policy.", "Restore never targets an implicit path."] }),
   workflow({ id: "group-intercompany", capabilityId: "group-intercompany", title: "Portfolio, group and intercompany overview", intendedOutcome: "Inspect a legal group, reconcile approved mappings and produce a read-only consolidated result.", steps: [
     read("portfolio-overview", mcp("portfolio_overview"), "Read accessible portfolio totals."),
@@ -182,17 +184,17 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   ], unsupportedBoundaries: ["Each legal entity keeps its own ledger.", "Group operations remain CLI/HTTP-only where no MCP operation is listed."] }),
   workflow({ id: "digisense-nemhandel", capabilityId: "digisense-nemhandel", title: "DigiSense and NemHandel onboarding, send, status and inbound", intendedOutcome: "Configure and onboard, send at most once, read status after uncertainty and ingest inbound documents with deduplication.", steps: [
     read("onboarding-status", mcp("efaktura_onboarding_status"), "Inspect environment and readiness."),
-    write("configure", mcp("efaktura_konfigurer"), "Store provider configuration through the secret boundary.", { dependsOn: ["onboarding-status"], expectedIdempotent: true, canonicalRecords: ["e-invoice configuration audit"] }),
-    write("onboard", mcp("efaktura_onboard"), "Register in the selected environment.", { dependsOn: ["configure"], expectedIdempotent: true, uncertainOutcomeReadBack: mcp("efaktura_onboarding_status"), canonicalRecords: ["participant registration evidence"] }),
-    write("send", mcp("efaktura_send"), "Submit the issued invoice once.", { dependsOn: ["onboard"], expectedIdempotent: true, retryClass: "never-automatic", outputIdentities: ["submissionId"], uncertainOutcomeReadBack: mcp("efaktura_status"), canonicalRecords: ["Peppol submission events"] }),
-    write("delivery-status", mcp("efaktura_status"), "Perform the actor-audited, confirmed status lookup for the existing submission.", { dependsOn: ["send"], expectedIdempotent: true, inputIdentities: ["submissionId"] }),
-    write("receive", mcp("efaktura_modtag"), "Poll and ingest inbound documents with deduplication.", { dependsOn: ["onboard"], condition: "Inbound branch.", expectedIdempotent: true, canonicalRecords: ["inbound documents", "deduplication evidence"] }),
+    write("configure", mcp("efaktura_konfigurer"), "Store provider configuration through the secret boundary.", { dependsOn: ["onboarding-status"], expectedIdempotent: true, retryClass: "external-provider-reconciled", canonicalRecords: ["e-invoice configuration audit"] }),
+    write("onboard", mcp("efaktura_onboard"), "Register in the selected environment.", { dependsOn: ["configure"], expectedIdempotent: true, retryClass: "external-provider-reconciled", uncertainOutcomeReadBack: mcp("efaktura_onboarding_status"), canonicalRecords: ["participant registration evidence"] }),
+    write("send", mcp("efaktura_send"), "Submit the issued invoice once.", { dependsOn: ["onboard"], expectedIdempotent: true, retryClass: "external-provider-reconciled", outputIdentities: ["submissionId"], uncertainOutcomeReadBack: mcp("efaktura_status"), canonicalRecords: ["Peppol submission events"] }),
+    write("delivery-status", mcp("efaktura_status"), "Perform the actor-audited, confirmed status lookup for the existing submission.", { dependsOn: ["send"], expectedIdempotent: true, retryClass: "external-provider-reconciled", inputIdentities: ["submissionId"] }),
+    write("receive", mcp("efaktura_modtag"), "Poll and ingest inbound documents with deduplication.", { dependsOn: ["onboard"], condition: "Inbound branch.", expectedIdempotent: true, retryClass: "external-provider-reconciled", canonicalRecords: ["inbound documents", "deduplication evidence"] }),
   ], unsupportedBoundaries: ["Test and production are explicit.", "Discovery exposes no credentials or participant identities."] }),
   workflow({ id: "imports-dinero", capabilityId: "imports", title: "Imports including Dinero", intendedOutcome: "Validate a source export, dry-run the supported import and apply only the explicit cut-over scope.", steps: [
     read("supported-systems", cli("import systems"), "Discover supported systems and required files."),
     read("dry-run", cli("import run"), "Validate/dry-run the selected source and fiscal scope.", { dependsOn: ["supported-systems"], boundary: "dry-run", requiresActor: true, requiredArguments: ["--dry-run"], outputIdentities: ["source hashes", "import plan"] }),
     write("apply-import", cli("import run"), "Apply the exact validated import.", { dependsOn: ["dry-run"], requiresConfirmation: false, requiredArguments: ["--apply"], outputIdentities: ["import run identity"], canonicalRecords: ["imported ledger records", "source-hash evidence", "import audit"] }),
-    write("import-contacts", cli("import contacts"), "Import Dinero contacts idempotently.", { dependsOn: ["supported-systems"], condition: "Optional contacts branch.", expectedIdempotent: true, requiresConfirmation: false, retryClass: "stable-key-resume", canonicalRecords: ["customers", "vendors", "contact import audit"] }),
+    write("import-contacts", cli("import contacts"), "Import Dinero contacts idempotently.", { dependsOn: ["supported-systems"], condition: "Optional contacts branch.", expectedIdempotent: true, requiresConfirmation: false, retryClass: "natural-idempotent", canonicalRecords: ["customers", "vendors", "contact import audit"] }),
     read("archive", mcp("import_archive_list"), "Read the retained source archive.", { dependsOn: ["apply-import"] }),
   ], unsupportedBoundaries: ["No company-specific mapping is inferred.", "Cut-over apply remains CLI-only."] }),
   workflow({ id: "privacy-governance", capabilityId: "privacy", title: "GDPR discovery and export", intendedOutcome: "Discover and export data-subject records through audited, confirmed operations.", steps: [
@@ -217,7 +219,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("tax-prepare", mcp("tax_return_prepare"), "Prepare tax-return material.", { dependsOn: ["budget-report", "register-accrual"], boundary: "review" }),
   ], unsupportedBoundaries: ["Tax/report material is not filed and is not tax advice."] }),
   workflow({ id: "posting-rule-review", capabilityId: "posting-rules", title: "Company-specific posting rule review", intendedOutcome: "Propose, independently approve and explain a reusable audited posting rule.", steps: [
-    write("propose", mcp("posting_rule_propose"), "Propose an inert rule.", { expectedIdempotent: true, canonicalRecords: ["posting rule proposal"] }),
+    write("propose", mcp("posting_rule_propose"), "Propose an inert rule.", { expectedIdempotent: true, retryClass: "natural-idempotent", canonicalRecords: ["posting rule proposal"] }),
     write("approve", mcp("posting_rule_approve"), "Approve with reviewer separation.", { dependsOn: ["propose"], boundary: "approval", canonicalRecords: ["approved posting rule"] }),
     read("explain", mcp("posting_rule_explain"), "Explain the active rule and evidence.", { dependsOn: ["approve"] }),
   ] }),
@@ -325,6 +327,42 @@ export type DiscoveryOperationBinding = {
   retryClass: RetryClass;
 };
 
+/** These are the only MCP mutations with a durable caller-key receipt. Keep
+ * this list deliberately small: adding an entry is a transaction/audit change,
+ * not a metadata-only promise. */
+export const KEY_IDEMPOTENT_MCP_OPERATIONS = new Set([
+  "journal_post",
+  "journal_reverse",
+  "expense_book",
+  "payable_register",
+  "payable_pay",
+]);
+/** Explicitly reviewed domain-deduplication contracts.  Do not derive this
+ * class from `idempotentHint`: that hint is evidence which this list validates,
+ * not a substitute for a retry contract. */
+const NATURAL_IDEMPOTENT_MCP_OPERATIONS = new Set([
+  "bank_import", "bookkeeping_batch_apply", "bookkeeping_batch_approve", "bookkeeping_batch_dry_run",
+  "documents_enrich", "documents_extract_invoice", "documents_parse", "documents_parse_pending", "documents_set_company_context",
+  "invoice_render", "posting_rule_propose", "recurring_invoice_generate", "recurring_invoice_run_workspace",
+]);
+
+/** Provider calls may have an accepted remote identity. They must be reconciled
+ * with that identity/status before a retry, even where the local action itself
+ * has de-duplication. */
+const EXTERNAL_PROVIDER_MCP_OPERATIONS = new Set([
+  "efaktura_konfigurer", "efaktura_onboard", "efaktura_registrer", "efaktura_send", "efaktura_modtag", "efaktura_modtag_workspace", "efaktura_status",
+  "peppol_submit_public_invoice", "invoice_send_email", "mail_intake_ingest", "imap_intake_poll",
+]);
+const NATURAL_IDEMPOTENT_CLI_OPERATIONS = new Set(["import contacts"]);
+
+export function retryClassForOperation(id: string, source: { safety: OperationSafety; idempotent: boolean | null; external?: boolean }): RetryClass {
+  if (source.safety === "read") return "safe-read";
+  if (source.external || (id.startsWith("mcp:") && EXTERNAL_PROVIDER_MCP_OPERATIONS.has(id.slice(4)))) return "external-provider-reconciled";
+  if (id.startsWith("mcp:") && KEY_IDEMPOTENT_MCP_OPERATIONS.has(id.slice(4))) return "key-idempotent";
+  if ((id.startsWith("mcp:") && NATURAL_IDEMPOTENT_MCP_OPERATIONS.has(id.slice(4))) || (id.startsWith("cli:") && NATURAL_IDEMPOTENT_CLI_OPERATIONS.has(id.slice(4)))) return "natural-idempotent";
+  return "unsafe-read-back";
+}
+
 type SurfaceName = "mcp" | "cli" | "http";
 type SurfaceBaseline = { count: number; hash: string };
 
@@ -402,20 +440,23 @@ function bindingForOperation(id: string, input: AgentDiscoveryCoverageInput): Di
     const tool = input.tools.find((item) => item.name === id.slice(4));
     if (!tool?.annotations || typeof tool.annotations.readOnlyHint !== "boolean") return null;
     const safety = tool.annotations.readOnlyHint ? "read" : tool.annotations.destructiveHint ? "destructive" : "write";
-    return { id, capabilityIds, safety, idempotent: tool.annotations.idempotentHint === true, requiresActor: safety !== "read", requiresConfirmation: safety !== "read", retryClass: safety === "read" ? "safe-read" : safety === "destructive" ? "never-automatic" : tool.annotations.idempotentHint ? "stable-key-resume" : "read-back-before-retry" };
+    const idempotent = tool.annotations.idempotentHint === true;
+    return { id, capabilityIds, safety, idempotent, requiresActor: safety !== "read", requiresConfirmation: safety !== "read", retryClass: retryClassForOperation(id, { safety, idempotent }) };
   }
   if (id.startsWith("cli:")) {
     const command = input.commands.find((item) => item.key === id.slice(4));
     if (!command) return null;
     const safety: OperationSafety = command.mutating || command.sideEffecting ? "write" : "read";
-    return { id, capabilityIds, safety, idempotent: safety === "read" ? true : null, requiresActor: command.mutating === true, requiresConfirmation: command.allowedFlags?.includes("--confirm") === true, retryClass: safety === "read" ? "safe-read" : "read-back-before-retry" };
+    const idempotent = safety === "read" ? true : null;
+    return { id, capabilityIds, safety, idempotent, requiresActor: command.mutating === true, requiresConfirmation: command.allowedFlags?.includes("--confirm") === true, retryClass: retryClassForOperation(id, { safety, idempotent }) };
   }
   const routeId = id.slice(5);
   const separator = routeId.indexOf(" ");
   const route = input.routes.find((item) => item.method === routeId.slice(0, separator) && item.pattern === routeId.slice(separator + 1));
   if (!route) return null;
   const safety: OperationSafety = route.effect === "read" ? "read" : "write";
-  return { id, capabilityIds, safety, idempotent: safety === "read" ? true : null, requiresActor: false, requiresConfirmation: false, retryClass: route.effect === "external" ? "never-automatic" : safety === "read" ? "safe-read" : "read-back-before-retry" };
+  const idempotent = safety === "read" ? true : null;
+  return { id, capabilityIds, safety, idempotent, requiresActor: false, requiresConfirmation: false, retryClass: retryClassForOperation(id, { safety, idempotent, external: route.effect === "external" }) };
 }
 
 export function discoverableOperationBindings(sources: LiveOperationSources): DiscoveryOperationBinding[] {
@@ -499,6 +540,20 @@ export function validateAgentDiscoveryCoverage(input: AgentDiscoveryCoverageInpu
     bindings.push(binding);
   }
 
+  // A generic annotation cannot silently upgrade a retry guarantee. Every
+  // public write has one explicit class, and each stronger claim must agree
+  // with its live evidence. This catches both an unreviewed natural hint and
+  // stale allow-list entries when a tool changes behaviour.
+  for (const tool of input.tools) {
+    const id = `mcp:${tool.name}`;
+    const binding = bindings.find((item) => item.id === id);
+    if (!binding || binding.safety === "read") continue;
+    const explicitlyIdempotent = KEY_IDEMPOTENT_MCP_OPERATIONS.has(tool.name) || NATURAL_IDEMPOTENT_MCP_OPERATIONS.has(tool.name) || EXTERNAL_PROVIDER_MCP_OPERATIONS.has(tool.name);
+    if (tool.annotations?.idempotentHint === true && !explicitlyIdempotent) errors.push(`${id}: live idempotentHint has no explicit retry classification; add a reviewed natural-idempotent or external-provider-reconciled contract.`);
+    if (binding.retryClass === "natural-idempotent" && tool.annotations?.idempotentHint !== true) errors.push(`${id}: natural-idempotent claim lacks live idempotentHint evidence.`);
+    if (binding.retryClass === "key-idempotent" && tool.annotations?.idempotentHint === true) errors.push(`${id}: key-idempotent operation must not also claim natural idempotency.`);
+  }
+
   for (const capability of capabilities) {
     if (capability.workflowIds.length === 0) errors.push(`capability:${capability.id}: no canonical workflow is linked.`);
     for (const workflowId of capability.workflowIds) if (!workflowIds.has(workflowId)) errors.push(`capability:${capability.id}: workflow '${workflowId}' does not exist.`);
@@ -526,8 +581,9 @@ export function validateAgentDiscoveryCoverage(input: AgentDiscoveryCoverageInpu
       if (workflowStep.operation.surface === "mcp" && binding.idempotent !== workflowStep.expectedIdempotent) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} idempotency claim '${workflowStep.expectedIdempotent}' contradicts live '${binding.idempotent}'.`);
       if (workflowStep.operation.surface !== "http" && binding.requiresActor !== workflowStep.requiresActor) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} actor requirement contradicts the live surface.`);
       if (workflowStep.operation.surface !== "http" && binding.requiresConfirmation !== workflowStep.requiresConfirmation) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} confirmation requirement contradicts the live surface.`);
+      if (!dryRunVariant && workflowStep.retryClass !== binding.retryClass) errors.push(`workflow:${workflow.id}/${workflowStep.id}: ${id} retry class '${workflowStep.retryClass}' contradicts live '${binding.retryClass}'. Use the canonical retry contract; do not infer key idempotency from an input field.`);
       if (actualSafety === "read" && workflowStep.retryClass !== "safe-read") errors.push(`workflow:${workflow.id}/${workflowStep.id}: read operation must use safe-read retry semantics.`);
-      if (actualSafety === "destructive" && workflowStep.retryClass !== "never-automatic") errors.push(`workflow:${workflow.id}/${workflowStep.id}: destructive operation must never retry automatically.`);
+      if (actualSafety === "destructive" && workflowStep.retryClass !== "unsafe-read-back") errors.push(`workflow:${workflow.id}/${workflowStep.id}: destructive operation requires read-back-before-retry semantics.`);
     }
   }
 

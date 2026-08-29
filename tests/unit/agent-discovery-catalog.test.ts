@@ -108,7 +108,7 @@ describe("agent runtime catalogue (#584)", () => {
     expect(report.boundary).toBe("read");
     const apply = resolved!.workflow.steps.find((item) => item.id === "batch-apply")!;
     expect(apply.operation).toMatchObject({ resolved: true, safety: "write", idempotent: true });
-    expect(apply.retryClass).toBe("stable-key-resume");
+    expect(apply.retryClass).toBe("natural-idempotent");
   });
 
   test("publishes exact CLI actor, confirmation and mode boundaries", () => {

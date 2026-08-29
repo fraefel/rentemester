@@ -50,11 +50,13 @@ export function executeLocalIdempotentMutation<T>(db: Database, input: {
   if (RETRY_CLASS_BY_OPERATION[input.operation] !== "key-idempotent") throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", `operation ${input.operation} does not accept a client idempotency key`);
   if (!input.principal?.subjectId) throw new IdempotencyError("IDEMPOTENCY_AUTH_REQUIRED", "idempotency keys require an authenticated user or workspace service principal");
   const payloadHash = canonicalPayloadHash(input.payload); const now = input.now ?? new Date(); const createdAt = now.toISOString(); const expiresAt = new Date(now.getTime() + IDEMPOTENCY_RETENTION_DAYS * 86_400_000).toISOString();
-  return db.transaction(() => {
+  let rejectedAudit: { eventType: "idempotency_conflict" | "idempotency_outcome_expired"; entityId: number; message: string } | undefined;
+  try {
+    return db.transaction(() => {
     const prior = db.query(`SELECT id, payload_hash, outcome_json, created_at, expires_at FROM mutation_idempotency_tombstones WHERE client_key_hash = ? AND operation = ? AND workspace_scope = ? AND company_scope = ? AND principal_kind = ? AND principal_subject_id = ?`).get(keyHash(input.key!), input.operation, input.workspaceScope, input.companyScope, input.principal!.kind, input.principal!.subjectId) as Row | null;
     if (prior) {
-      if (prior.payload_hash !== payloadHash) { insertAuditLog(db, { eventType: "idempotency_conflict", entityType: "idempotency_receipt", entityId: prior.id, message: `Rejected conflicting idempotency retry for ${input.operation}`, ...input.actor }); throw new IdempotencyError("IDEMPOTENCY_CONFLICT", "idempotency key was already used with a different validated payload"); }
-      if (prior.outcome_json === null) { insertAuditLog(db, { eventType: "idempotency_outcome_expired", entityType: "idempotency_receipt", entityId: prior.id, message: `Idempotency outcome expired for ${input.operation}; key remains reserved`, ...input.actor }); throw new IdempotencyError("IDEMPOTENCY_OUTCOME_EXPIRED", "idempotency outcome has expired; inspect canonical state and use a new key only for a new operation"); }
+      if (prior.payload_hash !== payloadHash) { rejectedAudit = { eventType: "idempotency_conflict", entityId: prior.id, message: `Rejected conflicting idempotency retry for ${input.operation}` }; throw new IdempotencyError("IDEMPOTENCY_CONFLICT", "idempotency key was already used with a different validated payload"); }
+      if (prior.outcome_json === null) { rejectedAudit = { eventType: "idempotency_outcome_expired", entityId: prior.id, message: `Idempotency outcome expired for ${input.operation}; key remains reserved` }; throw new IdempotencyError("IDEMPOTENCY_OUTCOME_EXPIRED", "idempotency outcome has expired; inspect canonical state and use a new key only for a new operation"); }
       insertAuditLog(db, { eventType: "idempotency_replay", entityType: "idempotency_receipt", entityId: prior.id, message: `Replayed durable idempotency outcome for ${input.operation}`, ...input.actor });
       return { result: JSON.parse(prior.outcome_json) as T, receipt: { replayed: true, receiptId: prior.id, createdAt: prior.created_at, expiresAt: prior.expires_at } };
     }
@@ -63,7 +65,14 @@ export function executeLocalIdempotentMutation<T>(db: Database, input: {
     const receiptId = Number(db.query(`INSERT INTO mutation_idempotency_tombstones (client_key_hash,operation,workspace_scope,company_scope,principal_kind,principal_subject_id,payload_hash,outcome_json,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(keyHash(input.key!), input.operation, input.workspaceScope, input.companyScope, input.principal!.kind, input.principal!.subjectId, payloadHash, outcome, createdAt, expiresAt).lastInsertRowid);
     insertAuditLog(db, { eventType: "idempotency_original", entityType: "idempotency_receipt", entityId: receiptId, message: `Recorded idempotent ${input.operation} outcome`, ...input.actor });
     return { result, receipt: { replayed: false, receiptId, createdAt, expiresAt } };
-  }).immediate();
+    }).immediate();
+  } catch (error) {
+    // The rejected mutation transaction must roll back, but the attempt itself
+    // is security-relevant evidence. Append it in a separate transaction only
+    // after the immutable receipt lookup has completed.
+    if (rejectedAudit) insertAuditLog(db, { ...rejectedAudit, entityType: "idempotency_receipt", ...input.actor });
+    throw error;
+  }
 }
 /** Retention prunes response material only; a key tombstone is never deleted. */
 export function pruneExpiredIdempotencyOutcomes(db: Database, now = new Date()): number {

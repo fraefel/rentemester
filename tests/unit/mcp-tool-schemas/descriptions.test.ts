@@ -61,6 +61,12 @@ describe("#243 — previously-undescribed MCP tool fields now carry describe() t
     );
   });
 
+  test("documents_enrich uses the shared metadata schema", () => {
+    const props = schemaOf("documents_enrich").properties ?? {};
+    expect(props.metadata?.properties?.amountIncVat?.description).toContain("Total amount");
+    expect(props.confirm).toBeDefined();
+  });
+
   test("portfolio_overview.workspace documents the RENTEMESTER_WORKSPACE fallback", () => {
     const ws = schemaOf("portfolio_overview").properties?.workspace;
     const desc: string = ws?.description ?? "";

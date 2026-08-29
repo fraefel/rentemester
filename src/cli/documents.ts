@@ -4,7 +4,7 @@ import { openCommandDb } from "../cli-dispatch";
 import { formatKroner } from "../cli-format";
 import { migrate, openDb } from "../core/db";
 import { PDF_EVIDENCE_TAMPERED, PdfParseError, parseRegisteredPdfBatch, parseRegisteredPdfDocument, planCurrentPdfParses } from "../core/document-pdf-parser";
-import { ingestDocument, purchaseVatLinesFromPayload } from "../core/documents";
+import { enrichDocumentMetadata, ingestDocument, purchaseVatLinesFromPayload } from "../core/documents";
 import { recordException } from "../core/exceptions";
 import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
 import { resolveDocumentMasterData } from "../core/master-data";
@@ -16,6 +16,34 @@ import { documentPdfParsedText, documentPdfParseStatus } from "../server/router/
 const parseSummary = (run: any) => ({ documentId: run?.documentId, status: run?.status, errorCode: run?.errorCode ?? null, cached: Boolean(run?.cached), pageCount: Array.isArray(run?.pages) ? run.pages.length : 0, itemCount: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.layout?.length ?? 0), 0) : 0, textLength: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0) : 0, resultHash: run?.resultHash });
 
 export function register(dispatch: CommandDispatch): void {
+  dispatch.on("documents", "enrich", (ctx) => {
+    const id = Number(ctx.arg("--document-id"));
+    const metadataFile = ctx.arg("--metadata");
+    if (!Number.isInteger(id) || id <= 0) {
+      ctx.fatal("Missing required --document-id <n>");
+      return;
+    }
+    if (!metadataFile) {
+      ctx.fatal("Missing required --metadata <file.json>");
+      return;
+    }
+    if (ctx.arg("--confirm") !== "yes") {
+      ctx.fatal("documents enrich requires the exact confirmation --confirm yes");
+      return;
+    }
+    const db = openCommandDb(ctx);
+    migrate(db);
+    try {
+      const metadata = JSON.parse(readFileSync(metadataFile, "utf8"));
+      ctx.emitResult(enrichDocumentMetadata(db, id, metadata, {
+        createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined,
+        createdByProgram: ctx.cliActorVia ?? "rentemester-cli",
+      }));
+    } finally {
+      db.close();
+    }
+  });
+
   dispatch.on("documents", "ingest", (ctx) => {
     const file = ctx.arg("--file");
     const metadataFile = ctx.arg("--metadata");

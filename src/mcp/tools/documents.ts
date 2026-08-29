@@ -8,7 +8,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { PDF_EVIDENCE_TAMPERED, PdfParseError, parseRegisteredPdfBatch, parseRegisteredPdfDocument, planCurrentPdfParses } from "../../core/document-pdf-parser";
-import { type DocumentMetadata, ingestDocument, purchaseVatLinesFromPayload } from "../../core/documents";
+import { type DocumentMetadata, enrichDocumentMetadata, ingestDocument, purchaseVatLinesFromPayload } from "../../core/documents";
 import { recordException } from "../../core/exceptions";
 import { resolveDocumentMasterData } from "../../core/master-data";
 import { extractDocumentInvoice, invoiceExtractionSurface } from "../../server/invoice-extraction-surface";
@@ -111,6 +111,19 @@ const documentMetadataSchema = z
   );
 
 export function registerDocumentTools(server: McpServer): void {
+  server.registerTool(
+    "documents_enrich",
+    {
+      title: "Enrich document metadata",
+      description: "Completes missing metadata for one unlinked legacy document. Requires confirm:true; identical retries are idempotent. write-reversible.",
+      inputSchema: { company: z.string().min(1), documentId: z.number().int().positive(), metadata: documentMetadataSchema, confirm: confirmField },
+      outputSchema: envelopeShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    withCompanyDbConfirmed<{ company: string; documentId: number; metadata: DocumentMetadata; confirm?: boolean }>(server, "documents_enrich", ({ db, actor, args }) =>
+      wrapCoreResult(enrichDocumentMetadata(db, args.documentId, args.metadata, { createdBy: actor.createdBy, createdByProgram: actor.createdByProgram })),
+    ),
+  );
   server.registerTool("documents_parse", { title: "Parse PDF document", description: "Offline, deterministic PDF text parse of an already stored document. Requires confirm:true; it has no bookkeeping authority. write-reversible.", inputSchema: { company: z.string().min(1), documentId: z.number().int().positive(), confirm: confirmField.optional() }, outputSchema: envelopeShape, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyDbConfirmed<{ company: string; documentId: number; confirm?: boolean }>(server, "documents_parse", async ({ db, actor, args }) => { try { return successEnvelope({ parse: parseSummary(await parseRegisteredPdfDocument(db, args.company, { documentId: args.documentId, createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }), args.documentId) }); } catch { return errorEnvelope(["PDF_PARSE_FAILED"]); } }));
   server.registerTool("documents_parse_pending", { title: "Parse pending PDFs", description: "Parses up to 100 stored PDFs that have no parse result. Requires confirm:true; no ingest or bookkeeping is performed. write-reversible.", inputSchema: { company: z.string().min(1), limit: z.number().int().min(1).max(100).optional(), cursor: z.number().int().min(0).optional(), confirm: confirmField.optional() }, outputSchema: envelopeShape, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyDbConfirmed<{ company: string; limit?: number; cursor?: number; confirm?: boolean }>(server, "documents_parse_pending", async ({ db, actor, args }) => { const plan=planCurrentPdfParses(db,{limit:args.limit,cursor:args.cursor}); const parses = await parseRegisteredPdfBatch(db, args.company, plan.documentIds, { createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }); const failed = parses.filter((p: any) => !p.ok); return successEnvelope({ batch: { requested: plan.documentIds.length, parsed: parses.length - failed.length, failed: failed.length, cursor:plan.cursor, nextCursor:plan.nextCursor, resume: failed.length ? { documentIds: failed.map((p: any) => p.documentId) } : null } }); }));
   server.registerTool("documents_parse_status", { title: "Read PDF parse status", description: "Read-only latest parser status and metrics; never exposes paths, raw child stderr, or secrets.", inputSchema: { company: z.string().min(1), documentId: z.number().int().positive() }, outputSchema: envelopeShape, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyReadOnlyDb<{ company: string; documentId: number }>(({ db, args }) => { try { return successEnvelope({ parse: documentPdfParseStatus(db, args.company, args.documentId) }); } catch (error) { return errorEnvelope([error instanceof PdfParseError && error.code === "tampered_result" ? PDF_EVIDENCE_TAMPERED : "PDF_PARSE_FAILED"], { code: error instanceof PdfParseError && error.code === "tampered_result" ? PDF_EVIDENCE_TAMPERED : undefined }); } }));

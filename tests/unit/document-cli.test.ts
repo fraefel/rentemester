@@ -5,6 +5,16 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 describe("documents ingest CLI", () => {
+  test("documents enrich requires literal confirmation and the mutation actor gate", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-doccli-enrich-")); const company = join(root, "company"); const metadata = join(root, "metadata.json");
+    writeFileSync(metadata, JSON.stringify({ source: "email" })); await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    try {
+      const noConfirm = Bun.spawn(["bun", "run", "src/cli.ts", "documents", "enrich", "--company", company, "--document-id", "1", "--metadata", metadata], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" });
+      expect(await noConfirm.exited).toBe(2); expect(await new Response(noConfirm.stderr).text()).toContain("--confirm yes");
+      const noActor = Bun.spawn(["bun", "run", "src/cli.ts", "documents", "enrich", "--company", company, "--document-id", "1", "--metadata", metadata, "--confirm", "yes"], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe", env: { ...process.env, USER: "", LOGNAME: "", USERNAME: "", RENTEMESTER_ACTOR: "", OPENCLAW_AGENT: "", RENTEMESTER_AGENT: "", RENTEMESTER_USER: "" } });
+      expect(await noActor.exited).toBe(2); expect(await new Response(noActor.stderr).text()).toContain("actor required for mutations");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   test("#530 list JSON preserves the exact mixed purchase VAT split", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-doccli-mixed-"));
     const company = join(root, "company");

@@ -81,6 +81,18 @@ export type IngestDocumentOptions = {
   scanner?: DocumentScanner;
 };
 
+export type EnrichDocumentMetadataOptions = {
+  createdBy?: string;
+  createdByProgram?: string;
+};
+
+export type EnrichDocumentMetadataResult = {
+  ok: boolean;
+  documentId?: DocumentId;
+  enriched?: boolean;
+  errors?: string[];
+};
+
 export type DocumentScanner = {
   scan(input: { bytes: Buffer; sha256: string; mimeType: string; filename: string; signal: AbortSignal }): Promise<
     | { ok: true; scannerId: string; scannerVersion?: string; evidenceRef?: string }
@@ -427,6 +439,94 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   }
 
   return { ok: errors.length === 0, appliedRules, errors };
+}
+
+/** Stable JSON is used only to recognise an identical enrichment retry. */
+function canonicalJson(value: unknown): string {
+  if (value === undefined) return "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object).filter((key) => object[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function metadataValueIsPresent(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== "";
+}
+
+function documentMetadataColumns(metadata: DocumentMetadata) {
+  const documentType = metadata.documentType ?? "purchase_sale";
+  const senderIdentity = documentType === "purchase_sale"
+    ? (metadata.sender?.countryCode !== undefined || metadata.sender?.identifierKind !== undefined
+      ? resolveSupplierIdentity({ country: metadata.sender?.countryCode ?? "", identifier: metadata.sender?.vatOrCvr, identifierKind: metadata.sender?.identifierKind })
+      : resolveLegacySupplierIdentity(metadata.sender?.vatOrCvr))
+    : null;
+  return {
+    source: metadata.source, document_type: documentType, supplier_name: metadata.sender?.name ?? null,
+    invoice_no: metadata.invoiceNo ?? null, invoice_date: metadata.issueDate ?? null,
+    amount_inc_vat: metadata.amountIncVat ?? null, currency: (metadata.currency ?? "DKK").trim().toUpperCase(),
+    delivery_description: metadata.deliveryDescription ?? null, sender_name: metadata.sender?.name ?? null,
+    sender_address: metadata.sender?.address ?? null,
+    sender_vat_cvr: senderIdentity?.ok ? senderIdentity.identifier : metadata.sender?.vatOrCvr?.trim() ?? null,
+    supplier_country_code: senderIdentity?.ok ? senderIdentity.country : null,
+    supplier_identifier_kind: senderIdentity?.ok ? senderIdentity.identifierKind : null,
+    supplier_identity_status: senderIdentity?.ok ? senderIdentity.status : null,
+    recipient_name: metadata.recipient?.name ?? null, recipient_address: metadata.recipient?.address ?? null,
+    recipient_vat_cvr: metadata.recipient?.vatOrCvr ?? null, vat_amount: metadata.vatAmount ?? null,
+    payment_details: metadata.paymentDetails ?? null, exemption_code: metadata.exemptionCode ?? null,
+  };
+}
+
+/** Completes a pre-accounting legacy document without touching its evidence identity. */
+export function enrichDocumentMetadata(db: Database, documentId: number, metadata: DocumentMetadata, options: EnrichDocumentMetadataOptions = {}): EnrichDocumentMetadataResult {
+  const validation = validateDocumentMetadata(metadata);
+  if (!validation.ok) return { ok: false, errors: validation.errors };
+  const internalEvidenceErrors = validateInternalVoucherBankEvidence(db, metadata);
+  if (internalEvidenceErrors.length > 0) return { ok: false, errors: internalEvidenceErrors };
+  const incoming = documentMetadataColumns(metadata);
+  const metadataHash = createHash("sha256").update(canonicalJson(metadata)).digest("hex");
+  try {
+    return db.transaction(() => {
+      const row = db.query(`SELECT id, status, source, document_type, supplier_name, invoice_no, invoice_date,
+        amount_inc_vat, currency, delivery_description, sender_name, sender_address, sender_vat_cvr,
+        supplier_country_code, supplier_identifier_kind, supplier_identity_status, recipient_name,
+        recipient_address, recipient_vat_cvr, vat_amount, payment_details, exemption_code, payload_json
+        FROM documents WHERE id = ?`).get(documentId) as Record<string, unknown> | null;
+      if (!row) return { ok: false, errors: [`document ${documentId} does not exist`] };
+      if (row.status !== "ingested") return { ok: false, errors: ["document is already posted or otherwise non-enrichable"] };
+      if (db.query("SELECT 1 FROM journal_entries WHERE document_id = ? LIMIT 1").get(documentId) || db.query("SELECT 1 FROM import_document_links WHERE document_id = ? LIMIT 1").get(documentId)) {
+        return { ok: false, errors: ["document is linked to accounting evidence and cannot be enriched"] };
+      }
+      let originalPayload: unknown = null;
+      const originalPayloadJson = typeof row.payload_json === "string" ? row.payload_json : null;
+      if (originalPayloadJson) {
+        try {
+          const parsed = JSON.parse(originalPayloadJson) as Record<string, unknown>;
+          const provenance = parsed._enrichment as { metadataHash?: unknown } | undefined;
+          if (provenance && typeof provenance.metadataHash === "string") {
+            return provenance.metadataHash === metadataHash
+              ? { ok: true, documentId: asDocumentId(documentId), enriched: false }
+              : { ok: false, errors: ["document metadata was already enriched with different metadata"] };
+          }
+          originalPayload = parsed;
+          for (const [key, existing] of Object.entries(parsed)) {
+            if (key !== "_enrichment" && metadataValueIsPresent(existing) && canonicalJson(existing) !== canonicalJson((metadata as Record<string, unknown>)[key])) return { ok: false, errors: [`existing document metadata ${key} conflicts with enrichment`] };
+          }
+        } catch { return { ok: false, errors: ["document payload_json is not valid JSON"] }; }
+      }
+      for (const [column, value] of Object.entries(incoming)) {
+        if (metadataValueIsPresent(row[column]) && canonicalJson(row[column]) !== canonicalJson(value)) return { ok: false, errors: [`existing document ${column} conflicts with enrichment`] };
+      }
+      const payload = { ...metadata, _enrichment: { originalPayload, originalPayloadJson, metadataHash } };
+      const columns = Object.keys(incoming);
+      const assignments = columns.map((column) => `${column} = CASE WHEN ${column} IS NULL OR ${column} = '' THEN ? ELSE ${column} END`).join(", ");
+      db.query(`UPDATE documents SET ${assignments}, payload_json = ? WHERE id = ?`).run(...columns.map((column) => incoming[column as keyof typeof incoming]), JSON.stringify(payload), documentId);
+      insertAuditLog(db, { eventType: "document_metadata_enriched", entityType: "document", entityId: documentId, message: `Enriched document metadata for document ${documentId}`, createdBy: options.createdBy, createdByProgram: options.createdByProgram });
+      return { ok: true, documentId: asDocumentId(documentId), enriched: true };
+    }).immediate();
+  } catch (error) { return { ok: false, errors: [error instanceof Error ? error.message : String(error)] }; }
 }
 
 function validateInternalVoucherBankEvidence(

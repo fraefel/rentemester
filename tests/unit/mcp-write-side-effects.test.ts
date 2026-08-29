@@ -61,6 +61,21 @@ function countMcpBankTmpDirs(): number {
   return readdirSync(tmpdir()).filter((n) => n.startsWith("rentemester-mcp-bank-")).length;
 }
 
+describe("documents_enrich confirmation contract (#569)", () => {
+  test("requires confirm:true before opening a company database", async () => {
+    const h = harness(registerDocumentTools);
+    const result = await h.call("documents_enrich", { company: "/definitely/not/an-existing-company", documentId: 1, metadata: { source: "email" }, confirm: false });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("confirm: true required");
+  });
+
+  test("is described and annotated as an idempotent reversible write", () => {
+    const h = harness(registerDocumentTools);
+    expect(h.tools.documents_enrich?.description).toContain("write-reversible");
+    expect(h.tools.documents_enrich?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
+  });
+});
+
 describe("documents_ingest exception idempotence (#383)", () => {
   test("repeated failing ingest of the same filePath does NOT create duplicate exceptions", async () => {
     const company = tmpCompany("doc-idem");

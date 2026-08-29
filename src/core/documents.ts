@@ -486,7 +486,16 @@ export function validateDanishSimplifiedPurchaseInvoiceMetadata(metadata: Docume
   if (typeof gross !== "number" || !Number.isFinite(gross) || compareDkk(gross, 0) <= 0 || compareDkk(gross, 3000) > 0) {
     errors.push("Danish simplified invoice gross amount must be greater than 0 and at most DKK 3000");
   }
-  if (typeof gross === "number" && Number.isFinite(gross) && typeof vat === "number" && Number.isFinite(vat)) {
+  if (metadata.purchaseVatLines !== undefined) {
+    const lineErrors = validatePurchaseVatLines(metadata);
+    errors.push(...lineErrors);
+    if (lineErrors.length === 0) {
+      const taxableLines = metadata.purchaseVatLines?.filter((line) => line.classification === "dk_purchase_25") ?? [];
+      if (taxableLines.length === 0 || taxableLines.every((line) => compareDkk(line.vatAmount ?? 0, 0) <= 0)) {
+        errors.push("Danish simplified invoice requires an explicitly documented taxable purchaseVatLines amount");
+      }
+    }
+  } else if (typeof gross === "number" && Number.isFinite(gross) && typeof vat === "number" && Number.isFinite(vat)) {
     const net = roundDkk(gross - vat);
     const expectedVat = percentOfDkk(net, 25);
     if (compareDkk(vat, 0) <= 0 || compareDkk(vat, gross) >= 0 || compareDkk(Math.abs(roundDkk(vat - expectedVat)), 0.01) > 0) {

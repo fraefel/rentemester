@@ -415,6 +415,38 @@ describe("MCP tools full surface (#78)", () => {
     });
   });
 
+  test("#571 accepts a mixed simplified purchase invoice through the MCP metadata contract", async () => {
+    const filePath = join(companyRoot, "simplified-mixed-571.txt");
+    writeFileSync(filePath, "Synthetic simplified invoice with mixed VAT lines\n");
+    const ingest = await client.send("tools/call", {
+      name: "documents_ingest",
+      arguments: {
+        company: companyRoot,
+        filePath,
+        metadata: {
+          source: "mcp-test",
+          documentType: "purchase_sale",
+          issueDate: "2026-08-21",
+          invoiceNo: "SYN-MCP-571",
+          deliveryDescription: "Synthetic mixed purchase",
+          amountIncVat: 225,
+          currency: "DKK",
+          sender: { name: "Synthetic Supplier ApS", address: "Supplier Street 1", vatOrCvr: "DK11223344" },
+          recipient: { name: "Printed Individual", address: "Personal Street 2" },
+          vatAmount: 25,
+          purchaseVatLines: [
+            { classification: "dk_purchase_25", netAmount: 100, vatAmount: 25 },
+            { classification: "exempt", netAmount: 100, vatAmount: 0 },
+          ],
+          danishSimplifiedPurchaseInvoice: true,
+        },
+        confirm: true,
+      },
+    });
+    expect(ingest.error).toBeUndefined();
+    expect(ingest.result?.structuredContent).toMatchObject({ ok: true });
+  });
+
   test("bank_list on a fresh company returns empty result set", async () => {
     const response = await client.send("tools/call", {
       name: "bank_list",

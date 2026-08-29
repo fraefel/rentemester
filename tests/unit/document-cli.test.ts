@@ -49,6 +49,40 @@ describe("documents ingest CLI", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("#571 accepts a mixed simplified purchase invoice through the CLI metadata contract", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-doccli-simplified-mixed-"));
+    const company = join(root, "company");
+    const file = join(root, "simplified-mixed.txt");
+    const metadata = join(root, "simplified-mixed.json");
+    writeFileSync(file, "Synthetic simplified invoice with mixed VAT lines\n");
+    writeFileSync(metadata, JSON.stringify({
+      source: "email",
+      documentType: "purchase_sale",
+      issueDate: "2026-08-21",
+      invoiceNo: "SYN-CLI-571",
+      deliveryDescription: "Synthetic mixed purchase",
+      amountIncVat: 225,
+      currency: "DKK",
+      sender: { name: "Synthetic Supplier ApS", address: "Supplier Street 1", vatOrCvr: "DK11223344" },
+      recipient: { name: "Printed Individual", address: "Personal Street 2" },
+      vatAmount: 25,
+      purchaseVatLines: [
+        { classification: "dk_purchase_25", netAmount: 100, vatAmount: 25 },
+        { classification: "exempt", netAmount: 100, vatAmount: 0 },
+      ],
+      danishSimplifiedPurchaseInvoice: true,
+    }));
+    await Bun.$`bun run src/cli.ts init --company ${company}`.quiet();
+    const proc = Bun.spawn(["bun", "run", "src/cli.ts", "documents", "ingest", "--company", company, "--file", file, "--metadata", metadata], {
+      cwd: process.cwd(), stdout: "pipe", stderr: "pipe",
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    expect({ exitCode: await proc.exited, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true });
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("returns exit code 0 for valid foreign-currency cash-register receipt metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-doccli-cash-"));
     const company = join(root, "company");

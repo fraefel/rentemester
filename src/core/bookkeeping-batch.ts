@@ -71,7 +71,7 @@ function sourceIdentities(db: Database, plan: Omit<BookkeepingBatchPlan, "source
     // A receipt is the immutable effect of this exact reviewed revision. Its
     // own rule/VAT/journal evidence must not make a resumable run stale.
     const prior = ignoreRunId && db.query("SELECT 1 FROM bookkeeping_batch_item_receipts WHERE run_id=? AND action_key=?").get(ignoreRunId, item.actionKey);
-    const planned = (plan as BookkeepingBatchPlan).sourceIdentities?.ready?.find((row: any) => row.actionKey === item.actionKey);
+    const planned = ((plan as BookkeepingBatchPlan).sourceIdentities as any)?.ready?.find((row: any) => row.actionKey === item.actionKey);
     if (prior && planned) return planned;
     const evidence = item.documentId && item.bankTransactionId ? loadPurchaseEvidence(db, plan.companyId, item.documentId, item.bankTransactionId) : null;
     const rule = evidence ? evaluatePostingRules(db, evidence.context, { at: evidence.document.invoice_date ?? plan.accountingTo }) : null;

@@ -54,8 +54,9 @@ export async function authMiddleware(
   config: ServerConfig,
 ): Promise<Principal> {
   if (config.betterAuthProvider) {
-    const service = await config.betterAuthProvider.verifyServicePrincipal?.(request) ?? null;
-    if (service) {
+    const service = await config.betterAuthProvider.verifyServicePrincipal?.(request) ?? { state: "absent" as const };
+    if (service.state === "invalid") throw ApiError.unauthorized("missing or invalid credentials");
+    if (service.state === "valid") {
       const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
       try {
         const row = db.query("SELECT 1 FROM rm_workspace_service_principals WHERE user_id = ?").get(service.userId);

@@ -92,7 +92,7 @@ export type BetterAuthRequestProvider = {
    * manufactures a browser session: callers receive an identity only after
    * the API-key plugin has checked hash, expiry and enabled state.
    */
-  verifyServicePrincipal?(request: Request): Promise<BetterAuthServicePrincipal | null>;
+  verifyServicePrincipal?(request: Request): Promise<BetterAuthServicePrincipalVerification>;
   handle(request: Request): Promise<Response>;
 };
 
@@ -105,6 +105,13 @@ export type BetterAuthServicePrincipal = {
   userId: string;
   credentialId: string;
 };
+
+/** Header presence is significant: an invalid presented key must never fall
+ * back to a browser cookie and accidentally widen an automation request. */
+export type BetterAuthServicePrincipalVerification =
+  | { state: "absent" }
+  | { state: "invalid" }
+  | ({ state: "valid" } & BetterAuthServicePrincipal);
 
 export const WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID = "workspace-service-principal";
 export const WORKSPACE_SERVICE_PRINCIPAL_HEADER = "x-rentemester-service-key";
@@ -371,7 +378,8 @@ function createBetterAuth(
         defaultPrefix: "rms_",
         requireName: true,
         keyExpiration: {
-          defaultExpiresIn: 90 * 24 * 60 * 60 * 1000,
+          // Better Auth takes seconds, not milliseconds.
+          defaultExpiresIn: 90 * 24 * 60 * 60,
           disableCustomExpiresTime: false,
           minExpiresIn: 1,
           maxExpiresIn: 365,
@@ -464,18 +472,20 @@ export function createBetterAuthRequestProvider(
     },
     async verifyServicePrincipal(request) {
       const key = request.headers.get(WORKSPACE_SERVICE_PRINCIPAL_HEADER)?.trim();
-      if (!key) return null;
+      if (!key) return { state: "absent" };
       try {
         const result = await (auth.api as any).verifyApiKey({
           body: { key, configId: WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID },
         }) as { valid?: boolean; key?: { id?: string; referenceId?: string } | null };
         const userId = result.key?.referenceId?.trim() ?? "";
         const credentialId = result.key?.id?.trim() ?? "";
-        return result.valid === true && userId && credentialId ? { userId, credentialId } : null;
+        return result.valid === true && userId && credentialId
+          ? { state: "valid", userId, credentialId }
+          : { state: "invalid" };
       } catch {
         // Credential details, including whether a key was disabled or expired,
         // are intentionally non-disclosing at the HTTP boundary.
-        return null;
+        return { state: "invalid" };
       }
     },
     async handle(request) {

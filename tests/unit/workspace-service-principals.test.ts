@@ -23,15 +23,19 @@ describe("workspace service principals", () => {
       expect(db.query('SELECT key FROM "apikey" WHERE id = ?').get(issued.credentialId)).not.toEqual({ key: issued.secret });
       const provider = createBetterAuthRequestProvider(runtime.auth);
       const request = new Request(`${ORIGIN}/api/companies/demo`, { headers: { [WORKSPACE_SERVICE_PRINCIPAL_HEADER]: issued.secret } });
-      expect(await provider.verifyServicePrincipal!(request)).toEqual({ userId: issued.serviceAccountId, credentialId: issued.credentialId });
+      expect(await provider.verifyServicePrincipal!(request)).toEqual({ state: "valid", userId: issued.serviceAccountId, credentialId: issued.credentialId });
       expect(await provider.getSession(request)).toBeNull();
 
       const rotated = await rotateWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: issued.serviceAccountId, credentialId: issued.credentialId, actor: "user:owner" });
-      expect(await provider.verifyServicePrincipal!(request)).toBeNull();
+      expect(await provider.verifyServicePrincipal!(request)).toEqual({ state: "invalid" });
       const rotatedRequest = new Request(`${ORIGIN}/api/companies/demo`, { headers: { [WORKSPACE_SERVICE_PRINCIPAL_HEADER]: rotated.secret } });
-      expect(await provider.verifyServicePrincipal!(rotatedRequest)).toEqual({ userId: issued.serviceAccountId, credentialId: rotated.credentialId });
+      expect(await provider.verifyServicePrincipal!(rotatedRequest)).toEqual({ state: "valid", userId: issued.serviceAccountId, credentialId: rotated.credentialId });
       await revokeWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: issued.serviceAccountId, credentialId: rotated.credentialId, actor: "user:owner" });
-      expect(await provider.verifyServicePrincipal!(rotatedRequest)).toBeNull();
+      expect(await provider.verifyServicePrincipal!(rotatedRequest)).toEqual({ state: "invalid" });
+      const expiresAt = db.query('SELECT "expiresAt" FROM "apikey" WHERE id = ?').get(issued.credentialId) as { expiresAt: string };
+      const days = (new Date(expiresAt.expiresAt).getTime() - Date.now()) / 86_400_000;
+      expect(days).toBeGreaterThan(89);
+      expect(days).toBeLessThan(91);
       expect(db.query("SELECT COUNT(*) AS count FROM rm_workspace_service_principal_events WHERE user_id = ?").get(issued.serviceAccountId)).toEqual({ count: 5 });
     } finally {
       db.close(); runtime.close(); rmSync(workspace, { recursive: true, force: true });

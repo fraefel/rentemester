@@ -14,13 +14,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  registerPayable,
-  payPayableFromBank,
+  registerPayableInCurrentTransaction,
+  payPayableFromBankInCurrentTransaction,
   buildPayablesList,
 } from "../../core/payables";
 import { withActor } from "../actor";
 import { envelopeShape, wrapCoreResult } from "../envelope";
-import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
+import { withCompanyDb, withCompanyDbConfirmed, confirmField, idempotencyKeyField } from "../tool-runtime";
 
 export function registerPayableTools(server: McpServer): void {
   server.registerTool(
@@ -72,6 +72,7 @@ export function registerPayableTools(server: McpServer): void {
           .describe("Optional vendor id from the vendor register to associate with the payable."),
         note: z.string().optional().describe("Optional free-text note stored on the payable."),
         confirm: confirmField,
+        idempotencyKey: idempotencyKeyField,
       },
       outputSchema: envelopeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -86,11 +87,12 @@ export function registerPayableTools(server: McpServer): void {
       vendorId?: number;
       note?: string;
       confirm?: boolean;
+      idempotencyKey?: string;
     }>(server, "payable_register", ({ db, actor, args }) => {
       // Actor-invariant (#63/#76): thread the MCP-client identity into the
       // hash-chained ledger so the creditor recognition entry is attributed to
       // the booking agent, not the OS user. withActor keeps explicit values.
-      const result = registerPayable(
+      const result = registerPayableInCurrentTransaction(
         db,
         withActor(
           {
@@ -106,7 +108,7 @@ export function registerPayableTools(server: McpServer): void {
         ),
       );
       return wrapCoreResult(result);
-    }),
+    }, { keyIdempotent: "payable_register" }),
   );
 
   server.registerTool(
@@ -149,6 +151,7 @@ export function registerPayableTools(server: McpServer): void {
           .describe("Account number the payment is credited to. Defaults to the confirmed bank role."),
         note: z.string().optional().describe("Optional free-text note stored on the payment."),
         confirm: confirmField,
+        idempotencyKey: idempotencyKeyField,
       },
       outputSchema: envelopeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -162,10 +165,11 @@ export function registerPayableTools(server: McpServer): void {
       paymentAccount?: string;
       note?: string;
       confirm?: boolean;
+      idempotencyKey?: string;
     }>(server, "payable_pay", ({ db, actor, args }) => {
       // Actor-invariant (#63/#76): attribute the settlement entry to the
       // booking agent in the hash-chained ledger + audit_log, not the OS user.
-      const result = payPayableFromBank(
+      const result = payPayableFromBankInCurrentTransaction(
         db,
         withActor(
           {
@@ -180,7 +184,7 @@ export function registerPayableTools(server: McpServer): void {
         ),
       );
       return wrapCoreResult(result);
-    }),
+    }, { keyIdempotent: "payable_pay" }),
   );
 
   server.registerTool(

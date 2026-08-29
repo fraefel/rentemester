@@ -34,7 +34,8 @@ import {
 } from "./envelope";
 import { deriveMcpActor, type McpActor } from "./actor";
 import { checkActorAllowlist } from "../cli-actor";
-import { executeIdempotently, IdempotencyError, withoutIdempotencyTransportFields, validateIdempotencyKey } from "../core/idempotency";
+import { currentMcpAuthenticatedPrincipal } from "./security";
+import { executeLocalIdempotentMutation, IdempotencyError, RETRY_CLASS_BY_OPERATION, withoutIdempotencyTransportFields, validateIdempotencyKey } from "../core/idempotency";
 
 /**
  * Redacts absolute filesystem paths from a message destined for the
@@ -261,10 +262,11 @@ export function withCompanyDb<TArgs extends { company: string }>(
  * Hvis flaget mangler/er falsk returneres en fejl-envelope uden at databasen
  * overhovedet åbnes.
  */
-export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?: boolean; idempotencyKey?: string }>(
+export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?: boolean }>(
   server: McpServer,
   toolName: string,
   handler: (ctx: { db: Database; actor: McpActor; args: TArgs }) => Envelope | Promise<Envelope>,
+  options: { keyIdempotent?: keyof typeof RETRY_CLASS_BY_OPERATION } = {},
 ): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
   return async (args) => {
     if (args?.confirm !== true) {
@@ -282,23 +284,23 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
     // SEC-2: every confirmed MCP write passes the same actor allowlist gate as
     // the CLI. `confirm: true` alone is no longer sufficient.
     return withCompanyDb<TArgs>(server, async (ctx) => {
-      let key: string | undefined;
+      if (!options.keyIdempotent) return handler(ctx);
       try {
-        key = validateIdempotencyKey(ctx.args.idempotencyKey);
-        const execution = await executeIdempotently(ctx.db, {
-          key,
-          operation: toolName,
-          // A resolved company root is an unambiguous company/tenant scope.
-          workspaceScope: ctx.args.company,
-          companyScope: ctx.args.company,
-          actorScope: ctx.actor.createdBy,
-          payload: withoutIdempotencyTransportFields(ctx.args as Record<string, unknown>),
-          execute: () => handler(ctx),
+        const key = validateIdempotencyKey((ctx.args as TArgs & { idempotencyKey?: unknown }).idempotencyKey);
+        if (!key) return handler(ctx);
+        const principal = currentMcpAuthenticatedPrincipal();
+        const execution = executeLocalIdempotentMutation(ctx.db, {
+          key, operation: options.keyIdempotent, workspaceScope: resolveConfiguredWorkspaceRoot() ?? ctx.args.company,
+          companyScope: ctx.args.company, principal: principal && { kind: principal.kind, subjectId: principal.subjectId },
+          payload: withoutIdempotencyTransportFields(ctx.args as Record<string, unknown>), actor: ctx.actor,
+          execute: () => {
+            const result = handler(ctx);
+            if (result instanceof Promise) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "key-idempotent operation must execute synchronously");
+            return result;
+          },
         });
         if (!execution.receipt) return execution.result;
-        const data = execution.result.data && typeof execution.result.data === "object"
-          ? { ...execution.result.data, idempotency: execution.receipt }
-          : { idempotency: execution.receipt };
+        const data = execution.result.data && typeof execution.result.data === "object" ? { ...execution.result.data, idempotency: execution.receipt } : { idempotency: execution.receipt };
         return { ...execution.result, data };
       } catch (error) {
         if (error instanceof IdempotencyError) return errorEnvelope(error.message, { code: error.code });

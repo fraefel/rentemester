@@ -151,6 +151,8 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 19, name: "rentemester-document-company-contexts-v19" }),
       expect.objectContaining({ id: 20, name: "rentemester-mutation-idempotency-receipts-v20" }),
       expect.objectContaining({ id: 21, name: "rentemester-bookkeeping-batch-revisions-v21" }),
+      expect.objectContaining({ id: 22, name: "rentemester-period-close-readiness-v22" }),
+      expect.objectContaining({ id: 23, name: "rentemester-local-idempotency-tombstones-v23" }),
     ]);
     db.close();
   });

@@ -21,7 +21,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { postJournalEntry, type JournalPostResult } from "./ledger";
+import { postJournalEntry, postJournalEntryInCurrentTransaction, type JournalPostResult } from "./ledger";
 import { insertAuditLog } from "./actor";
 import { getCompanySettings } from "./company";
 import { isValidIsoDate as looksLikeIsoDate, diffDays, todayIsoDate } from "./dates";
@@ -199,7 +199,7 @@ function getPayableRow(db: Database, payableId: number): PayableRow | null {
  * Leverandørgæld). Idempotent on `documentId`: a second registration of the
  * same purchase document is rejected.
  */
-export function registerPayable(db: Database, input: RegisterPayableInput): RegisterPayableResult {
+export function registerPayable(db: Database, input: RegisterPayableInput, inCurrentTransaction = false): RegisterPayableResult {
   const errors: string[] = [];
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!looksLikeIsoDate(input.billDate)) errors.push("billDate must be YYYY-MM-DD");
@@ -354,8 +354,8 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
       ];
 
   try {
-    return db.transaction(() => {
-      const journal = postJournalEntry(db, {
+    const apply = () => {
+      const journal = (inCurrentTransaction ? postJournalEntryInCurrentTransaction : postJournalEntry)(db, {
         transactionDate: input.billDate,
         text,
         documentId: input.documentId,
@@ -412,7 +412,8 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
         appliedRules: [RULE_ID, ...journal.appliedRules],
         errors: [],
       } satisfies RegisterPayableResult;
-    }).immediate();
+    };
+    return inCurrentTransaction ? apply() : db.transaction(apply).immediate();
   } catch (error) {
     const parsed = parseTransactionError(error);
     return {
@@ -421,6 +422,10 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
       errors: parsed?.errors ?? [String(error)],
     };
   }
+}
+
+export function registerPayableInCurrentTransaction(db: Database, input: RegisterPayableInput): RegisterPayableResult {
+  return registerPayable(db, input, true);
 }
 
 /** Open balance (gross minus applied payments) for a single payable. */
@@ -488,7 +493,7 @@ export function getPayableStatus(db: Database, payableId: number, asOfDate?: str
  * transaction must be an outgoing payment (negative amount), in DKK, and not
  * already linked to a payable payment or any journal entry.
  */
-export function payPayableFromBank(db: Database, input: PayPayableInput): PayPayableResult {
+export function payPayableFromBank(db: Database, input: PayPayableInput, inCurrentTransaction = false): PayPayableResult {
   const errors: string[] = [];
   if (!Number.isInteger(input.payableId) || input.payableId <= 0) errors.push("payableId must be a positive integer");
   if (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0) errors.push("bankTransactionId must be a positive integer");
@@ -535,8 +540,8 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
     : `Betaling af kreditorpost (banktransaktion ${bank.id})`;
 
   try {
-    return db.transaction(() => {
-      const journal = postJournalEntry(db, {
+    const apply = () => {
+      const journal = (inCurrentTransaction ? postJournalEntryInCurrentTransaction : postJournalEntry)(db, {
         transactionDate: paymentDate,
         text,
         sourceBankTransactionId: input.bankTransactionId,
@@ -577,7 +582,8 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
         appliedRules: [PAYMENT_RULE_ID, ...journal.appliedRules],
         errors: [],
       } satisfies PayPayableResult;
-    }).immediate();
+    };
+    return inCurrentTransaction ? apply() : db.transaction(apply).immediate();
   } catch (error) {
     const parsed = parseTransactionError(error);
     return {
@@ -586,6 +592,11 @@ export function payPayableFromBank(db: Database, input: PayPayableInput): PayPay
       errors: parsed?.errors ?? [String(error)],
     };
   }
+}
+
+/** See registerPayableInCurrentTransaction. */
+export function payPayableFromBankInCurrentTransaction(db: Database, input: PayPayableInput): PayPayableResult {
+  return payPayableFromBank(db, input, true);
 }
 
 /**

@@ -67,16 +67,14 @@ med det samme i komprimeret form.
 5. **Actor-attribution er obligatorisk.** Hvert MCP-call tilskrives som
    `agent:<client-info>` (jf. #63). `auditActor` skrives ind i
    `audit_log.actor` og udgør traceable kæde fra agent-call til bogføring.
-6. **Idempotency-key på confirmed company writes.** En valgfri,
-   klientgenereret `idempotencyKey` på højst 128 tegn gemmer en holdbar
-   receipt, scoped til virksomhed, operation og actor. Et identisk retry
-   returnerer den originale envelope med `data.idempotency.replayed: true`;
-   ændret valideret payload afvises med `IDEMPOTENCY_CONFLICT` uden mutation.
-   Confirm-, actor/policy-, backup- og periode-gates evalueres igen. En
-   crash-boundary receipt returnerer `IDEMPOTENCY_IN_PROGRESS`, så agenten
-   skal læse kanonisk state frem for at køre mutationen igen. Receipts
-   opbevares i 30 dage. Flere intake-/generér-tools er desuden idempotente
-   *af natur* (`annotations.idempotentHint`) uden klientnøgle.
+6. **Idempotency-key på fem højrisiko-writes.** `journal_post`,
+   `journal_reverse`, `expense_book`, `payable_register` og `payable_pay`
+   accepterer en klientgenereret nøgle på højst 128 tegn. Den kræver
+   autentificeret bruger/servicekonto og scope’er på stabil principal,
+   workspace, virksomhed og operation — aldrig actor eller credential. Nøglen
+   hashes, udfaldet og audit commit’er atomisk. Efter 30 dage kan udfaldet
+   slettes, men tombstonen bevares og afviser med
+   `IDEMPOTENCY_OUTCOME_EXPIRED`; nøglen kan ikke genbruges.
 7. **Eksplicit `company`-parameter overalt.** Aldrig implicit "current
    company"; agent skal altid pege på virksomheden. `company` accepterer
    **enten** en absolut filsystem-sti til virksomhedsmappen (`..`-guardet),

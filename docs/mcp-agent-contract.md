@@ -270,14 +270,17 @@ Branch on that case before reading `errors[]`.
 
 ## Idempotency — retries are NOT automatically safe
 
-- **Confirmed company writes accept `idempotencyKey` (maximum 128 characters).**
-  A receipt is scoped to the resolved company, operation and actor and hashes
-  the validated business payload canonically. An identical retry returns the
-  original envelope with `data.idempotency.replayed: true`; a changed payload
-  returns `IDEMPOTENCY_CONFLICT` without a mutation. Authorization, actor
-  policy, confirmation, backup and period gates still run before replay.
-  A crash-boundary reservation returns `IDEMPOTENCY_IN_PROGRESS`; read back
-  canonical state rather than retrying it blindly. Receipts expire after 30 days.
+- **Five high-risk bookkeeping writes accept `idempotencyKey` (maximum 128 characters):**
+  `journal_post`, `journal_reverse`, `expense_book`, `payable_register` and
+  `payable_pay`. The key requires an authenticated user or workspace service
+  principal; its scope is the stable principal, workspace, company and operation
+  — never the advisory actor or rotating credential. The key itself is hashed.
+  Mutation, durable result and audit evidence commit atomically. An identical
+  retry returns the original envelope with `data.idempotency.replayed: true`; a
+  changed payload returns `IDEMPOTENCY_CONFLICT`. After 30 days response material
+  may be pruned, but the permanent tombstone returns `IDEMPOTENCY_OUTCOME_EXPIRED`
+  and can never be reused. Authorization, confirmation and policy gates still run
+  before replay.
 - Several tools *are* idempotent **by nature** (`annotations.idempotentHint`)
   — they de-dupe on content or period, not on a client key: intake polls
   (`mail_intake_ingest`, `imap_intake_poll`), `bank_import` (row-fingerprint

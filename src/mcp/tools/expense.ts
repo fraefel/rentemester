@@ -7,10 +7,10 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { bookExpenseFromBank } from "../../core/expense-booking";
+import { bookExpenseFromBankInCurrentTransaction } from "../../core/expense-booking";
 import { withActor } from "../actor";
 import { envelopeShape, wrapCoreResult } from "../envelope";
-import { withCompanyDbConfirmed, confirmField, withCompanyReadOnlyDb } from "../tool-runtime";
+import { withCompanyDbConfirmed, confirmField, idempotencyKeyField, withCompanyReadOnlyDb } from "../tool-runtime";
 import { applyPurchaseVatPreflight, purchaseVatPreflightSnapshot } from "../../cli/purchase-vat-preflight";
 
 const vatTreatmentEnum = z
@@ -113,6 +113,7 @@ export function registerExpenseTools(server: McpServer): void {
           .optional()
           .describe("Optional free-text description of the expense posting."),
         confirm: confirmField,
+        idempotencyKey: idempotencyKeyField,
       },
       outputSchema: envelopeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -127,12 +128,13 @@ export function registerExpenseTools(server: McpServer): void {
       date?: string;
       text?: string;
       confirm?: boolean;
+      idempotencyKey?: string;
     }>(server, "expense_book", ({ db, actor, args }) => {
       // Actor-invariant (#63/#76): thread the MCP-client identity into the
       // hash-chained ledger so created_by/created_by_program + audit_log.actor
       // are attributed to the booking agent, not the OS user (resolveActor's
       // process.env.USER fallback). withActor never overwrites explicit values.
-      const result = bookExpenseFromBank(
+      const result = bookExpenseFromBankInCurrentTransaction(
         db,
         withActor(
           {
@@ -148,6 +150,6 @@ export function registerExpenseTools(server: McpServer): void {
         ),
       );
       return wrapCoreResult(result);
-    }),
+    }, { keyIdempotent: "expense_book" }),
   );
 }

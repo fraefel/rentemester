@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { getCompanySettings } from "./company";
-import { postJournalEntry, type JournalLineInput, type JournalPostResult } from "./ledger";
+import { postJournalEntry, postJournalEntryInCurrentTransaction, type JournalLineInput, type JournalPostResult } from "./ledger";
 import { postEuGoodsAcquisitionPurchase, postForeignServiceReverseChargePurchase, postRepresentationPurchase } from "./vat";
 import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk, roundRate6, subtractDkk, toOre } from "./money";
 import { resolveAccountRole } from "./account-roles";
@@ -224,7 +224,8 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
   };
 }
 
-export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInput): BookExpenseFromBankResult {
+function bookExpenseFromBankInternal(db: Database, input: BookExpenseFromBankInput, inCurrentTransaction: boolean): BookExpenseFromBankResult {
+  const post = inCurrentTransaction ? postJournalEntryInCurrentTransaction : postJournalEntry;
   const errors: string[] = [];
   if (!Number.isInteger(input.documentId) || input.documentId <= 0) errors.push("documentId must be a positive integer");
   if (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0) errors.push("bankTransactionId must be a positive integer");
@@ -427,7 +428,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       return [{ accountNo: account.account_no, debitAmount: netAmountDkk, vatCode: "DK_PURCHASE_EXEMPT", text: document.invoice_no ?? "Udgift, momsfrit grundbeløb" }];
     });
     lines.push({ accountNo: inputVat!.accountNo, debitAmount: vatAmountDkk, text: "Købsmoms" }, { accountNo: paymentAccountNo, creditAmount: grossAmountDkk, text: bank.text });
-    const result = postJournalEntry(db, { transactionDate, text, documentId: input.documentId, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata, lines });
+    const result = post(db, { transactionDate, text, documentId: input.documentId, sourceBankTransactionId: input.bankTransactionId, createdBy: input.createdBy, createdByProgram: input.createdByProgram, ...journalMetadata, lines });
     return { ...result, documentId: input.documentId, bankTransactionId: input.bankTransactionId, grossAmount, netAmount: netAmountDkk, vatAmount: vatAmountDkk, vatTreatment, ...fxSummary, netAmountDkk, vatAmountDkk };
   }
 
@@ -451,7 +452,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
 
   if (vatTreatment === "standard") {
     if (!(vatAmount > 0)) return { ok: false, appliedRules: [], errors: ["standard expense booking requires document vat_amount > 0"] };
-    const result = postJournalEntry(db, {
+    const result = post(db, {
       transactionDate,
       text,
       documentId: input.documentId,
@@ -510,7 +511,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
 
   if (vatTreatment === "exempt") {
     if (vatAmount !== 0) return { ok: false, appliedRules: [], errors: ["exempt expense booking requires document vat_amount = 0"] };
-    const result = postJournalEntry(db, {
+    const result = post(db, {
       transactionDate,
       text,
       documentId: input.documentId,
@@ -535,7 +536,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     // 25 %-ratio sanity check is skipped because non-deductible VAT is not
     // part of any input-VAT total, and a non-25 % bilag (e.g. a foreign-VAT
     // receipt) is legitimately bookable this way.
-    const result = postJournalEntry(db, {
+    const result = post(db, {
       transactionDate,
       text,
       documentId: input.documentId,
@@ -556,6 +557,15 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   // forces a compile-time error rather than a silent runtime fall-through.
   const _exhaustive: never = vatTreatment;
   throw new Error(`unhandled vatTreatment: ${_exhaustive}`);
+}
+
+export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInput): BookExpenseFromBankResult {
+  return bookExpenseFromBankInternal(db, input, false);
+}
+
+/** Exact path for #583's outer BEGIN IMMEDIATE. */
+export function bookExpenseFromBankInCurrentTransaction(db: Database, input: BookExpenseFromBankInput): BookExpenseFromBankResult {
+  return bookExpenseFromBankInternal(db, input, true);
 }
 
 /**

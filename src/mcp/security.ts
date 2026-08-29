@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { defaultKeyHasher } from "@better-auth/api-key";
 import type { RoutePermission } from "../core/access-permissions";
 import { authorizeWorkspaceRoute } from "../core/workspace-access";
@@ -24,6 +25,9 @@ export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = O
 ] as Array<[string, RoutePermission]>));
 
 export type McpSecurityContext = { workspaceRoot: string; verify(): Promise<{ serviceAccountId: string; credentialId: string } | null> };
+export type McpAuthenticatedPrincipal = { kind: "service-account"; subjectId: string; credentialId: string };
+const requestPrincipal = new AsyncLocalStorage<McpAuthenticatedPrincipal>();
+export function currentMcpAuthenticatedPrincipal(): McpAuthenticatedPrincipal | undefined { return requestPrincipal.getStore(); }
 
 /** Captures the secret once then removes it from child-process environment. */
 export function createMcpSecurityContextFromEnv(env: NodeJS.ProcessEnv = process.env): McpSecurityContext | null {
@@ -62,17 +66,18 @@ export function resolveMcpWorkspaceCompany(context: McpSecurityContext, raw: unk
   } catch { return null; }
 }
 
-export async function authorizeMcpTool(context: McpSecurityContext, name: string, args: Record<string, unknown>): Promise<{ root?: string } | null> {
+export async function authorizeMcpTool(context: McpSecurityContext, name: string, args: Record<string, unknown>): Promise<{ root?: string; principal: McpAuthenticatedPrincipal } | null> {
   const permission = MCP_TOOL_PERMISSIONS[name];
   if (!permission) return null;
   const principal = await context.verify();
   if (!principal) return null;
-  if (permission === "public.read") return { };
+  const authenticated = { kind: "service-account" as const, subjectId: principal.serviceAccountId, credentialId: principal.credentialId };
+  if (permission === "public.read") return { principal: authenticated };
   const db = openWorkspaceControlReadOnlyDb(context.workspaceRoot);
   try {
     if (permission.startsWith("workspace.")) {
       if (args.workspace !== undefined && args.workspace !== context.workspaceRoot) return null;
-      return authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission }).allowed ? {} : null;
+      return authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission }).allowed ? { principal: authenticated } : null;
     }
     // Workspace fan-out tools are not a single-company operation.  Authorize
     // the complete active manifest before their handler opens the first
@@ -83,10 +88,12 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
       const active = listWorkspaceCompanies(context.workspaceRoot).filter((company) => !company.archived);
       return active.every((company) => authorizeWorkspaceRoute(db, context.workspaceRoot, {
         userId: principal.serviceAccountId, permission, companySlug: company.slug,
-      }).allowed) ? {} : null;
+      }).allowed) ? { principal: authenticated } : null;
     }
     const company = resolveMcpWorkspaceCompany(context, args.company);
     if (!company) return null;
-    return authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: company.slug }).allowed ? { root: company.root } : null;
+    return authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: company.slug }).allowed ? { root: company.root, principal: authenticated } : null;
   } finally { db.close(); }
 }
+
+export async function runWithMcpAuthenticatedPrincipal<T>(principal: McpAuthenticatedPrincipal, run: () => Promise<T>): Promise<T> { return requestPrincipal.run(principal, run); }

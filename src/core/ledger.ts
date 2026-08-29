@@ -830,6 +830,7 @@ function reverseJournalEntryInternal(
   db: Database,
   input: ReverseJournalInput,
   authorization?: IssuedInvoiceRepairReversalAuthorization,
+  inCurrentTransaction = false,
 ): JournalReverseResult {
   const appliedRules = [LEDGER_RULES.APPEND_ONLY, LEDGER_RULES.REVERSAL];
   const errors: string[] = [];
@@ -920,7 +921,7 @@ function reverseJournalEntryInternal(
 
   let result: { entryId: JournalEntryId; entryNo: string; entryHash: string };
   try {
-    result = db.transaction(() => {
+    const apply = () => {
     const protectedInsideLock = protectedInvoiceReversalError(db, original, input, authorization);
     if (protectedInsideLock) throw new Error(protectedInsideLock);
     // KODE-4: re-check the period lock inside the write transaction, matching
@@ -1004,7 +1005,8 @@ function reverseJournalEntryInternal(
     });
 
     return { entryId: asJournalEntryId(entry.id), entryNo: entry.entry_no, entryHash };
-    }).immediate();
+    };
+    result = inCurrentTransaction ? apply() : db.transaction(apply).immediate();
   } catch (error) {
     if (error instanceof PeriodLockRaceError) {
       return { ok: false, appliedRules: [...new Set([...appliedRules, ...validation.appliedRules])], errors: error.periodErrors };
@@ -1017,6 +1019,11 @@ function reverseJournalEntryInternal(
 
 export function reverseJournalEntry(db: Database, input: ReverseJournalInput): JournalReverseResult {
   return reverseJournalEntryInternal(db, input);
+}
+
+/** Internal adapter for an already-held immediate transaction (#583). */
+export function reverseJournalEntryInCurrentTransaction(db: Database, input: ReverseJournalInput): JournalReverseResult {
+  return reverseJournalEntryInternal(db, input, undefined, true);
 }
 
 /**

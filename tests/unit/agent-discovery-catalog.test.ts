@@ -94,8 +94,10 @@ describe("agent runtime catalogue (#584)", () => {
       { name: "bank_import", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false } },
       { name: "bank_suggest_matches", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
       { name: "reconcile_bank", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
-      { name: "bookkeeping_batch_dry_run", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
-      { name: "bookkeeping_batch_apply", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false } },
+      { name: "bookkeeping_batch_dry_run", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } },
+      { name: "bookkeeping_batch_approve", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } },
+      { name: "bookkeeping_batch_apply", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } },
+      { name: "bookkeeping_batch_status", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
       { name: "journal_list", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
       { name: "bank_list", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
     ];
@@ -105,7 +107,7 @@ describe("agent runtime catalogue (#584)", () => {
     expect(report.operation).toMatchObject({ resolved: true, safety: "read", idempotent: true });
     expect(report.boundary).toBe("read");
     const apply = resolved!.workflow.steps.find((item) => item.id === "batch-apply")!;
-    expect(apply.operation).toMatchObject({ resolved: true, safety: "write", idempotent: false });
+    expect(apply.operation).toMatchObject({ resolved: true, safety: "write", idempotent: true });
     expect(apply.retryClass).toBe("stable-key-resume");
   });
 

@@ -41,7 +41,7 @@ import {
   handleCompanyBank,
   handleCompanyBankAccounts,
 } from "./router/bank";
-import { handleBookkeepingBatchApply, handleBookkeepingBatchDryRun } from "./router/bookkeeping-batch";
+import { handleBookkeepingBatchApply, handleBookkeepingBatchApprove, handleBookkeepingBatchDryRun, handleBookkeepingBatchPersistDryRun, handleBookkeepingBatchStatus } from "./router/bookkeeping-batch";
 import {
   handleCompanyAccounts,
   handleCompanyAccruals,
@@ -304,6 +304,9 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/parse-status", summary: "PDF-parserstatus uden child-stderr." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/parsed-text", summary: "Pagineret PDF-tekst, højst 10 sider." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bookkeeping-batch", summary: "Read-only batchplan med plan-hash og partitioner." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/dry-run", summary: "Persisterer en reviewbar batchrevision." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/approve", summary: "Godkender eksakt batch-hash." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bookkeeping-batch/runs/:runId", summary: "Append-only batchhistorik." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/apply", summary: "Anvender eller genoptager præcis hash-bundet batch med confirm." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/documents/:id/vat-preflight/apply", summary: "Henter nødvendig købsmoms-evidens før bogføring." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/recurring-invoices", summary: "Gentagende fakturaer." },
@@ -754,6 +757,12 @@ export async function handleRequest(
     }
     const bookkeepingBatchApplyMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch\/apply$/.exec(path);
     if (bookkeepingBatchApplyMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleBookkeepingBatchApply(config, request, decodeURIComponent(bookkeepingBatchApplyMatch[1]!)); }
+    const bookkeepingBatchPersistMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch\/dry-run$/.exec(path);
+    if (bookkeepingBatchPersistMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleBookkeepingBatchPersistDryRun(config, request, decodeURIComponent(bookkeepingBatchPersistMatch[1]!)); }
+    const bookkeepingBatchApproveMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch\/approve$/.exec(path);
+    if (bookkeepingBatchApproveMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleBookkeepingBatchApprove(config, request, decodeURIComponent(bookkeepingBatchApproveMatch[1]!)); }
+    const bookkeepingBatchStatusMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch\/runs\/(\d+)$/.exec(path);
+    if (bookkeepingBatchStatusMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingBatchStatus(config, decodeURIComponent(bookkeepingBatchStatusMatch[1]!), Number(bookkeepingBatchStatusMatch[2])); }
     const bookkeepingBatchMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch$/.exec(path);
     if (bookkeepingBatchMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingBatchDryRun(config, decodeURIComponent(bookkeepingBatchMatch[1]!), url); }
 

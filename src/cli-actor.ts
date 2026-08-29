@@ -86,6 +86,8 @@ export const MUTATING_COMMANDS = new Set([
   // ===== END BANK CLUSTER (#187) =====
   "expense book",
   "expense vat-preflight",
+  "bookkeeping-batch dry-run",
+  "bookkeeping-batch approve",
   "bookkeeping-batch apply",
   "vat post-eu-service-purchase",
   "vat post-representation-purchase",

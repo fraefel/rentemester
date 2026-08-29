@@ -9,6 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { PDF_EVIDENCE_TAMPERED, PdfParseError, parseRegisteredPdfBatch, parseRegisteredPdfDocument, planCurrentPdfParses } from "../../core/document-pdf-parser";
 import { type DocumentMetadata, enrichDocumentMetadata, ingestDocument, purchaseVatLinesFromPayload } from "../../core/documents";
+import { setDocumentCompanyContext } from "../../core/document-company-context";
 import { recordException } from "../../core/exceptions";
 import { resolveDocumentMasterData } from "../../core/master-data";
 import { extractDocumentInvoice, invoiceExtractionSurface } from "../../server/invoice-extraction-surface";
@@ -71,6 +72,7 @@ export const documentMetadataFields = {
       .boolean()
       .optional()
       .describe("True only when a human has confirmed that the supplier invoice contains reverse-charge wording; required with the other invoice evidence before non-EU input-VAT deduction."),
+    danishSimplifiedPurchaseInvoice: z.boolean().optional().describe("Explicit source fact: this is a Danish simplified purchase invoice. This never changes recipient invoice fields."),
     paymentDetails: z
       .string()
       .optional()
@@ -111,6 +113,11 @@ const documentMetadataSchema = z
   );
 
 export function registerDocumentTools(server: McpServer): void {
+  server.registerTool(
+    "documents_set_company_context",
+    { title: "Set simplified-invoice company context", description: "Records append-only, hash-bound company context for one Danish simplified purchase invoice. Does not modify recipient invoice fields. Requires confirm:true. write-reversible.", inputSchema: { company: z.string().min(1), documentId: z.number().int().positive(), sourceReference: z.string().min(1).max(2000), businessUseReason: z.string().min(1).max(2000), confirm: confirmField }, outputSchema: envelopeShape, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    withCompanyDbConfirmed<{ company: string; documentId: number; sourceReference: string; businessUseReason: string; confirm?: boolean }>(server, "documents_set_company_context", ({ db, actor, args }) => wrapCoreResult(setDocumentCompanyContext(db, { documentId: args.documentId, sourceReference: args.sourceReference, businessUseReason: args.businessUseReason, confirm: args.confirm === true, createdBy: actor.createdBy, createdByProgram: actor.createdByProgram }))),
+  );
   server.registerTool(
     "documents_enrich",
     {

@@ -44,6 +44,8 @@ export type DocumentMetadata = {
   /** Human-confirmed invoice evidence required before a non-EU service can be
    * posted with automatic reverse-charge input-VAT deduction. */
   reverseChargeWordingConfirmed?: boolean;
+  /** Explicit source fact: the issuer supplied a Danish simplified purchase invoice. */
+  danishSimplifiedPurchaseInvoice?: boolean;
   paymentDetails?: string;
   exemptionCode?: DocumentExemptionCode;
   /** Imported bank row that is the immutable primary evidence for an internal voucher. */
@@ -165,6 +167,7 @@ async function scanSnapshot(scanner: DocumentScanner, snapshot: DocumentSnapshot
 const RULES = {
   STORAGE: "DK-DOCUMENT-STORAGE-001",
   CASH_RECEIPT: "DK-DOCUMENT-CASH-RECEIPT-001",
+  SIMPLIFIED_INVOICE: "DK-INVOICE-SIMPLIFIED-001",
   FOREIGN_PHYSICAL: "DK-DOCUMENT-FOREIGN-PHYSICAL-001",
   INTEGRITY: "DK-DOCUMENT-INTEGRITY-001",
 } as const;
@@ -375,6 +378,13 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   if (metadata.reverseChargeWordingConfirmed !== undefined && typeof metadata.reverseChargeWordingConfirmed !== "boolean") {
     errors.push("reverseChargeWordingConfirmed must be a boolean when present");
   }
+  if (metadata.danishSimplifiedPurchaseInvoice !== undefined && typeof metadata.danishSimplifiedPurchaseInvoice !== "boolean") {
+    errors.push("danishSimplifiedPurchaseInvoice must be a boolean when present");
+  }
+  if (metadata.danishSimplifiedPurchaseInvoice === true) {
+    appliedRules.splice(appliedRules.length - 1, 0, RULES.SIMPLIFIED_INVOICE);
+    errors.push(...validateDanishSimplifiedPurchaseInvoiceMetadata(metadata));
+  }
   if (!/^[A-Z]{3}$/.test(currency)) errors.push("currency must be a 3-letter ISO code");
   if (documentType === "cash_register_receipt") appliedRules.splice(1, 0, RULES.CASH_RECEIPT);
   if (exemptionCode === "FOREIGN_PHYSICAL_ONLY") appliedRules.splice(appliedRules.length - 1, 0, RULES.FOREIGN_PHYSICAL);
@@ -432,13 +442,60 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
       ? resolveSupplierIdentity({ country: metadata.sender?.countryCode ?? "", identifier: metadata.sender?.vatOrCvr, identifierKind: metadata.sender?.identifierKind })
       : resolveLegacySupplierIdentity(metadata.sender?.vatOrCvr);
     if (!identity.ok) errors.push(...identity.errors.map((error) => `sender: human_resolution_required: ${error}`));
-    if (!hasText(metadata.recipient?.name)) errors.push("recipient.name is required");
-    if (!hasText(metadata.recipient?.address)) errors.push("recipient.address is required");
-    if (!hasText(metadata.recipient?.vatOrCvr)) errors.push("recipient.vatOrCvr is required");
+    // A simplified invoice does not need buyer identity. If the issuer printed
+    // a recipient (including an individual), those values are retained exactly
+    // as supplied; company context is recorded separately after ingestion.
+    if (metadata.danishSimplifiedPurchaseInvoice !== true) {
+      if (!hasText(metadata.recipient?.name)) errors.push("recipient.name is required");
+      if (!hasText(metadata.recipient?.address)) errors.push("recipient.address is required");
+      if (!hasText(metadata.recipient?.vatOrCvr)) errors.push("recipient.vatOrCvr is required");
+    }
     if (!hasNonNegativeNumber(metadata.vatAmount)) errors.push("vatAmount is required");
   }
 
   return { ok: errors.length === 0, appliedRules, errors };
+}
+
+/** Mandatory reduced facts for a Danish simplified purchase invoice (§ 66). */
+export function validateDanishSimplifiedPurchaseInvoiceMetadata(metadata: DocumentMetadata): string[] {
+  const errors: string[] = [];
+  if (metadata.danishSimplifiedPurchaseInvoice !== true) {
+    return ["danishSimplifiedPurchaseInvoice must be true"];
+  }
+  if ((metadata.documentType ?? "purchase_sale") !== "purchase_sale") {
+    errors.push("Danish simplified invoice must be a purchase_sale document");
+  }
+  if ((metadata.currency ?? "DKK").trim().toUpperCase() !== "DKK") {
+    errors.push("Danish simplified invoice must be denominated in DKK");
+  }
+  if (!looksLikeIsoDate(metadata.issueDate)) errors.push("Danish simplified invoice requires issueDate in YYYY-MM-DD format");
+  if (!hasText(metadata.invoiceNo)) errors.push("Danish simplified invoice requires invoiceNo");
+  if (!hasText(metadata.sender?.name) || !hasText(metadata.sender?.address)) {
+    errors.push("Danish simplified invoice requires sender name and address");
+  }
+  const suppliedIdentity = metadata.sender?.countryCode !== undefined || metadata.sender?.identifierKind !== undefined;
+  const identity = suppliedIdentity
+    ? resolveSupplierIdentity({ country: metadata.sender?.countryCode ?? "", identifier: metadata.sender?.vatOrCvr, identifierKind: metadata.sender?.identifierKind })
+    : resolveLegacySupplierIdentity(metadata.sender?.vatOrCvr);
+  if (!identity.ok || identity.country !== "DK" || identity.identifierKind !== "dk_cvr") {
+    errors.push("Danish simplified invoice requires a valid Danish supplier CVR");
+  }
+  if (!hasText(metadata.deliveryDescription)) errors.push("Danish simplified invoice requires deliveryDescription");
+  const gross = metadata.amountIncVat;
+  const vat = metadata.vatAmount;
+  if (typeof gross !== "number" || !Number.isFinite(gross) || compareDkk(gross, 0) <= 0 || compareDkk(gross, 3000) > 0) {
+    errors.push("Danish simplified invoice gross amount must be greater than 0 and at most DKK 3000");
+  }
+  if (typeof gross === "number" && Number.isFinite(gross) && typeof vat === "number" && Number.isFinite(vat)) {
+    const net = roundDkk(gross - vat);
+    const expectedVat = percentOfDkk(net, 25);
+    if (compareDkk(vat, 0) <= 0 || compareDkk(vat, gross) >= 0 || compareDkk(Math.abs(roundDkk(vat - expectedVat)), 0.01) > 0) {
+      errors.push("Danish simplified invoice requires VAT consistent with the 25% Danish standard rate");
+    }
+  } else {
+    errors.push("Danish simplified invoice requires vatAmount");
+  }
+  return [...new Set(errors)];
 }
 
 /** Stable JSON is used only to recognise an identical enrichment retry. */
@@ -499,6 +556,7 @@ function normalizedEnrichedMetadata(metadata: DocumentMetadata): DocumentMetadat
     vatAmount: metadata.vatAmount,
     purchaseVatLines: metadata.purchaseVatLines,
     reverseChargeWordingConfirmed: metadata.reverseChargeWordingConfirmed,
+    danishSimplifiedPurchaseInvoice: metadata.danishSimplifiedPurchaseInvoice,
     paymentDetails: metadata.paymentDetails,
     exemptionCode: metadata.exemptionCode,
   };

@@ -91,7 +91,7 @@ med det samme i komprimeret form.
 | Niveau | Krav | Eksempler |
 |---|---|---|
 | `read` | Ingen | `audit_verify`, `bank_list`, `invoice_status`, `vat_report`, `portfolio_overview` |
-| `write-reversible` | `confirm: true` | `customer_create`, `vendor_create`, `bank_import`, `documents_ingest`, `exception_resolve`, `mileage_log` |
+| `write-reversible` | `confirm: true` | `customer_create`, `vendor_create`, `bank_import`, `documents_ingest`, `documents_set_company_context`, `exception_resolve`, `mileage_log` |
 | `write-irreversible` | `confirm: true` | `accounts_add`, `journal_post`, `invoice_issue`, `invoice_post`, `expense_book`, `vat_post_*`, `asset_register`, `system_backup` |
 | `destructive` | `confirm: true` + `confirmText` | `system_restore_backup` |
 
@@ -101,7 +101,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 132 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 133 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -226,7 +226,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 51
 - **Ordinary write-tools**: 69
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **132** (55 read, 76 ordinary write, 1 destructive)
+- **Total**: **133** (55 read, 77 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -358,6 +358,7 @@ append-only finanskæde.
 | `company_sync_cvr` | `company sync-cvr` | `{ company, confirm }` | Henter virksomhedens stamdata fra CVR og opdaterer companies-rækken. Regnskabsåret røres ikke. |
 | `customer_create` | `customer create` | `{ company, input: CreateCustomerInput, fromCvr?, confirm }` | Opretter append-only kundepost. Kan arkiveres. |
 | `documents_ingest` | `documents ingest` | `{ company, filePath, metadata: DocumentMetadata, vendorId?, force?, confirm }` | Indlæser og hash-lagrer et bilag. `internal_voucher` kræver bank-id, begrundelse og moms 0. |
+| `documents_set_company_context` | `documents set-company-context` | `{ company, documentId, sourceReference, businessUseReason, confirm }` | Gemmer append-only, hash-bundet virksomheds-kontekst for et dansk forenklet købsbilag; ændrer aldrig modtagerfelter på fakturaen. |
 | `efaktura_modtag` | `efaktura modtag` | `{ company, digisenseCompanyKey?, limit?, maxTimestamp?, metadata?, force?, confirm }` | Poller modtagne e-fakturaer hos Digisense (pagination), ingester hvert nyt dokument. Dedup på internalId — rerun-stabil. |
 | `efaktura_modtag_workspace` | `efaktura modtag-workspace` | `{ workspace, confirm }` | Poller aktive manifest-virksomheder med deres lokale bindings; ingen caller credentials/companyKey og redigerede per-company resultater. |
 | `exception_resolve` | `exceptions resolve` | `{ company, id, note?, confirm }` | Markerer exception som løst. |

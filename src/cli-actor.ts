@@ -74,6 +74,7 @@ export const MUTATING_COMMANDS = new Set([
   "invoice post-compensation",
   "documents ingest",
   "documents enrich",
+  "documents set-company-context",
   "documents extract-invoice",
   "documents parse",
   "documents parse-pending",

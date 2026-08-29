@@ -247,6 +247,8 @@ export type DocumentIngestMetadata = {
   vatAmount?: number;
   purchaseVatLines?: Array<{ classification: "dk_purchase_25" | "exempt"; netAmount: number; vatAmount?: number }>;
   reverseChargeWordingConfirmed?: boolean;
+  /** Source fact only; company identity is recorded separately and never copied into recipient. */
+  danishSimplifiedPurchaseInvoice?: boolean;
   paymentDetails?: string;
   sourceBankTransactionId?: number;
   accountingRationale?: string;

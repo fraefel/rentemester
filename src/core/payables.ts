@@ -29,6 +29,7 @@ import { absDkk, compareDkk, percentOfDkk, roundDkk, subtractDkk, sumDkk } from 
 import { resolveAccountRole } from "./account-roles";
 import { parsePurchaseVatLinesPayload } from "./documents";
 import { deductibleDanishPurchaseSupplierErrors } from "./supplier-identity";
+import { validSimplifiedPurchaseCompanyContext } from "./document-company-context";
 
 const RULE_ID = "DK-PAYABLE-001";
 const PAYMENT_RULE_ID = "DK-PAYABLE-PAYMENT-001";
@@ -223,7 +224,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
 
   const document = db.query(
     `SELECT id, document_type, invoice_no, amount_inc_vat, vat_amount, currency, sender_name, payload_json,
-            sender_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
+            sender_vat_cvr, recipient_vat_cvr, supplier_country_code, supplier_identifier_kind, supplier_identity_status
      FROM documents WHERE id = ?`,
   ).get(input.documentId) as {
     id: number;
@@ -235,6 +236,7 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
     sender_name: string | null;
     payload_json: string | null;
     sender_vat_cvr: string | null;
+    recipient_vat_cvr: string | null;
     supplier_country_code: string | null;
     supplier_identifier_kind: string | null;
     supplier_identity_status: string | null;
@@ -286,6 +288,14 @@ export function registerPayable(db: Database, input: RegisterPayableInput): Regi
       supplierIdentityStatus: document.supplier_identity_status,
     });
     if (supplierErrors.length > 0) return { ok: false, appliedRules: [RULE_ID], errors: supplierErrors };
+    try {
+      const payload = document.payload_json ? JSON.parse(document.payload_json) as Record<string, unknown> : {};
+      const invoiceStatesCompany = typeof document.recipient_vat_cvr === "string" && document.recipient_vat_cvr.trim().length > 0;
+      const contextIsValid = payload.danishSimplifiedPurchaseInvoice === true && validSimplifiedPurchaseCompanyContext(db, input.documentId);
+      if (document.document_type === "purchase_sale" && !invoiceStatesCompany && !contextIsValid) {
+        return { ok: false, appliedRules: [RULE_ID], errors: ["standard purchase VAT requires invoice-stated recipient identity or a valid hash-bound simplified-invoice company context"] };
+      }
+    } catch { return { ok: false, appliedRules: [RULE_ID], errors: ["document payload_json is not valid JSON"] }; }
   }
   if (vatTreatment === "exempt" && vatAmount !== 0) {
     return { ok: false, appliedRules: [RULE_ID], errors: ["exempt payable registration requires document vat_amount = 0"] };

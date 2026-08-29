@@ -148,6 +148,7 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 19, name: "rentemester-document-company-contexts-v19" }),
     ]);
     db.close();
   });

@@ -5,6 +5,7 @@ import { formatKroner } from "../cli-format";
 import { migrate, openDb } from "../core/db";
 import { PDF_EVIDENCE_TAMPERED, PdfParseError, parseRegisteredPdfBatch, parseRegisteredPdfDocument, planCurrentPdfParses } from "../core/document-pdf-parser";
 import { enrichDocumentMetadata, ingestDocument, purchaseVatLinesFromPayload } from "../core/documents";
+import { setDocumentCompanyContext } from "../core/document-company-context";
 import { recordException } from "../core/exceptions";
 import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
 import { resolveDocumentMasterData } from "../core/master-data";
@@ -16,6 +17,18 @@ import { documentPdfParsedText, documentPdfParseStatus } from "../server/router/
 const parseSummary = (run: any) => ({ documentId: run?.documentId, status: run?.status, errorCode: run?.errorCode ?? null, cached: Boolean(run?.cached), pageCount: Array.isArray(run?.pages) ? run.pages.length : 0, itemCount: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.layout?.length ?? 0), 0) : 0, textLength: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0) : 0, resultHash: run?.resultHash });
 
 export function register(dispatch: CommandDispatch): void {
+  dispatch.on("documents", "set-company-context", (ctx) => {
+    const documentId = Number(ctx.arg("--document-id"));
+    const sourceReference = ctx.arg("--source-reference");
+    const businessUseReason = ctx.arg("--business-use-reason");
+    if (!Number.isInteger(documentId) || documentId <= 0) ctx.fatal("Missing required --document-id <n>");
+    if (!sourceReference) ctx.fatal("Missing required --source-reference <text>");
+    if (!businessUseReason) ctx.fatal("Missing required --business-use-reason <text>");
+    if (ctx.arg("--confirm") !== "yes") ctx.fatal("documents set-company-context requires the exact confirmation --confirm yes");
+    const db = openCommandDb(ctx); migrate(db);
+    try { ctx.emitResult(setDocumentCompanyContext(db, { documentId, sourceReference: sourceReference!, businessUseReason: businessUseReason!, confirm: true, createdBy: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined, createdByProgram: ctx.cliActorVia ?? "rentemester-cli" })); }
+    finally { db.close(); }
+  });
   dispatch.on("documents", "enrich", (ctx) => {
     const id = Number(ctx.arg("--document-id"));
     const metadataFile = ctx.arg("--metadata");

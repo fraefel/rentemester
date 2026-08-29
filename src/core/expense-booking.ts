@@ -6,6 +6,7 @@ import { absDkk, compareDkk, fromOre, normalizeCurrency, percentOfDkk, roundDkk,
 import { resolveAccountRole } from "./account-roles";
 import { parsePurchaseVatLinesPayload, type PurchaseVatLine } from "./documents";
 import { deductibleDanishPurchaseSupplierErrors } from "./supplier-identity";
+import { validSimplifiedPurchaseCompanyContext } from "./document-company-context";
 
 /**
  * `non_deductible` (DK-VAT-NON-DEDUCTIBLE-001 / Momsloven § 37) is the
@@ -246,7 +247,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
   const document = db.query(
     `SELECT d.id, d.document_type, d.invoice_no, d.invoice_date,
             d.amount_inc_vat, d.vat_amount, d.currency, d.sender_name,
-            d.payload_json, d.sender_vat_cvr, d.supplier_country_code,
+            d.payload_json, d.sender_vat_cvr, d.recipient_vat_cvr, d.supplier_country_code,
             d.supplier_identifier_kind, d.supplier_identity_status,
             ive.bank_transaction_id AS evidence_bank_transaction_id
      FROM documents d
@@ -263,6 +264,7 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
     sender_name: string | null;
     payload_json: string | null;
     sender_vat_cvr: string | null;
+    recipient_vat_cvr: string | null;
     supplier_country_code: string | null;
     supplier_identifier_kind: string | null;
     supplier_identity_status: string | null;
@@ -337,6 +339,19 @@ export function bookExpenseFromBank(db: Database, input: BookExpenseFromBankInpu
       supplierIdentityStatus: document.supplier_identity_status,
     });
     if (supplierErrors.length > 0) return { ok: false, appliedRules: [], errors: supplierErrors };
+  }
+  // A stated simplified-invoice fact can only support standard purchase VAT
+  // through a separately hash-bound company context. It never replaces the
+  // supplier identity checks above and ordinary documents get no exception.
+  if (vatTreatment === "standard") {
+    try {
+      const payload = document.payload_json ? JSON.parse(document.payload_json) as Record<string, unknown> : {};
+      const invoiceStatesCompany = typeof document.recipient_vat_cvr === "string" && document.recipient_vat_cvr.trim().length > 0;
+      const contextIsValid = payload.danishSimplifiedPurchaseInvoice === true && validSimplifiedPurchaseCompanyContext(db, input.documentId);
+      if (document.document_type === "purchase_sale" && !invoiceStatesCompany && !contextIsValid) {
+        return { ok: false, appliedRules: [], errors: ["standard purchase VAT requires invoice-stated recipient identity or a valid hash-bound simplified-invoice company context"] };
+      }
+    } catch { return { ok: false, appliedRules: [], errors: ["document payload_json is not valid JSON"] }; }
   }
   const transactionDate = input.transactionDate ?? bank.transaction_date;
   if (

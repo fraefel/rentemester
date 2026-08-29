@@ -22,7 +22,7 @@
     "typecheck:runtime": "tsc --noEmit -p tsconfig.runtime.json",
   "test": "bun test",
   "benchmark:pdf-parser": "bun run scripts/benchmark-pdf-parser.ts",
-    "test:parallel": "bun test --parallel --timeout=20000 --only-failures",
+    "test:parallel": "bun test --parallel=4 --timeout=20000 --only-failures",
     "verify:local": "bun install --frozen-lockfile && bun run typecheck:runtime && bun run lint && bun run supply-chain:audit && bun run supply-chain:licenses && bun run benchmark:pdf-parser --verify && bun run test:parallel && bun run cockpit:test:parallel && bun run cockpit:build && bun run smoke && bun run smoke-mcp && bun run container:test && bun run container:reproducibility",
     "smoke-mcp": "bun run scripts/smoke-mcp.ts",
     "agent-demo": "rm -rf /tmp/rentemester-agent-demo && bun run examples/agent-demo/run.ts --company /tmp/rentemester-agent-demo --mode rule-based",

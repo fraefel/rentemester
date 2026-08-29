@@ -26,6 +26,10 @@ describe("purchase VAT preflight surface parity", () => {
         vatAmount: 25, currency: "DKK", sender: { name: "Supplier ApS", address: "Testvej 1", vatOrCvr: "DK11223344" },
         recipient: { name: "Parity ApS", address: "Testvej 2", vatOrCvr: "DK12345678" },
       });
+      // Establish a stable byte baseline. Without an explicit checkpoint the
+      // just-written WAL may be folded into the main file after close under
+      // heavy parallel load, changing that file's hash without a new write.
+      db.run("PRAGMA wal_checkpoint(TRUNCATE)");
       db.close();
       expect(ingest.ok).toBe(true);
 

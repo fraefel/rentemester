@@ -111,6 +111,9 @@ export const DOCUMENT_PDF_PARSES_MIGRATION_NAME = "rentemester-document-pdf-pars
 const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0018-document-metadata-enrichments.json"));
 export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT).digest("hex");
 export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME = "rentemester-document-metadata-enrichments-v18";
+const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0019-document-company-contexts.json"));
+export const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT).digest("hex");
+export const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME = "rentemester-document-company-contexts-v19";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -151,6 +154,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM },
   { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM },
   { id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM },
+  { id: 19, name: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME, checksum: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -374,11 +378,15 @@ export function applySchemaMigrations(db: Database): void {
     { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT },
     { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM, artifact: DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT },
     { id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM, artifact: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT },
+    { id: 19, name: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME, checksum: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM, artifact: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
     const parsed = JSON.parse(migration.artifact.toString("utf8")) as { sql: string };
     db.transaction(() => {
+      if (migration.id === 19) {
+        db.exec("DROP TRIGGER IF EXISTS document_company_contexts_no_update; DROP TRIGGER IF EXISTS document_company_contexts_no_delete;");
+      }
       const recurringAlreadyUpgraded = migration.id === 3 &&
         (db.query("PRAGMA table_info(recurring_invoice_templates)").all() as Array<{ name: string }>)
           .some((column) => column.name === "interval_count");
@@ -603,6 +611,11 @@ export function applySchemaMigrations(db: Database): void {
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 18").get()) {
     const parsed = JSON.parse(DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 19").get()) {
+    const parsed = JSON.parse(DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }

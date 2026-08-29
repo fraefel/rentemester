@@ -176,6 +176,7 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     vatAmount: num("vatAmount"),
     purchaseVatLines,
     reverseChargeWordingConfirmed: bool("reverseChargeWordingConfirmed"),
+    danishSimplifiedPurchaseInvoice: bool("danishSimplifiedPurchaseInvoice"),
     paymentDetails: str("paymentDetails"),
     exemptionCode: (exemptionCode ?? undefined) as DocumentMetadata["exemptionCode"],
     sourceBankTransactionId: num("sourceBankTransactionId"),

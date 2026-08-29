@@ -112,6 +112,7 @@ import {
   handleWorkspaceInvitationCreate,
   handleWorkspaceInvitationList,
 } from "./router/workspace-invitations";
+import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
 import {
   handleWorkspaceMemberAccessUpdate,
   handleWorkspaceMemberCompanyUpdate,
@@ -258,6 +259,10 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "workspace", effect: "read", permission: "workspace.members.read", method: "GET", pattern: "/api/workspace/members", summary: "Lister aktive workspace-brugere og kun administrerbare selskabsmedlemskaber." },
   { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/members/access", summary: "Ændrer workspace-rolle eller deaktiverer en bruger append-only." },
   { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/members/company", summary: "Ændrer adgang til ét selskab append-only." },
+  { scope: "workspace", effect: "read", permission: "workspace.members.read", method: "GET", pattern: "/api/workspace/service-principals", summary: "Lister servicekonti uden credentials." },
+  { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals", summary: "Opretter servicekonto og viser credential én gang." },
+  { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals/rotate", summary: "Roterer servicecredential og viser den nye nøgle én gang." },
+  { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/workspace/service-principals/revoke", summary: "Tilbagekalder servicecredential." },
   { scope: "public", effect: "write", permission: "public.invitation.claim", method: "POST", pattern: "/api/invitations/claim", summary: "Indløser en e-mailbundet invitation uden at oprette en session." },
   { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-overview", summary: "Koncernstruktur og status uden konsoliderede tal." },
   { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-reconciliation", summary: "Eksakt read-only mellemregningsafstemning med kildehenvisninger." },
@@ -654,6 +659,19 @@ export async function handleRequest(
     if (path === "/api/workspace/invitations/cancel") {
       if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
       return await handleWorkspaceInvitationCancel(config, request);
+    }
+    if (path === "/api/workspace/service-principals") {
+      if (method === "GET") return handleServicePrincipalList(config);
+      if (method === "POST") return await handleServicePrincipalCreate(config, request);
+      throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
+    }
+    if (path === "/api/workspace/service-principals/rotate") {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleServicePrincipalRotate(config, request);
+    }
+    if (path === "/api/workspace/service-principals/revoke") {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handleServicePrincipalRevoke(config, request);
     }
 
     if (path === "/api/workspace/members") {

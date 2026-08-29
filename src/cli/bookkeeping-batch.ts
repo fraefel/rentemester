@@ -1,6 +1,6 @@
 /** Transport adapter for the shared bookkeeping-batch core. */
 import { migrate } from "../core/db";
-import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, planBookkeepingBatch } from "../core/bookkeeping-batch";
+import { applyBookkeepingBatch, approveBookkeepingBatchPlan, createBookkeepingBatchRun, getBookkeepingBatchState, planBookkeepingBatch } from "../core/bookkeeping-batch";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandDispatch } from "../cli-dispatch";
 
@@ -8,15 +8,7 @@ const scope = (ctx: Parameters<CommandDispatch["on"]>[2] extends (ctx: infer C) 
   companyId: Number(ctx.arg("--company-id") ?? 1), accountingFrom: ctx.arg("--accounting-from")!, accountingTo: ctx.arg("--accounting-to")!, bankFrom: ctx.arg("--bank-from")!, bankTo: ctx.arg("--bank-to")!,
 });
 const actor = (ctx: any) => ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? ctx.inferredMutationActor() ?? "";
-function runState(db: any, runId: number) {
-  return {
-    run: db.query("SELECT id AS runId,run_key AS runKey,plan_hash AS planHash,plan_json AS plan,created_at AS createdAt FROM bookkeeping_batch_runs WHERE id=?").get(runId),
-    events: db.query("SELECT event_type AS type,actor,detail_json AS detail,created_at AS createdAt FROM bookkeeping_batch_events WHERE run_id=? ORDER BY id").all(runId),
-    attempts: db.query("SELECT action_key AS actionKey,outcome,error_text AS error,created_at AS createdAt FROM bookkeeping_batch_item_attempts WHERE run_id=? ORDER BY id").all(runId),
-    receipts: db.query("SELECT action_key AS actionKey,receipt_json AS receipt,created_at AS createdAt FROM bookkeeping_batch_item_receipts WHERE run_id=? ORDER BY id").all(runId),
-    checks: db.query("SELECT check_name AS name,ok,detail_json AS detail FROM bookkeeping_batch_final_checks WHERE run_id=? ORDER BY check_name").all(runId),
-  };
-}
+const runState = getBookkeepingBatchState;
 export function register(dispatch: CommandDispatch): void {
   // Pure planning is intentionally separate from durable review state. It
   // opens/migrates through the normal CLI adapter today, but performs no batch

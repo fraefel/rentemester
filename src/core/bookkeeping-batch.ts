@@ -32,6 +32,29 @@ function batchPrincipal(db: Database, input: { principal?: BatchPrincipal }): Ba
   return { kind: "local-trusted", subjectId: `ledger-company:${selectedCompanyId(db)}` };
 }
 function selectedCompanyId(db: Database): number { const rows = db.query("SELECT id FROM companies ORDER BY id").all() as Array<{ id: number }>; if (rows.length !== 1) throw new Error("selected ledger must contain exactly one company"); return rows[0]!.id; }
+
+/**
+ * Durable batch state is a projection of immutable revision, approval and
+ * attempt records.  There is deliberately no mutable "run status" column.
+ */
+export function getBookkeepingBatchState(db: Database, runId: number) {
+  const run = db.query("SELECT id AS runId,run_key AS runKey,plan_hash AS planHash,plan_json AS plan,created_at AS createdAt FROM bookkeeping_batch_runs WHERE id=?").get(runId);
+  if (!run) return null;
+  const revisions = db.query(`SELECT r.id AS revisionId,r.revision_hash AS planHash,r.candidate_set_hash AS candidateSetHash,
+    r.planner_kind AS plannerKind,r.planner_subject_id AS plannerSubjectId,r.planner_actor AS plannerActor,r.created_at AS createdAt,
+    a.principal_kind AS approverKind,a.principal_subject_id AS approverSubjectId,a.actor AS approverActor,a.created_at AS approvedAt
+    FROM bookkeeping_batch_revisions r LEFT JOIN bookkeeping_batch_revision_approvals a ON a.revision_id=r.id
+    WHERE r.run_id=? ORDER BY r.id`).all(runId);
+  const attempts = db.query(`SELECT a.id AS attemptId,a.plan_hash AS planHash,a.principal_kind AS principalKind,a.principal_subject_id AS principalSubjectId,
+    a.actor,a.started_at AS startedAt,e.event_type AS eventType,e.action_key AS actionKey,e.detail_json AS detail,e.created_at AS createdAt
+    FROM bookkeeping_batch_apply_attempts_v2 a LEFT JOIN bookkeeping_batch_apply_events_v2 e ON e.apply_attempt_id=a.id
+    WHERE a.revision_id IN (SELECT id FROM bookkeeping_batch_revisions WHERE run_id=?) ORDER BY a.id,e.id`).all(runId);
+  const receipts = db.query("SELECT action_key AS actionKey,receipt_json AS receipt,created_at AS createdAt FROM bookkeeping_batch_item_receipts WHERE run_id=? ORDER BY id").all(runId);
+  const finalChecks = db.query(`SELECT c.apply_attempt_id AS attemptId,c.check_name AS name,c.ok,c.detail_json AS detail,c.created_at AS createdAt
+    FROM bookkeeping_batch_final_checks_v2 c WHERE c.apply_attempt_id IN
+    (SELECT id FROM bookkeeping_batch_apply_attempts_v2 WHERE revision_id IN (SELECT id FROM bookkeeping_batch_revisions WHERE run_id=?)) ORDER BY c.id`).all(runId);
+  return { run, revisions, attempts, receipts, finalChecks };
+}
 function scope(db: Database, input: { companyId?: number; accountingFrom: string; accountingTo: string; bankFrom: string; bankTo: string }) { const companyId = selectedCompanyId(db); if (input.companyId !== undefined && input.companyId !== companyId) throw new Error("company identity is derived from the selected ledger"); const result = { companyId, accountingFrom: input.accountingFrom, accountingTo: input.accountingTo, bankFrom: input.bankFrom, bankTo: input.bankTo }; if (![result.accountingFrom, result.accountingTo, result.bankFrom, result.bankTo].every(date) || result.accountingFrom > result.accountingTo || result.bankFrom > result.bankTo) throw new Error("ordered explicit ISO accounting and bank date ranges are required"); return result; }
 
 type PurchaseEvidence = { document: { id: number; invoice_date: string | null; sender_name: string | null; sender_vat_cvr: string | null; supplier_country_code: string | null; document_type: string; currency: string; amount_inc_vat: number | null; vat_amount: number | null; sha256_hash: string | null }; bank: { id: number; transaction_date: string; amount: number; currency: string; transaction_hash: string | null; text: string }; context: PostingRuleContext };
@@ -48,8 +71,10 @@ function sourceIdentities(db: Database, plan: Omit<BookkeepingBatchPlan, "source
     const evidence = item.documentId && item.bankTransactionId ? loadPurchaseEvidence(db, plan.companyId, item.documentId, item.bankTransactionId) : null;
     const rule = evidence ? evaluatePostingRules(db, evidence.context, { at: evidence.document.invoice_date ?? plan.accountingTo }) : null;
     const vat = item.documentId ? inspectPurchaseVatPreflight(db, item.documentId) : null;
+    const vatEvent = item.documentId ? db.query(`SELECT id,event_type,supplier_country_code,supplier_identifier,classification,provider_status,evidence_expires_at,detail_json,created_at
+      FROM vat_validation_events WHERE document_id=? AND event_type='preflight_passed' ORDER BY id DESC LIMIT 1`).get(item.documentId) : null;
     const reconciliation = item.bankTransactionId ? db.query("SELECT bank_transaction_id FROM bank_journal_reconciliations WHERE bank_transaction_id=? LIMIT 1").get(item.bankTransactionId) : null;
-    return { actionKey: item.actionKey, evidenceHash: evidence ? evidenceHash(evidence) : null, reconciliation: reconciliation ? "reconciled" : "unreconciled", rule: rule?.decision === "proposed" ? { ruleVersionId: rule.ruleVersionId, payloadHash: rule.payloadHash } : { decision: rule?.decision ?? "missing" }, vat: vat ? { ok: vat.ok, classification: vat.classification, evidenceExpiresAt: vat.evidenceExpiresAt } : null };
+    return { actionKey: item.actionKey, evidenceHash: evidence ? evidenceHash(evidence) : null, reconciliation: reconciliation ? "reconciled" : "unreconciled", rule: rule?.decision === "proposed" ? { ruleVersionId: rule.ruleVersionId, payloadHash: rule.payloadHash } : { decision: rule?.decision ?? "missing" }, vat: vat ? { ok: vat.ok, classification: vat.classification, evidenceExpiresAt: vat.evidenceExpiresAt, event: vatEvent ? { id: (vatEvent as any).id, hash: hash(vatEvent) } : null } : null };
   });
   // Candidate universe is intentionally broader than executable items.  A new
   // eligible document/bank row must stale a reviewed plan instead of silently

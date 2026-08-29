@@ -95,6 +95,8 @@ describe("agent runtime catalogue (#584)", () => {
       { name: "bank_suggest_matches", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
       { name: "reconcile_bank", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
       { name: "bookkeeping_batch_dry_run", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } },
+      { name: "bookkeeping_batch_plan", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
+      { name: "bookkeeping_batch_persist", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } },
       { name: "bookkeeping_batch_approve", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } },
       { name: "bookkeeping_batch_apply", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true } },
       { name: "bookkeeping_batch_status", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },

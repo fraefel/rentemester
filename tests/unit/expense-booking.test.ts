@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
-import { seedAccounts } from "../../src/core/ledger";
+import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { importBankCsv } from "../../src/core/bank";
 import { ingestDocument } from "../../src/core/documents";
 import { buildBankReconciliationReport } from "../../src/core/reconciliation";
@@ -484,11 +484,28 @@ describe("expense booking", () => {
       expenseAccountNo: "3000",
       vatTreatment: "exempt"
     });
+    const repeatedPreview = previewBookExpenseFromBank(db, {
+      documentId: doc.documentId!,
+      bankTransactionId: bankRow.id,
+      expenseAccountNo: "3000",
+      vatTreatment: "exempt"
+    });
 
     expect(preview).toMatchObject({ ok: true, entryNo: "2026-00001", grossAmountDkk: 746, fxRateToDkk: 7.46, fxRateSource: "derived_dkk_settlement", fxReconstructionDifferenceDkk: 0 });
+    expect(repeatedPreview).toEqual(preview);
     expect(db.query("SELECT COUNT(*) AS count FROM journal_entries").get()).toEqual({ count: 0 });
     expect(db.query("SELECT COUNT(*) AS count FROM audit_log").get()).toEqual({ count: auditCountBeforePreview });
     expect(db.query("SELECT fx_rate_to_dkk FROM bank_transactions WHERE id = ?").get(bankRow.id)).toEqual({ fx_rate_to_dkk: null });
+
+    db.query("UPDATE bank_transactions SET fx_rate_to_dkk = 0 WHERE id = ?").run(bankRow.id);
+    const invalidImportedRate = previewBookExpenseFromBank(db, {
+      documentId: doc.documentId!,
+      bankTransactionId: bankRow.id,
+      expenseAccountNo: "3000",
+      vatTreatment: "exempt"
+    });
+    expect(invalidImportedRate).toMatchObject({ ok: false, errors: [`bank transaction ${bankRow.id} fx_rate_to_dkk must be positive when provided`] });
+    db.query("UPDATE bank_transactions SET fx_rate_to_dkk = NULL WHERE id = ?").run(bankRow.id);
 
     const booked = bookExpenseFromBank(db, {
       documentId: doc.documentId!,
@@ -507,9 +524,13 @@ describe("expense booking", () => {
     const entry = db.query("SELECT currency, amount_foreign, amount_dkk, fx_rate_to_dkk FROM journal_entries WHERE id = ?").get(booked.entryId!) as any;
     expect(entry).toEqual({ currency: "EUR", amount_foreign: 100, amount_dkk: 746, fx_rate_to_dkk: 7.46 });
     expect(db.query("SELECT COUNT(*) AS count FROM audit_log WHERE entity_type = 'journal_entry'").get()).toEqual({ count: 1 });
-    expect(bookExpenseFromBank(db, { documentId: doc.documentId!, bankTransactionId: bankRow.id, expenseAccountNo: "3000", vatTreatment: "exempt" }).ok).toBe(false);
-
     db.close();
+    const reopened = openDb(ensureCompanyDirs(root).db);
+    expect(verifyAuditChain(reopened).ok).toBe(true);
+    expect(reopened.query("SELECT currency, amount_foreign, amount_dkk, fx_rate_to_dkk FROM journal_entries WHERE id = ?").get(booked.entryId!)).toEqual({ currency: "EUR", amount_foreign: 100, amount_dkk: 746, fx_rate_to_dkk: 7.46 });
+    expect(bookExpenseFromBank(reopened, { documentId: doc.documentId!, bankTransactionId: bankRow.id, expenseAccountNo: "3000", vatTreatment: "exempt" }).ok).toBe(false);
+    expect(reopened.query("SELECT COUNT(*) AS count FROM journal_entries").get()).toEqual({ count: 1 });
+    reopened.close();
     rmSync(root, { recursive: true, force: true });
     rmSync(inbox, { recursive: true, force: true });
   });

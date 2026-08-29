@@ -152,15 +152,18 @@ function resolveFxBookingBasis(document: { currency: string; amount_inc_vat: num
     if (bank.amount_dkk != null && compareDkk(Math.abs(Number(bank.amount_dkk)), grossAmountDkk) !== 0) {
       return { ok: false, error: `bank transaction ${bank.id} amount_dkk ${roundDkk(Math.abs(Number(bank.amount_dkk)))} does not match DKK settlement amount ${grossAmountDkk}` };
     }
-    const importedFxRate = bank.fx_rate_to_dkk == null ? NaN : Number(bank.fx_rate_to_dkk);
-    const fxRateSource = importedFxRate > 0 ? "imported_bank" as const : "derived_dkk_settlement" as const;
+    const importedFxRate = bank.fx_rate_to_dkk == null ? null : Number(bank.fx_rate_to_dkk);
+    if (importedFxRate !== null && !(importedFxRate > 0)) {
+      return { ok: false, error: `bank transaction ${bank.id} fx_rate_to_dkk must be positive when provided` };
+    }
+    const fxRateSource = importedFxRate !== null ? "imported_bank" as const : "derived_dkk_settlement" as const;
     if (!(grossAmountForeign > 0)) return { ok: false, error: `document foreign gross amount must be positive to derive DKK settlement FX rate` };
     // A DKK bank row is itself the settlement evidence. When the import did
     // not include a rate, derive one once and retain precisely the six-decimal
     // value that journal metadata persists. Reject rates whose stored precision
     // cannot reproduce the settlement to the øre: silently persisting a rate
     // that changes the documented payment would undermine reconciliation.
-    const fxRateToDkk = importedFxRate > 0
+    const fxRateToDkk = importedFxRate !== null
       ? importedFxRate
       : roundRate6(grossAmountDkk / grossAmountForeign);
     const expectedAmountDkk = roundDkk(grossAmountForeign * fxRateToDkk);

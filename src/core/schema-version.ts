@@ -108,6 +108,9 @@ export const INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME = "rentemester-invoice-ext
 const DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0017-document-pdf-parses.json"));
 export const DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT).digest("hex");
 export const DOCUMENT_PDF_PARSES_MIGRATION_NAME = "rentemester-document-pdf-parses-v17";
+const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0018-document-metadata-enrichments.json"));
+export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT).digest("hex");
+export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME = "rentemester-document-metadata-enrichments-v18";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -147,6 +150,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM },
   { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM },
   { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM },
+  { id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -369,6 +373,7 @@ export function applySchemaMigrations(db: Database): void {
     { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT },
     { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT },
     { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM, artifact: DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT },
+    { id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM, artifact: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -408,7 +413,7 @@ export function applySchemaMigrations(db: Database): void {
         // committed tables and guards remain. The migration is deliberately
         // replay-safe: remove only its canonical trigger names, then let the
         // IF NOT EXISTS table definitions preserve the recorded evidence.
-        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10 || migration.id === 11 || migration.id === 12 || migration.id === 13 || migration.id === 14 || migration.id === 15 || migration.id === 17) {
+        if (migration.id === 4 || migration.id === 5 || migration.id === 6 || migration.id === 7 || migration.id === 8 || migration.id === 9 || migration.id === 10 || migration.id === 11 || migration.id === 12 || migration.id === 13 || migration.id === 14 || migration.id === 15 || migration.id === 17 || migration.id === 18) {
           const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
           for (const statement of triggerStatements) {
             const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1];
@@ -593,6 +598,11 @@ export function applySchemaMigrations(db: Database): void {
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 17").get()) {
     const parsed = JSON.parse(DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 18").get()) {
+    const parsed = JSON.parse(DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }

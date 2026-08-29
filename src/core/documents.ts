@@ -479,14 +479,76 @@ function documentMetadataColumns(metadata: DocumentMetadata) {
   };
 }
 
+/** Keep the document payload to the validated metadata contract, never caller extras. */
+function normalizedEnrichedMetadata(metadata: DocumentMetadata): DocumentMetadata {
+  return {
+    source: metadata.source,
+    documentType: metadata.documentType ?? "purchase_sale",
+    issueDate: metadata.issueDate,
+    invoiceNo: metadata.invoiceNo,
+    deliveryDescription: metadata.deliveryDescription,
+    amountIncVat: metadata.amountIncVat,
+    currency: (metadata.currency ?? "DKK").trim().toUpperCase(),
+    sender: metadata.sender && {
+      name: metadata.sender.name, address: metadata.sender.address, vatOrCvr: metadata.sender.vatOrCvr,
+      countryCode: metadata.sender.countryCode, identifierKind: metadata.sender.identifierKind,
+    },
+    recipient: metadata.recipient && {
+      name: metadata.recipient.name, address: metadata.recipient.address, vatOrCvr: metadata.recipient.vatOrCvr,
+    },
+    vatAmount: metadata.vatAmount,
+    purchaseVatLines: metadata.purchaseVatLines,
+    reverseChargeWordingConfirmed: metadata.reverseChargeWordingConfirmed,
+    paymentDetails: metadata.paymentDetails,
+    exemptionCode: metadata.exemptionCode,
+  };
+}
+
+/** Existing leaves are binding; omitted leaves may safely be completed. */
+function metadataSubsetCompatible(existing: unknown, incoming: unknown): boolean {
+  if (!metadataValueIsPresent(existing)) return true;
+  if (Array.isArray(existing) || Array.isArray(incoming)) return canonicalJson(existing) === canonicalJson(incoming);
+  if (existing && typeof existing === "object") {
+    if (!incoming || typeof incoming !== "object") return false;
+    return Object.entries(existing as Record<string, unknown>).every(([key, value]) =>
+      metadataSubsetCompatible(value, (incoming as Record<string, unknown>)[key]),
+    );
+  }
+  return canonicalJson(existing) === canonicalJson(incoming);
+}
+
+function findPurchaseSaleLogicalDuplicate(
+  db: Database,
+  metadata: DocumentMetadata,
+  excludeDocumentId?: number,
+): { id: number; document_no: string } | null {
+  const documentType = metadata.documentType ?? "purchase_sale";
+  const invoiceNo = metadata.invoiceNo?.trim();
+  if (documentType !== "purchase_sale" || !invoiceNo) return null;
+  const senderIdentity = metadata.sender?.countryCode !== undefined || metadata.sender?.identifierKind !== undefined
+    ? resolveSupplierIdentity({ country: metadata.sender?.countryCode ?? "", identifier: metadata.sender?.vatOrCvr, identifierKind: metadata.sender?.identifierKind })
+    : resolveLegacySupplierIdentity(metadata.sender?.vatOrCvr);
+  const senderVatOrCvr = senderIdentity.ok ? senderIdentity.identifier : metadata.sender?.vatOrCvr?.trim();
+  const excluded = excludeDocumentId ?? -1;
+  const existingByIdentifier = senderVatOrCvr
+    ? db.query(`SELECT id, document_no FROM documents WHERE document_type = 'purchase_sale' AND sender_vat_cvr = ? AND invoice_no = ? AND id != ? LIMIT 1`).get(senderVatOrCvr, invoiceNo, excluded) as { id: number; document_no: string } | null
+    : null;
+  const senderName = metadata.sender?.name?.trim();
+  const existingByNonEuCountryAndName = senderIdentity.ok && senderIdentity.identifierKind === "non_eu" && senderName
+    ? db.query(`SELECT id, document_no FROM documents WHERE document_type = 'purchase_sale' AND supplier_country_code = ? AND lower(trim(sender_name)) = lower(trim(?)) AND invoice_no = ? AND id != ? LIMIT 1`).get(senderIdentity.country, senderName, invoiceNo, excluded) as { id: number; document_no: string } | null
+    : null;
+  return existingByIdentifier ?? existingByNonEuCountryAndName;
+}
+
 /** Completes a pre-accounting legacy document without touching its evidence identity. */
 export function enrichDocumentMetadata(db: Database, documentId: number, metadata: DocumentMetadata, options: EnrichDocumentMetadataOptions = {}): EnrichDocumentMetadataResult {
+  if (metadata.documentType === "internal_voucher") return { ok: false, errors: ["internal voucher metadata cannot be enriched"] };
   const validation = validateDocumentMetadata(metadata);
   if (!validation.ok) return { ok: false, errors: validation.errors };
-  const internalEvidenceErrors = validateInternalVoucherBankEvidence(db, metadata);
-  if (internalEvidenceErrors.length > 0) return { ok: false, errors: internalEvidenceErrors };
-  const incoming = documentMetadataColumns(metadata);
-  const metadataHash = createHash("sha256").update(canonicalJson(metadata)).digest("hex");
+  const normalizedMetadata = normalizedEnrichedMetadata(metadata);
+  const incoming = documentMetadataColumns(normalizedMetadata);
+  const enrichedMetadataJson = canonicalJson(normalizedMetadata);
+  const metadataHash = createHash("sha256").update(enrichedMetadataJson).digest("hex");
   try {
     return db.transaction(() => {
       const row = db.query(`SELECT id, status, source, document_type, supplier_name, invoice_no, invoice_date,
@@ -495,35 +557,40 @@ export function enrichDocumentMetadata(db: Database, documentId: number, metadat
         recipient_address, recipient_vat_cvr, vat_amount, payment_details, exemption_code, payload_json
         FROM documents WHERE id = ?`).get(documentId) as Record<string, unknown> | null;
       if (!row) return { ok: false, errors: [`document ${documentId} does not exist`] };
+      if (row.document_type === "internal_voucher") return { ok: false, errors: ["internal voucher metadata cannot be enriched"] };
+      const enrichment = db.query("SELECT enriched_metadata_sha256 FROM document_metadata_enrichments WHERE document_id = ?").get(documentId) as { enriched_metadata_sha256: string } | null;
+      if (enrichment) return enrichment.enriched_metadata_sha256 === metadataHash
+        ? { ok: true, documentId: asDocumentId(documentId), enriched: false }
+        : { ok: false, errors: ["document metadata was already enriched with different metadata"] };
       if (row.status !== "ingested") return { ok: false, errors: ["document is already posted or otherwise non-enrichable"] };
-      if (db.query("SELECT 1 FROM journal_entries WHERE document_id = ? LIMIT 1").get(documentId) || db.query("SELECT 1 FROM import_document_links WHERE document_id = ? LIMIT 1").get(documentId)) {
+      if (db.query("SELECT 1 FROM journal_entries WHERE document_id = ? LIMIT 1").get(documentId)
+        || db.query("SELECT 1 FROM import_document_links WHERE document_id = ? AND journal_entry_id IS NOT NULL LIMIT 1").get(documentId)
+        || db.query("SELECT 1 FROM dinero_import_document_links WHERE document_id = ? AND (journal_entry_id IS NOT NULL OR disposition = 'linked') LIMIT 1").get(documentId)) {
         return { ok: false, errors: ["document is linked to accounting evidence and cannot be enriched"] };
       }
-      let originalPayload: unknown = null;
       const originalPayloadJson = typeof row.payload_json === "string" ? row.payload_json : null;
       if (originalPayloadJson) {
         try {
           const parsed = JSON.parse(originalPayloadJson) as Record<string, unknown>;
-          const provenance = parsed._enrichment as { metadataHash?: unknown } | undefined;
-          if (provenance && typeof provenance.metadataHash === "string") {
-            return provenance.metadataHash === metadataHash
-              ? { ok: true, documentId: asDocumentId(documentId), enriched: false }
-              : { ok: false, errors: ["document metadata was already enriched with different metadata"] };
-          }
-          originalPayload = parsed;
-          for (const [key, existing] of Object.entries(parsed)) {
-            if (key !== "_enrichment" && metadataValueIsPresent(existing) && canonicalJson(existing) !== canonicalJson((metadata as Record<string, unknown>)[key])) return { ok: false, errors: [`existing document metadata ${key} conflicts with enrichment`] };
-          }
+          const existingMetadata = normalizedEnrichedMetadata(parsed as DocumentMetadata);
+          if (!metadataSubsetCompatible(existingMetadata, normalizedMetadata)) return { ok: false, errors: ["existing document metadata conflicts with enrichment"] };
         } catch { return { ok: false, errors: ["document payload_json is not valid JSON"] }; }
       }
       for (const [column, value] of Object.entries(incoming)) {
         if (metadataValueIsPresent(row[column]) && canonicalJson(row[column]) !== canonicalJson(value)) return { ok: false, errors: [`existing document ${column} conflicts with enrichment`] };
       }
-      const payload = { ...metadata, _enrichment: { originalPayload, originalPayloadJson, metadataHash } };
+      const duplicate = findPurchaseSaleLogicalDuplicate(db, normalizedMetadata, documentId);
+      if (duplicate) return { ok: false, errors: [`a document with this supplier and invoice identity is already ingested as ${duplicate.document_no}`] };
       const columns = Object.keys(incoming);
       const assignments = columns.map((column) => `${column} = CASE WHEN ${column} IS NULL OR ${column} = '' THEN ? ELSE ${column} END`).join(", ");
-      db.query(`UPDATE documents SET ${assignments}, payload_json = ? WHERE id = ?`).run(...columns.map((column) => incoming[column as keyof typeof incoming]), JSON.stringify(payload), documentId);
-      insertAuditLog(db, { eventType: "document_metadata_enriched", entityType: "document", entityId: documentId, message: `Enriched document metadata for document ${documentId}`, createdBy: options.createdBy, createdByProgram: options.createdByProgram });
+      const originalPayloadHash = originalPayloadJson ? createHash("sha256").update(originalPayloadJson).digest("hex") : null;
+      const actor = resolveActor({ createdBy: options.createdBy, createdByProgram: options.createdByProgram });
+      db.query(`UPDATE documents SET ${assignments}, payload_json = ? WHERE id = ?`).run(...columns.map((column) => incoming[column as keyof typeof incoming]), enrichedMetadataJson, documentId);
+      db.query(`INSERT INTO document_metadata_enrichments (document_id, original_payload_json, original_payload_sha256, enriched_metadata_json, enriched_metadata_sha256, actor, program) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(documentId, originalPayloadJson, originalPayloadHash, enrichedMetadataJson, metadataHash, actor.createdBy, actor.createdByProgram);
+      strengthenGdprErasureAliasesForIdentity(db, { name: normalizedMetadata.sender?.name, cvr: incoming.sender_vat_cvr as string | null });
+      strengthenGdprErasureAliasesForIdentity(db, { name: normalizedMetadata.recipient?.name, cvr: normalizedMetadata.recipient?.vatOrCvr });
+      insertAuditLog(db, { eventType: "document_metadata_enriched", entityType: "document", entityId: documentId, message: `Enriched document metadata for document ${documentId} (original_payload_sha256=${originalPayloadHash ?? "null"}, enriched_metadata_sha256=${metadataHash})`, createdBy: actor.createdBy, createdByProgram: actor.createdByProgram });
       return { ok: true, documentId: asDocumentId(documentId), enriched: true };
     }).immediate();
   } catch (error) { return { ok: false, errors: [error instanceof Error ? error.message : String(error)] }; }
@@ -670,35 +737,9 @@ function ingestDocumentSnapshot(
   const senderVatOrCvr = senderIdentity?.ok ? senderIdentity.identifier : metadata.sender?.vatOrCvr?.trim();
   const invoiceNo = metadata.invoiceNo?.trim();
   if (!options.forceDuplicateLogicalIdentity && docType === "purchase_sale" && invoiceNo) {
-    const senderName = metadata.sender?.name?.trim();
-    const existingByIdentifier = senderVatOrCvr
-      ? db.query(
-          `SELECT id, document_no
-           FROM documents
-           WHERE document_type = 'purchase_sale'
-             AND sender_vat_cvr = ?
-             AND invoice_no = ?
-           LIMIT 1`,
-        ).get(senderVatOrCvr, invoiceNo) as { id: number; document_no: string } | null
-      : null;
-    // A non-EU supplier may be ingested before its home-country registration
-    // number is known and enriched later (or the reverse). Always check the
-    // stable country + normalized name + invoice key as well as the identifier
-    // key, so adding/removing that evidence cannot create a second voucher.
-    const existingByNonEuCountryAndName = senderIdentity?.ok && senderIdentity.identifierKind === "non_eu" && senderName
-      ? db.query(
-          `SELECT id, document_no
-           FROM documents
-           WHERE document_type = 'purchase_sale'
-             AND supplier_country_code = ?
-             AND lower(trim(sender_name)) = lower(trim(?))
-             AND invoice_no = ?
-           LIMIT 1`,
-        ).get(senderIdentity.country, senderName, invoiceNo) as { id: number; document_no: string } | null
-      : null;
-    const existingLogical = existingByIdentifier ?? existingByNonEuCountryAndName;
+    const existingLogical = findPurchaseSaleLogicalDuplicate(db, metadata);
     if (existingLogical) {
-      const supplierKey = senderVatOrCvr ?? `${senderIdentity && senderIdentity.ok ? senderIdentity.country : "unknown"}:${senderName ?? "unknown"}`;
+      const supplierKey = senderVatOrCvr ?? `${senderIdentity && senderIdentity.ok ? senderIdentity.country : "unknown"}:${metadata.sender?.name?.trim() ?? "unknown"}`;
       return { ok: false, errors: [`a document from ${supplierKey} with invoice ${invoiceNo} is already ingested as ${existingLogical.document_no}. Use --force to add another scan.`] };
     }
   }

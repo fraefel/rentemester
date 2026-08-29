@@ -42,6 +42,8 @@ import {
   INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME,
   DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM,
   DOCUMENT_PDF_PARSES_MIGRATION_NAME,
+  DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM,
+  DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -145,6 +147,7 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM }),
     ]);
     db.close();
   });
@@ -159,6 +162,20 @@ describe("schema version compatibility", () => {
     db.exec("DROP TRIGGER issued_invoice_pdf_no_update; DROP TRIGGER issued_invoice_pdf_no_delete;");
     migrate(db);
     expect(() => db.run("UPDATE documents SET sha256_hash = 'changed' WHERE id = ?", row.id)).toThrow("immutable");
+    db.close();
+  });
+
+  test("makes document metadata enrichments append-only and restores guards", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    db.run("INSERT INTO documents (id, source, sha256_hash) VALUES (1, 'test', 'metadata-enrichment')");
+    db.run(`INSERT INTO document_metadata_enrichments
+      (document_id, enriched_metadata_json, enriched_metadata_sha256, actor, program)
+      VALUES (1, '{}', ?, 'agent:test', 'bun:test')`, "a".repeat(64));
+    db.exec("DROP TRIGGER document_metadata_enrichments_no_update; DROP TRIGGER document_metadata_enrichments_no_delete;");
+    migrate(db);
+    expect(() => db.run("UPDATE document_metadata_enrichments SET actor = 'agent:changed' WHERE document_id = 1")).toThrow("append-only");
+    expect(() => db.run("DELETE FROM document_metadata_enrichments WHERE document_id = 1")).toThrow("append-only");
     db.close();
   });
 

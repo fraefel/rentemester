@@ -99,6 +99,7 @@ import { registerPostingRuleTools } from "./tools/posting-rules";
 import { registerBookkeepingBatchTools } from "./tools/bookkeeping-batch";
 import { registerAgentDiscoveryTools } from "./tools/agent-discovery";
 import type { LiveTool } from "../agent-discovery-catalog";
+import { authorizeMcpTool, type McpSecurityContext, MCP_TOOL_PERMISSIONS } from "./security";
 // ===== END META / SERVER ABOUT =====
 
 // Wraps a write tool's callback with the opt-in backup lock. The MCP tool
@@ -182,9 +183,9 @@ function recordingServer(server: McpServer, tools: LiveTool[]): McpServer {
   });
 }
 
-export function registerAllTools(server: McpServer): void {
+export function registerAllTools(server: McpServer, security?: McpSecurityContext | null): void {
   const liveTools: LiveTool[] = [];
-  server = recordingServer(lockGuardServer(server), liveTools);
+  server = recordingServer(lockGuardServer(securityGuardServer(server, security)), liveTools);
   registerAccountsTools(server);
   registerAuditTools(server);
   registerBankTools(server);
@@ -247,5 +248,32 @@ export function registerAllTools(server: McpServer): void {
   registerBookkeepingBatchTools(server);
   // Must be last: workflow descriptions resolve the live registered tool set.
   registerAgentDiscoveryTools(server, () => liveTools);
+  if (security) assertMcpPermissionCoverage(liveTools);
   // ===== END META / SERVER ABOUT =====
+}
+
+function securityGuardServer(server: McpServer, context?: McpSecurityContext | null): McpServer {
+  if (!context) return server;
+  return new Proxy(server, {
+    get(target, prop, receiver) {
+      if (prop === "registerTool") return (name: string, config: unknown, callback: (...args: unknown[]) => unknown) => {
+        const guarded = async (args: Record<string, unknown>, ...rest: unknown[]) => {
+          const access = await authorizeMcpTool(context, name, args ?? {});
+          if (!access) return envelopeToCallResult(errorEnvelope("missing or invalid credentials", { code: "MCP_UNAUTHORIZED" }));
+          return callback(access.root ? { ...args, company: access.root } : args, ...rest);
+        };
+        return (target.registerTool as (...a: unknown[]) => unknown)(name, config, guarded);
+      };
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+export function assertMcpPermissionCoverage(liveTools: readonly LiveTool[]): void {
+  const names = liveTools.map((tool) => tool.name);
+  const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
+  const missing = names.filter((name) => !(name in MCP_TOOL_PERMISSIONS));
+  const extra = Object.keys(MCP_TOOL_PERMISSIONS).filter((name) => !names.includes(name));
+  if (duplicates.length || missing.length || extra.length) throw new Error(`MCP permission coverage mismatch: duplicate=${[...new Set(duplicates)].join(",")} missing=${missing.join(",")} extra=${extra.join(",")}`);
 }

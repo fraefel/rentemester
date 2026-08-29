@@ -25,6 +25,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerAllTools } from "./registry";
+import { createMcpSecurityContextFromEnv } from "./security";
 import { PRODUCT_VERSION } from "../core/build-identity";
 
 // Exported so the `system_about` MCP tool can return the live identity
@@ -67,7 +68,7 @@ async function main(): Promise<void> {
     },
   );
 
-  registerAllTools(server);
+  registerAllTools(server, createMcpSecurityContextFromEnv());
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

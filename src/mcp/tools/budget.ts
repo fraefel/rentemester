@@ -14,7 +14,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { setBudget, listBudget, buildBudgetVsActual } from "../../core/budget";
-import { buildLiquidityForecast } from "../../core/liquidity-forecast";
+import { buildLiquidityForecast, buildThirteenWeekLiquidityForecast } from "../../core/liquidity-forecast";
 import { envelopeShape, wrapCoreResult } from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 
@@ -136,4 +136,6 @@ export function registerBudgetTools(server: McpServer): void {
       return wrapCoreResult(result);
     }),
   );
+
+  server.registerTool("liquidity_forecast_13_week", { title:"Source-linked 13-week liquidity forecast", description:"Read-only weekly cash forecast. Commitments are planning evidence, never payments; non-DKK amounts remain excluded until an explicit dated FX source is supplied.", inputSchema:{company:z.string().min(1),startDate:z.string().min(1),weeks:z.number().int().min(1).max(13).optional()},outputSchema:envelopeShape,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyDb<{company:string;startDate:string;weeks?:number}>(server,({db,args})=>wrapCoreResult(buildThirteenWeekLiquidityForecast(db,{startDate:args.startDate,weeks:args.weeks}))));
 }

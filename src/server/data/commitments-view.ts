@@ -1,0 +1,8 @@
+import { existsSync } from "node:fs";
+import { openDb, migrate } from "../../core/db";
+import { companyPaths } from "../../core/paths";
+import { buildThirteenWeekLiquidityForecast } from "../../core/liquidity-forecast";
+import { listSupplierCommitments } from "../../core/supplier-commitments";
+import { findWorkspaceCompany, companyRootForSlug } from "../../core/workspace";
+import { ApiError } from "../errors";
+export function buildCompanyCommitments(workspaceRoot:string,slug:string,startDate:string){if(!findWorkspaceCompany(workspaceRoot,slug))throw ApiError.notFound("virksomhed findes ikke");const path=companyPaths(companyRootForSlug(workspaceRoot,slug)).db;if(!existsSync(path))throw ApiError.notFound("virksomheden har ingen ledger");const db=openDb(path);try{migrate(db);const rows=listSupplierCommitments(db).map(row=>{let commitment:any={};try{commitment=JSON.parse(row.payload_json);}catch{}return {commitmentId:row.commitment_id,payloadHash:row.payload_hash,createdAt:row.created_at,vendor:commitment.vendorSnapshot??commitment.vendorPartyId,purpose:commitment.businessPurpose??commitment.description,amount:commitment.amount??null,currency:commitment.currency??null,frequency:commitment.frequency??null,nextDate:commitment.nextDate??null,renewalDate:commitment.renewalDate??null,status:commitment.status??"active",evidenceRefs:commitment.evidenceRefs??[],missingDocument:false};});return {commitments:rows,forecast:buildThirteenWeekLiquidityForecast(db,{startDate})};}finally{db.close();}}

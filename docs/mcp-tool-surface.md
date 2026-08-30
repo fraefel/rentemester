@@ -104,7 +104,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 180 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 190 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -229,7 +229,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 73
 - **Ordinary write-tools**: 105
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **180** (74 read, 105 ordinary write, 1 destructive)
+- **Total**: **190** (read and write tool counts are verified from the live registry in CI)
 
 ## Read-tools
 
@@ -263,6 +263,11 @@ frit og parallelt.
 | `company_profile_get` | `company profile` | `{ company }` | Henter virksomhedens gemte profil-stamdata (navn, CVR, valuta, land, adresse, regnskabsår-start, betalingsfrist, momsperiode). Hver fakturering, momsrapport og årsrapport bygger på disse felter. |
 | `meta_about` | (ingen — kun MCP) | `{}` | Server-identifikation: serverName, serverVersion, antallet af registrerede tools, rules-bundle-versionen og repo-relative stier til kontrakt-dokumenter. Bruges af agenten lige efter `initialize` for at verificere identitet/version. |
 | `budget_forecast` | `budget forecast` | `{ company, startDate, months }` | Likviditetsprognose: fremskriver banksaldoen måned for måned ud fra primosaldo, åbne fakturaer der forfalder, planlagte gentagne fakturaer og budgetterede omkostninger. Rent deterministisk. |
+| `liquidity_forecast_13_week` | — | `{ company, startDate, weeks? }` | Read-only 13-week forecast with source buckets. Foreign currency is explicitly excluded unless a dated FX source is supplied. |
+| `supplier_commitment_plan` | `supplier-commitment plan` | `{ company, commitment }` | Strict read-only proposal from source references; a recurring bank pattern is never a contract. |
+| `supplier_commitment_apply` | `supplier-commitment apply` | `{ company, commitment, payloadHash, confirm, idempotencyKey? }` | Appends reviewed planning evidence only; never creates a payable, journal, payment or supplier message. |
+| `supplier_commitment_list` | `supplier-commitment list` | `{ company }` | Lists active immutable commitment revisions and their hashes. |
+| `supplier_commitment_change` | `supplier-commitment change` | `{ company, commitmentId, action, reason, confirm }` | Appends pause/end/supersession history without deleting earlier occurrences. |
 | `budget_list` | `budget list` | `{ company, period?, accountNo? }` | Lister de gældende (seneste-revision) budgetlinjer. |
 | `budget_vs_actual` | `budget vs-actual` | `{ company, from, to }` | Sammenligner budget mod faktisk bogføring pr. konto pr. måned. |
 | `customer_list` | `customer list` | `{ company, archived?, limit?, offset? }` | Lister kendte kunder. Pagineret. |
@@ -673,6 +678,8 @@ ord-for-ord, CLI/MCP-pendanter og er derfor hverken CLI-only eller MCP-only:
 
 - `src/cli/bookkeeping-batch.ts` ↔ `src/mcp/tools/bookkeeping-batch.ts` —
   planlægning, godkendelse og anvendelse af en hash-bundet batch.
+- `src/cli/supplier-commitments.ts` ↔ `src/mcp/tools/supplier-commitments.ts` —
+  reviewede leverandørforpligtelser og deres deterministiske occurrence-flow.
 - `src/cli/posting-rules.ts` ↔ `src/mcp/tools/posting-rules.ts` —
   forslag, lifecycle og dry-run forklaring af virksomheds-lokale
   konteringsregler.

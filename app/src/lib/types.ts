@@ -38,3 +38,4 @@ export * from "./types/group";
 export * from "./types/accounting-drafts";
 export * from "./types/workspace";
 export * from "./types/cfo-analytics";
+export * from "./types/commitments";

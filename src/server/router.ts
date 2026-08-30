@@ -115,6 +115,7 @@ import {
   handleSystemCvrStatus,
 } from "./router/system";
 import { handleCompanyVat } from "./router/vat";
+import { handleSupplierCommitmentApply, handleSupplierCommitmentChange, handleSupplierCommitmentPlan, handleSupplierCommitments } from "./router/supplier-commitments";
 import {
   handleWorkspaceInvitationCancel,
   handleWorkspaceInvitationClaim,
@@ -433,6 +434,10 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/assets/:id/depreciate", summary: "Bogfører næste afskrivningsperiode (#336)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/assets/write-off", summary: "Straksafskriver et småanskaffelse (#336)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/payables", summary: "Leverandørfaktura-arbejdsbord — kreditorliste + modal-data (#340)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/supplier-commitments", summary: "Supplier commitments og 13-ugers likviditetsdrilldown (#590)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "POST", pattern: "/api/companies/:slug/supplier-commitments/plan", summary: "Read-only commitment-plan (#590)." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/supplier-commitments", summary: "Godkender hash-bundet supplier commitment (#590)." },
+  { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/supplier-commitments/change", summary: "Pauser, afslutter eller supersederer commitment append-only (#590)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/payables", summary: "Registrerer et bilag som leverandørfaktura (#340)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/payables/:id/pay", summary: "Markerer leverandørfaktura betalt fra bankpost (#340)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/agent-suggestions", summary: "Agent-forslag i kø — afventer ejerens godkendelse (#346)." },
@@ -1594,6 +1599,13 @@ export async function handleRequest(
       const slug = decodeURIComponent(invoiceSendReminderMatch[1]!);
       return await handleInvoiceSendReminder(config, request, slug);
     }
+
+    const supplierCommitmentPlanMatch = /^\/api\/companies\/([^/]+)\/supplier-commitments\/plan$/.exec(path);
+    if (supplierCommitmentPlanMatch) { if(method!=="POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleSupplierCommitmentPlan(config,request,decodeURIComponent(supplierCommitmentPlanMatch[1]!)); }
+    const supplierCommitmentChangeMatch = /^\/api\/companies\/([^/]+)\/supplier-commitments\/change$/.exec(path);
+    if (supplierCommitmentChangeMatch) { if(method!=="POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleSupplierCommitmentChange(config,request,decodeURIComponent(supplierCommitmentChangeMatch[1]!)); }
+    const supplierCommitmentsMatch = /^\/api\/companies\/([^/]+)\/supplier-commitments$/.exec(path);
+    if (supplierCommitmentsMatch) { const slug=decodeURIComponent(supplierCommitmentsMatch[1]!); if(method==="GET")return handleSupplierCommitments(config,slug,url); if(method==="POST")return await handleSupplierCommitmentApply(config,request,slug); throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute"); }
 
     // Leverandørfaktura-arbejdsbordet (#340) — match the per-id /pay route
     // first because the bare /payables routes would otherwise consume it.

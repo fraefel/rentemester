@@ -96,6 +96,7 @@ import { register as registerTax } from "./cli/tax";
 // ===== END TAX RETURN PREPARATION =====
 // ===== BUDGET + LIQUIDITY FORECAST =====
 import { register as registerBudget } from "./cli/budget";
+import { register as registerSupplierCommitments } from "./cli/supplier-commitments";
 // ===== END BUDGET + LIQUIDITY FORECAST =====
 // ===== PAYABLES / KREDITORSTYRING =====
 import { register as registerPayable } from "./cli/payable";
@@ -346,6 +347,7 @@ for (const registerFn of [
   // ===== END ACCRUALS / PERIODEAFGRÆNSNINGSPOSTER =====
   // ===== BUDGET + LIQUIDITY FORECAST =====
   registerBudget,
+  registerSupplierCommitments,
   // ===== END BUDGET + LIQUIDITY FORECAST =====
   // ===== PAYABLES / KREDITORSTYRING =====
   registerPayable,

@@ -33,6 +33,8 @@ import { fromOre, toOre } from "./money";
 import { listBankAccounts } from "./bank";
 import { buildInvoiceList } from "./invoice-list";
 import { addMonths } from "./recurring-invoices";
+import { plannedCommitmentOccurrences } from "./supplier-commitments";
+import { buildPayablesList } from "./payables";
 import {
   isValidBudgetPeriod,
   periodStartDate,
@@ -354,4 +356,27 @@ export function buildLiquidityForecast(
     periods: out,
     errors: [],
   };
+}
+
+/** Thirteen-week cash view. Unlike the legacy monthly planning report this
+ * keeps native currencies explicit: only DKK changes the DKK cash line unless
+ * an integration supplies a dated FX source (not inferred here). */
+export type WeeklyLiquidityPeriod = { weekStart:string; openingCash:number; receivables:number; payables:number; commitments:number; budgets:number; excluded:Array<{source:string;amount:number;currency:string}>; closingCash:number; sources:Array<{source:string;amount:number;reference:string}> };
+export type WeeklyLiquidityResult = { ok:boolean; startDate?:string; openingCash:number; lowestPoint:number; completeness:{included:string[];excluded:string[]}; periods:WeeklyLiquidityPeriod[]; errors:string[]; appliedRules:string[] };
+export function buildThirteenWeekLiquidityForecast(db:Database,input:{startDate:string;weeks?:number}):WeeklyLiquidityResult {
+  const weeks=input.weeks??13;
+  if(!isValidIsoDate(input.startDate)||!Number.isInteger(weeks)||weeks<1||weeks>13)return {ok:false,openingCash:0,lowestPoint:0,periods:[],errors:["startDate and weeks (1-13) are required"],appliedRules:["liquidity-forecast-13-week-v1"],completeness:{included:[],excluded:[]}};
+  const start=input.startDate, opening=fromOre(toOre(bookedBankBalance(db,addDays(start,-1))));
+  const rows:WeeklyLiquidityPeriod[]=[];let cash=opening, lowest=opening;
+  const occurrences=plannedCommitmentOccurrences(db,start,weeks);
+  const invoices=buildInvoiceList(db,{status:"all",asOfDate:start}).rows.filter((r):r is typeof r & {effectiveDueDate:string}=>r.openBalance>0&&typeof r.effectiveDueDate==="string"&&r.effectiveDueDate>=start&&r.effectiveDueDate<=addDays(start,weeks*7-1));
+  const payables=buildPayablesList(db,{status:"open",asOfDate:start}).rows.filter(x=>x.dueDate>=start&&x.dueDate<=addDays(start,weeks*7-1));
+  for(let i=0;i<weeks;i++){
+    const weekStart=addDays(start,i*7),weekEnd=addDays(weekStart,6);const sources:WeeklyLiquidityPeriod["sources"]=[],excluded:WeeklyLiquidityPeriod["excluded"]=[];
+    const inv=invoices.filter(x=>x.effectiveDueDate>=weekStart&&x.effectiveDueDate<=weekEnd).reduce((n,x)=>n+x.openBalance,0);if(inv)sources.push({source:"issued_receivables",amount:inv,reference:"invoice-list"});
+    const payable=payables.filter(x=>x.dueDate>=weekStart&&x.dueDate<=weekEnd).reduce((n,x)=>n+Number(x.openBalance),0);if(payable)sources.push({source:"registered_payables",amount:-payable,reference:"payables"});
+    let commitments=0;for(const o of occurrences.filter(x=>x.date>=weekStart&&x.date<=weekEnd)){if(o.currency==="DKK"){commitments+=o.amount;sources.push({source:"approved_commitment",amount:-o.amount,reference:o.commitmentId});}else excluded.push({source:o.commitmentId,amount:o.amount,currency:o.currency});}
+    const openingCash=cash;cash+=inv-payable-commitments;lowest=Math.min(lowest,cash);rows.push({weekStart,openingCash,receivables:inv,payables:payable,commitments,budgets:0,excluded,closingCash:cash,sources});
+  }
+  return {ok:true,startDate:start,openingCash:opening,lowestPoint:lowest,periods:rows,errors:[],appliedRules:["liquidity-forecast-13-week-v1"],completeness:{included:["observed opening cash","issued receivables","registered payables","approved DKK commitments"],excluded:["foreign-currency commitments without explicit dated FX","budgets/scenarios","unregistered obligations","intercompany dispositions"]}};
 }

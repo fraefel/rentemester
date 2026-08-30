@@ -49,6 +49,10 @@ export function LiquidityView() {
     () => api.cashflow(slug, year),
     [slug, year],
   );
+  const commitments = useAsync(
+    () => api.supplierCommitments(slug, `${year}-01-01`),
+    [slug, year],
+  );
 
   if (state.loading && !state.data)
     return <Loading label="Henter likviditet…" />;
@@ -82,6 +86,17 @@ export function LiquidityView() {
         selectedYear={cf.selectedYear}
         onYearChange={setYear}
       />
+
+      {commitments.data && (
+        <section className="section">
+          <h3>13 ugers likviditetsprognose</h3>
+          <p className="muted">Primo {formatKroner(commitments.data.forecast.openingCash, currency)} · laveste punkt {formatKroner(commitments.data.forecast.lowestPoint, currency)}. Antagelser og fremmed valuta fremgår særskilt.</p>
+          <div className="card statement-card table-scroll"><table className="data"><thead><tr><th>Uge</th><th className="num">Tilgodehavender</th><th className="num">Kreditorer</th><th className="num">Forpligtelser</th><th className="num">Ultimo</th></tr></thead><tbody>{commitments.data.forecast.periods.map(p=><tr key={p.weekStart}><td>{p.weekStart}</td><td className="num">{formatKroner(p.receivables,currency)}</td><td className="num">{formatKroner(p.payables,currency)}</td><td className="num">{formatKroner(p.commitments,currency)}</td><td className="num">{formatKroner(p.closingCash,currency)}</td></tr>)}</tbody></table></div>
+          <h3>Abonnementer og leverandørforpligtelser</h3>
+          {commitments.data.commitments.length===0?<p className="muted">Ingen godkendte forpligtelser.</p>:<div className="card statement-card table-scroll"><table className="data"><thead><tr><th>Leverandør</th><th>Formål</th><th className="num">Beløb</th><th>Frekvens</th><th>Næste</th><th>Fornyelse</th><th>Bilag</th></tr></thead><tbody>{commitments.data.commitments.map(c=><tr key={c.commitmentId}><td>{c.vendor}</td><td>{c.purpose}</td><td className="num">{c.amount===null?"—":formatKroner(c.amount,c.currency??currency)}</td><td>{c.frequency}</td><td>{c.nextDate}</td><td>{c.renewalDate??"—"}</td><td>{c.evidenceRefs.length?c.evidenceRefs.join(", "):"Mangler"}</td></tr>)}</tbody></table></div>}
+          <p className="muted">Udeladt: {commitments.data.forecast.completeness.excluded.join("; ")}</p>
+        </section>
+      )}
 
       {cf.archived ? (
         <ArchivedNotice year={cf.selectedYear} />

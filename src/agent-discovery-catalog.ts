@@ -138,7 +138,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("read-workbench",mcp("bookkeeping_workbench"),"Read the deterministic unresolved bank population, counts, bounded next actions and period-close drilldown.",{inputIdentities:["company","from","to"],outputIdentities:["bankTransactionId","sourceHash","planHash"],canonicalRecords:["bank transactions","bank journal reconciliations","bookkeeping batch runs","period-close readiness"]}),
     read("review-plan",mcp("bookkeeping_batch_plan"),"Revalidate the exact batch plan before any persist or approval.",{dependsOn:["read-workbench"],boundary:"dry-run",outputIdentities:["planHash"]}),
     write("persist-reviewed-plan",mcp("bookkeeping_batch_persist"),"Persist a reviewed plan using the existing batch contract.",{dependsOn:["review-plan"],boundary:"dry-run",expectedIdempotent:true,retryClass:"natural-idempotent",inputIdentities:["runKey","planHash"]}),
-    write("approve-reviewed-plan",mcp("bookkeeping_batch_approve"),"Approve the exact persisted hash with a distinct stable principal.",{dependsOn:["persist-reviewed-plan"],boundary:"approval",inputIdentities:["runId","planHash"]}),
+    write("approve-reviewed-plan",mcp("bookkeeping_batch_approve"),"Approve the exact persisted hash with a distinct stable principal.",{dependsOn:["persist-reviewed-plan"],boundary:"approval",expectedIdempotent:true,retryClass:"natural-idempotent",inputIdentities:["runId","planHash"]}),
     write("apply-reviewed-plan",mcp("bookkeeping_batch_apply"),"Apply or resume only the exact approved run and hash.",{dependsOn:["approve-reviewed-plan"],boundary:"irreversible",expectedIdempotent:true,retryClass:"natural-idempotent",inputIdentities:["runId","planHash"],uncertainOutcomeReadBack:mcp("bookkeeping_batch_status")}),
   ],relatedWorkflowIds:["bank-reconciliation-batch"],unsupportedBoundaries:["The workbench never creates a reconciliation, task database or posting.","A row is not dismissible: only canonical reconciliation, correction or reviewed batch effects change completion."]}),
   workflow({ id: "supplier-expense-booking", capabilityId: "supplier-purchases", title: "Supplier expense booking", intendedOutcome: "Book a documented supplier expense against a bank transaction with the correct VAT treatment.", steps: [
@@ -153,6 +153,12 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     write("pay-payable", mcp("payable_pay"), "Match the selected bank payment.", { dependsOn: ["list-payables"], boundary: "irreversible", retryClass: "key-idempotent", inputIdentities: ["payableId", "bankTransactionId"], uncertainOutcomeReadBack: mcp("payable_list"), canonicalRecords: ["payable payments", "bank reconciliations", "journal entries"] }),
     read("verify-payable", mcp("payable_list"), "Read back the payable balance.", { dependsOn: ["pay-payable"] }),
   ], relatedWorkflowIds: ["supplier-expense-booking"] }),
+  workflow({ id:"supplier-commitment-forecast", capabilityId:"supplier-commitments", title:"Supplier commitment and 13-week cash forecast", intendedOutcome:"Review recurring supplier evidence and inspect a source-linked weekly cash forecast without creating a payable or payment.", steps:[
+    read("plan-commitment",mcp("supplier_commitment_plan"),"Validate source-linked planning evidence without mutation.",{boundary:"dry-run",expectedIdempotent:true,retryClass:"safe-read",outputIdentities:["payloadHash"]}),
+    write("apply-commitment",mcp("supplier_commitment_apply"),"Record the exact reviewed commitment hash; it never posts, pays or sends.",{dependsOn:["plan-commitment"],boundary:"approval",expectedIdempotent:false,retryClass:"unsafe-read-back",inputIdentities:["payloadHash"],uncertainOutcomeReadBack:mcp("supplier_commitment_list"),canonicalRecords:["supplier commitment events"]}),
+    read("forecast",mcp("liquidity_forecast_13_week"),"Read source buckets, excluded currencies and lowest cash point.",{dependsOn:["apply-commitment"],retryClass:"safe-read"}),
+    read("verify",mcp("supplier_commitment_list"),"Read back active source hashes.",{dependsOn:["forecast"]}),
+  ], unsupportedBoundaries:["A recurring bank pattern is only a proposal, never a contract.","This workflow never creates invoices, payables, journals, payments, cancellations or supplier messages.","Foreign currency is excluded unless an explicit dated FX source exists."] }),
   workflow({ id: "customer-invoice-lifecycle", capabilityId: "customer-invoicing", title: "Customer and invoice lifecycle", intendedOutcome: "Create a customer, issue and post an invoice, then handle delivery, payment, reminder or credit-note branches.", steps: [
     write("create-customer", mcp("customer_create"), "Create canonical customer master data.", { outputIdentities: ["customerId"], canonicalRecords: ["customers"] }),
     read("validate-invoice", mcp("invoice_validate"), "Validate the invoice payload.", { dependsOn: ["create-customer"], boundary: "dry-run" }),
@@ -295,6 +301,7 @@ const capabilityTuples: CapabilityTuple[] = [
   ["workspace-document-inbox", "Workspace document inbox", "Route immutable incoming evidence to one authorized legal entity without a workspace ledger.", "documents", ["route incoming document", "assign workspace inbox", "review ambiguous company"], ["workspace inbox", "routing", "recipient alias", "buyer VAT"], "workspace", ["workspace-document-inbox"]],
   ["bank-bookkeeping", "Bank reconciliation and bookkeeping batch", "Import activity, review one canonical bank work queue and apply a hash-bound batch.", "bank", ["reconcile bank", "match bank transactions", "bookkeeping workbench", "bookkeeping batch"], ["bank import", "workbench", "dry run", "plan hash"], "company", ["bank-reconciliation-batch", "bookkeeping-workbench"]],
   ["supplier-purchases", "Supplier expenses and payables", "Book supplier invoices directly or through payable handling.", "purchases", ["book supplier invoice", "pay supplier invoice", "book expense"], ["vendor", "payable", "purchase VAT"], "company", ["supplier-expense-booking", "supplier-payable-handling"]],
+  ["supplier-commitments", "Supplier commitments and 13-week liquidity", "Review recurring supplier commitments and inspect a source-linked cash forecast without generating payments.", "planning", ["track supplier subscription", "forecast cash 13 weeks", "review renewals"], ["commitment", "subscription", "cash forecast", "renewal"], "company", ["supplier-commitment-forecast"]],
   ["customer-invoicing", "Customer invoice lifecycle", "Create customers and handle issue, delivery, payment, reminder and correction.", "sales", ["issue customer invoice", "send invoice", "record payment", "send reminder", "credit note"], ["customer", "invoice", "settlement"], "company", ["customer-invoice-lifecycle"]],
   ["vat", "VAT preparation", "Validate and post supported VAT treatments and prepare evidence.", "vat", ["prepare VAT", "domestic purchase VAT", "reverse charge"], ["moms", "VIES", "input VAT"], "company", ["vat-preparation"]],
   ["exceptions-corrections", "Exceptions and corrections", "Resolve blockers and correct through append-only reversals.", "ledger", ["resolve exception", "reverse posting", "correct bookkeeping"], ["correction", "credit note", "audit"], "company", ["exceptions-corrections"]],
@@ -430,11 +437,11 @@ type SurfaceBaseline = { count: number; hash: string };
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // #577 adds the six live inbox operations. The workflow above remains the
   // canonical explanation; this identity snapshot prevents silent drift.
-  mcp: { count: 184, hash: "b37011ccf48a1a9fe26e7252c13972e0066ceb7f4c9f18ccb043fec9eb0f90f8" },
+  mcp: { count: 190, hash: "5ecac97c09763ccd4acfde9921998f8dbf027481d7b656e00d9c4bb2b78c391e" },
   cli: { count: 243, hash: "1b67fabcaa4e94346505cd7f6541d30bede9381a03e2f6d2a28ce6ec7dde49e4" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 181, hash: "54a60671f4f3c4719a384621ace89e6d3a7ad6bb2fc23715b18fb1809525be67" },
+  http: { count: 185, hash: "c51156c5149d6451524d403a406b9fd3bf2fd75e8230c7650605fd08b9f620b4" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
@@ -450,9 +457,10 @@ const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }>
   { capabilityId: "privacy", pattern: /gdpr/ },
   { capabilityId: "period-management", pattern: /(?:period|fiscal-years)/ },
   { capabilityId: "vat", pattern: /(?:vat|moms|oss-report|eu-sales)/ },
-  { capabilityId: "bank-bookkeeping", pattern: /(?:bank|reconcile|bookkeeping[_-]batch)/ },
+  { capabilityId: "bank-bookkeeping", pattern: /(?:bank|reconcile|bookkeeping[_-](?:batch|workbench))/ },
   { capabilityId: "document-intake", pattern: /(?:documents?|mail[_-]intake|imap[_-]intake|bilagsmail)/ },
   { capabilityId: "supplier-purchases", pattern: /(?:expense|payable|vendor|supplier)/ },
+  { capabilityId: "supplier-commitments", pattern: /(?:supplier[_-]commitment|commitment|subscription|liquidity[_-]forecast_13)/ },
   { capabilityId: "customer-invoicing", pattern: /(?:invoice|customer|recurring)/ },
   { capabilityId: "exceptions-corrections", pattern: /(?:exceptions?|journal|accounting-draft|opening-balance)/ },
   { capabilityId: "imports", pattern: /(?:import|archive\/:year)/ },

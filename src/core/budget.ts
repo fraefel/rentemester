@@ -116,32 +116,6 @@ export function buildDimensionActuals(db: Database, from: BudgetPeriod, to: Budg
   return {ok:true,from,to,rows:out,accountTotals:accountTotals.map(row=>({accountNo:row.account_no,period:row.period,actual:natural(Number(row.actual),row.account_type)})),errors:[]};
 }
 
-/** A reviewed allocation of an existing account budget.  This deliberately
- * cannot create money: for an account/month the active dimension allocations
- * must reconcile exactly to the effective account budget. */
-export function setDimensionBudget(db: Database, input: { dimensionId:string; memberId:string; accountNo:string; period:BudgetPeriod; amount:number; sourceRef:string; planHash:string; actor?:string; principal?:string; confirm:boolean; idempotencyKey?:string }) {
-  const clean=(value:unknown,max:number)=>typeof value === "string" && value.trim().length>0 && value.trim().length<=max ? value.trim() : null;
-  if(!input.confirm)return {ok:false as const,errors:["CONFIRMATION_REQUIRED"]};
-  const dimensionId=clean(input.dimensionId,64),memberId=clean(input.memberId,64),accountNo=clean(input.accountNo,64),sourceRef=clean(input.sourceRef,500),planHash=clean(input.planHash,64),actor=clean(input.actor,160),principal=clean(input.principal,160);
-  const amount=Number(input.amount);
-  if(!dimensionId||!memberId||!accountNo||!sourceRef||!planHash||!/^[a-f0-9]{64}$/i.test(planHash)||!actor||!principal||!isValidBudgetPeriod(input.period)||!Number.isFinite(amount)||amount<0)return {ok:false as const,errors:["INVALID_DIMENSION_BUDGET"]};
-  if(!db.query("SELECT 1 FROM current_accounting_dimension_members WHERE dimension_id=? AND member_id=? AND status='active'").get(dimensionId,memberId))return {ok:false as const,errors:["DIMENSION_MEMBER_NOT_ACTIVE"]};
-  const effective=listBudget(db).rows.find(row=>row.accountNo===accountNo&&row.period===input.period);
-  if(!effective)return {ok:false as const,errors:["ACCOUNT_BUDGET_NOT_FOUND"]};
-  const result=db.transaction(()=>{
-    const old=input.idempotencyKey ? db.query("SELECT id,plan_hash FROM accounting_dimension_budget_events WHERE idempotency_key=?").get(input.idempotencyKey) as any : null;
-    if(old)return old.plan_hash===planHash?{ok:true as const,id:old.id,idempotent:true,errors:[]}:{ok:false as const,errors:["IDEMPOTENCY_CONFLICT"]};
-    const current=db.query("SELECT * FROM current_accounting_dimension_budgets WHERE dimension_id=? AND member_id=? AND account_no=? AND period=?").get(dimensionId,memberId,accountNo,input.period) as any;
-    if(current&&Number(current.amount)===amount&&current.source_ref===sourceRef)return {ok:true as const,id:current.id,idempotent:true,errors:[]};
-    if(current) db.query("INSERT INTO accounting_dimension_budget_events(dimension_id,member_id,account_no,period,amount,source_ref,plan_hash,event_type,supersedes_budget_id,reason,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,'superseded',?,?,?, ?,?)").run(current.dimension_id,current.member_id,current.account_no,current.period,current.amount,current.source_ref,current.plan_hash,current.id,"reviewed allocation replaced",actor,principal,new Date().toISOString());
-    const row=db.query("INSERT INTO accounting_dimension_budget_events(dimension_id,member_id,account_no,period,amount,source_ref,plan_hash,event_type,idempotency_key,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,'allocated',?,?,?,?) RETURNING id").get(dimensionId,memberId,accountNo,input.period,amount,sourceRef,planHash,input.idempotencyKey??null,actor,principal,new Date().toISOString()) as any;
-    const total=db.query("SELECT COALESCE(SUM(amount),0) AS amount FROM current_accounting_dimension_budgets WHERE account_no=? AND period=?").get(accountNo,input.period) as any;
-    if(Math.abs(Number(total.amount)-effective.amount)>0.000001)throw new Error("DIMENSION_BUDGET_DOES_NOT_RECONCILE");
-    return {ok:true as const,id:row.id,idempotent:false,errors:[]};
-  }).immediate();
-  try{return result;}catch(error){return {ok:false as const,errors:[error instanceof Error ? error.message : "DIMENSION_BUDGET_REJECTED"]};}
-}
-
 type DimensionBudgetAllocation = { dimensionId: string; memberId: string; amount: number };
 const stableJson=(value:unknown):string=>value===null||typeof value!=="object"?JSON.stringify(value):Array.isArray(value)?`[${value.map(stableJson).join(",")}]`:`{${Object.keys(value as object).sort().map(key=>`${JSON.stringify(key)}:${stableJson((value as any)[key])}`).join(",")}}`;
 const stableHash=(value:unknown)=>createHash("sha256").update(stableJson(value)).digest("hex");

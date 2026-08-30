@@ -49,7 +49,7 @@ describe("migration open items v5", () => {
     // The current append-only migration catalogue is the authority.  This
     // regression deliberately protects the documented v4 provenance path,
     // not a stale historical schema number.
-    expect(CURRENT_SCHEMA_VERSION).toBe(31);
+    expect(CURRENT_SCHEMA_VERSION).toBe(32);
     expect(readSchemaMigrations(db)).toContainEqual(expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME }));
     db.exec(`
       DROP VIEW bank_journal_reconciliations;

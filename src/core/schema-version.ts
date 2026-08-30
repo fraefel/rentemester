@@ -502,6 +502,12 @@ export function applySchemaMigrations(db: Database): void {
           if ((db.query("PRAGMA table_info(invoice_extraction_attempts)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_attempts ADD COLUMN initiated_by TEXT;\s*/, "");
           if ((db.query("PRAGMA table_info(invoice_extraction_results)").all() as Array<{ name: string }>).some((column) => column.name === "initiated_by")) sql = sql.replace(/ALTER TABLE invoice_extraction_results ADD COLUMN initiated_by TEXT;\s*/, "");
         }
+        if (migration.id === 32 && (db.query("PRAGMA table_info(accounting_dimension_assignment_events)").all() as Array<{ name: string }>).some((column) => column.name === "source_ref")) {
+          // Recovery after a lost migration-ledger row must preserve the
+          // already-added provenance column. SQLite has no ADD COLUMN IF NOT
+          // EXISTS; the remaining v32 objects are replay-safe.
+          sql = sql.replace(/ALTER TABLE accounting_dimension_assignment_events ADD COLUMN source_ref TEXT;\s*/, "");
+        }
         if (migration.id === 17 && db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_pdf_parse_results'").get()) {
           // Recovery after a migration-ledger loss: retain immutable rows,
           // rebuild just this migration's indexes and append-only guards.

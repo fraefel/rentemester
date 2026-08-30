@@ -124,9 +124,21 @@ describe("BudgetView — Budget", () => {
     const selector = await screen.findByLabelText("Filter dimension");
     await userEvent.selectOptions(selector, "project:alpha");
     expect(screen.getByRole("heading", { name: /Dimensioner mod konto-budget/i })).toBeInTheDocument();
-    expect(screen.getByText(/aldrig som et opdigtet dimensionsbudget/i)).toBeInTheDocument();
+    expect(screen.getByText(/kun, når der findes en eksplicit reviewet fordeling/i)).toBeInTheDocument();
     expect(screen.getByText(/2\.400,00/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Journal-linje 101/i })).toHaveAttribute("href", expect.stringContaining("journalLineId=101"));
+  });
+
+  test("shows a dimension budget and variance only for a reviewed allocation", async () => {
+    mockFetch(route({ budgetDimensionActuals: { dimensionBudgets: [{ id: 7, dimensionId: "project", memberId: "alpha", accountNo: "2200", period: "2026-06", budget: 3000, sourceRef: "review:synthetic" }] } }));
+    renderView();
+    await screen.findByRole("heading", { name: "Acme ApS" });
+    await userEvent.click(screen.getByRole("tab", { name: /Sammenlign med faktisk/i }));
+    await userEvent.selectOptions(await screen.findByLabelText("Filter dimension"), "project:alpha");
+    expect(screen.getByText(/3\.000,00/)).toBeInTheDocument();
+    expect(screen.getByText(/600,00/)).toBeInTheDocument();
+    expect(screen.getByText("review:synthetic")).toBeInTheDocument();
+    expect(screen.queryByText("Ikke understøttet")).not.toBeInTheDocument();
   });
 
   test("Tilføj budgetlinje appends a new revision via POST", async () => {

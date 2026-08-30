@@ -15,9 +15,9 @@ export const RETRY_CLASS_BY_OPERATION: Readonly<Record<string, RetryClass>> = Ob
 /** Single reviewed retry registry for runtime and agent discovery. */
 export const RETRY_OPERATION_NAMES = Object.freeze({
   keyIdempotent: new Set(["journal_post", "journal_reverse", "expense_book", "payable_register", "payable_pay"]),
-  naturalIdempotent: new Set(["bank_import", "bookkeeping_batch_apply", "bookkeeping_batch_approve", "bookkeeping_batch_dry_run", "bookkeeping_batch_persist", "documents_enrich", "documents_extract_invoice", "documents_parse", "documents_parse_pending", "documents_set_company_context", "documents_party_link_apply", "documents_party_link_supersede", "documents_internal_no_external_party", "documents_internal_no_external_party_supersede", "invoice_render", "posting_rule_propose", "recurring_invoice_generate", "recurring_invoice_run_workspace"]),
+  naturalIdempotent: new Set(["bank_import", "bookkeeping_batch_apply", "bookkeeping_batch_approve", "bookkeeping_batch_dry_run", "bookkeeping_batch_persist", "dimension_budget_apply", "documents_enrich", "documents_extract_invoice", "documents_parse", "documents_parse_pending", "documents_set_company_context", "documents_party_link_apply", "documents_party_link_supersede", "documents_internal_no_external_party", "documents_internal_no_external_party_supersede", "invoice_render", "posting_rule_propose", "recurring_invoice_generate", "recurring_invoice_run_workspace"]),
   externalProviderReconciled: new Set(["efaktura_konfigurer", "efaktura_onboard", "efaktura_registrer", "efaktura_send", "efaktura_modtag", "efaktura_modtag_workspace", "efaktura_status", "peppol_submit_public_invoice", "mail_intake_ingest", "imap_intake_poll", "customer_validate_vat", "cvr_lookup"]),
-  naturalIdempotentCli: new Set(["import contacts", "bookkeeping-batch persist", "bookkeeping-batch dry-run", "bookkeeping-batch approve", "bookkeeping-batch apply"]),
+  naturalIdempotentCli: new Set(["import contacts", "bookkeeping-batch persist", "bookkeeping-batch dry-run", "bookkeeping-batch approve", "bookkeeping-batch apply", "dimensions budget-apply"]),
 });
 export type StablePrincipal = { kind: "user" | "service-account"; subjectId: string };
 export type IdempotencyReceipt = { replayed: boolean; receiptId: number; createdAt: string; expiresAt: string };

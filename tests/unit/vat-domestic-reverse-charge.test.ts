@@ -18,7 +18,7 @@ import { seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { buildVatReport } from "../../src/core/vat";
 import { buildVatFiling } from "../../src/core/vat-filing";
 import { buildViesRecapitulativeStatement } from "../../src/core/vat-vies-list";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { storeViesValidation } from "../../src/core/vies";
 
 function newDb() {

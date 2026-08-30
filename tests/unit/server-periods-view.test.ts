@@ -15,7 +15,7 @@ import { createCompany } from "../../src/core/company";
 import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
 import { companyPaths } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 
 function makeWorkspace(label: string, companyNames: string[] = []) {
   const root = mkdtempSync(join(tmpdir(), `rentemester-${label}-`));

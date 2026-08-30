@@ -46,7 +46,10 @@ function bank(db: Database, id: number, amount: number) {
 describe("migration open items v5", () => {
   test("migrates a fresh database through the current schema and preserves v4 provenance when upgrading", () => {
     const db = setup();
-    expect(CURRENT_SCHEMA_VERSION).toBe(21);
+    // The current append-only migration catalogue is the authority.  This
+    // regression deliberately protects the documented v4 provenance path,
+    // not a stale historical schema number.
+    expect(CURRENT_SCHEMA_VERSION).toBe(25);
     expect(readSchemaMigrations(db)).toContainEqual(expect.objectContaining({ id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME }));
     db.exec(`
       DROP VIEW bank_journal_reconciliations;

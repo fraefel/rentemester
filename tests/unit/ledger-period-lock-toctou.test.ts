@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 
 function freshDb(prefix: string) {
   const root = mkdtempSync(join(tmpdir(), prefix));

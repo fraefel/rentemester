@@ -12,7 +12,8 @@ import { buildVatReport } from "../../src/core/vat";
 import { buildVatFiling } from "../../src/core/vat-filing";
 import { vatRubrikkerForPeriod } from "../../src/server/data/vat";
 import { buildOssReport } from "../../src/core/vat-oss";
-import { closeAccountingPeriod, setCompanyVatPeriodType } from "../../src/core/periods";
+import { setCompanyVatPeriodType } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 
 function newCompany(prefix: string) {

@@ -7,7 +7,8 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
 import { buildVatFiling } from "../../src/core/vat-filing";
-import { closeAccountingPeriod, setCompanyVatPeriodType, type VatPeriodType } from "../../src/core/periods";
+import { setCompanyVatPeriodType, type VatPeriodType } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 
 function newCompany(prefix: string, cadence: VatPeriodType = "month") {

@@ -18,7 +18,7 @@ import { formatRunReport } from "../../src/agent/run";
 import { AGENT_ACTOR_ID } from "../../src/agent/contract";
 import { openDb, migrate } from "../../src/core/db";
 import { companyPaths } from "../../src/core/paths";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { ingestDocument } from "../../src/core/documents";
 import { registerPayable } from "../../src/core/payables";
 import { registerAccrual } from "../../src/core/accruals";

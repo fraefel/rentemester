@@ -12,11 +12,11 @@ import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { seedNativeAccountRoles } from "../../src/core/account-roles";
 import {
-  closeAccountingPeriod,
   reopenAccountingPeriod,
   effectivePeriodState,
   validateJournalTransactionDate,
 } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { createPeriodCloseReadinessPacket, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 
 function freshDb(prefix: string) {

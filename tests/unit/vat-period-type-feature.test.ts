@@ -14,9 +14,9 @@ import {
   vatPeriodsForYear,
   vatPeriodWindowFor,
   setCompanyVatPeriodType,
-  closeAccountingPeriod,
   reopenAccountingPeriod,
 } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
 import { createCompany } from "../../src/core/company";
 import { companyPaths } from "../../src/core/paths";

@@ -10,7 +10,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { postRepresentationPurchase } from "../../src/core/vat";
 import { registerAsset, postDepreciationPeriod } from "../../src/core/assets";
 import { buildTaxReturn } from "../../src/core/tax-return";

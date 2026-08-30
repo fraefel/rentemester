@@ -8,7 +8,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
 import { postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 
 describe("journal posting — FX, attribution & period locks", () => {
   test("supports foreign-currency journal entries with stored FX basis", () => {

@@ -8,7 +8,7 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { buildAnnualReport } from "../../src/core/annual-report";
 import { generateIxbrl, IXBRL_TAXONOMY_SUBSET } from "../../src/core/ixbrl";
 

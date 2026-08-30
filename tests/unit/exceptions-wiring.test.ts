@@ -12,7 +12,7 @@ import { ingestDocument } from "../../src/core/documents";
 import { registerPayable, payPayableFromBank } from "../../src/core/payables";
 import { importBankCsv } from "../../src/core/bank";
 import { registerAccrual, recognizeAccrualPeriod } from "../../src/core/accruals";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import {
   listExceptions,
   syncOverduePayableExceptions,

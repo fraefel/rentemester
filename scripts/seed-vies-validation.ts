@@ -144,7 +144,13 @@ function verifyNoBusinessActivity(db: Database) {
   // if later migrations introduce another business-state table.
   const safeTables = new Set([
     "schema_migrations", "companies", "accounts", "account_role_mappings",
-    "sequences", "audit_log", "vies_validations",
+    // `ledger_identity` is an initialization invariant, not business activity.
+    // It was added after this guard; leaving it out made a freshly initialized
+    // disposable demo ledger fail closed before it could receive its one
+    // offline VIES seed.
+    "sequences", "audit_log", "vies_validations", "ledger_identity",
+    // A single immutable policy row is initialized with every new ledger.
+    "bookkeeping_batch_approval_policy",
   ]);
   const tables = db.query(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",

@@ -22,7 +22,7 @@ import { currentMcpAuthenticatedPrincipal, mcpHasLiveCompanyPermission } from ".
 export function registerPeriodTools(server: McpServer): void {
   server.registerTool("period_close_readiness", { title: "Inspect close readiness", description: "Computes a deterministic, read-only close-readiness packet. Review it explicitly before close.", inputSchema: { company: z.string().min(1), from: z.string().min(1), to: z.string().min(1) }, outputSchema: envelopeShape, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyReadOnlyDb<{company:string;from:string;to:string}>(({db,args}) => successEnvelope({ packet: computePeriodCloseReadiness(db, { periodStart: args.from, periodEnd: args.to, companyRoot: args.company }) }),{allowSchemaNotCurrent:true}));
   server.registerTool("period_close_status", { title: "Read durable close review", description: "Reads a persisted review packet without recomputing readiness.", inputSchema: { company:z.string().min(1), reviewId:z.number().int().positive() }, outputSchema:envelopeShape, annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false} }, withCompanyReadOnlyDb<{company:string;reviewId:number}>(({db,args})=>periodCloseReviewSchemaAvailable(db)?successEnvelope({review:loadPeriodCloseReview(db,args.reviewId)}):successEnvelope({review:null,status:"unavailable",code:"PERIOD_CLOSE_REVIEW_SCHEMA_UNAVAILABLE"}),{allowSchemaNotCurrent:true}));
-  server.registerTool("period_close_review", { title:"Persist period-close review", description:"Persists the exact inspected readiness packet for later close. write-audited; it does not close the period.", inputSchema:{company:z.string().min(1),from:z.string().min(1),to:z.string().min(1),confirm:confirmField},outputSchema:envelopeShape,annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}},withCompanyDbConfirmed<{company:string;from:string;to:string;confirm?:boolean}>(server,"period_close_review",({db,actor,args})=>{const packet=computePeriodCloseReadiness(db,{periodStart:args.from,periodEnd:args.to,companyRoot:args.company});const authenticated=currentMcpAuthenticatedPrincipal();return successEnvelope({review:reviewPeriodCloseReadiness(db,{packet,reviewerActor:actor.createdBy,reviewerPrincipal:authenticated?{kind:authenticated.kind,subjectId:authenticated.subjectId}:{kind:"local-trusted",subjectId:actor.createdBy}})});}));
+  server.registerTool("period_close_review", { title:"Persist period-close review", description:"Persists the exact inspected readiness packet for later close. Requires actor attribution and confirm:true; retry creates a new immutable review and does not close the period. write-reversible.", inputSchema:{company:z.string().min(1),from:z.string().min(1),to:z.string().min(1),confirm:confirmField},outputSchema:envelopeShape,annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}},withCompanyDbConfirmed<{company:string;from:string;to:string;confirm?:boolean}>(server,"period_close_review",({db,actor,args})=>{const packet=computePeriodCloseReadiness(db,{periodStart:args.from,periodEnd:args.to,companyRoot:args.company});const authenticated=currentMcpAuthenticatedPrincipal();return successEnvelope({review:reviewPeriodCloseReadiness(db,{packet,reviewerActor:actor.createdBy,reviewerPrincipal:authenticated?{kind:authenticated.kind,subjectId:authenticated.subjectId}:{kind:"local-trusted",subjectId:actor.createdBy}})});}));
   server.registerTool(
     "period_list",
     {
@@ -113,8 +113,11 @@ export function registerPeriodTools(server: McpServer): void {
               "error listing the open exception IDs that fall inside the period, " +
               "so the owner cannot silently hide outstanding items by closing.",
           ),
-        packetHash: z.string().length(64).describe("Exact hash returned by period_close_readiness.") ,
-        reviewId: z.number().int().positive().describe("Exact persisted review id returned by period_close_review."),
+        // Optional at schema level so a missing confirm is consistently
+        // returned as the shared confirmation envelope before business-input
+        // validation. The core still rejects missing values fail-closed.
+        packetHash: z.string().length(64).optional().describe("Exact hash returned by period_close_readiness."),
+        reviewId: z.number().int().positive().optional().describe("Exact persisted review id returned by period_close_review."),
         reason: z.string().min(1).optional().describe("Mandatory non-empty waiver reason when force is true."),
         confirm: confirmField,
       },
@@ -129,8 +132,8 @@ export function registerPeriodTools(server: McpServer): void {
       status?: "closed" | "reported";
       reference?: string;
       force?: boolean;
-      packetHash: string;
-      reviewId: number;
+      packetHash?: string;
+      reviewId?: number;
       reason?: string;
       confirm?: boolean;
     }>(server, "period_close", ({ db, actor, args }) => {

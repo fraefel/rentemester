@@ -18,7 +18,7 @@ import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
 import { seedNativeAccountRoles } from "../../src/core/account-roles";
 import { ingestDocument } from "../../src/core/documents";
 import { importBankCsv } from "../../src/core/bank";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 import { createPeriodCloseReadinessPacket, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 import {
   listExceptions,

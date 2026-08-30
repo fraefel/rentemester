@@ -161,7 +161,10 @@ describe("Cockpit close period (#287)", () => {
   test("POST .../periods/close closes a vat_quarter period", async () => {
     const { root: ws, slug } = makeWorkspace("close-period");
     try {
-      postPnlEntry(ws, slug, "2026-02-15");
+      // A close is now bound to an exact reviewed readiness packet.  This
+      // route test exercises that HTTP workflow against the supported
+      // zero-activity fixture; accounting-control failures are covered by
+      // the dedicated period-close readiness suite.
       const readiness = await call(config(ws), `/api/companies/${slug}/periods/close-readiness?from=2026-01-01&to=2026-03-31`);
       const review = await post(config(ws), `/api/companies/${slug}/periods/close-review`, { periodStart: "2026-01-01", periodEnd: "2026-03-31", confirm: true });
       const res = await post(config(ws), `/api/companies/${slug}/periods/close`, {

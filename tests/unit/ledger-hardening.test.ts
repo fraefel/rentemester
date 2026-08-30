@@ -10,7 +10,7 @@ import { ingestDocument } from "../../src/core/documents";
 import { postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { issueInvoice } from "../../src/core/issued-invoices";
 import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
-import { closeAccountingPeriod } from "../../src/core/periods";
+import { closeAccountingPeriod } from "../helpers/close-period";
 
 describe("ledger hardening", () => {
   test("prevents direct mutation of journal lines after posting", () => {

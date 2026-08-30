@@ -249,6 +249,12 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     write("review",mcp("company_knowledge_review"),"Approve or reject exactly one assertion append-only.",{dependsOn:["propose"],boundary:"approval",canonicalRecords:["company knowledge review event"]}),
     write("supersede",mcp("company_knowledge_supersede"),"Replace approved context through a new assertion and supersession link.",{dependsOn:["review"],canonicalRecords:["company knowledge supersession"]}),
   ],unsupportedBoundaries:["Knowledge never changes ledger, VAT, legal classification or group membership automatically.","Conflicting approved singleton facts remain conflicts; no latest-write selection occurs."]}),
+  workflow({ id:"ownership-graph-review", capabilityId:"ownership-graph", title:"Reviewable ownership and control graph", intendedOutcome:"Discover an as-of legal ownership graph, record a source-hashed registry proposal, review it, then apply only the exact approved diff.", steps:[
+    read("query",mcp("ownership_graph_query"),"Read visible approved facts as of a declared date; it is not a consolidation."),
+    write("propose",mcp("ownership_snapshot_propose"),"Store a deterministic source snapshot and inert diff.",{canonicalRecords:["ownership source snapshot","ownership proposal diff"]}),
+    write("review",mcp("ownership_snapshot_review"),"Approve or reject exactly one source snapshot.",{dependsOn:["propose"],boundary:"approval",canonicalRecords:["ownership snapshot review event"]}),
+    write("apply",mcp("ownership_snapshot_apply"),"Apply exact approved hashes append-only with live scoped authority.",{dependsOn:["review"],boundary:"irreversible",canonicalRecords:["approved ownership facts","ownership apply event"]}),
+  ],unsupportedBoundaries:["Registry observations never automatically overwrite, end or legally conclude ownership.","The v1 group manifest remains authoritative; minority, interval, hidden or incomplete ownership is never inferred as consolidation."]}),
 ];
 
 type CapabilityTuple = [string, string, string, string, string[], string[], AgentScope, string[]];
@@ -273,6 +279,7 @@ const capabilityTuples: CapabilityTuple[] = [
   ["posting-rules", "Posting rules", "Propose, approve and explain reusable posting rules.", "rules", ["create posting rule", "approve bookkeeping rule"], ["automation", "review separation"], "company", ["posting-rule-review"]],
   ["workspace-parties", "Workspace parties", "Maintain canonical counterparties with isolated company roles and reviewed supersession.", "master data", ["create canonical party", "link company party role", "review duplicate party"], ["party", "counterparty", "identity", "vendor role"], "workspace", ["workspace-party-lifecycle"]],
   ["corporate-records", "Corporate records", "Store immutable corporate and governance evidence with typed, access-controlled links.", "governance", ["ingest corporate record", "link governance evidence", "supersede corporate record"], ["corporate record", "governance", "articles", "ownership evidence"], "workspace", ["corporate-record-lifecycle"]],
+  ["ownership-graph", "Ownership and control graph", "Review source-backed, party-aware ownership and control facts without changing legal ledgers or inferring consolidation.", "governance", ["review ownership", "record registry ownership", "query control graph"], ["ownership", "shareholder", "control", "registry diff"], "legal-group", ["ownership-graph-review"]],
 ];
 
 export const AGENT_CAPABILITIES: readonly AgentCapability[] = capabilityTuples.map(([id, title, purpose, domain, outcomes, keywords, scope, workflowIds]) => ({
@@ -389,7 +396,7 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 159, hash: "03bda4d888ff66b29ec293fc3ca0c3f17c08e0f71fcf401166cf6b595bad2224" },
+  mcp: { count: 163, hash: "a5ca1a92704723d3df962147a0dba0e76b596e4d389cf902201215eed33876c0" },
   cli: { count: 223, hash: "e4a0b0652021c07a524e62f15d47ca3bbd9658bbb6f43b3daf4f25b0846b82d0" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
@@ -417,6 +424,7 @@ const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }>
   { capabilityId: "operations-assurance", pattern: /(?:system|audit|health|ready|retention|integrity|backup|meta_about|agent[_-]capabilit|agent[_-]workflow|agent run|reg coverage|reg citations|serve|local start)/ },
   { capabilityId: "company-workspace", pattern: /(?:company|companies|workspace|accounts?|cvr|contacts|members|invitations|^cli:init$|^http:get \/api$|^http:get \/api\/health$|^http:get \/api\/rules$|^http:get \/api\/me$)/ },
   { capabilityId: "company-knowledge", pattern: /(?:company[_-]knowledge|\/knowledge)/ },
+  { capabilityId: "ownership-graph", pattern: /(?:ownership[_-](?:graph|snapshot)|ownership-graph)/ },
 ];
 
 export const AGENT_DISCOVERY_COVERAGE_RULES_HASH = createHash("sha256")

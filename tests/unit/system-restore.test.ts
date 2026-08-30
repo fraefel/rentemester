@@ -77,6 +77,8 @@ import {
   SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_NAME,
   DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_CHECKSUM,
   DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_NAME,
+  BANK_RECONCILIATION_CORRECTIONS_MIGRATION_CHECKSUM,
+  BANK_RECONCILIATION_CORRECTIONS_MIGRATION_NAME,
   CURRENT_SCHEMA_VERSION,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
@@ -249,6 +251,7 @@ describe("system restore", () => {
       expect.objectContaining({ id: 30, name: ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
       expect.objectContaining({ id: 31, name: SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
       expect.objectContaining({ id: 32, name: DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_NAME, checksum: DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
+      expect.objectContaining({ id: 33, name: BANK_RECONCILIATION_CORRECTIONS_MIGRATION_NAME, checksum: BANK_RECONCILIATION_CORRECTIONS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
     ]);
     expect(manifest.provenance).toEqual(expect.objectContaining({
       product: expect.objectContaining({ version: expect.any(String) }),

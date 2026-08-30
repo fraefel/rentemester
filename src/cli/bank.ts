@@ -13,7 +13,7 @@ import { renderHumanReport, formatKroner } from "../cli-format";
 import { ledgerStatusDa } from "../core/messages";
 import type { Database } from "bun:sqlite";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
-import { linkBankTransactionToJournal, type BankJournalMatchMethod } from "../core/bank-journal-reconciliation";
+import { linkBankTransactionToJournal, planBankReconciliationCorrection, applyBankReconciliationCorrection, type BankJournalMatchMethod } from "../core/bank-journal-reconciliation";
 
 // ===== BANK CLUSTER (#187) =====
 // Resolves an optional `--account <id|slug>` filter to a numeric bank-account
@@ -178,6 +178,19 @@ export function register(dispatch: CommandDispatch): void {
     });
     ctx.emitResult(result as Record<string, unknown>);
     db.close();
+  });
+
+  dispatch.on("bank", "correction-plan", (ctx) => {
+    const db = openCommandDb(ctx); migrate(db);
+    const result = planBankReconciliationCorrection(db, { bankTransactionId: requiredNumberOrFatal(ctx, "--bank-transaction-id"), replacementJournalEntryId: requiredNumberOrFatal(ctx, "--replacement-journal-entry-id") });
+    ctx.emitResult(result as Record<string, unknown>); db.close();
+  });
+
+  dispatch.on("bank", "correction-apply", (ctx) => {
+    if (ctx.arg("--confirm") !== "yes") ctx.fatal("bank correction-apply requires the exact confirmation --confirm yes");
+    const db = openCommandDb(ctx); migrate(db);
+    const result = applyBankReconciliationCorrection(db, { bankTransactionId: requiredNumberOrFatal(ctx, "--bank-transaction-id"), replacementJournalEntryId: requiredNumberOrFatal(ctx, "--replacement-journal-entry-id"), expectedReconciliationId: ctx.trimToNull(ctx.arg("--expected-reconciliation-id")) ?? "", planHash: ctx.trimToNull(ctx.arg("--plan-hash")) ?? "", reason: ctx.trimToNull(ctx.arg("--reason")) ?? "", idempotencyKey: ctx.trimToNull(ctx.arg("--idempotency-key")) ?? undefined, actor: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined, principal: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined, confirm: true });
+    ctx.emitResult(result as Record<string, unknown>); db.close();
   });
 
   dispatch.on("reconcile", "bank", (ctx) => {

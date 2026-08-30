@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { migrate, openDb } from "../../src/core/db";
-import { seedAccounts, postJournalEntry, postVerifiedHistoricalImportEntry, verifyAuditChain } from "../../src/core/ledger";
+import { seedAccounts, postJournalEntry, postVerifiedHistoricalImportEntry, reverseJournalEntry, verifyAuditChain } from "../../src/core/ledger";
 import { addBankAccount, importBankCsv } from "../../src/core/bank";
-import { linkBankTransactionToJournal } from "../../src/core/bank-journal-reconciliation";
+import { linkBankTransactionToJournal, planBankReconciliationCorrection, applyBankReconciliationCorrection } from "../../src/core/bank-journal-reconciliation";
 import { listBankTransactions } from "../../src/core/reconciliation";
 import { syncUnmatchedBankTransactionExceptions } from "../../src/core/exceptions";
 
@@ -113,5 +113,26 @@ describe("append-only bank reconciliation for imported journals", () => {
       db.close();
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("rejects an active old journal, then atomically supersedes a reviewed direct reconciliation", () => {
+    const { root, db, bank1 } = setup();
+    try {
+      const old = postVerifiedHistoricalImportEntry(db, { transactionDate:"2026-03-04", text:"Wrong direct", sourceBankTransactionId:bank1, createdBy:"agent:test", lines:[{accountNo:"3000",debitAmount:100},{accountNo:"2000",creditAmount:100}] });
+      expect(old.ok).toBe(true);
+      const replacement = postVerifiedHistoricalImportEntry(db, { transactionDate:"2026-03-04", text:"Replacement", createdBy:"agent:test", lines:[{accountNo:"3000",debitAmount:100},{accountNo:"2000",creditAmount:100}] });
+      expect(replacement.ok).toBe(true);
+      expect(planBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId)})).toEqual({ok:false,errors:["ACTIVE_OLD_JOURNAL_MUST_BE_REVERSED"]});
+      expect(reverseJournalEntry(db,{entryId:Number(old.entryId),transactionDate:"2026-03-05",reason:"wrong reconciliation",createdBy:"agent:test"}).ok).toBe(true);
+      const planned=planBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId)});
+      expect(planned.ok).toBe(true); if(!planned.ok) return;
+      const mismatch=applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:"0".repeat(64),reason:"reviewed",actor:"agent:test",principal:"agent:test",idempotencyKey:"synthetic-correction",confirm:true});
+      expect(mismatch).toEqual({ok:false,errors:["PLAN_HASH_MISMATCH"]});
+      const applied=applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:planned.plan.planHash,reason:"reviewed",actor:"agent:test",principal:"agent:test",idempotencyKey:"synthetic-correction",confirm:true});
+      expect(applied).toMatchObject({ok:true,idempotent:false});
+      expect(listBankTransactions(db,{status:"matched"}).rows[0]).toMatchObject({id:bank1,journalEntryId:Number(replacement.entryId)});
+      expect(applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:planned.plan.planHash,reason:"reviewed",actor:"agent:test",principal:"agent:test",idempotencyKey:"synthetic-correction",confirm:true})).toMatchObject({ok:true,idempotent:true});
+      expect(verifyAuditChain(db,{companyRoot:root}).ok).toBe(true);
+    } finally { db.close(); rmSync(root,{recursive:true,force:true}); }
   });
 });

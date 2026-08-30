@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncUnmatchedBankTransactionExceptions } from "../../core/exceptions";
 import { addBankAccount, importBankCsv, updateBankAccount } from "../../core/bank";
+import { applyBankReconciliationCorrection } from "../../core/bank-journal-reconciliation";
 import type { ServerConfig } from "../config";
 import { withCompanyMutation } from "../mutations";
 import { removePathWithRetry } from "../../core/fs-cleanup";
@@ -14,6 +15,17 @@ import {
   optionalBodyString,
   requireBodyString,
 } from "./_shared";
+import { ApiError } from "../errors";
+
+function correctionPrincipal(principal:{via:string;userId?:string;serviceAccountId?:string}) { if(principal.via==="service-principal"&&principal.serviceAccountId)return `service-account:${principal.serviceAccountId}`; return principal.userId ? `user:${principal.userId}` : "local-trusted:server"; }
+
+export async function handleBankReconciliationCorrectionApply(config:ServerConfig,request:Request,slug:string):Promise<Response>{
+  const result=await withCompanyMutation(request,config,slug,({db,actor,principal},body)=>{
+    const int=(key:string)=>{const value=body[key];if(!Number.isInteger(value)||Number(value)<=0)throw ApiError.badRequest(`${key} must be a positive integer`);return Number(value);};
+    const text=(key:string)=>typeof body[key]==="string"&&body[key].trim()?body[key].trim():"";
+    return applyBankReconciliationCorrection(db,{bankTransactionId:int("bankTransactionId"),replacementJournalEntryId:int("replacementJournalEntryId"),expectedReconciliationId:text("expectedReconciliationId"),planHash:text("planHash"),reason:text("reason"),idempotencyKey:text("idempotencyKey"),actor:actor.createdBy,principal:correctionPrincipal(principal),confirm:true});
+  },{requireConfirm:true,keyIdempotent:"bank_reconciliation_correction_apply"}); return okResponse({correction:result});
+}
 
 /**
  * POST /api/companies/:slug/bank/import — imports a bank-statement CSV.

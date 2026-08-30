@@ -298,6 +298,8 @@ Document-party resolution uses exactly one visible state per document: `resolved
 | `portfolio_overview` | `dashboard` (delvist) | `{ workspace, asOf? }` | Status side om side for hver virksomhed i workspace'et. Intet konsolideres. |
 | `cfo_analytics_query` | `report analytics` | `{ workspace, scope, from, to, companySlug?/companySlugs?/groupProfileId?, filters?, cursor?, limit? }` | Versioneret, læsende analyse med journal-/arkivkilder. Portfolio er tydeligt ikke-konsolideret; gruppe bruger kun godkendt konsolideringsprofil. |
 | `reconcile_bank` | `reconcile bank` | `{ company, from, to, status?, textMatch?, amount?, account? }` | Bygger bank-afstemningsrapport for periode. |
+| `bank_reconciliation_correction_plan` | `bank correction-plan` | `{ company, bankTransactionId, replacementJournalEntryId }` | Read-only, deterministisk plan med den aktuelle afstemningsidentitet og plan-hash. |
+| `bank_reconciliation_correction_apply` | `bank correction-apply` | `{ company, bankTransactionId, replacementJournalEntryId, expectedReconciliationId, planHash, reason, idempotencyKey, confirm }` | Supersederer atomisk kun den reviewede afstemning; journaler og historiske links ændres aldrig. |
 | `recurring_invoice_list` | `recurring-invoice list` | `{ company, includeInactive? }` | Lister gentagende fakturaskabeloner. |
 | `recurring_invoice_run_workspace` | `recurring-invoice run-workspace` | `{ workspace, asOfDate, confirm }` | Eksplicit scheduler-kørsel for aktive manifestvirksomheder. Ingen indbygget cron; arkiverede/uinitialiserede springes over og resultater er secret-frie. |
 | `retention_status` | `retention status` | `{ company, asOf? }` | Viser opbevaringsfrister og udløbet materiale. |

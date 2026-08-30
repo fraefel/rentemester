@@ -42,6 +42,12 @@ export const bankApi = {
       }`,
     ).then((r) => r.bank),
 
+  correctionPlan: (slug:string, bankTransactionId:number, replacementJournalEntryId:number) =>
+    request<{ok:true;plan:unknown}>(`/api/companies/${encodeURIComponent(slug)}/bank/reconciliation-correction-plan?bankTransactionId=${bankTransactionId}&replacementJournalEntryId=${replacementJournalEntryId}`).then(r=>r.plan),
+
+  applyCorrection: (slug:string, input:{bankTransactionId:number;replacementJournalEntryId:number;expectedReconciliationId:string;planHash:string;reason:string;idempotencyKey:string}) =>
+    request<{ok:true;correction:unknown}>(`/api/companies/${encodeURIComponent(slug)}/bank/reconciliation-correction`,{method:"POST",body:JSON.stringify({...input,confirm:true})}).then(r=>r.correction),
+
   /**
    * Imports a bank-statement CSV (#213, slice 2). The browser reads the file
    * and passes its text as `csvContent`; the server writes it to a temp file

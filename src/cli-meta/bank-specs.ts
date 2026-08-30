@@ -21,6 +21,8 @@ export const bankSpecs: CommandSpec[] = [
       "Import-idempotens, fingerprint-felter og overlap-reimport er dokumenteret kanonisk i docs/bank-import-idempotency.md.",
     ],
   },
+  { key: "bank correction-plan", usage: "bank correction-plan --company <path> --bank-transaction-id <n> --replacement-journal-entry-id <n>", description: "Bygger en read-only, hash-bundet plan til at rette én reverseret bankafstemning.", allowedFlags: ["--company", "--bank-transaction-id", "--replacement-journal-entry-id"] },
+  { key: "bank correction-apply", usage: "bank correction-apply --company <path> --bank-transaction-id <n> --replacement-journal-entry-id <n> --expected-reconciliation-id <id> --plan-hash <sha256> --reason <text> --confirm yes [--idempotency-key <key>]", description: "Supersederer atomisk præcis den reviewede bankafstemning med en gyldig erstatningsjournal.", allowedFlags: ["--company", "--bank-transaction-id", "--replacement-journal-entry-id", "--expected-reconciliation-id", "--plan-hash", "--reason", "--idempotency-key", "--confirm"] },
   { key: "bank list", usage: "bank list --company <path> [--status all|matched|unmatched] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--text-match <text>] [--amount <n>] [--account <id|slug>]", description: "Lister importerede banktransaktioner med filtre for afstemningsstatus.", allowedFlags: ["--company", "--status", "--from", "--to", "--text-match", "--amount", "--account"] },
   { key: "bank suggest-matches", usage: "bank suggest-matches --company <path> [--bank-transaction-id <n>] [--max <n>]", description: "Foreslår deterministiske match mellem uafstemte banktransaktioner og fakturaer/bilag.", allowedFlags: ["--company", "--bank-transaction-id", "--max"] },
   {

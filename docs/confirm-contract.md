@@ -46,6 +46,7 @@ Hver række er én logisk mutation. **Kræves** betyder afvisning uden samtykke.
 | Send faktura på e-mail | `invoice_send_email` / `POST /invoices/send` / `invoice send` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Send rykker | `invoice_remind` / `POST /invoices/send-reminder` / `invoice remind` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Importer bank-CSV | `bank_import` / `POST /bank/import` / `bank import` | `confirm: true` | `confirm: true` | Ikke krævet |
+| Ret bankafstemning | `bank_reconciliation_correction_apply` / `POST /bank/reconciliation-correction` / `bank correction-apply` | `confirm: true` | `confirm: true` | `--confirm yes` |
 | Ingester bilag | `documents_ingest` / `POST /documents/ingest` / `documents ingest` | `confirm: true` | `confirm: true` | Ikke krævet |
 | Bogfør finanspostering | `journal_post` / *(N/A)* / `journal post` | `confirm: true` | N/A | Ikke krævet |
 | Modpost finanspostering | `journal_reverse` / *(N/A)* / `journal reverse` | `confirm: true` | N/A | Ikke krævet |

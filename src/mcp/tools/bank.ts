@@ -29,10 +29,23 @@ import { envelopeShape, successEnvelope, wrapCoreResult } from "../envelope";
 import { removePathWithRetry } from "../../core/fs-cleanup";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 import { applyPagination, paginationFields, paginationDescriptionSuffix } from "../pagination";
+import { planBankReconciliationCorrection, applyBankReconciliationCorrection } from "../../core/bank-journal-reconciliation";
 
 const statusSchema = z.enum(["all", "matched", "unmatched"]).optional();
 
 export function registerBankTools(server: McpServer): void {
+  server.registerTool("bank_reconciliation_correction_plan", {
+    title: "Plan bank reconciliation correction",
+    description: "Read-only deterministic plan for replacing one reversed bank reconciliation. The returned planHash binds the current reconciliation identity, bank account and amount, and replacement journal.",
+    inputSchema: { company:z.string().min(1), bankTransactionId:z.number().int().positive(), replacementJournalEntryId:z.number().int().positive() }, outputSchema:envelopeShape,
+    annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+  }, withCompanyDb<any>(server, ({db,args}) => wrapCoreResult(planBankReconciliationCorrection(db,args))));
+  server.registerTool("bank_reconciliation_correction_apply", {
+    title:"Apply reviewed bank reconciliation correction",
+    description:"Atomically supersedes exactly the reviewed reconciliation with an eligible replacement journal. Requires confirm:true, actor attribution and a stable idempotency key; retrying the same key replays the durable result.",
+    inputSchema:{company:z.string().min(1),bankTransactionId:z.number().int().positive(),replacementJournalEntryId:z.number().int().positive(),expectedReconciliationId:z.string().min(1),planHash:z.string().regex(/^[a-f0-9]{64}$/),reason:z.string().min(1).max(1000),idempotencyKey:z.string().min(1).max(200),confirm:confirmField},outputSchema:envelopeShape,
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+  }, withCompanyDbConfirmed<any>(server,"bank_reconciliation_correction_apply",({db,actor,args})=>wrapCoreResult(applyBankReconciliationCorrection(db,{...args,actor:actor.createdBy,principal:actor.createdBy,confirm:true}))));
   server.registerTool(
     "bank_account_update",
     {

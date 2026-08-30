@@ -40,6 +40,7 @@ import {
 import {
   handleCompanyBank,
   handleCompanyBankAccounts,
+  handleBankReconciliationCorrectionPlan,
 } from "./router/bank";
 import { handleBookkeepingBatchApply, handleBookkeepingBatchApprove, handleBookkeepingBatchDryRun, handleBookkeepingBatchPersistDryRun, handleBookkeepingBatchStatus } from "./router/bookkeeping-batch";
 import { handleBookkeepingWorkbench } from "./router/bookkeeping-workbench";
@@ -144,6 +145,7 @@ import {
   handleAssetRegister,
   handleAssetWriteOff,
   handleBankImport,
+  handleBankReconciliationCorrectionApply,
   handleClosePeriod,
   handleCompanyProfile,
   handleCreateAccountingDraft,
@@ -349,6 +351,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/integrity", summary: "Audit chain + backup status panel (#333)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accounts", summary: "Kontoplan — read-only liste (#344)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bank", summary: "Bank-transaktioner." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bank/reconciliation-correction-plan", summary: "Read-only plan for bankafstemningskorrektion." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/vat", summary: "Momsoplysninger." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents", summary: "Bilagsliste." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/file", summary: "Henter et bilag." },
@@ -422,6 +425,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accruals", summary: "Periodiseringsregister (#337)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/annual-report", summary: "Årsrapport-builder (regnskabsklasse-B) (#338)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bank/import", summary: "Importerer bank-CSV." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bank/reconciliation-correction", summary: "Anvender reviewet bankafstemningskorrektion." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/import", summary: "Generel data-import." },
   { scope: "company", effect: "write", permission: "company.export", method: "POST", pattern: "/api/companies/:slug/accountant-export", summary: "Revisor-eksport (.tar)." },
   { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/ingest", summary: "Modtager et bilag." },
@@ -1488,6 +1492,10 @@ export async function handleRequest(
       const slug = decodeURIComponent(bankImportMatch[1]!);
       return await handleBankImport(config, request, slug);
     }
+    const bankCorrectionPlanMatch=/^\/api\/companies\/([^/]+)\/bank\/reconciliation-correction-plan$/.exec(path);
+    if(bankCorrectionPlanMatch){if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");return handleBankReconciliationCorrectionPlan(config,decodeURIComponent(bankCorrectionPlanMatch[1]!),url);}
+    const bankCorrectionMatch=/^\/api\/companies\/([^/]+)\/bank\/reconciliation-correction$/.exec(path);
+    if(bankCorrectionMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleBankReconciliationCorrectionApply(config,request,decodeURIComponent(bankCorrectionMatch[1]!));}
 
     // Cockpit write route: the generic file-import. Recognises which system
     // an export file came from and routes it to the matching core importer.

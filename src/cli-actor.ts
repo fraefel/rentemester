@@ -88,6 +88,7 @@ export const MUTATING_COMMANDS = new Set([
   "documents parse-pending",
   "bank import",
   "bank link-journal",
+  "bank correction-apply",
   // ===== BANK CLUSTER (#187) =====
   "bank-account add",
   "bank-account update",

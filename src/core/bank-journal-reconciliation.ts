@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { insertAuditLog, resolveActor, type ResolveActorInput } from "./actor";
 import { resolveOpenExceptionsForBankTransaction } from "./exceptions";
 import { roundDkk } from "./money";
+import { createHash } from "node:crypto";
 
 export const BANK_JOURNAL_RECONCILIATION_RULE = "DK-BOOKKEEPING-RECONCILIATION-001";
 
@@ -22,9 +23,9 @@ export type LinkBankTransactionToJournalInput = ResolveActorInput & {
 export function findBankJournalReconciliation(
   db: Database,
   bankTransactionId: number,
-): { bankTransactionId: number; journalEntryId: number; journalEntryNo: string; linkKind: string } | null {
+): { bankTransactionId: number; journalEntryId: number; journalEntryNo: string; linkKind: string; reconciliationId?: string } | null {
   const row = db.query(
-    `SELECT bank_transaction_id, journal_entry_id, journal_entry_no, link_kind
+    `SELECT bank_transaction_id, journal_entry_id, journal_entry_no, link_kind, reconciliation_id
        FROM bank_journal_reconciliations
       WHERE bank_transaction_id = ?
       LIMIT 1`,
@@ -32,14 +33,83 @@ export function findBankJournalReconciliation(
     bank_transaction_id: number;
     journal_entry_id: number;
     journal_entry_no: string;
-    link_kind: string;
+    link_kind: string; reconciliation_id?: string;
   } | null;
   return row ? {
     bankTransactionId: Number(row.bank_transaction_id),
     journalEntryId: Number(row.journal_entry_id),
     journalEntryNo: row.journal_entry_no,
     linkKind: row.link_kind,
+    reconciliationId: row.reconciliation_id,
   } : null;
+}
+
+const canonical = (value: unknown): string => value === null || typeof value !== "object"
+  ? JSON.stringify(value)
+  : Array.isArray(value) ? `[${value.map(canonical).join(",")}]`
+  : `{${Object.keys(value as object).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`;
+const planHash = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
+const validText = (value: unknown, max = 1000) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max ? value.trim() : null;
+
+export type BankReconciliationCorrectionPlanInput = { bankTransactionId: number; replacementJournalEntryId: number };
+export type ApplyBankReconciliationCorrectionInput = BankReconciliationCorrectionPlanInput & {
+  expectedReconciliationId: string; planHash: string; reason: string; actor?: string; principal?: string; idempotencyKey?: string; confirm: boolean;
+};
+
+type CorrectionContext = {
+  reconciliationId: string; bankTransactionId: number; currentJournalEntryId: number; currentJournalEntryNo: string;
+  replacementJournalEntryId: number; replacementJournalEntryNo: string; replacementJournalHash: string;
+  bankAccountNo: string; bankAmountDkk: number; replacementBankMovement: number;
+};
+
+function correctionContext(db: Database, input: BankReconciliationCorrectionPlanInput): CorrectionContext | { error: string } {
+  if (!Number.isInteger(input.bankTransactionId) || input.bankTransactionId <= 0 || !Number.isInteger(input.replacementJournalEntryId) || input.replacementJournalEntryId <= 0) return { error: "BANK_TRANSACTION_AND_REPLACEMENT_JOURNAL_REQUIRED" };
+  // Include a reversed legacy source here: it is precisely the evidence a correction
+  // replaces. The public effective view only exposes active replacement journals.
+  const current = db.query(`SELECT reconciliation_id, journal_entry_id, journal_entry_no FROM (
+      SELECT 'direct:' || je.id AS reconciliation_id, je.id AS journal_entry_id, je.entry_no AS journal_entry_no FROM journal_entries je WHERE je.source_bank_transaction_id=? AND je.reversal_of_entry_id IS NULL
+      UNION ALL SELECT 'append-only:' || link.id, link.journal_entry_id, je.entry_no FROM bank_journal_reconciliation_links link JOIN journal_entries je ON je.id=link.journal_entry_id WHERE link.bank_transaction_id=?
+      UNION ALL SELECT 'correction:' || event.id, event.replacement_journal_entry_id, je.entry_no FROM bank_reconciliation_correction_events event JOIN journal_entries je ON je.id=event.replacement_journal_entry_id WHERE event.bank_transaction_id=?
+    ) candidate WHERE NOT EXISTS (SELECT 1 FROM bank_reconciliation_correction_events event WHERE event.supersedes_reconciliation_id=candidate.reconciliation_id) ORDER BY reconciliation_id LIMIT 2`).all(input.bankTransactionId, input.bankTransactionId, input.bankTransactionId) as Array<{reconciliation_id:string;journal_entry_id:number;journal_entry_no:string}>;
+  if (current.length !== 1) return { error: current.length ? "CONFLICTING_CURRENT_RECONCILIATIONS" : "CURRENT_RECONCILIATION_NOT_FOUND" };
+  const bank = db.query(`SELECT bt.amount,bt.amount_dkk,bt.currency,ba.ledger_account_no FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id WHERE bt.id=?`).get(input.bankTransactionId) as any;
+  if (!bank?.ledger_account_no) return { error: "BANK_ACCOUNT_MAPPING_REQUIRED" };
+  const old = db.query(`SELECT je.status,je.reversal_of_entry_id,EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=je.id) AS has_reversal FROM journal_entries je WHERE je.id=?`).get(current[0]!.journal_entry_id) as any;
+  if (!old || (old.status === "posted" && old.reversal_of_entry_id == null && !Number(old.has_reversal))) return { error: "ACTIVE_OLD_JOURNAL_MUST_BE_REVERSED" };
+  const replacement = db.query(`SELECT je.id,je.entry_no,je.entry_hash,je.status,je.reversal_of_entry_id,je.source_bank_transaction_id,EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=je.id) AS has_reversal,COALESCE(SUM(CASE WHEN a.account_no=? THEN jl.debit_amount-jl.credit_amount ELSE 0 END),0) AS bank_movement FROM journal_entries je LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id LEFT JOIN accounts a ON a.id=jl.account_id WHERE je.id=? GROUP BY je.id`).get(bank.ledger_account_no,input.replacementJournalEntryId) as any;
+  if (!replacement) return { error: "REPLACEMENT_JOURNAL_NOT_FOUND" };
+  if (replacement.status !== "posted" || replacement.reversal_of_entry_id != null || Number(replacement.has_reversal) || replacement.source_bank_transaction_id != null) return { error: "INVALID_REPLACEMENT_JOURNAL" };
+  const alreadyUsed = db.query("SELECT 1 FROM bank_journal_reconciliations WHERE journal_entry_id=? LIMIT 1").get(input.replacementJournalEntryId);
+  if (alreadyUsed) return { error: "REPLACEMENT_JOURNAL_ALREADY_RECONCILED" };
+  const amount = String(bank.currency).trim().toUpperCase() === "DKK" ? Number(bank.amount) : Number(bank.amount_dkk);
+  if (!Number.isFinite(amount)) return { error: "BANK_AMOUNT_DKK_REQUIRED" };
+  if (roundDkk(Number(replacement.bank_movement)) !== roundDkk(amount)) return { error: "REPLACEMENT_BANK_AMOUNT_OR_ACCOUNT_MISMATCH" };
+  return { reconciliationId:current[0]!.reconciliation_id, bankTransactionId:input.bankTransactionId,currentJournalEntryId:Number(current[0]!.journal_entry_id),currentJournalEntryNo:current[0]!.journal_entry_no,replacementJournalEntryId:Number(replacement.id),replacementJournalEntryNo:replacement.entry_no,replacementJournalHash:replacement.entry_hash,bankAccountNo:bank.ledger_account_no,bankAmountDkk:roundDkk(amount),replacementBankMovement:roundDkk(Number(replacement.bank_movement)) };
+}
+
+/** Read-only, hash-bound correction proposal. It never changes either journal. */
+export function planBankReconciliationCorrection(db: Database, input: BankReconciliationCorrectionPlanInput) {
+  const context = correctionContext(db, input); if ("error" in context) return { ok:false as const, errors:[context.error] };
+  const plan = { schemaVersion:"rentemester-bank-reconciliation-correction-v1", ...context };
+  return { ok:true as const, plan:{ ...plan, planHash:planHash(plan) }, errors:[] as string[] };
+}
+
+/** Atomically supersedes exactly one reviewed reconciliation with a replacement journal. */
+export function applyBankReconciliationCorrection(db: Database, input: ApplyBankReconciliationCorrectionInput) {
+  if (!input.confirm) return { ok:false as const, errors:["CONFIRMATION_REQUIRED"] };
+  const actor = validText(input.actor,160), principal=validText(input.principal,160), reason=validText(input.reason,1000), key=input.idempotencyKey === undefined ? null : validText(input.idempotencyKey,200);
+  if (!actor || !principal) return { ok:false as const, errors:["ACTOR_AND_PRINCIPAL_REQUIRED"] };
+  if (!reason) return { ok:false as const, errors:["REASON_REQUIRED"] };
+  if (input.idempotencyKey !== undefined && !key) return { ok:false as const, errors:["INVALID_IDEMPOTENCY_KEY"] };
+  return db.transaction(() => {
+    if (key) { const prior=db.query("SELECT id,plan_hash,principal FROM bank_reconciliation_correction_events WHERE idempotency_key=?").get(key) as any; if (prior) return prior.plan_hash===input.planHash && prior.principal===principal ? {ok:true as const,id:Number(prior.id),idempotent:true,planHash:input.planHash,errors:[] as string[]} : {ok:false as const,errors:["IDEMPOTENCY_CONFLICT"]}; }
+    const planned=planBankReconciliationCorrection(db,input); if(!planned.ok)return planned;
+    if(planned.plan.reconciliationId!==input.expectedReconciliationId)return {ok:false as const,errors:["CURRENT_RECONCILIATION_CONFLICT"]};
+    if(planned.plan.planHash!==input.planHash)return {ok:false as const,errors:["PLAN_HASH_MISMATCH"]};
+    const inserted=db.query(`INSERT INTO bank_reconciliation_correction_events(bank_transaction_id,supersedes_reconciliation_id,superseded_journal_entry_id,replacement_journal_entry_id,bank_account_no,bank_amount_dkk,replacement_journal_hash,plan_hash,idempotency_key,reason,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`).get(planned.plan.bankTransactionId,planned.plan.reconciliationId,planned.plan.currentJournalEntryId,planned.plan.replacementJournalEntryId,planned.plan.bankAccountNo,planned.plan.bankAmountDkk,planned.plan.replacementJournalHash,input.planHash,key,reason,actor,principal,new Date().toISOString()) as any;
+    insertAuditLog(db,{eventType:"bank_reconciliation_corrected",entityType:"bank_transaction",entityId:String(input.bankTransactionId),message:`Superseded reconciliation ${planned.plan.reconciliationId} with journal ${planned.plan.replacementJournalEntryNo}`,createdBy:actor,createdByProgram:"bank-reconciliation-correction"});
+    return {ok:true as const,id:Number(inserted.id),idempotent:false,planHash:input.planHash,reconciliationId:`correction:${inserted.id}`,errors:[] as string[]};
+  }).immediate();
 }
 
 /**

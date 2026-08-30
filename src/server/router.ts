@@ -78,7 +78,7 @@ import {
   handleCompanyDocuments,
   handleCompanyDocumentVatPreflight,
 } from "./router/documents";
-import { handleGroupConsolidatedReport, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
+import { handleGroupConsolidatedReport, handleGroupDispositionAction, handleGroupDispositionStatus, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
 import {
   handleCompanyInvoicePdf,
   handleCompanyInvoices,
@@ -277,6 +277,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-eliminations", summary: "Anvendte, append-only balanceelimineringer uden selskabsledger-skrivning." },
   { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-consolidated-report", summary: "Godkendt, read-only konsolideret resultat og balance med kildeevidens." },
   { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-report-profiles", summary: "Lister kun aktive, godkendte og fuldt synlige konsolideringsprofiler." },
+  { scope: "workspace", effect: "read", permission: "workspace.group.read", method: "GET", pattern: "/api/group-dispositions/:id", summary: "Read-only status for two-sided intercompany evidence with redacted endpoint boundary." },
+  { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/companies/:slug/group-dispositions/:action", summary: "Confirmed intercompany disposition lifecycle; core additionally requires live narrow access to both legal entities." },
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/companies", summary: "Lister virksomheder i workspacet." },
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/companies", summary: "Opretter virksomhed i workspacet." },
   { scope: "company", effect: "write", permission: "company.admin", method: "PATCH", pattern: "/api/companies/:slug", summary: "Omdøber/arkiverer en virksomhed." },
@@ -814,6 +816,11 @@ export async function handleRequest(
       if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
       return handleGroupReportProfiles(config, asOfValues[0]!);
     }
+
+    const dispositionStatus=/^\/api\/group-dispositions\/([^/]+)$/.exec(path);
+    if(dispositionStatus){if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");return handleGroupDispositionStatus(config,decodeURIComponent(dispositionStatus[1]!),url.searchParams.get("asOf")??undefined);}
+    const dispositionAction=/^\/api\/companies\/([^/]+)\/group-dispositions\/(plan|propose|approve|link|settle|supersede|reopen)$/.exec(path);
+    if(dispositionAction){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleGroupDispositionAction(config,decodeURIComponent(dispositionAction[1]!),request,dispositionAction[2]! as any);}
 
     if (path === "/api/rules") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");

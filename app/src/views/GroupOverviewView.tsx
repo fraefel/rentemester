@@ -12,6 +12,9 @@ export function GroupOverviewView() {
   const [asOf, setAsOf] = useState(currentIsoDate);
   const [from, setFrom] = useState(() => `${currentIsoDate().slice(0, 4)}-01-01`);
   const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [dispositionId, setDispositionId] = useState("");
+  const [dispositionStatus, setDispositionStatus] = useState<any>(null);
+  const [dispositionError, setDispositionError] = useState("");
   const state = useAsync(() => api.groupOverview(asOf), [asOf]);
   const reconciliationState = useAsync(() => api.groupReconciliation(asOf), [asOf]);
   const eliminationState = useAsync(() => api.groupEliminations(asOf), [asOf]);
@@ -69,6 +72,16 @@ export function GroupOverviewView() {
       <h3>Elimineringer</h3>
       <p className="muted">Kun anvendte, append-only balanceelimineringer afledt af eksakt afstemte mellemregninger. Selskabernes hovedbøger ændres ikke.</p>
       {eliminations.rows.length === 0 ? <p className="muted">Ingen anvendte eliminationer på den valgte dato.</p> : <ul>{eliminations.rows.map((row, index) => <li key={row.eliminationId ?? `blocked-${index}`}>{row.status === "blocked" || !row.payload ? <><strong>Ikke synlig</strong> · {row.blockers.join(" · ")}</> : <><strong>{row.eliminationId}</strong> · {Number(BigInt(row.payload.amountOre)) / 100} {row.payload.currency} · {row.payload.left.companySlug} ↔ {row.payload.right.companySlug}</>}</li>)}</ul>}
+    </section>
+    <section className="group-dispositions" aria-label="Intercompany dispositioner">
+      <h3>Intercompany dispositioner</h3>
+      <p className="muted">To juridiske ledgers forbliver adskilte. Denne lifecycle viser og binder kun dokumenteret evidence; den bogfører og eliminerer aldrig selv.</p>
+      <form onSubmit={(event) => { event.preventDefault(); setDispositionError(""); if (!dispositionId.trim()) return; api.intercompanyDispositionStatus(dispositionId.trim(), asOf).then(setDispositionStatus).catch(() => setDispositionError("Dispositionen kan ikke vises med din aktuelle adgang.")); }}>
+        <label>Disposition-ID<input aria-label="Disposition-ID" value={dispositionId} onChange={(event) => setDispositionId(event.target.value)} required /></label><button type="submit">Vis status</button>
+      </form>
+      {dispositionError && <p className="error" role="alert">{dispositionError}</p>}
+      {dispositionStatus && <div className="banner warning" role="status"><strong>{dispositionStatus.status}</strong>{Array.isArray(dispositionStatus.exceptions) && dispositionStatus.exceptions.length > 0 && <ul>{dispositionStatus.exceptions.map((exception:any,index:number)=><li key={index}>{exception.kind}</li>)}</ul>}</div>}
+      <p className="muted">Plan, forslag, godkendelse, link, settlement, supersession og reopen bruger den samme confirmed API/MCP-lifecycle med adgang til begge selskaber.</p>
     </section>
     <section className="group-report" aria-label="Konsolideret rapport">
       <h3>Konsolideret rapport</h3>

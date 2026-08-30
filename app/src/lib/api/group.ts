@@ -38,4 +38,8 @@ export const groupApi = {
       }
       return value;
     }),
+  intercompanyDispositionStatus: (id: string, asOf?: string) =>
+    request<any>(`/api/group-dispositions/${encodeURIComponent(id)}${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`),
+  intercompanyDispositionAction: (company: string, action: "plan"|"propose"|"approve"|"link"|"settle"|"supersede"|"reopen", payload: Record<string, unknown>) =>
+    request<any>(`/api/companies/${encodeURIComponent(company)}/group-dispositions/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }),
 };

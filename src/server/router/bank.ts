@@ -36,5 +36,10 @@ export function handleCompanyBankAccounts(
 export function handleBankReconciliationCorrectionPlan(config: ServerConfig, slug: string, url: URL): Response {
   const bankTransactionId=Number(url.searchParams.get("bankTransactionId")), replacementJournalEntryId=Number(url.searchParams.get("replacementJournalEntryId"));
   if(!Number.isInteger(bankTransactionId)||bankTransactionId<=0||!Number.isInteger(replacementJournalEntryId)||replacementJournalEntryId<=0) throw ApiError.badRequest("bankTransactionId and replacementJournalEntryId must be positive integers");
-  const db=openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot,slug)).db); try { if(inspectOpenLedger(db).status!=="current") throw ApiError.conflict("ledger migration required before planning a bank reconciliation correction"); return okResponse({plan:planBankReconciliationCorrection(db,{bankTransactionId,replacementJournalEntryId})}); } finally { db.close(); }
+  const db=openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot,slug)).db); try {
+    if(inspectOpenLedger(db).status!=="current") throw ApiError.conflict("ledger migration required before planning a bank reconciliation correction");
+    const result=planBankReconciliationCorrection(db,{bankTransactionId,replacementJournalEntryId});
+    if(!result.ok) throw ApiError.conflict(result.errors[0] ?? "bank reconciliation correction plan was rejected");
+    return okResponse({plan:result});
+  } finally { db.close(); }
 }

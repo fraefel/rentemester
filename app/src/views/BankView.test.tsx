@@ -139,6 +139,48 @@ describe("BankView — Bank", () => {
     expect(screen.getAllByText(/Gebyr/).length).toBeGreaterThan(0);
   });
 
+  test("a matched row exposes the reviewed bank-correction flow", async () => {
+    mockFetch({
+      ...route(),
+      "GET /api/companies/acme-aps/bank/reconciliation-correction-plan": {
+        plan: {
+          ok: true,
+          plan: {
+            reconciliationId: "direct:17",
+            planHash: "a".repeat(64),
+            currentJournalEntryNo: "B-2026-0001",
+            replacementJournalEntryNo: "B-2026-0002",
+            bankAccountNo: "55000",
+            bankAmountDkk: 22286.28,
+          },
+        },
+      },
+      "POST /api/companies/acme-aps/bank/reconciliation-correction": {
+        correction: { ok: true, reconciliationId: "correction:1" },
+      },
+    });
+    renderView();
+    await userEvent.click(await screen.findByRole("button", { name: "Ret" }));
+    expect(screen.getByRole("dialog", { name: "Ret afstemt bankpost" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Erstatningsjournal-id"), "18");
+    await userEvent.click(screen.getByRole("button", { name: "Kontrollér plan" }));
+    expect(await screen.findByText(/direct:17/)).toBeInTheDocument();
+    expect(screen.getByText(/B-2026-0002/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Begrundelse"), "Gennemgået korrektion");
+    await userEvent.type(screen.getByLabelText("Idempotensnøgle"), "bank-correction-1");
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: "Anvend korrektion" }));
+    expect(await screen.findByText("Indbetaling faktura 1001")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Ret afstemt bankpost" })).not.toBeInTheDocument();
+  });
+
+  test("an archived year exposes no correction action", async () => {
+    mockFetch(route({ archived: true, selectedYear: "2025" }));
+    renderView();
+    await screen.findByText(/2025 er et arkiveret regnskabsår/);
+    expect(screen.queryByRole("button", { name: "Ret" })).not.toBeInTheDocument();
+  });
+
   test("an archived year shows no Bogfør action — there is no live ledger to post into", async () => {
     mockFetch(route({ archived: true, selectedYear: "2025" }));
     renderView();

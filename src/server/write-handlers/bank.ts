@@ -25,7 +25,9 @@ export async function handleBankReconciliationCorrectionApply(config:ServerConfi
     const int=(key:string)=>{const value=body[key];if(!Number.isInteger(value)||Number(value)<=0)throw ApiError.badRequest(`${key} must be a positive integer`);return Number(value);};
     const text=(key:string)=>typeof body[key]==="string"&&body[key].trim()?body[key].trim():"";
     return applyBankReconciliationCorrection(db,{bankTransactionId:int("bankTransactionId"),replacementJournalEntryId:int("replacementJournalEntryId"),expectedReconciliationId:text("expectedReconciliationId"),planHash:text("planHash"),reason:text("reason"),actor:actor.createdBy,principal:correctionPrincipal(principal),confirm:true});
-  },{requireConfirm:true,keyIdempotent:"bank_reconciliation_correction_apply",requireIdempotencyKey:true,idempotencyPayload:(body)=>({bankTransactionId:body.bankTransactionId,replacementJournalEntryId:body.replacementJournalEntryId,expectedReconciliationId:body.expectedReconciliationId,planHash:body.planHash,reason:body.reason})}); return okResponse({correction:result});
+  },{requireConfirm:true,keyIdempotent:"bank_reconciliation_correction_apply",requireIdempotencyKey:true,idempotencyPayload:(body)=>({bankTransactionId:body.bankTransactionId,replacementJournalEntryId:body.replacementJournalEntryId,expectedReconciliationId:body.expectedReconciliationId,planHash:body.planHash,reason:body.reason})});
+  if(!result.ok) throw ApiError.conflict(result.errors[0] ?? "bank reconciliation correction was rejected");
+  return okResponse({correction:result});
 }
 
 /**

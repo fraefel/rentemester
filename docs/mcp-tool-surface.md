@@ -104,7 +104,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 179 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 180 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -229,7 +229,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 73
 - **Ordinary write-tools**: 105
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **179** (73 read, 105 ordinary write, 1 destructive)
+- **Total**: **180** (74 read, 105 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -537,6 +537,9 @@ konkret diff, der vedligeholdes pr. fil.
 - `src/mcp/tools/agent-discovery.ts` — `agent_capability_search` og
   `agent_workflow_describe` er read-only runtime-discovery for den versionerede
   outcome-katalog; de har ingen CLI-pendant.
+- `src/mcp/tools/bookkeeping-workbench.ts` — `bookkeeping_workbench` er den
+  read-only, kanoniske bankarbejdskø. Den opretter aldrig en task eller batch;
+  den peger videre til den eksisterende hash-bundne batch-kontrakt.
 
 MCP-tools, der ikke findes på CLI'en (`src/mcp/tools/<filename>.ts` ⇒ intet
 modsvar i `src/cli/`). En agent, der CLI-fortrinsstiller, vil aldrig opdage

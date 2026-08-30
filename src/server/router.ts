@@ -42,6 +42,7 @@ import {
   handleCompanyBankAccounts,
 } from "./router/bank";
 import { handleBookkeepingBatchApply, handleBookkeepingBatchApprove, handleBookkeepingBatchDryRun, handleBookkeepingBatchPersistDryRun, handleBookkeepingBatchStatus } from "./router/bookkeeping-batch";
+import { handleBookkeepingWorkbench } from "./router/bookkeeping-workbench";
 import {
   handleCompanyAccounts,
   handleCompanyAccruals,
@@ -356,6 +357,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/party-links", summary: "Append-only partskoblingshistorik (#588)." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "POST", pattern: "/api/companies/:slug/documents/party-links/plan", summary: "Read-only partskoblingsplan (#588)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bookkeeping-batch", summary: "Read-only batchplan med plan-hash og partitioner." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bookkeeping-workbench", summary: "Kanonisk, read-only bankarbejdskø med batch- og periodeluk-drilldown." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/persist", summary: "Persisterer en reviewbar batchrevision." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/dry-run", summary: "Kompatibilitetsalias for persist." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/approve", summary: "Godkender eksakt batch-hash." },
@@ -892,6 +894,8 @@ export async function handleRequest(
     if (bookkeepingBatchStatusMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingBatchStatus(config, decodeURIComponent(bookkeepingBatchStatusMatch[1]!), Number(bookkeepingBatchStatusMatch[2])); }
     const bookkeepingBatchMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-batch$/.exec(path);
     if (bookkeepingBatchMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingBatchDryRun(config, decodeURIComponent(bookkeepingBatchMatch[1]!), url); }
+    const bookkeepingWorkbenchMatch = /^\/api\/companies\/([^/]+)\/bookkeeping-workbench$/.exec(path);
+    if (bookkeepingWorkbenchMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingWorkbench(config, decodeURIComponent(bookkeepingWorkbenchMatch[1]!), url); }
 
     const fiscalYearsMatch = /^\/api\/companies\/([^/]+)\/fiscal-years$/.exec(path);
     if (fiscalYearsMatch) {

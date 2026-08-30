@@ -25,7 +25,7 @@ export const COMPANY_ROUTE_DEFINITIONS = [
   { id: "journal", segment: "posteringer", label: "Posteringer", area: "bookkeeping" },
   { id: "drafts", segment: "kladder", label: "Kladder", area: "bookkeeping" },
   { id: "posting-rules", segment: "posteringsregler", label: "Posteringsregler", area: "bookkeeping" },
-  { id: "batch-bookkeeping", segment: "batchbogfoering", label: "Batchbogføring", area: "bookkeeping" },
+  { id: "batch-bookkeeping", segment: "batchbogfoering", label: "Bogføring", area: "bookkeeping" },
   { id: "bank", segment: "bank", label: "Bank", area: "bookkeeping" },
   { id: "vat", segment: "moms", label: "Moms", area: "vat-periods" },
   { id: "documents", segment: "bilag", label: "Bilag", area: "bookkeeping" },

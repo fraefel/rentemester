@@ -15,6 +15,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { setBudget, listBudget, buildBudgetVsActual } from "../../core/budget";
 import { buildLiquidityForecast, buildThirteenWeekLiquidityForecast } from "../../core/liquidity-forecast";
+import { reviewedIntercompanyLiquiditySupplements } from "../../core/intercompany-liquidity";
+import { resolveConfiguredWorkspaceRoot, listWorkspaceCompanies, companyRootForSlug } from "../../core/workspace";
+import { openWorkspaceControlReadOnlyDb } from "../../core/workspace-control";
+import { addDays, isValidIsoDate } from "../../core/dates";
 import { envelopeShape, wrapCoreResult } from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 
@@ -137,5 +141,5 @@ export function registerBudgetTools(server: McpServer): void {
     }),
   );
 
-  server.registerTool("liquidity_forecast_13_week", { title:"Source-linked 13-week liquidity forecast", description:"Read-only weekly cash forecast. Commitments are planning evidence, never payments; non-DKK amounts remain excluded until an explicit dated FX source is supplied.", inputSchema:{company:z.string().min(1),startDate:z.string().min(1),weeks:z.number().int().min(1).max(13).optional()},outputSchema:envelopeShape,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyDb<{company:string;startDate:string;weeks?:number}>(server,({db,args})=>wrapCoreResult(buildThirteenWeekLiquidityForecast(db,{startDate:args.startDate,weeks:args.weeks}))));
+  server.registerTool("liquidity_forecast_13_week", { title:"Source-linked 13-week liquidity forecast", description:"Read-only weekly cash forecast. Commitments and account budgets are assumptions, never payments; reviewed intercompany dispositions are company-scoped. Non-DKK amounts remain excluded until an explicit dated FX source is supplied.", inputSchema:{company:z.string().min(1),startDate:z.string().min(1),weeks:z.number().int().min(1).max(13).optional()},outputSchema:envelopeShape,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyDb<{company:string;startDate:string;weeks?:number}>(server,({db,args})=>{const workspace=resolveConfiguredWorkspaceRoot();const companyId=(db.query("SELECT id FROM companies ORDER BY id LIMIT 1").get() as {id:number}|null)?.id;if(!workspace||companyId==null||!isValidIsoDate(args.startDate))return wrapCoreResult(buildThirteenWeekLiquidityForecast(db,{startDate:args.startDate,weeks:args.weeks}));const entry=listWorkspaceCompanies(workspace).find(item=>item.slug===args.company||companyRootForSlug(workspace,item.slug)===args.company);if(!entry)return wrapCoreResult(buildThirteenWeekLiquidityForecast(db,{startDate:args.startDate,weeks:args.weeks}));const end=addDays(args.startDate,(args.weeks??13)*7-1);const control=openWorkspaceControlReadOnlyDb(workspace);try{return wrapCoreResult(buildThirteenWeekLiquidityForecast(db,{startDate:args.startDate,weeks:args.weeks,supplements:reviewedIntercompanyLiquiditySupplements(control,entry.slug,companyId,args.startDate,end)}));}finally{control.close();}}));
 }

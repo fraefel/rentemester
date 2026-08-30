@@ -267,7 +267,7 @@ export function VatView() {
             <table className="data statement-table">
               <tbody>
                 <tr>
-                  <td>Salgsmoms (udgående moms)</td>
+                  <td>Udgående moms før tab (kontrol)</td>
                   <td className="num">
                     {formatKroner(v.outputVat, currency)}
                   </td>
@@ -318,8 +318,8 @@ export function VatView() {
 
           <p className="statement-check ok">
             {payablePositive
-              ? "Salgsmoms minus købsmoms — beløbet skal afregnes til SKAT."
-              : "Købsmoms overstiger salgsmoms — beløbet udbetales fra SKAT."}
+              ? "Momstilsvaret nedenfor er det samlede beløb, der skal afregnes til SKAT."
+              : "Momstilsvaret nedenfor er det samlede beløb, der udbetales fra SKAT."}
           </p>
         </>
       )}

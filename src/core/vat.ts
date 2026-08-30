@@ -68,8 +68,8 @@ export type VatPeriodReport = {
    * A.B.3.3.1.5.
    */
   domesticReverseChargeSalesBase: number;
-  /** EU service reverse-charge purchase base only. This feeds rubrik A and the
-   * EU-goods limitation warning; non-EU services are kept separate below. */
+  /** EU service reverse-charge purchase base only. This feeds rubrik A;
+   * non-EU services are kept separate below. */
   reverseChargePurchaseBase: number;
   /** EU goods acquisitions (§11), kept separate from service purchases (§46). */
   euGoodsAcquisitionPurchaseBase: number;

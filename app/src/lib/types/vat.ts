@@ -56,10 +56,9 @@ export type CompanyVatRegistered = CompanyVatCommon & {
   periodStart: string;
   periodEnd: string;
   /**
-   * Genuine output VAT on sales (salgsmoms) for the period, kroner — gross,
-   * before any bad-debt relief. A bad-debt write-off books a debit on the
-   * output-VAT account; surfacing the relief separately keeps this headline
-   * from going negative (#271).
+   * Gross output-VAT control position for the period, kroner, before any
+   * bad-debt relief. Filing-only salgsmoms is exposed as `rubrikker.salgsmoms`;
+   * reverse-charge VAT remains in this control total.
    */
   outputVat: number;
   /** Bad-debt (debitortab) output-VAT adjustment, ≤ 0; 0 when none, kroner. */

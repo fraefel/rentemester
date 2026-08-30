@@ -192,32 +192,10 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
   // buildVatReport.outputVat already nets bad-debt relief out of output VAT.
   const salgsmoms = rubrikker.salgsmoms;
 
-  // Moms af varekøb i udlandet: there is no separate EU goods-acquisition VAT
-  // code in the ledger today (momsloven §11 erhvervelsesmoms is NOT modelled),
-  // so foreign-goods VAT is always 0. Kept as an explicit rubrik so the
-  // momsangivelse shape matches the SKAT form.
-  //
-  // LIMITATION / GUARD: the only EU-purchase mechanism Rentemester books is
-  // EU_SERVICE_REVERSE_CHARGE (ydelseskøb, momsloven §46). An EU *goods*
-  // purchase (varekøb, §11) belongs in "Moms af varekøb i udlandet" + rubrik A
-  // and is NOT supported. If such a purchase were booked as a service it would
-  // silently land in ydelseskøb instead of varekøb — wrong rubrik, even though
-  // the total momstilsvar would coincide. So whenever the period contains EU
-  // reverse-charge purchases, warn loudly that the user must confirm none of
-  // them are GOODS. This is a warning only; it never changes any amount and
-  // never breaks the momstilsvar == netVatPayable invariant.
+  // Moms af varekøb i udlandet: booked §11 EU-goods acquisition VAT. The
+  // shared projection removes this exact amount from salgsmoms, so it appears
+  // once and only once in the filing while momstilsvar remains the booked net.
   const momsAfVarekobUdland = rubrikker.momsAfVarekobUdland;
-
-  const euGoodsWarnings: string[] = [];
-  if (vatReport.reverseChargePurchaseBase > 0) {
-    euGoodsWarnings.push(
-      "EU-varekøb (momsloven §11, erhvervelsesmoms) understøttes ikke: perioden " +
-        "indeholder EU reverse-charge-køb, som alle bogføres som ydelseskøb " +
-        '("Moms af ydelseskøb i udlandet"). "Moms af varekøb i udlandet" er derfor 0. ' +
-        "Bekræft at INGEN af disse køb er varer — et varekøb bogført som ydelse " +
-        "havner i forkert rubrik og skal i stedet føres som varekøb i udlandet + rubrik A.",
-    );
-  }
 
   // Købsmoms: total deductible input VAT (domestic + reverse-charge +
   // representation), already aggregated by buildVatReport.
@@ -267,7 +245,7 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
       rubrikC,
     },
     vatReport,
-    warnings: [...vatReport.warnings, ...euGoodsWarnings],
+    warnings: [...vatReport.warnings],
     errors: [],
   };
 }

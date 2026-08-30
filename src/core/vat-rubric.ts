@@ -18,16 +18,24 @@ export function emptyVatRubric(): VatRubric {
 }
 
 /**
- * The single rubric mapping. In particular reverse-charge output VAT is
- * removed from salgsmoms and placed in ydelseskøb, while domestic reverse
- * charge belongs in C and foreign reverse charge in B.
+ * The single rubric mapping. The booked output-VAT control position includes
+ * reverse-charge VAT for both foreign services and EU-goods acquisitions;
+ * both are removed from salgsmoms before being placed in their dedicated
+ * rubrics. Domestic reverse charge belongs in C and foreign reverse charge in
+ * B.
  */
 export function projectVatRubric(report: VatPeriodReport): VatRubric {
   const momsAfVarekobUdland = report.euGoodsAcquisitionPurchaseBase > 0
     ? report.euGoodsAcquisitionOutputVat
     : 0;
-  const momsAfYdelseskobUdland = report.reverseChargePurchaseOutputVat - momsAfVarekobUdland;
-  const salgsmoms = subtractDkk(report.outputVat, momsAfYdelseskobUdland);
+  const momsAfYdelseskobUdland = subtractDkk(
+    report.reverseChargePurchaseOutputVat,
+    momsAfVarekobUdland,
+  );
+  const salgsmoms = subtractDkk(
+    report.outputVat,
+    addDkk(momsAfVarekobUdland, momsAfYdelseskobUdland),
+  );
   const kobsmoms = report.inputVat;
   return {
     salgsmoms,

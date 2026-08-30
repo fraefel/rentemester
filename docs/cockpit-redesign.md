@@ -148,8 +148,7 @@ rigtige tal før ledgeren er korrekt — derfor fixes importen først.
 - [x] Sub-navigation udvidet til 8 punkter; `?year=` bæres på tværs
 - [x] **Visuel inspektion** — Posteringer (10 entries, drill-down), Bank
       (saldo 41.388,03, 19 txn i 2026), Moms (3.371,20 at betale), Bilag
-      (5 stk., linket til posteringer); desktop + mobil. NB: Moms-viewet
-      lægger 64040 omvendt-betalingspligt-moms ind i salgsmoms — polish-punkt.
+      (5 stk., linket til posteringer); desktop + mobil.
 
 ### Iteration 4 — Multi-år (P2–P3)
 - [x] Backend: archive endpoints (#197-data 2023–25) + multi-year-endpoint —
@@ -192,8 +191,6 @@ informationsparitet med Dinero. Endelig verifikation på `feat/cockpit-redesign`
 regnskabsårs-vælger virker. Responsivt på desktop + mobil.
 
 Åbne polish-punkter (ikke-blokerende, noteret til opfølgning):
-- Moms-viewet lægger konto 64040 (omvendt-betalingspligt-moms) ind i salgsmoms;
-  beløb at betale 3.371,20 mod Dineros 3.371,00 — præcis rubrik-opdeling mangler.
 - Resultatopgørelsens "foregående år"-kolonne viser 0 for arkiverede år; kunne
   trække arkiv-data ind.
 

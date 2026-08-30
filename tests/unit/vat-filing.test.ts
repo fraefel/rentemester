@@ -276,7 +276,7 @@ describe("vat momsangivelse (filing)", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("warns that EU goods acquisitions (momsloven §11) are unsupported when the period has EU reverse-charge purchases", () => {
+  test("does not warn that EU goods acquisitions are unsupported", () => {
     const { root, inbox, db } = newCompany("rentemester-vatfiling-eugoods-");
     const docId = ingest(db, root, inbox, "INV-FIL-EUG", "DE123456789");
 
@@ -304,15 +304,9 @@ describe("vat momsangivelse (filing)", () => {
 
     const filing = buildVatFiling(db, "2026-03-01", "2026-03-31");
     expect(filing.ok).toBe(true);
-    // momsAfVarekobUdland is structurally 0 (no EU goods-acquisition code), so
-    // the filing must warn the user to confirm no EU GOODS purchase was booked
-    // as a service (which would understate erhvervelsesmoms, momsloven §11).
+    // A service-only period has no goods VAT and no stale goods limitation.
     expect(filing.rubrikker.momsAfVarekobUdland).toBe(0);
-    expect(
-      filing.warnings.some(
-        (w) => w.toLowerCase().includes("varekøb") || w.toLowerCase().includes("§11") || w.toLowerCase().includes("erhvervelsesmoms"),
-      ),
-    ).toBe(true);
+    expect(filing.warnings).toEqual([]);
     // Invariant unchanged: momstilsvar still equals the raw report net payable.
     expect(filing.rubrikker.momstilsvar).toBe(filing.vatReport.netVatPayable);
 
@@ -321,7 +315,7 @@ describe("vat momsangivelse (filing)", () => {
     rmSync(inbox, { recursive: true, force: true });
   });
 
-  test("does not emit the EU-goods warning when the period has no EU reverse-charge purchases", () => {
+  test("keeps a domestic-only filing free of EU-goods warnings", () => {
     const { root, inbox, db } = newCompany("rentemester-vatfiling-noeugoods-");
     const docId = ingest(db, root, inbox, "INV-FIL-NOEUG", "DK11223344");
     const sale = postJournalEntry(db, {

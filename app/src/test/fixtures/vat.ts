@@ -35,11 +35,11 @@ export function vat(over: Partial<CompanyVatRegistered> = {}): CompanyVatRegiste
     vatReportErrors: [],
     vatReportWarnings: [],
     rubrikker: {
-      salgsmoms: 4457,
+      salgsmoms: 4207,
       momsAfVarekobUdland: 0,
       momsAfYdelseskobUdland: 250,
       kobsmoms: 1086,
-      momstilsvar: 3621,
+      momstilsvar: 3371,
       rubrikA: 1000,
       rubrikB: 0,
       rubrikC: 0,

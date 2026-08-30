@@ -24,7 +24,8 @@ export type VatPosition = {
   periodStart: string;
   periodEnd: string;
   /**
-   * Output VAT (salgsmoms) for the period — the genuine VAT on sales, kroner.
+   * Gross output-VAT control position for the period, kroner, before
+   * bad-debt relief. The filing-only own-sale amount is `rubrikker.salgsmoms`.
    *
    * This is the *gross* figure: it does NOT have the bad-debt (debitortab)
    * output-VAT relief netted into it. A bad-debt write-off books a debit on
@@ -94,7 +95,7 @@ export function vatPositionForPeriod(
   const outputVatAdjustment = roundKroner(
     -percentOfDkk(report.badDebtReliefBase25, 25),
   );
-  // Genuine salgsmoms = booked output VAT with the relief added back in.
+  // Gross output-VAT control position with bad-debt relief added back in.
   const outputVat = roundKroner(bookedOutputVat - outputVatAdjustment);
 
   return {

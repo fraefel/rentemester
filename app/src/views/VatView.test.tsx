@@ -28,7 +28,7 @@ describe("VatView — Moms", () => {
       await screen.findByRole("heading", { name: "Acme ApS" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Salgsmoms (udgående moms)"),
+      screen.getByText("Udgående moms før tab (kontrol)"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("Købsmoms (indgående moms)"),
@@ -74,7 +74,7 @@ describe("VatView — Moms", () => {
     // The momstilsvar row carries the filing figure.
     const tilsvar = screen.getByText("Momstilsvar").closest("tr")!;
     expect(
-      within(tilsvar as HTMLElement).getByText(/3\.621,00/),
+      within(tilsvar as HTMLElement).getByText(/3\.371,00/),
     ).toBeInTheDocument();
   });
 
@@ -109,8 +109,8 @@ describe("VatView — Moms", () => {
 
   // #271: a bad-debt write-off books a debit on the output-VAT account. The
   // VAT card must surface that relief on its own clearly-labelled line —
-  // never let it drag the headline salgsmoms negative.
-  test("a bad-debt adjustment is its own line, salgsmoms stays positive", async () => {
+  // never let it drag the output-VAT control headline negative.
+  test("a bad-debt adjustment is its own line, output-VAT control stays positive", async () => {
     mockFetch(
       route({
         outputVat: 250,
@@ -120,14 +120,14 @@ describe("VatView — Moms", () => {
       }),
     );
     renderView();
-    // Salgsmoms keeps the genuine, positive VAT on sales.
+    // The gross output-VAT control remains positive before the relief.
     const salgsmomsRow = (
-      await screen.findByText("Salgsmoms (udgående moms)")
+      await screen.findByText("Udgående moms før tab (kontrol)")
     ).closest("tr")!;
     expect(
       within(salgsmomsRow as HTMLElement).getByText(/250,00/),
     ).toBeInTheDocument();
-    // It is NOT shown as a confusing negative salgsmoms.
+    // It is NOT shown as a confusing negative output-VAT control amount.
     expect(
       within(salgsmomsRow as HTMLElement).queryByText(/-250,00/),
     ).not.toBeInTheDocument();
@@ -143,7 +143,7 @@ describe("VatView — Moms", () => {
   test("no adjustment line is shown when there is no bad-debt write-off", async () => {
     mockFetch(route({ outputVatAdjustment: 0 }));
     renderView();
-    await screen.findByText("Salgsmoms (udgående moms)");
+    await screen.findByText("Udgående moms før tab (kontrol)");
     expect(
       screen.queryByText(/Regulering for tab på debitorer/),
     ).not.toBeInTheDocument();
@@ -396,9 +396,8 @@ describe("VatView — Moms", () => {
       value: { writeText },
     });
     renderView();
-    // The Salgsmoms row's Kopier-button copies the raw integer (52317 kr in
-    // the fixture closed-period vat() — momstilsvar is 3621, salgsmoms 5621
-    // — we read the actual fixture's salgsmoms below).
+    // The filing Salgsmoms row's Kopier-button copies the raw TastSelv amount;
+    // use the fixture's actual canonical projection below.
     const salgsmomsRow = (
       await screen.findByText(/^Salgsmoms$/)
     ).closest("tr")!;

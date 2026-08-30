@@ -12,7 +12,7 @@ afterEach(() => restoreGlobals());
 
 describe("WorkspaceRegistryView", () => {
   test("shows loading, then the empty registry", async () => {
-    mockFetch({ "GET /api/companies/synthetic-company/workspace-parties": { rows: [], count: 0, nextCursor: null }, "GET /api/companies/synthetic-company/corporate-records": { rows: [], count: 0, nextCursor: null } });
+    mockFetch({ "GET /api/companies/synthetic-company/workspace-parties": { rows: [], count: 0, nextCursor: null }, "GET /api/companies/synthetic-company/corporate-records": { rows: [], count: 0, nextCursor: null }, "GET /api/companies/synthetic-company/knowledge": { context:{assertions:[],conflicts:[]} } });
     renderAt(<WorkspaceRegistryView />, { route: "/virksomheder/synthetic-company/workspace-register", path: "/virksomheder/:slug/workspace-register" });
     expect(screen.getByText("Henter workspace-register…")).toBeInTheDocument();
     expect(await screen.findByText("Ingen synlige parter endnu.")).toBeInTheDocument();

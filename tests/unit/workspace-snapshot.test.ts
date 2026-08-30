@@ -11,6 +11,7 @@ import { openDb } from "../../src/core/db";
 import { verifyAuditChain } from "../../src/core/ledger";
 import { companyRootForSlug } from "../../src/core/workspace";
 import { makeWorkspace } from "./server-api/_shared";
+import { proposeCompanyKnowledge, reviewCompanyKnowledge, queryCompanyKnowledge } from "../../src/core/company-knowledge";
 
 function tempPath(label: string) { return join(mkdtempSync(join(tmpdir(), `${label}-`)), "artifact.tar"); }
 
@@ -42,6 +43,12 @@ function addOwner(workspace: string) {
 }
 
 describe("credential-free workspace snapshot and restore", () => {
+  test("includes source-backed company knowledge without exporting credentials", () => {
+    const workspace=makeWorkspace("workspace-knowledge-snapshot",["Alpha Company"]);const outPath=tempPath("workspace-knowledge-out");const target=join(mkdtempSync(join(tmpdir(),"workspace-knowledge-target-")),"restored");
+    try { const db=openWorkspaceControlDb(workspace);try { const principal={kind:"local_operator" as const,id:"snapshot-test"};const assertion=proposeCompanyKnowledge(db,{companySlug:"alpha-company",predicate:"markets",value:["DK"],source:{kind:"external_snapshot",ref:"synthetic-source"},validFrom:"2026-01-01",actor:"user:test",principal});reviewCompanyKnowledge(db,{assertionId:assertion.assertionId,decision:"approved",actor:"user:review",principal}); } finally {db.close();}
+      expect(createWorkspaceSnapshot(workspace,{outPath,createdAt:"2026-08-23T11:00:00.000Z"}).ok).toBeTrue();const restored=restoreWorkspaceSnapshot({snapshotPath:outPath,targetWorkspaceRoot:target});expect(restored.ok).toBeTrue();const read=openWorkspaceControlDb(target);try{expect(queryCompanyKnowledge(read,{companySlug:"alpha-company",asOf:"2026-02-01"}).assertions).toMatchObject([{predicate:"markets",source:{kind:"external_snapshot",ref:"synthetic-source"}}]);}finally{read.close();}
+    } finally {rmSync(workspace,{recursive:true,force:true});rmSync(dirname(outPath),{recursive:true,force:true});rmSync(dirname(target),{recursive:true,force:true});}
+  });
   test("restores every ledger and a safe access plan without credentials", () => {
     const workspace = makeWorkspace("workspace-snapshot", ["Alpha Company", "Beta Company"]);
     const outPath = tempPath("workspace-snapshot-out");

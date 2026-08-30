@@ -25,4 +25,13 @@ describe("company knowledge assertions",()=>{
     expect(changed.superseded.reviewState).toBe("superseded");expect(changed.replacement.reviewState).toBe("proposed");
     expect(()=>db.exec("DELETE FROM rm_company_knowledge_assertions")).toThrow();
   }finally{db.close();}});
+  test("keeps current and historical facts separate and a stale registry proposal cannot replace an approved user fact",()=>{const db=openWorkspaceControlDb(root());try{
+    const approved=proposeCompanyKnowledge(db,{companySlug:"synthetic-a",predicate:"business_description",value:{text:"Current activity"},source:{kind:"user",ref:"owner-brief"},validFrom:"2026-02-01",actor:"user:author",principal});reviewCompanyKnowledge(db,{assertionId:approved.assertionId,decision:"approved",actor:"user:review",principal});
+    const stale=proposeCompanyKnowledge(db,{companySlug:"synthetic-a",predicate:"business_description",value:{text:"Old registry activity"},source:{kind:"registry",ref:"registry-snapshot-2025"},validFrom:"2025-01-01",validToExclusive:"2026-02-01",actor:"agent:registry",principal});
+    expect(queryCompanyKnowledge(db,{companySlug:"synthetic-a",asOf:"2025-06-01"}).assertions).toEqual([]);
+    const current=queryCompanyKnowledge(db,{companySlug:"synthetic-a",asOf:"2026-03-01",includeProposed:true});expect(current.assertions).toHaveLength(1);expect(current.assertions[0]!.source).toEqual({kind:"user",ref:"owner-brief"});expect(stale.reviewState).toBe("proposed");
+  }finally{db.close();}});
+  test("rejects missing audit actor and does not duplicate an identical retry",()=>{const db=openWorkspaceControlDb(root());try{
+    const input={companySlug:"synthetic-a",predicate:"markets" as const,value:["DK"],source:{kind:"user" as const,ref:"brief"},validFrom:"2026-01-01",actor:"user:author",principal};const first=proposeCompanyKnowledge(db,input);expect(proposeCompanyKnowledge(db,input).assertionId).toBe(first.assertionId);expect(()=>proposeCompanyKnowledge(db,{...input,actor:""})).toThrow("actor");
+  }finally{db.close();}});
 });

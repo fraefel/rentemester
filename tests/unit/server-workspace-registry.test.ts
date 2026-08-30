@@ -5,6 +5,7 @@ import { ingestCorporateRecord, linkCorporateRecord } from "../../src/core/corpo
 import { activateWorkspaceUser, grantCompanyMembership } from "../../src/core/workspace-access";
 import { openWorkspaceControlDb } from "../../src/core/workspace-control";
 import { createWorkspaceServicePrincipal } from "../../src/core/workspace-service-principals";
+import { proposeCompanyKnowledge, reviewCompanyKnowledge } from "../../src/core/company-knowledge";
 import { createBetterAuthRequestProvider, openWorkspaceBetterAuth, WORKSPACE_SERVICE_PRINCIPAL_HEADER } from "../../src/server/better-auth";
 import { config, get, makeWorkspace } from "./server-api/_shared";
 
@@ -38,6 +39,7 @@ describe("workspace registry HTTP access projection", () => {
       record(db, "record-allowed", "allowed-aps");
       record(db, "record-shared", "allowed-aps");
       linkCorporateRecord(db, { recordId: "record-shared", type: "company", id: "hidden-aps", actor: "user:owner", at });
+      const principal={kind:"service_account" as const,id:service.serviceAccountId}; const visibleKnowledge=proposeCompanyKnowledge(db,{companySlug:"allowed-aps",predicate:"markets",value:["DK"],source:{kind:"user",ref:"synthetic-owner"},validFrom:at,actor:"user:owner",principal});reviewCompanyKnowledge(db,{assertionId:visibleKnowledge.assertionId,decision:"approved",actor:"user:review",principal});
 
       const hosted = config({ workspaceRoot: workspace, deploymentProfile: "hosted", betterAuthProvider: createBetterAuthRequestProvider(runtime.auth) });
       const headers = { [WORKSPACE_SERVICE_PRINCIPAL_HEADER]: service.secret };
@@ -53,6 +55,8 @@ describe("workspace registry HTTP access projection", () => {
       const deniedInspection = await get(hosted, "/api/companies/allowed-aps/corporate-records/record-shared", { headers });
       expect(deniedInspection.status).toBe(404);
       expect(JSON.stringify(deniedInspection.body)).not.toContain("record-shared");
+      const knowledge=await get(hosted,"/api/companies/allowed-aps/knowledge?asOf=2026-09-01",{headers});expect(knowledge.status).toBe(200);expect(knowledge.body).toMatchObject({ok:true,context:{assertions:[{predicate:"markets",source:{kind:"user"}}]}});
+      expect((await get(hosted,"/api/companies/hidden-aps/knowledge?asOf=2026-09-01",{headers})).status).toBe(401);
     } finally {
       db.close();
       runtime.close();

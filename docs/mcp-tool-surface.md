@@ -104,7 +104,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 209 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 211 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -229,7 +229,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 88
 - **Ordinary write-tools**: 120
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **209** (read and write tool counts are verified from the live registry in CI)
+- **Total**: **211** (read and write tool counts are verified from the live registry in CI)
 
 ## Read-tools
 

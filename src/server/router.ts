@@ -117,7 +117,7 @@ import {
   handleSystemCvrStatus,
 } from "./router/system";
 import { handleCompanyVat } from "./router/vat";
-import { handleSupplierCommitmentApply, handleSupplierCommitmentChange, handleSupplierCommitmentPlan, handleSupplierCommitments } from "./router/supplier-commitments";
+import { handleSupplierCommitmentApply, handleSupplierCommitmentChange, handleSupplierCommitmentMatch, handleSupplierCommitmentMatches, handleSupplierCommitmentPlan, handleSupplierCommitments } from "./router/supplier-commitments";
 import {
   handleWorkspaceInvitationCancel,
   handleWorkspaceInvitationClaim,
@@ -1627,6 +1627,10 @@ export async function handleRequest(
     if (supplierCommitmentPlanMatch) { if(method!=="POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleSupplierCommitmentPlan(config,request,decodeURIComponent(supplierCommitmentPlanMatch[1]!)); }
     const supplierCommitmentChangeMatch = /^\/api\/companies\/([^/]+)\/supplier-commitments\/change$/.exec(path);
     if (supplierCommitmentChangeMatch) { if(method!=="POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleSupplierCommitmentChange(config,request,decodeURIComponent(supplierCommitmentChangeMatch[1]!)); }
+    const supplierCommitmentMatchMatch = /^\/api\/companies\/([^/]+)\/supplier-commitments\/match$/.exec(path);
+    if (supplierCommitmentMatchMatch) { if(method!=="POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleSupplierCommitmentMatch(config,request,decodeURIComponent(supplierCommitmentMatchMatch[1]!)); }
+    const supplierCommitmentMatchesMatch = /^\/api\/companies\/([^/]+)\/supplier-commitments\/matches$/.exec(path);
+    if (supplierCommitmentMatchesMatch) { if(method!=="GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleSupplierCommitmentMatches(config,decodeURIComponent(supplierCommitmentMatchesMatch[1]!),url); }
     const supplierCommitmentsMatch = /^\/api\/companies\/([^/]+)\/supplier-commitments$/.exec(path);
     if (supplierCommitmentsMatch) { const slug=decodeURIComponent(supplierCommitmentsMatch[1]!); if(method==="GET")return handleSupplierCommitments(config,slug,url); if(method==="POST")return await handleSupplierCommitmentApply(config,request,slug); throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute"); }
 

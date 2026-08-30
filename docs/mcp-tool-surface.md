@@ -270,6 +270,9 @@ Document-party resolution uses exactly one visible state per document: `resolved
 | `supplier_commitment_apply` | `supplier-commitment apply` | `{ company, commitment, payloadHash, confirm, idempotencyKey? }` | Appends reviewed planning evidence only; never creates a payable, journal, payment or supplier message. |
 | `supplier_commitment_list` | `supplier-commitment list` | `{ company }` | Lists active immutable commitment revisions and their hashes. |
 | `supplier_commitment_change` | `supplier-commitment change` | `{ company, commitmentId, action, reason, confirm }` | Appends pause/end/supersession history without deleting earlier occurrences. |
+| `supplier_commitment_match` | `supplier-commitment match` | `{ company, commitmentId, occurrenceDate, evidence, confirm }` | Confirmed append-only evidence link to a canonical document, payable, or bank transaction. It never posts or settles anything; FX comparisons are explicitly unsupported. |
+| `supplier_commitment_matches` | `supplier-commitment matches` | `{ company, commitmentId? }` | Reads recorded evidence links and their deterministic amount/date/currency/party/documentation variance. |
+| `supplier_commitment_alerts` | `supplier-commitment alerts` | `{ company, asOf }` | Reads renewal and notice alerts in the next 30 days. |
 | `budget_list` | `budget list` | `{ company, period?, accountNo? }` | Lister de gældende (seneste-revision) budgetlinjer. |
 | `budget_vs_actual` | `budget vs-actual` | `{ company, from, to }` | Sammenligner budget mod faktisk bogføring pr. konto pr. måned. |
 | `customer_list` | `customer list` | `{ company, archived?, limit?, offset? }` | Lister kendte kunder. Pagineret. |

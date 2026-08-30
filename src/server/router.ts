@@ -91,7 +91,7 @@ import {
 } from "./router/portfolio";
 import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
 import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
-import { handleCompanyKnowledge, handleCompanyKnowledgeAction, handleRegistryParties, handleRegistryParty, handleRegistryPartyCreate, handleRegistryPartyMerge, handleRegistryPartyRole, handleRegistryRecord, handleRegistryRecordAction, handleRegistryRecordDownload, handleRegistryRecordIngest, handleRegistryRecords } from "./router/workspace-registry";
+import { handleCompanyKnowledge, handleCompanyKnowledgeAction, handleOwnershipAction, handleOwnershipHistory, handleOwnershipQuery, handleRegistryParties, handleRegistryParty, handleRegistryPartyCreate, handleRegistryPartyMerge, handleRegistryPartyRole, handleRegistryRecord, handleRegistryRecordAction, handleRegistryRecordDownload, handleRegistryRecordIngest, handleRegistryRecords } from "./router/workspace-registry";
 import {
   handleCompanyBalance,
   handleCompanyIncomeStatement,
@@ -296,6 +296,11 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.knowledge.manage", method: "POST", pattern: "/api/companies/:slug/knowledge/propose", summary: "Foreslår en dateret knowledge assertion (#574)." },
   { scope: "company", effect: "write", permission: "company.knowledge.manage", method: "POST", pattern: "/api/companies/:slug/knowledge/review", summary: "Godkender eller afviser en præcis knowledge assertion (#574)." },
   { scope: "company", effect: "write", permission: "company.knowledge.manage", method: "POST", pattern: "/api/companies/:slug/knowledge/supersede", summary: "Supersederer godkendt knowledge append-only (#574)." },
+  { scope: "company", effect: "read", permission: "company.ownership.read", method: "GET", pattern: "/api/companies/:slug/ownership", summary: "Synligt, party-aware ownership/control graph (#576)." },
+  { scope: "company", effect: "read", permission: "company.ownership.read", method: "GET", pattern: "/api/companies/:slug/ownership/history", summary: "Append-only ownership snapshot history (#576)." },
+  { scope: "company", effect: "write", permission: "company.ownership.manage", method: "POST", pattern: "/api/companies/:slug/ownership/propose", summary: "Foreslår kilde-hashet ownership snapshot (#576)." },
+  { scope: "company", effect: "write", permission: "company.ownership.manage", method: "POST", pattern: "/api/companies/:slug/ownership/review", summary: "Reviewer ownership snapshot (#576)." },
+  { scope: "company", effect: "write", permission: "company.ownership.manage", method: "POST", pattern: "/api/companies/:slug/ownership/apply", summary: "Anvender eksakt approved ownership diff (#576)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dashboard", summary: "Virksomhedens dashboard." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/fiscal-years", summary: "Kendte regnskabsår." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/overview", summary: "Nøgletalsoverblik." },
@@ -750,6 +755,12 @@ export async function handleRequest(
     if (knowledge) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleCompanyKnowledge(config,decodeURIComponent(knowledge[1]!),request); }
     const knowledgeAction = /^\/api\/companies\/([^/]+)\/knowledge\/(propose|review|supersede)$/.exec(path);
     if (knowledgeAction) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleCompanyKnowledgeAction(config,decodeURIComponent(knowledgeAction[1]!),request,knowledgeAction[2]! as "propose"|"review"|"supersede"); }
+    const ownershipHistory = /^\/api\/companies\/([^/]+)\/ownership\/history$/.exec(path);
+    if (ownershipHistory) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleOwnershipHistory(config,decodeURIComponent(ownershipHistory[1]!),request); }
+    const ownershipAction = /^\/api\/companies\/([^/]+)\/ownership\/(propose|review|apply)$/.exec(path);
+    if (ownershipAction) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleOwnershipAction(config,decodeURIComponent(ownershipAction[1]!),request,ownershipAction[2]! as "propose"|"review"|"apply"); }
+    const ownership = /^\/api\/companies\/([^/]+)\/ownership$/.exec(path);
+    if (ownership) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleOwnershipQuery(config,decodeURIComponent(ownership[1]!),request); }
 
     if (path === "/api/group-overview") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");

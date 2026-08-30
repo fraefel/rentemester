@@ -397,10 +397,10 @@ type SurfaceBaseline = { count: number; hash: string };
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   mcp: { count: 163, hash: "a5ca1a92704723d3df962147a0dba0e76b596e4d389cf902201215eed33876c0" },
-  cli: { count: 223, hash: "e4a0b0652021c07a524e62f15d47ca3bbd9658bbb6f43b3daf4f25b0846b82d0" },
+  cli: { count: 229, hash: "841ae59ba233fd7be98a309d8e9a570cc6359b43b0d422fa88ab40306f7e4d84" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 162, hash: "e9083e55745805351acfd3d2cafa396e1ba4947f6a56e0a9ae6408ebd62945e6" },
+  http: { count: 167, hash: "5dbe0e23925a8d40a638e5e8d46b769a6ea00ce659b99e582368dfb5a8915064" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
@@ -424,7 +424,7 @@ const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }>
   { capabilityId: "operations-assurance", pattern: /(?:system|audit|health|ready|retention|integrity|backup|meta_about|agent[_-]capabilit|agent[_-]workflow|agent run|reg coverage|reg citations|serve|local start)/ },
   { capabilityId: "company-workspace", pattern: /(?:company|companies|workspace|accounts?|cvr|contacts|members|invitations|^cli:init$|^http:get \/api$|^http:get \/api\/health$|^http:get \/api\/rules$|^http:get \/api\/me$)/ },
   { capabilityId: "company-knowledge", pattern: /(?:company[_-]knowledge|\/knowledge)/ },
-  { capabilityId: "ownership-graph", pattern: /(?:ownership[_-](?:graph|snapshot)|ownership-graph)/ },
+  { capabilityId: "ownership-graph", pattern: /(?:ownership(?:[_ -](?:graph|snapshot|query|propose|review|apply|history|projection))?|ownership-graph)/ },
 ];
 
 export const AGENT_DISCOVERY_COVERAGE_RULES_HASH = createHash("sha256")

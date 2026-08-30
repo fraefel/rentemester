@@ -28,4 +28,18 @@ describe("#576 party-aware ownership graph",()=>{
     const proposal=make("snapshot-minority","parent","child",4999);reviewOwnershipSnapshot(db,{snapshotId:proposal.snapshotId,decision:"approved",actor:"user:reviewer",principal:{kind:"user",id:"user-2"}});applyOwnershipSnapshot(db,{snapshotId:proposal.snapshotId,snapshotHash:proposal.snapshotHash,diffHash:proposal.diffHash,actor:"user:reviewer",principal:{kind:"user",id:"user-2"},authorized:true});
     expect(projectExactCompanyOwnership(db,"2026-02-01")).toEqual(expect.objectContaining({eligible:false,reason:"incomplete or minority ownership totals"})); db.close();
   });
+  test("rejects overlapping direct facts, excessive totals and effective company cycles before review",()=>{
+    const db=open(); const base={source:"synthetic",observedAt:"2026-02-01T00:00:00Z",actor:"user:maker",principal};
+    const f=(owner:string,owned:string,bp:number,from:string="2026-01-01")=>({owner:{kind:"company" as const,companySlug:owner},ownedCompanySlug:owned,validFrom:from,economicBasisPoints:bp,controlType:"equity" as const,jurisdiction:"DK",evidenceRefs:[`${owner}-${owned}-${bp}-${from}`]});
+    expect(()=>proposeOwnershipSnapshot(db,{...base,snapshotId:"overlap",facts:[f("parent","child",5000),f("parent","child",4000)]})).toThrow("overlap");
+    expect(()=>proposeOwnershipSnapshot(db,{...base,snapshotId:"total",facts:[f("a","child",7000),f("b","child",4000)]})).toThrow("exceed");
+    expect(()=>proposeOwnershipSnapshot(db,{...base,snapshotId:"cycle",facts:[f("a","b",10000),f("b","a",10000)]})).toThrow("cycle");
+    db.close();
+  });
+  test("keeps proposal retry idempotent and applies only an exact approved diff",()=>{
+    const db=open();const input={snapshotId:"retry",source:"synthetic",observedAt:"2026-02-01T00:00:00Z",actor:"user:maker",principal,facts:[{owner:{kind:"company" as const,companySlug:"parent"},ownedCompanySlug:"child",validFrom:"2026-01-01",economicBasisPoints:10000,controlType:"equity" as const,jurisdiction:"DK",evidenceRefs:["synthetic"]}]};
+    const first=proposeOwnershipSnapshot(db,input);const retry=proposeOwnershipSnapshot(db,input);expect(retry.snapshotHash).toBe(first.snapshotHash);expect(db.query("SELECT count(*) AS n FROM rm_ownership_source_snapshots").get()).toEqual({n:1});
+    reviewOwnershipSnapshot(db,{snapshotId:"retry",decision:"approved",actor:"user:reviewer",principal});expect(()=>applyOwnershipSnapshot(db,{snapshotId:"retry",snapshotHash:first.snapshotHash,diffHash:"0".repeat(64),actor:"user:reviewer",principal,authorized:true})).toThrow("exact");
+    expect(applyOwnershipSnapshot(db,{snapshotId:"retry",snapshotHash:first.snapshotHash,diffHash:first.diffHash,actor:"user:reviewer",principal,authorized:true}).status).toBe("applied");expect(applyOwnershipSnapshot(db,{snapshotId:"retry",snapshotHash:first.snapshotHash,diffHash:first.diffHash,actor:"user:reviewer",principal,authorized:true}).status).toBe("unchanged");db.close();
+  });
 });

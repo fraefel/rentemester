@@ -10,6 +10,7 @@ import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../core/
 import { approvePartyMerge, createParty, inspectParty, linkPartyRole, proposePartyMerge, searchParties } from "../core/party-registry";
 import { enrichCorporateRecord, ingestCorporateRecord, inspectCorporateRecord, linkCorporateRecord, listCorporateRecords, readCorporateRecordBytes, supersedeCorporateRecord } from "../core/corporate-records";
 import { companyKnowledgeHistory, proposeCompanyKnowledge, queryCompanyKnowledge, reviewCompanyKnowledge, supersedeCompanyKnowledge } from "../core/company-knowledge";
+import { applyOwnershipSnapshot, ownershipHistory, projectExactCompanyOwnership, proposeOwnershipSnapshot, queryOwnershipGraph, reviewOwnershipSnapshot } from "../core/ownership-graph";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 
 const need = (ctx: CommandContext, flag: string) => { const v = ctx.trimToNull(ctx.arg(flag)); if (!v) ctx.fatal(`${flag} is required`); return v!; };
@@ -38,4 +39,12 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("company-knowledge", "propose", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,assertion:proposeCompanyKnowledge(db,{...json(ctx,"--input"),companySlug:need(ctx,"--company"),actor:actor(ctx),principal:principal(ctx)}as any)});}finally{db.close();} });
   dispatch.on("company-knowledge", "review", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,assertion:reviewCompanyKnowledge(db,{assertionId:need(ctx,"--assertion-id"),decision:need(ctx,"--decision") as any,reason:ctx.arg("--reason")??undefined,actor:actor(ctx),principal:principal(ctx)})});}finally{db.close();} });
   dispatch.on("company-knowledge", "supersede", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,...supersedeCompanyKnowledge(db,{assertionId:need(ctx,"--assertion-id"),replacement:json(ctx,"--replacement") as any,actor:actor(ctx),principal:principal(ctx)})});}finally{db.close();} });
+  // Ownership is workspace control-plane data. These commands never alter a
+  // company ledger or the v1 group manifest; apply only accepts exact hashes.
+  dispatch.on("ownership", "query", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{ctx.emitResult({ok:true,...queryOwnershipGraph(db,{asOf:need(ctx,"--as-of"),visibleCompanySlugs:new Set([need(ctx,"--company")])})});}finally{db.close();} });
+  dispatch.on("ownership", "propose", (ctx) => { confirm(ctx); const db=openWorkspaceControlDb(workspace(ctx));try{const input=json(ctx,"--input");ctx.emitResult({ok:true,snapshot:proposeOwnershipSnapshot(db,{...input,actor:actor(ctx),principal:principal(ctx)}as any)});}finally{db.close();} });
+  dispatch.on("ownership", "review", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,snapshot:reviewOwnershipSnapshot(db,{snapshotId:need(ctx,"--snapshot-id"),decision:need(ctx,"--decision") as any,actor:actor(ctx),principal:principal(ctx)})});}finally{db.close();} });
+  dispatch.on("ownership", "apply", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,...applyOwnershipSnapshot(db,{snapshotId:need(ctx,"--snapshot-id"),snapshotHash:need(ctx,"--snapshot-hash"),diffHash:need(ctx,"--diff-hash"),actor:actor(ctx),principal:principal(ctx),authorized:true})});}finally{db.close();} });
+  dispatch.on("ownership", "history", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{ctx.emitResult({ok:true,history:ownershipHistory(db,ctx.arg("--snapshot-id"))});}finally{db.close();} });
+  dispatch.on("ownership", "projection", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{ctx.emitResult({ok:true,projection:projectExactCompanyOwnership(db,need(ctx,"--as-of"))});}finally{db.close();} });
 }

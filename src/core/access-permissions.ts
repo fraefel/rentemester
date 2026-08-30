@@ -25,6 +25,8 @@ export const ROUTE_PERMISSIONS = [
   "company.admin",
   "company.knowledge.read",
   "company.knowledge.manage",
+  "company.ownership.read",
+  "company.ownership.manage",
 ] as const;
 
 export type RoutePermission = typeof ROUTE_PERMISSIONS[number];

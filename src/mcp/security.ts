@@ -14,11 +14,13 @@ export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = O
   ..."accounts_list accounts_roles_status accrual_register_report asset_register_report audit_log_list audit_verify bank_account_list bank_list bank_suggest_matches bookkeeping_batch_plan bookkeeping_batch_status budget_forecast budget_list budget_vs_actual company_profile_get customer_list efaktura_onboarding_status efaktura_status exceptions_list import_archive_list invoice_compensation_calc invoice_find invoice_interest_calc invoice_interest_correction_calc invoice_list invoice_overdue invoice_status journal_dry_run journal_list mileage_list mileage_report payable_list period_close_readiness period_close_status period_list posting_rule_explain reconcile_bank recurring_invoice_list retention_status system_healthcheck tax_return_prepare vat_oss_report vat_report vendor_list".split(" ").map((n) => [n, "company.read"]),
   ..."workspace_party_search workspace_party_inspect corporate_record_list corporate_record_inspect corporate_record_download".split(" ").map((n) => [n, "company.read"]),
   ..."company_knowledge_context".split(" ").map((n) => [n, "company.knowledge.read"]),
+  ..."ownership_graph_query".split(" ").map((n) => [n, "company.ownership.read"]),
   ..."documents_invoice_extraction documents_list documents_parsed_text documents_parse_status".split(" ").map((n) => [n, "company.documents.read"]),
   ..."documents_ingest documents_parse documents_parse_pending mail_intake_ingest imap_intake_poll".split(" ").map((n) => [n, "company.documents.upload"]),
   ..."accounts_add accounts_role_confirm bank_account_update company_sync_cvr customer_create documents_enrich documents_extract_invoice documents_set_company_context posting_rule_propose recurring_invoice_create vendor_create".split(" ").map((n) => [n, "company.master-data"]),
   ..."workspace_party_create workspace_party_link_role corporate_record_ingest corporate_record_link corporate_record_enrich corporate_record_supersede".split(" ").map((n) => [n, "company.master-data"]),
   ..."company_knowledge_propose company_knowledge_review company_knowledge_supersede".split(" ").map((n) => [n, "company.knowledge.manage"]),
+  ..."ownership_snapshot_propose ownership_snapshot_review ownership_snapshot_apply".split(" ").map((n) => [n, "company.ownership.manage"]),
   ..."accrual_register asset_register bank_import bookkeeping_batch_dry_run bookkeeping_batch_persist budget_set efaktura_konfigurer efaktura_modtag efaktura_modtag_workspace efaktura_onboard efaktura_registrer expense_book invoice_claim_compensation invoice_claim_interest invoice_credit_note invoice_issue invoice_render invoice_remind mileage_log payable_register recurring_invoice_generate recurring_invoice_run_workspace".split(" ").map((n) => [n, "company.draft.write"]),
   ..."accrual_recognize asset_depreciate asset_write_off bookkeeping_batch_apply expense_vat_preflight_apply invoice_apply_payment invoice_post invoice_post_compensation invoice_post_interest invoice_post_interest_correction invoice_post_reminder invoice_refund_bank invoice_settle_bank invoice_settle_claim_bank invoice_write_off_bad_debt journal_post journal_reverse payable_pay period_close vat_post_eu_service_purchase vat_post_representation_purchase".split(" ").map((n) => [n, "company.ledger.post"]),
   ..."bookkeeping_batch_approve exception_resolve period_close period_close_review posting_rule_approve".split(" ").map((n) => [n, "company.review"]),
@@ -112,8 +114,44 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
     }
     const company = resolveMcpWorkspaceCompany(context, args.company);
     if (!company) return null;
-    return authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: company.slug }).allowed ? { root: company.root, principal: authenticated } : null;
+    if (!authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: company.slug }).allowed) return null;
+    // Ownership snapshots can describe a legal relation across multiple legal
+    // entities.  The anchor is not enough: a service credential must have the
+    // narrow ownership permission for *every* company endpoint before it can
+    // observe, review or apply that relation.  Actors remain audit-only.
+    if (name.startsWith("ownership_")) {
+      const endpointSlugs = ownershipEndpointSlugs(db, args);
+      if (!endpointSlugs || ![...endpointSlugs].every((slug) =>
+        authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: slug }).allowed,
+      )) return null;
+    }
+    return { root: company.root, principal: authenticated };
   } finally { db.close(); }
+}
+
+/** Returns every company endpoint in an ownership operation, or null when a
+ * stored snapshot cannot be resolved.  Never infer access from the actor. */
+function ownershipEndpointSlugs(db: ReturnType<typeof openWorkspaceControlReadOnlyDb>, args: Record<string, unknown>): Set<string> | null {
+  let facts: unknown[] | null = null;
+  if (Array.isArray(args.facts)) facts = args.facts;
+  else if (typeof args.snapshotId === "string") {
+    const row = db.query("SELECT canonical_facts FROM rm_ownership_source_snapshots WHERE snapshot_id=?").get(args.snapshotId) as { canonical_facts?: string } | null;
+    if (!row?.canonical_facts) return null;
+    try { facts = JSON.parse(row.canonical_facts); } catch { return null; }
+  }
+  if (!facts) return new Set();
+  const result = new Set<string>();
+  for (const raw of facts) {
+    if (!raw || typeof raw !== "object") return null;
+    const fact = raw as { ownedCompanySlug?: unknown; owner?: { kind?: unknown; companySlug?: unknown } };
+    if (typeof fact.ownedCompanySlug !== "string" || !isValidSlug(fact.ownedCompanySlug)) return null;
+    result.add(fact.ownedCompanySlug);
+    if (fact.owner?.kind === "company") {
+      if (typeof fact.owner.companySlug !== "string" || !isValidSlug(fact.owner.companySlug)) return null;
+      result.add(fact.owner.companySlug);
+    }
+  }
+  return result;
 }
 
 /**

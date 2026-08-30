@@ -13,6 +13,7 @@ export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = O
   ["portfolio_overview", "workspace.read"], ["company_add", "workspace.manage"],
   ..."accounts_list accounts_roles_status accrual_register_report asset_register_report audit_log_list audit_verify bank_account_list bank_list bank_suggest_matches bookkeeping_batch_plan bookkeeping_batch_status budget_forecast budget_list budget_vs_actual company_profile_get customer_list efaktura_onboarding_status efaktura_status exceptions_list import_archive_list invoice_compensation_calc invoice_find invoice_interest_calc invoice_interest_correction_calc invoice_list invoice_overdue invoice_status journal_dry_run journal_list mileage_list mileage_report payable_list period_close_readiness period_close_status period_list posting_rule_explain reconcile_bank recurring_invoice_list retention_status system_healthcheck tax_return_prepare vat_oss_report vat_report vendor_list".split(" ").map((n) => [n, "company.read"]),
   ..."workspace_party_search workspace_party_inspect corporate_record_list corporate_record_inspect corporate_record_download".split(" ").map((n) => [n, "company.read"]),
+  ..."intercompany_disposition_plan intercompany_disposition_status".split(" ").map((n) => [n, "company.ownership.read"]),
   ..."company_knowledge_context".split(" ").map((n) => [n, "company.knowledge.read"]),
   ..."ownership_graph_query ownership_snapshot_history".split(" ").map((n) => [n, "company.ownership.read"]),
   ..."documents_invoice_extraction documents_list documents_parsed_text documents_parse_status".split(" ").map((n) => [n, "company.documents.read"]),
@@ -23,6 +24,7 @@ export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = O
   ..."workspace_party_create workspace_party_link_role corporate_record_ingest corporate_record_link corporate_record_enrich corporate_record_supersede".split(" ").map((n) => [n, "company.master-data"]),
   ..."company_knowledge_propose company_knowledge_review company_knowledge_supersede".split(" ").map((n) => [n, "company.knowledge.manage"]),
   ..."ownership_snapshot_propose ownership_snapshot_review ownership_snapshot_apply".split(" ").map((n) => [n, "company.ownership.manage"]),
+  ..."intercompany_disposition_propose intercompany_disposition_approve intercompany_disposition_link intercompany_disposition_settle intercompany_disposition_reopen intercompany_disposition_supersede".split(" ").map((n) => [n, "company.ownership.manage"]),
   ..."accrual_register asset_register bank_import bookkeeping_batch_dry_run bookkeeping_batch_persist budget_set efaktura_konfigurer efaktura_modtag efaktura_modtag_workspace efaktura_onboard efaktura_registrer expense_book invoice_claim_compensation invoice_claim_interest invoice_credit_note invoice_issue invoice_render invoice_remind mileage_log payable_register recurring_invoice_generate recurring_invoice_run_workspace".split(" ").map((n) => [n, "company.draft.write"]),
   ..."accrual_recognize asset_depreciate asset_write_off bookkeeping_batch_apply expense_vat_preflight_apply invoice_apply_payment invoice_post invoice_post_compensation invoice_post_interest invoice_post_interest_correction invoice_post_reminder invoice_refund_bank invoice_settle_bank invoice_settle_claim_bank invoice_write_off_bad_debt journal_post journal_reverse payable_pay period_close vat_post_eu_service_purchase vat_post_representation_purchase".split(" ").map((n) => [n, "company.ledger.post"]),
   ..."bookkeeping_batch_approve exception_resolve period_close period_close_review posting_rule_approve".split(" ").map((n) => [n, "company.review"]),
@@ -127,6 +129,16 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
       if (!endpointSlugs || ![...endpointSlugs].every((slug) =>
         authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission: endpointPermission, companySlug: slug }).allowed,
       )) return null;
+    }
+    if (name.startsWith("intercompany_disposition_")) {
+      let endpoints: string[] = [];
+      const proposal = args.disposition as any;
+      if (proposal?.left?.companySlug && proposal?.right?.companySlug) endpoints = [proposal.left.companySlug, proposal.right.companySlug];
+      else if (typeof args.dispositionId === "string") {
+        const row = db.query("SELECT canonical_payload FROM rm_intercompany_dispositions WHERE disposition_id=?").get(args.dispositionId) as { canonical_payload?: string } | null;
+        try { const value=JSON.parse(row?.canonical_payload ?? "null"); endpoints=[value?.left?.companySlug,value?.right?.companySlug].filter((v):v is string=>typeof v==="string"); } catch { return null; }
+      }
+      if (endpoints.length !== 2 || ![...new Set(endpoints)].every((slug) => isValidSlug(slug) && authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: slug }).allowed)) return null;
     }
     if (name.startsWith("corporate_record_")) {
       const recordIds=[args.recordId,args.replacementRecordId].filter((value):value is string=>typeof value==="string");

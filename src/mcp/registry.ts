@@ -1,7 +1,7 @@
 /**
  * Central tools-registrering for Rentemester-MCP-serveren.
  *
- * `registerAllTools` registrerer hele tool-surface'en — 170 tools fordelt
+ * `registerAllTools` registrerer hele tool-surface'en — 178 tools fordelt
  * på de domæne-funktioner der kaldes herunder. Den autoritative liste
  * (klassifikation, inputs, CLI-mapping) står i docs/mcp-tool-surface.md;
  * driv en kørende server med `tools/list` for den faktiske, aktuelle liste.
@@ -98,6 +98,7 @@ import { registerMetaTools } from "./tools/meta";
 import { registerPostingRuleTools } from "./tools/posting-rules";
 import { registerBookkeepingBatchTools } from "./tools/bookkeeping-batch";
 import { registerWorkspaceRegistryTools } from "./tools/workspace-registry";
+import { registerIntercompanyDispositionTools } from "./tools/intercompany-dispositions";
 import { registerWorkspaceDocumentInboxTools } from "./tools/workspace-document-inbox";
 import { registerAgentDiscoveryTools } from "./tools/agent-discovery";
 import type { LiveTool } from "../agent-discovery-catalog";
@@ -245,6 +246,7 @@ export function registerAllTools(server: McpServer, security?: McpSecurityContex
   registerPostingRuleTools(server);
   registerBookkeepingBatchTools(server);
   registerWorkspaceRegistryTools(server);
+  registerIntercompanyDispositionTools(server);
   registerWorkspaceDocumentInboxTools(server);
   // Must be last: workflow descriptions resolve the live registered tool set.
   registerAgentDiscoveryTools(server, () => liveTools);

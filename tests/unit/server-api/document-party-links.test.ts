@@ -131,4 +131,6 @@ describe("#588 document-party HTTP contract", () => {
       rmSync(workspace, { recursive: true, force: true });
     }
   });
+
+  test("reaches the catalogued internal no-external-party route without changing evidence",async()=>{const {workspace}=fixture();try{const db=openDb(companyPaths(companyRootForSlug(workspace,slug)).db);const internal=db.query("INSERT INTO documents(document_no,sha256_hash,payload_json,upload_datetime,source,status,document_type,retain_until) VALUES(?,?,?,?,?,'stored','internal_voucher',?) RETURNING id").get("INTERNAL-588","b".repeat(64),"{}","2026-08-30T00:00:00.000Z","synthetic","2031-12-31") as {id:number};db.close();const before=snapshot(workspace,internal.id);const decided=await post(workspace,`/api/companies/${slug}/documents/internal-no-external-party`,{documentId:internal.id,reason:"Synthetic internal transfer",confirm:true,idempotencyKey:"internal-http"});expect(decided).toMatchObject({status:200,body:{ok:true,idempotent:false}});const after=snapshot(workspace,internal.id);expect(after.document).toEqual(before.document);expect(after.journal).toEqual(before.journal);}finally{rmSync(workspace,{recursive:true,force:true});}});
 });

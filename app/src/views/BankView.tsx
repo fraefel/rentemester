@@ -30,7 +30,7 @@ import {
 
 // #451 — the URL keys we own; listed once so "Ryd filtre" can clear them all
 // without touching other params (e.g. `?year=`).
-const FILTER_PARAM_KEYS = ["q", "from", "to", "status"] as const;
+const FILTER_PARAM_KEYS = ["q", "from", "to", "status", "transactionId"] as const;
 
 type StatusFilter = "all" | "matched" | "unmatched";
 type SortKey = "date" | "amount";
@@ -65,6 +65,7 @@ export function BankView() {
   const toDate = params.get("to") ?? "";
   const statusRaw = params.get("status") ?? "all";
   const status: StatusFilter = isStatusFilter(statusRaw) ? statusRaw : "all";
+  const transactionId = Number(params.get("transactionId")) || null;
 
   // #451 — sorter for the date/amount columns. Default is the import order
   // (chronological as inserted); only after the owner clicks a column-header
@@ -93,7 +94,8 @@ export function BankView() {
     q !== "" ||
     fromDate !== "" ||
     toDate !== "" ||
-    status !== "all";
+    status !== "all" ||
+    transactionId !== null;
 
   function toggleSort(key: SortKey) {
     setSort((prev) => {
@@ -120,6 +122,7 @@ export function BankView() {
     if (!hasActiveFilter) return allTransactions;
     const needle = q.trim().toLowerCase();
     return allTransactions.filter((tx) => {
+      if (transactionId !== null && tx.id !== transactionId) return false;
       if (needle !== "" && !txMatchesText(tx, needle)) return false;
       if (fromDate !== "" && tx.date < fromDate) return false;
       if (toDate !== "" && tx.date > toDate) return false;
@@ -129,7 +132,7 @@ export function BankView() {
         return false;
       return true;
     });
-  }, [allTransactions, hasActiveFilter, q, fromDate, toDate, status]);
+  }, [allTransactions, hasActiveFilter, q, fromDate, toDate, status, transactionId]);
 
   const sortedTransactions = useMemo(() => {
     if (!sort) return filteredTransactions;

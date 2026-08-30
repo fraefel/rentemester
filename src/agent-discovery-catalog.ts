@@ -456,7 +456,7 @@ export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // Public surface changes require an explicit discovery review.
   mcp: { count: 205, hash: "406ad90b5b2d2433f5bfa812ea564f7aa1842e4dd6924dbddf44c8ce7e186bf7" },
   cli: { count: 255, hash: "5f39ba3918c28e18ad5541b4a49ac51a1ec4f2fc67adda6ff6899ee37f1ea348" },
-  http: { count: 195, hash: "45d9e6fb68454713f0d566b4ed9d0a6a325709d6199e478dde4ee84ebd8877c3" },
+  http: { count: 199, hash: "7b738b569cdaa3e87cbdb6822db8fefa0c90325437bd8e0d734f119bf0732dc5" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

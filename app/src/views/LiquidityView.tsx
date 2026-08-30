@@ -17,6 +17,14 @@ import type { CompanyCashflow } from "../lib/types";
 import { ErrorState, Loading } from "../components/Feedback";
 import { CashflowChart } from "../components/CashflowChart";
 import { CompanyNav, useCompanyYear } from "../components/CompanyNav";
+import { useState, type FormEvent } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+
+function CommitmentMatchForm({slug,rows,onDone}:{slug:string;rows:Array<{commitmentId:string}>;onDone:()=>void}) {
+  const [commitmentId,setCommitmentId]=useState(rows[0]?.commitmentId??"");const [occurrenceDate,setOccurrenceDate]=useState("");const [kind,setKind]=useState<"canonical_document"|"payable"|"bank_transaction">("canonical_document");const [evidenceId,setEvidenceId]=useState("");const [confirmed,setConfirmed]=useState(false);const [message,setMessage]=useState("");
+  const submit=async(event:FormEvent)=>{event.preventDefault();try{await api.supplierCommitmentMatch(slug,{commitmentId,occurrenceDate,evidence:{kind,id:evidenceId}});setMessage("Canonical evidence er matchet append-only.");onDone();}catch(cause){setMessage(cause instanceof Error?cause.message:String(cause));}};
+  return <form onSubmit={event=>void submit(event)} className="row-actions"><select aria-label="Forpligtelse" value={commitmentId} onChange={event=>setCommitmentId(event.target.value)}>{rows.map(row=><option key={row.commitmentId}>{row.commitmentId}</option>)}</select><input aria-label="Forventet dato" type="date" value={occurrenceDate} onChange={event=>setOccurrenceDate(event.target.value)}/><select aria-label="Evidenstype" value={kind} onChange={event=>setKind(event.target.value as typeof kind)}><option value="canonical_document">Bilag</option><option value="payable">Kreditor</option><option value="bank_transaction">Bankpost</option></select><input aria-label="Canonical evidence-id" value={evidenceId} onChange={event=>setEvidenceId(event.target.value)}/><label><input type="checkbox" checked={confirmed} onChange={event=>setConfirmed(event.target.checked)}/> Bekræft match</label><button type="submit" className="btn secondary" disabled={!confirmed||!commitmentId||!occurrenceDate||!evidenceId}>Match faktisk occurrence</button>{message&&<span className="muted">{message}</span>}</form>;
+}
 
 /**
  * The bank balance at the end of each of the twelve calendar months: the last
@@ -45,13 +53,15 @@ function monthlyBalances(cf: CompanyCashflow): Array<number | null> {
 export function LiquidityView() {
   const { slug = "" } = useParams();
   const { year, setYear } = useCompanyYear();
+  const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
+  const [pending, setPending] = useState<{commitmentId:string;action:"paused"|"ended"}|null>(null);
   const state = useAsync<CompanyCashflow>(
     () => api.cashflow(slug, year),
     [slug, year],
   );
   const commitments = useAsync(
-    () => api.supplierCommitments(slug, `${year}-01-01`),
-    [slug, year],
+    () => api.supplierCommitments(slug, asOf),
+    [slug, asOf],
   );
 
   if (state.loading && !state.data)
@@ -90,11 +100,16 @@ export function LiquidityView() {
       {commitments.data && (
         <section className="section">
           <h3>13 ugers likviditetsprognose</h3>
+          <label>Prognose fra <input aria-label="Prognose fra" type="date" value={asOf} onChange={event=>setAsOf(event.target.value)}/></label>
           <p className="muted">Primo {formatKroner(commitments.data.forecast.openingCash, currency)} · laveste punkt {formatKroner(commitments.data.forecast.lowestPoint, currency)}. Antagelser og fremmed valuta fremgår særskilt.</p>
           <div className="card statement-card table-scroll"><table className="data"><thead><tr><th>Uge</th><th className="num">Tilgodehavender</th><th className="num">Kreditorer</th><th className="num">Forpligtelser</th><th className="num">Ultimo</th></tr></thead><tbody>{commitments.data.forecast.periods.map(p=><tr key={p.weekStart}><td>{p.weekStart}</td><td className="num">{formatKroner(p.receivables,currency)}</td><td className="num">{formatKroner(p.payables,currency)}</td><td className="num">{formatKroner(p.commitments,currency)}</td><td className="num">{formatKroner(p.closingCash,currency)}</td></tr>)}</tbody></table></div>
           <h3>Abonnementer og leverandørforpligtelser</h3>
-          {commitments.data.commitments.length===0?<p className="muted">Ingen godkendte forpligtelser.</p>:<div className="card statement-card table-scroll"><table className="data"><thead><tr><th>Leverandør</th><th>Formål</th><th className="num">Beløb</th><th>Frekvens</th><th>Næste</th><th>Fornyelse</th><th>Bilag</th></tr></thead><tbody>{commitments.data.commitments.map(c=><tr key={c.commitmentId}><td>{c.vendor}</td><td>{c.purpose}</td><td className="num">{c.amount===null?"—":formatKroner(c.amount,c.currency??currency)}</td><td>{c.frequency}</td><td>{c.nextDate}</td><td>{c.renewalDate??"—"}</td><td>{c.evidenceRefs.length?c.evidenceRefs.join(", "):"Mangler"}</td></tr>)}</tbody></table></div>}
+          {commitments.data.alerts.length>0&&<div className="card"><h4>Fornyelse og opsigelse</h4><ul>{commitments.data.alerts.map(alert=><li key={`${alert.commitmentId}:${alert.kind}:${alert.date}`}><strong>{alert.date}</strong> · {alert.kind} · <code>{alert.commitmentId}</code></li>)}</ul></div>}
+          {commitments.data.commitments.length===0?<p className="muted">Ingen godkendte forpligtelser.</p>:<div className="card statement-card table-scroll"><table className="data"><thead><tr><th>Leverandør</th><th>Formål</th><th className="num">Beløb</th><th>Frekvens</th><th>Næste</th><th>Fornyelse</th><th>Bilag</th><th>Handling</th></tr></thead><tbody>{commitments.data.commitments.map(c=><tr key={c.commitmentId}><td>{c.vendor}</td><td>{c.purpose}</td><td className="num">{c.amount===null?"—":formatKroner(c.amount,c.currency??currency)}</td><td>{c.frequency}</td><td>{c.nextDate}</td><td>{c.renewalDate??"—"}</td><td>{c.evidenceRefs.length?c.evidenceRefs.join(", "):"Mangler"}</td><td><button type="button" className="btn secondary" onClick={()=>setPending({commitmentId:c.commitmentId,action:"paused"})}>Pause</button> <button type="button" className="btn secondary" onClick={()=>setPending({commitmentId:c.commitmentId,action:"ended"})}>Afslut</button></td></tr>)}</tbody></table></div>}
+          {commitments.data.commitments.length>0&&<details><summary>Match faktisk bilag, kreditor eller bankpost</summary><CommitmentMatchForm slug={slug} rows={commitments.data.commitments} onDone={commitments.reload}/></details>}
+          {commitments.data.matches.length>0&&<div className="card"><h4>Faktisk mod forventet</h4><ul>{commitments.data.matches.map(match=><li key={`${match.commitmentId}:${match.occurrenceDate}`}><code>{match.commitmentId}</code> · {match.occurrenceDate} · {match.variance.dateDays} dage · {match.variance.amount===null?"valuta kan ikke sammenlignes":formatKroner(match.variance.amount,currency)} · bilag {match.variance.documentation}</li>)}</ul></div>}
           <p className="muted">Udeladt: {commitments.data.forecast.completeness.excluded.join("; ")}</p>
+          {pending&&<ConfirmDialog title={pending.action==="paused"?"Pause forpligtelse":"Afslut forpligtelse"} body={<p>Ændringen er append-only og påvirker kun fremtidige forecast-occurrences.</p>} confirmLabel={pending.action==="paused"?"Pause":"Afslut"} confirmKind={pending.action==="ended"?"danger":"primary"} noteLabel="Begrundelse" onConfirm={async reason=>{if(!reason)throw new Error("Begrundelse er påkrævet.");await api.supplierCommitmentChange(slug,{...pending,reason});commitments.reload();}} onClose={()=>setPending(null)}/>}
         </section>
       )}
 

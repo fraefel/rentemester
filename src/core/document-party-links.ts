@@ -13,6 +13,7 @@ export const DOCUMENT_PARTY_LINK_ERRORS = {
   LEGACY_REFERENCE_UNREVIEWED: "LEGACY_REFERENCE_UNREVIEWED", PLAN_HASH_MISMATCH: "PLAN_HASH_MISMATCH",
   CONFIRMATION_REQUIRED: "CONFIRMATION_REQUIRED", ACTOR_REQUIRED: "ACTOR_REQUIRED", PRINCIPAL_REQUIRED: "PRINCIPAL_REQUIRED",
   LINK_NOT_FOUND: "LINK_NOT_FOUND", SUPERSEDE_REASON_REQUIRED: "SUPERSEDE_REASON_REQUIRED", IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
+  CURRENT_STATE_CONFLICT: "CURRENT_STATE_CONFLICT",
 } as const;
 export const DOCUMENT_PARTY_ROLES = ["issuer", "supplier", "customer", "recipient", "payer", "payee", "processor", "acquirer", "related_company", "establishment", "location", "payment_descriptor", "vendor", "owner", "adviser", "employee", "authority", "bank"] as const;
 export type DocumentPartyRole = typeof DOCUMENT_PARTY_ROLES[number];
@@ -60,8 +61,11 @@ export function planDocumentPartyLink(ledger: Database, registry: Database, inpu
 export function applyDocumentPartyLink(ledger:Database, registry:Database, input:DocumentPartyLinkPlanInput & {planHash:string; confirm:boolean; actor?:string; principal?:string; idempotencyKey?:string}) {
   if(!input.confirm) return fail(DOCUMENT_PARTY_LINK_ERRORS.CONFIRMATION_REQUIRED); if(!value(input.actor,160)) return fail(DOCUMENT_PARTY_LINK_ERRORS.ACTOR_REQUIRED); if(!value(input.principal,160)) return fail(DOCUMENT_PARTY_LINK_ERRORS.PRINCIPAL_REQUIRED);
   const planned=planDocumentPartyLink(ledger,registry,input); if(!planned.ok) return planned; if(input.planHash!==planned.plan.planHash) return fail(DOCUMENT_PARTY_LINK_ERRORS.PLAN_HASH_MISMATCH);
+  if (ledger.query("SELECT 1 FROM current_document_party_resolution_events WHERE document_id=? AND state='internal_no_external_party'").get(input.documentId)) return fail(DOCUMENT_PARTY_LINK_ERRORS.CURRENT_STATE_CONFLICT);
   const keyed=input.idempotencyKey ? ledger.query("SELECT id,plan_hash FROM document_party_link_events WHERE idempotency_key=?").get(input.idempotencyKey) as any : null;
   if (keyed && keyed.plan_hash !== input.planHash) return fail(DOCUMENT_PARTY_LINK_ERRORS.IDEMPOTENCY_CONFLICT);
+  const current=ledger.query("SELECT id,plan_hash FROM current_document_party_links WHERE document_id=? AND party_role=? ORDER BY id DESC LIMIT 1").get(input.documentId,input.role) as {id:number;plan_hash:string}|null;
+  if (current && current.plan_hash !== input.planHash) return fail(DOCUMENT_PARTY_LINK_ERRORS.CURRENT_STATE_CONFLICT);
   const existing=keyed ?? ledger.query("SELECT id FROM document_party_link_events WHERE document_id=? AND party_role=? AND event_type='linked' AND plan_hash=?").get(input.documentId,input.role,input.planHash) as any;
   if(existing) return {ok:true as const,id:existing.id,idempotent:true,planHash:input.planHash};
   const event=ledger.query("INSERT INTO document_party_link_events(document_id,party_id,party_role,event_type,evidence_kind,evidence_json,document_sha256,document_payload_sha256,party_snapshot_json,plan_hash,idempotency_key,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id").get(input.documentId,planned.plan.partyId,input.role,"linked",planned.plan.evidence.kind,canonical(planned.plan.evidence),planned.plan.documentSha256,planned.plan.documentPayloadSha256,canonical(planned.plan.partySnapshot),input.planHash,input.idempotencyKey??null,input.actor,input.principal,new Date().toISOString()) as any;

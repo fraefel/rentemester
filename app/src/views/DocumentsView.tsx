@@ -111,6 +111,7 @@ export function DocumentsView() {
   const { slug = "" } = useParams();
   const { year, setYear } = useCompanyYear();
   const [params, setParams] = useSearchParams();
+  const documentId = Number(params.get("documentId")) || null;
   const state = useAsync<DocumentsPage>(
     async () => {
       const [documents, fiscalYears] = await Promise.all([
@@ -179,7 +180,9 @@ export function DocumentsView() {
     fromDate !== "" ||
     toDate !== "" ||
     status !== "all" ||
-    type !== "all";
+    type !== "all" ||
+    party !== "all" ||
+    documentId !== null;
 
   function toggleSort(key: SortKey) {
     setSort((prev) => {
@@ -202,6 +205,7 @@ export function DocumentsView() {
     if (!hasActiveFilter) return allDocuments;
     const needle = q.trim().toLowerCase();
     return allDocuments.filter((doc) => {
+      if (documentId !== null && doc.id !== documentId) return false;
       if (needle !== "" && !documentMatchesText(doc, needle)) return false;
       if (fromDate !== "") {
         if (!doc.invoiceDate || doc.invoiceDate < fromDate) return false;
@@ -220,7 +224,7 @@ export function DocumentsView() {
       if (party === "ambiguous") return false;
       return true;
     });
-  }, [allDocuments, hasActiveFilter, q, fromDate, toDate, status, type, party, linkedIds, internalNoPartyIds]);
+  }, [allDocuments, hasActiveFilter, q, fromDate, toDate, status, type, party, documentId, linkedIds, internalNoPartyIds]);
 
   const sortedDocuments = useMemo(() => {
     if (!sort) return filteredDocuments;
@@ -566,8 +570,8 @@ export function DocumentsView() {
                         {doc.supplierCountryCode ?? "—"} · {doc.supplierIdentifierKind ?? "—"} · {doc.supplierIdentityStatus ?? "—"}
                       </div>
                     )}
-                    <div className="muted">{linkedIds.has(doc.id) ? "Kanonisk part koblet" : "Kanonisk part ikke koblet — gennemgå før anvendelse"}</div>
-                    {!linkedIds.has(doc.id) && <button type="button" className="btn small secondary" onClick={() => beginPartyReview(doc)}>Gennemgå part</button>}
+                    <div className="muted">{internalNoPartyIds.has(doc.id) ? "Bekræftet internt bilag uden ekstern part" : linkedIds.has(doc.id) ? "Kanonisk part koblet" : "Kanonisk part ikke koblet — gennemgå før anvendelse"}</div>
+                    {!linkedIds.has(doc.id) && !internalNoPartyIds.has(doc.id) && <button type="button" className="btn small secondary" onClick={() => beginPartyReview(doc)}>Gennemgå part</button>}
                   </td>
                   <td>{doc.invoiceNo ?? "—"}</td>
                   <td className="entry-date">{doc.invoiceDate ?? "—"}</td>

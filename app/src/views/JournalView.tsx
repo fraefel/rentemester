@@ -21,7 +21,7 @@ import { ErrorState, Loading } from "../components/Feedback";
 import { ArchivedBanner } from "../components/ArchivedBanner";
 import { CompanyNav, useCompanyYear } from "../components/CompanyNav";
 
-const FILTER_PARAM_KEYS = ["q", "from", "to", "amountMin", "amountMax"] as const;
+const FILTER_PARAM_KEYS = ["q", "from", "to", "amountMin", "amountMax", "journalEntryId"] as const;
 
 export function JournalView() {
   const { slug = "" } = useParams();
@@ -30,6 +30,7 @@ export function JournalView() {
   // to the entries that touch that account (set by the statement views).
   const [params, setParams] = useSearchParams();
   const account = params.get("account") ?? undefined;
+  const journalEntryId = Number(params.get("journalEntryId")) || null;
   const clearAccount = () => {
     const next = new URLSearchParams(params);
     next.delete("account");
@@ -64,7 +65,8 @@ export function JournalView() {
     fromDate !== "" ||
     toDate !== "" ||
     amountMin !== "" ||
-    amountMax !== "";
+    amountMax !== "" ||
+    journalEntryId !== null;
 
   const state = useAsync<CompanyJournal>(
     () => api.journal(slug, year, account),
@@ -78,6 +80,7 @@ export function JournalView() {
     const minN = amountMin === "" ? null : Number(amountMin);
     const maxN = amountMax === "" ? null : Number(amountMax);
     return entries.filter((entry) => {
+      if (journalEntryId !== null && entry.id !== journalEntryId) return false;
       if (needle !== "" && !entryMatchesText(entry, needle)) return false;
       if (fromDate !== "" && entry.date < fromDate) return false;
       if (toDate !== "" && entry.date > toDate) return false;
@@ -87,7 +90,7 @@ export function JournalView() {
         return false;
       return true;
     });
-  }, [state.data, hasActiveFilter, q, fromDate, toDate, amountMin, amountMax]);
+  }, [state.data, hasActiveFilter, q, fromDate, toDate, amountMin, amountMax, journalEntryId]);
 
   if (state.loading && !state.data)
     return <Loading label="Henter posteringer…" />;

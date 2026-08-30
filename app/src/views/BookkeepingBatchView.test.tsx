@@ -45,4 +45,15 @@ describe("BookkeepingBatchView", () => {
     expect(screen.getByRole("button", { name: "Gem eksakt plan" })).toBeDisabled();
     expect(screen.getByText(/filtrering kan ikke omgå dem/)).toBeInTheDocument();
   });
+
+  test("restores the durable run from a runId drilldown after restart", async () => {
+    const restored = { ...plan, scope: { accountingFrom: "2026-01-01", accountingTo: "2026-01-31", bankFrom: "2026-01-01", bankTo: "2026-01-31" } };
+    mockFetch({
+      "GET /api/companies/acme-aps/bookkeeping-batch/runs/7": { state: { run: { runId: 7, plan: JSON.stringify(restored) }, revisions: [{}], attempts: [], receipts: [] } },
+    });
+    renderAt(<BookkeepingBatchView />, { route: "/companies/acme-aps/batchbogfoering?runId=7", path: "/companies/:slug/batchbogfoering" });
+    await screen.findByText("Varig historik");
+    expect(screen.getByText(/Revisioner: 1/)).toBeInTheDocument();
+    expect(screen.getByText("Plan-hash:")).toBeInTheDocument();
+  });
 });

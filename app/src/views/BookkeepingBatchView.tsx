@@ -1,11 +1,13 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 
 const statuses = ["ready", "suggestedMatch", "missingDocument", "partyUnresolved", "accountingDecisionRequired", "vatEvidenceRequired", "dimensionEvidenceRequired", "stalePlan", "applyFailed"];
 
 export function BookkeepingBatchView() {
   const { slug = "" } = useParams();
+  const [params] = useSearchParams();
+  const requestedRunId = params.get("runId");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [filters, setFilters] = useState({ status: "", bankAccountId: "", partyId: "", documentQuality: "", account: "", vatTreatment: "", dimension: "", search: "" });
@@ -17,6 +19,21 @@ export function BookkeepingBatchView() {
   const [error, setError] = useState<string>();
   const scope = { companyId: 1, accountingFrom: from, accountingTo: to, bankFrom: from, bankTo: to };
   const setFilter = (name: keyof typeof filters, value: string) => setFilters(current => ({ ...current, [name]: value }));
+
+  useEffect(() => {
+    const runId = Number(requestedRunId);
+    if (!Number.isSafeInteger(runId) || runId < 1) return;
+    void api.bookkeepingBatchStatus(slug, runId).then(response => {
+      const state = response.state;
+      if (!state?.run?.plan) throw new Error("Batchkørslen findes ikke.");
+      const restoredPlan = JSON.parse(state.run.plan);
+      setRun({ runId, plan: restoredPlan, state });
+      if (restoredPlan.scope) {
+        setFrom(restoredPlan.scope.bankFrom ?? restoredPlan.scope.accountingFrom ?? "");
+        setTo(restoredPlan.scope.bankTo ?? restoredPlan.scope.accountingTo ?? "");
+      }
+    }).catch(cause => setError(cause instanceof Error ? cause.message : String(cause)));
+  }, [requestedRunId, slug]);
 
   const refresh = async (next = cursor) => {
     try {
@@ -68,7 +85,7 @@ export function BookkeepingBatchView() {
       {queue.state === "zero" ? <p>Ingen uafstemte bankposter i perioden.</p> : <>
         <p className="muted">{queue.completeness.nextAction}</p>
         <table><thead><tr><th>Dato</th><th>Banktekst</th><th>Beløb</th><th>Status</th><th>Næste skridt</th></tr></thead><tbody>{queue.rows.map((row: any) => <tr key={row.bankTransactionId}>
-          <td>{row.date}</td><td><strong>{row.text}</strong><details><summary>Detaljer og kilder</summary><p>Bilag: {row.document?.id ?? "mangler"} · Part: {row.document?.party?.name ?? row.document?.resolutionState ?? "uafklaret"} · Konto: {row.proposed.account ?? "uafklaret"} · Moms: {row.proposed.vatTreatment ?? "uafklaret"} · Dimensioner: {row.proposed.dimensions.map((dimension: any) => `${dimension.dimensionId}:${dimension.memberId} (${dimension.status})`).join(", ") || "ingen"}</p><p><Link to={`/companies/${slug}/bank?transactionId=${row.bankTransactionId}`}>Bank og afstemning</Link>{row.drilldown.documentId && <> · <Link to={`/companies/${slug}/bilag?documentId=${row.drilldown.documentId}`}>Bilag</Link></>}{row.drilldown.partyId && <> · <Link to={`/companies/${slug}/workspace-register?partyId=${encodeURIComponent(row.drilldown.partyId)}`}>Canonical part</Link></>}{row.drilldown.runId && <> · <Link to={`/companies/${slug}/batchbogfoering?runId=${row.drilldown.runId}`}>Reviewet batch</Link></>}{row.drilldown.journalEntryId && <> · <Link to={`/companies/${slug}/posteringer?journalEntryId=${row.drilldown.journalEntryId}`}>Journal</Link></>}</p></details></td>
+          <td>{row.date}</td><td><strong>{row.text}</strong><details><summary>Detaljer og kilder</summary><p>Bilag: {row.document?.id ?? "mangler"} · Part: {row.document?.party?.name ?? row.document?.resolutionState ?? "uafklaret"} · Konto: {row.proposed.account ?? "uafklaret"} · Moms: {row.proposed.vatTreatment ?? "uafklaret"} · Dimensioner: {row.proposed.dimensions.map((dimension: any) => `${dimension.dimensionId}:${dimension.memberId} (${dimension.status})`).join(", ") || "ingen"}</p><p><Link to={`/companies/${slug}/bank?transactionId=${row.bankTransactionId}`}>Bank og afstemning</Link>{row.drilldown.documentId && <> · <Link to={`/companies/${slug}/bilag?documentId=${row.drilldown.documentId}`}>Bilag</Link></>}{row.drilldown.partyId && <> · <Link to={`/companies/${slug}/workspace-register#party-${encodeURIComponent(row.drilldown.partyId)}`}>Canonical part</Link></>}{row.drilldown.runId && <> · <Link to={`/companies/${slug}/batchbogfoering?runId=${row.drilldown.runId}`}>Reviewet batch</Link></>}{row.drilldown.journalEntryId && <> · <Link to={`/companies/${slug}/posteringer?journalEntryId=${row.drilldown.journalEntryId}`}>Journal</Link></>}</p></details></td>
           <td>{row.amount} {row.currency}</td><td>{row.status}</td><td>{row.nextAction}</td>
         </tr>)}</tbody></table>
         <div className="row-actions"><button type="button" className="btn secondary" disabled={cursor === 0} onClick={() => refresh(Math.max(0, cursor - 25))}>Forrige</button><button type="button" className="btn secondary" disabled={queue.page.nextCursor === null} onClick={() => refresh(queue.page.nextCursor)}>Næste</button></div>

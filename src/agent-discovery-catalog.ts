@@ -278,6 +278,13 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     write("approve-merge", mcp("workspace_party_approve_merge"), "Approve the exact proposal and append a supersession event.", { dependsOn:["propose-merge"], boundary:"approval", canonicalRecords:["party merge approval", "party supersession"] }),
     read("inspect", mcp("workspace_party_inspect"), "Read the visible canonical history and local roles.", { dependsOn:["link-role|approve-merge"] }),
   ], unsupportedBoundaries:["Name, amount or alias similarity never auto-merges a legal identity.", "Company-local defaults never become workspace posting rules."] }),
+  workflow({ id: "document-party-resolution", capabilityId: "document-party-resolution", title: "Document party resolution", intendedOutcome: "Make exactly one visible party-resolution state without changing document evidence, VAT, or journals.", steps: [
+    read("list", mcp("documents_party_link_list"), "List resolved, internal-no-external-party, and unresolved documents."),
+    read("plan", mcp("documents_party_link_plan"), "Plan an exact evidence-bound canonical party relation."),
+    write("apply", mcp("documents_party_link_apply"), "Append the confirmed canonical party relation.", { dependsOn:["plan"], expectedIdempotent:true, retryClass:"natural-idempotent", canonicalRecords:["document party link event"] }),
+    write("no-external-party", mcp("documents_internal_no_external_party"), "Confirm an internal voucher intentionally has no external party.", { expectedIdempotent:true, retryClass:"natural-idempotent", canonicalRecords:["document party resolution event"] }),
+    write("supersede", mcp("documents_internal_no_external_party_supersede"), "Append a correction to the exact no-party decision.", { boundary:"review", expectedIdempotent:true, retryClass:"natural-idempotent", canonicalRecords:["document party resolution supersession"] }),
+  ], unsupportedBoundaries:["Party resolution never changes linked/posted evidence bytes, VAT, or journals.", "Names alone never resolve a canonical party."] }),
   workflow({ id: "corporate-record-lifecycle", capabilityId: "corporate-records", title: "Corporate record lifecycle", intendedOutcome: "Store immutable governance evidence, link it to permitted scope, enrich it append-only and supersede rather than overwrite it.", steps: [
     write("ingest", mcp("corporate_record_ingest"), "Ingest bytes and immutable SHA-256 evidence without ledger, group or filing side effects.", { canonicalRecords:["corporate record original bytes", "corporate record ingest event"] }),
     write("link", mcp("corporate_record_link"), "Attach a typed scope link without changing bytes.", { dependsOn:["ingest"], canonicalRecords:["corporate record scope assertion"] }),
@@ -326,6 +333,7 @@ const capabilityTuples: CapabilityTuple[] = [
   ["accounting-dimensions", "Accounting dimensions", "Classify source-linked journal lines by reviewed projects, products, departments or cost centres without changing legal accounting.", "reporting", ["classify project cost", "assign cost centre", "dimension actuals"], ["dimension", "project", "cost centre", "department", "allocation"], "company", ["accounting-dimensions"]],
   ["posting-rules", "Posting rules", "Propose, approve and explain reusable posting rules.", "rules", ["create posting rule", "approve bookkeeping rule"], ["automation", "review separation"], "company", ["posting-rule-review"]],
   ["workspace-parties", "Workspace parties", "Maintain canonical counterparties with isolated company roles and reviewed supersession.", "master data", ["create canonical party", "link company party role", "review duplicate party"], ["party", "counterparty", "identity", "vendor role"], "workspace", ["workspace-party-lifecycle"]],
+  ["document-party-resolution", "Document party resolution", "Resolve a document to canonical party relations, an explicit internal no-party decision, or a bounded unresolved state.", "documents", ["link document party", "confirm internal voucher has no external party", "inspect document party resolution"], ["document party", "issuer", "supplier", "payer", "payment descriptor"], "company", ["document-party-resolution"]],
   ["corporate-records", "Corporate records", "Store immutable corporate and governance evidence with typed, access-controlled links.", "governance", ["ingest corporate record", "link governance evidence", "supersede corporate record"], ["corporate record", "governance", "articles", "ownership evidence"], "workspace", ["corporate-record-lifecycle"]],
   ["ownership-graph", "Ownership and control graph", "Review source-backed, party-aware ownership and control facts without changing legal ledgers or inferring consolidation.", "governance", ["review ownership", "record registry ownership", "query control graph"], ["ownership", "shareholder", "control", "registry diff"], "legal-group", ["ownership-graph-review"]],
 ];
@@ -445,8 +453,8 @@ type SurfaceBaseline = { count: number; hash: string };
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // Public surface changes require an explicit discovery review.
-  mcp: { count: 196, hash: "8bcb80bf8300e9cc6f2a065ddc35e6a96c4e7d1878d8e8c9b7e9bf72a0f4fffc" },
-  cli: { count: 249, hash: "018aef5f299278f60d73eabb81284174d28c96888b278014fae6ac036a598957" },
+  mcp: { count: 198, hash: "f93e33ec8d121fce3db128696e275ce0582f55b9896e49c76f6c5ee4146be7ba" },
+  cli: { count: 251, hash: "3fddd945ddc8bcdf944253cb310cea814e7b3d0f75a7a83158a677913f05f71b" },
   http: { count: 191, hash: "ea8c4bcba9a9f6653358bc3db665050d6a8139edbf5f6a567e2132076ca5791d" },
 };
 
@@ -456,6 +464,7 @@ const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }>
   { capabilityId: "workspace-document-inbox", pattern: /workspace[_-]inbox/ },
   { capabilityId: "corporate-records", pattern: /(?:corporate[_-]record|corporate-record)/ },
   { capabilityId: "workspace-parties", pattern: /(?:workspace[_-]party|^cli:party )/ },
+  { capabilityId: "document-party-resolution", pattern: /documents?_party|party-link|internal-no-external-party/ },
   { capabilityId: "digisense-nemhandel", pattern: /(?:efaktura|digisense|peppol|send-public)/ },
   { capabilityId: "group-intercompany", pattern: /(?:group|portfolio)/ },
   { capabilityId: "posting-rules", pattern: /(?:posting[_-]rules?|posting_rule|agent-suggestions)/ },

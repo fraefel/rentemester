@@ -8,8 +8,8 @@ export const documentsApi = {
     ).then((r) => r.documents),
 
   /** #588: review-only party-link state, kept separate from invoice facts. */
-  documentPartyLinks: (slug: string, status?: "linked" | "unlinked") =>
-    request<{ ok: true; links: Array<{ id: number; document_no: string | null; linked: 0 | 1 }> }>(
+  documentPartyLinks: (slug: string, status?: "linked" | "unlinked" | "resolved" | "internal_no_external_party" | "unresolved") =>
+    request<{ ok: true; links: Array<{ id: number; document_no: string | null; linked: 0 | 1; resolution_state: "resolved" | "internal_no_external_party" | "unresolved" }> }>(
       `/api/companies/${encodeURIComponent(slug)}/documents/party-links${status ? `?status=${status}` : ""}`,
     ).then((r) => r.links),
 
@@ -28,6 +28,9 @@ export const documentsApi = {
 
   applyDocumentPartyLink: (slug: string, input: Record<string, unknown>) =>
     request<{ ok: boolean; id?: number; errors?: string[] }>(`/api/companies/${encodeURIComponent(slug)}/documents/party-links/apply`, { method: "POST", body: JSON.stringify(input) }),
+
+  confirmInternalNoExternalParty: (slug: string, input: Record<string, unknown>) =>
+    request<{ ok: boolean; id?: number; errors?: string[] }>(`/api/companies/${encodeURIComponent(slug)}/documents/internal-no-external-party`, { method: "POST", body: JSON.stringify(input) }),
 
   /**
    * URL of a stored bilag file — opened directly in a new browser tab, so it

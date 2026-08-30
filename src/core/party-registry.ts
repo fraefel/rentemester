@@ -9,7 +9,9 @@ function canonicalJson(value: unknown): string {
 }
 
 export const PARTY_KINDS = ["person", "organization", "public_authority", "financial_institution"] as const;
-export const PARTY_ROLES = ["customer", "vendor", "owner", "adviser", "employee", "authority", "bank"] as const;
+/** Roles are deliberately relationship roles, not a classification of the
+ * canonical party.  A party can hold several roles in different companies. */
+export const PARTY_ROLES = ["issuer", "supplier", "customer", "recipient", "payer", "payee", "processor", "acquirer", "related_company", "establishment", "location", "payment_descriptor", "vendor", "owner", "adviser", "employee", "authority", "bank"] as const;
 type PartyKind = typeof PARTY_KINDS[number];
 type PartyRole = typeof PARTY_ROLES[number];
 type PartyEvent = "created" | "proposed_merge" | "approved_merge" | "superseded" | "linked";

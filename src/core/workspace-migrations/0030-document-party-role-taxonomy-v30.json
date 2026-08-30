@@ -1,0 +1,5 @@
+{
+  "id": 30,
+  "name": "rentemester-document-party-role-taxonomy-v30",
+  "sql": "ALTER TABLE rm_party_company_roles RENAME TO rm_party_company_roles_v15;\nCREATE TABLE rm_party_company_roles (party_id TEXT NOT NULL, company_slug TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('issuer','supplier','customer','recipient','payer','payee','processor','acquirer','related_company','establishment','location','payment_descriptor','vendor','owner','adviser','employee','authority','bank')), defaults_json TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(party_id,company_slug,role));\nINSERT INTO rm_party_company_roles SELECT * FROM rm_party_company_roles_v15;\nDROP TABLE rm_party_company_roles_v15;\n"
+}

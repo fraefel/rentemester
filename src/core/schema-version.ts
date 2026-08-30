@@ -141,6 +141,9 @@ export const SUPPLIER_COMMITMENTS_MIGRATION_NAME = "rentemester-supplier-commitm
 const ACCOUNTING_DIMENSIONS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0028-accounting-dimensions.json"));
 export const ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM = createHash("sha256").update(ACCOUNTING_DIMENSIONS_MIGRATION_ARTIFACT).digest("hex");
 export const ACCOUNTING_DIMENSIONS_MIGRATION_NAME = "rentemester-accounting-dimensions-v28";
+const DOCUMENT_PARTY_RESOLUTION_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0029-document-party-resolution.json"));
+export const DOCUMENT_PARTY_RESOLUTION_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_PARTY_RESOLUTION_MIGRATION_ARTIFACT).digest("hex");
+export const DOCUMENT_PARTY_RESOLUTION_MIGRATION_NAME = "rentemester-document-party-resolution-v29";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -191,6 +194,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 26, name: DOCUMENT_PARTY_LINKS_MIGRATION_NAME, checksum: DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM },
   { id: 27, name: SUPPLIER_COMMITMENTS_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM },
   { id: 28, name: ACCOUNTING_DIMENSIONS_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM },
+  { id: 29, name: DOCUMENT_PARTY_RESOLUTION_MIGRATION_NAME, checksum: DOCUMENT_PARTY_RESOLUTION_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -424,6 +428,7 @@ export function applySchemaMigrations(db: Database): void {
     { id: 26, name: DOCUMENT_PARTY_LINKS_MIGRATION_NAME, checksum: DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM, artifact: DOCUMENT_PARTY_LINKS_MIGRATION_ARTIFACT },
     { id: 27, name: SUPPLIER_COMMITMENTS_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM, artifact: SUPPLIER_COMMITMENTS_MIGRATION_ARTIFACT },
     { id: 28, name: ACCOUNTING_DIMENSIONS_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM, artifact: ACCOUNTING_DIMENSIONS_MIGRATION_ARTIFACT },
+    { id: 29, name: DOCUMENT_PARTY_RESOLUTION_MIGRATION_NAME, checksum: DOCUMENT_PARTY_RESOLUTION_MIGRATION_CHECKSUM, artifact: DOCUMENT_PARTY_RESOLUTION_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;

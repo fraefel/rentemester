@@ -253,6 +253,8 @@ frit og parallelt.
 | `accounts_list` | `accounts list` | `{ company }` | Lister kontoplanen. |
 | `expense_vat_preflight` | `expense vat-preflight` | `{ company, documentId }` | Ren dry-run: afledt region, krævet validering, cache-friskhed, sikker evidens/exception og om apply ville kalde provider. |
 | `accounts_roles_status` | `accounts roles-status` | `{ company }` | Viser bekræftede kontoroller, importforslag, tvetydigheder og den read-only posting-resolution. |
+
+Document-party resolution uses exactly one visible state per document: `resolved`, `internal_no_external_party`, or `unresolved`. `documents_internal_no_external_party` is limited to internal vouchers and records a confirmed, actor-audited, hash-bound append-only decision; it never mutates document bytes, VAT, or journals.
 | `accrual_register_report` | `accrual register-report` | `{ company }` | Register af periodeafgrænsningsposter med bogførte perioder, periodiseret beløb og resterende balanceeksponering. |
 | `asset_register_report` | `asset register-report` | `{ company }` | Aktivregister med akkumulerede afskrivninger og bogført værdi. |
 | `audit_log_list` | `gdpr audit-log` (delvis) | `{ company, fromDate?, toDate?, eventTypeLike?, actorLike?, limit?, offset? }` | Filtreret, pagineret read af audit_log — den menneskelæsbare revisionsspor over hvad agenten/cockpittet/CLI'en har gjort. Append-only på server-siden. |

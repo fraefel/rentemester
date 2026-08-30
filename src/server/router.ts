@@ -83,6 +83,7 @@ import {
   handleDocumentPartyLinkInspect,
   handleDocumentPartyLinkPlan,
   handleDocumentPartyLinkAction,
+  handleInternalNoExternalParty,
 } from "./router/documents";
 import { handleGroupConsolidatedReport, handleGroupDispositionAction, handleGroupDispositionStatus, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
 import {
@@ -1489,6 +1490,8 @@ export async function handleRequest(
     if (documentPartyPlanMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPartyLinkPlan(config,decodeURIComponent(documentPartyPlanMatch[1]!),request); }
     const documentPartyApplyMatch = /^\/api\/companies\/([^/]+)\/documents\/party-links\/(apply|supersede)$/.exec(path);
     if (documentPartyApplyMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPartyLinkAction(config,decodeURIComponent(documentPartyApplyMatch[1]!),request,documentPartyApplyMatch[2]! as "apply"|"supersede"); }
+    const internalNoExternalMatch = path.match(/^\/api\/companies\/([^/]+)\/documents\/internal-no-external-party(\/supersede)?$/);
+    if (internalNoExternalMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleInternalNoExternalParty(config,decodeURIComponent(internalNoExternalMatch[1]!),request,Boolean(internalNoExternalMatch[2])); }
     const documentParsePendingMatch = /^\/api\/companies\/([^/]+)\/documents\/parse-pending$/.exec(path);
     if (documentParsePendingMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPdfParsePending(config, request, decodeURIComponent(documentParsePendingMatch[1]!)); }
     const documentParseMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/parse$/.exec(path);

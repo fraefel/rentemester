@@ -49,7 +49,7 @@ type TypeFilter = "all" | "purchase_sale" | "cash_register_receipt" | "internal_
 
 type SortKey = "date" | "amount";
 type SortDir = "asc" | "desc";
-type PartyFilter = "all" | "linked" | "unlinked" | "ambiguous";
+type PartyFilter = "all" | "linked" | "unlinked" | "internal_no_external_party" | "ambiguous";
 type PartyCandidate = { partyId: string; name: string };
 type PartyPlan = {
   planHash: string;
@@ -149,7 +149,7 @@ export function DocumentsView() {
   const partyRaw = params.get("party") ?? "all";
   const status: StatusFilter = isStatusFilter(statusRaw) ? statusRaw : "all";
   const type: TypeFilter = isTypeFilter(typeRaw) ? typeRaw : "all";
-  const party: PartyFilter = partyRaw === "linked" || partyRaw === "unlinked" || partyRaw === "ambiguous" ? partyRaw : "all";
+  const party: PartyFilter = partyRaw === "linked" || partyRaw === "unlinked" || partyRaw === "internal_no_external_party" || partyRaw === "ambiguous" ? partyRaw : "all";
 
   // #433 — sorter for the date/amount columns. Default is the order returned
   // by the server (the document id), which is what the page used to do; only
@@ -196,6 +196,7 @@ export function DocumentsView() {
 
   const allDocuments = state.data?.documents.documents ?? [];
   const linkedIds = useMemo(() => new Set((partyLinks.data ?? []).filter((link) => link.linked === 1).map((link) => link.id)), [partyLinks.data]);
+  const internalNoPartyIds = useMemo(() => new Set((partyLinks.data ?? []).filter((link) => link.resolution_state === "internal_no_external_party").map((link) => link.id)), [partyLinks.data]);
 
   const filteredDocuments = useMemo(() => {
     if (!hasActiveFilter) return allDocuments;
@@ -212,13 +213,14 @@ export function DocumentsView() {
       if (status === "unbooked" && doc.journalEntryNo !== null) return false;
       if (type !== "all" && doc.documentType !== type) return false;
       if (party === "linked" && !linkedIds.has(doc.id)) return false;
-      if (party === "unlinked" && linkedIds.has(doc.id)) return false;
+      if (party === "unlinked" && (linkedIds.has(doc.id) || internalNoPartyIds.has(doc.id))) return false;
+      if (party === "internal_no_external_party" && !internalNoPartyIds.has(doc.id)) return false;
       // Ambiguity is intentionally not inferred: it needs an explicit reviewed
       // plan conflict, so this view offers the bounded unlinked review queue.
       if (party === "ambiguous") return false;
       return true;
     });
-  }, [allDocuments, hasActiveFilter, q, fromDate, toDate, status, type, party, linkedIds]);
+  }, [allDocuments, hasActiveFilter, q, fromDate, toDate, status, type, party, linkedIds, internalNoPartyIds]);
 
   const sortedDocuments = useMemo(() => {
     if (!sort) return filteredDocuments;
@@ -339,6 +341,14 @@ export function DocumentsView() {
     }
   }
 
+  async function confirmInternalNoParty() {
+    if (!reviewedDocument || reviewedDocument.documentType !== "internal_voucher" || !window.confirm("Bekræft at dette interne bilag bevidst ikke har en ekstern part.")) return;
+    setPartyBusy(true); setPartyError(null);
+    try { const result = await api.confirmInternalNoExternalParty(slug, { documentId: reviewedDocument.id, reason: "Confirmed in Documents Cockpit", idempotencyKey: `internal-no-party-${reviewedDocument.id}`, confirm: true }); if (!result.ok) { setPartyError(result.errors?.join(", ") ?? "Beslutningen kunne ikke gemmes."); return; } await partyLinks.reload(); setPartyReviewId(null); }
+    catch (error) { setPartyError(error instanceof Error ? error.message : "Beslutningen kunne ikke gemmes."); }
+    finally { setPartyBusy(false); }
+  }
+
   return (
     <section className="statement">
       <div className="page-head">
@@ -413,6 +423,7 @@ export function DocumentsView() {
             <option value="all">Alle</option>
             <option value="linked">Koblet</option>
             <option value="unlinked">Mangler review</option>
+            <option value="internal_no_external_party">Internt uden ekstern part</option>
             <option value="ambiguous">Tvetydige (kræver review)</option>
           </select>
         </label>
@@ -487,6 +498,7 @@ export function DocumentsView() {
           {!reviewedDocument.supplierVatOrCvr && <p className="flag warning">Bilaget har ingen verificerbar identifikator. Navne alene kan ikke kobles.</p>}
           {partyError && <p className="flag warning" role="alert">{partyError}</p>}
           {partyPlan && <div className="card"><p><strong>Plan klar</strong> — {partyPlan.partySnapshot?.name ?? "Valgt part"}; bevis: {partyPlan.evidence?.kind ?? "exact_identifier"}.</p><p className="muted">Plan-hash: <code>{partyPlan.planHash}</code></p><label><input type="checkbox" checked={partyConfirmed} onChange={(event) => setPartyConfirmed(event.target.checked)} /> Jeg har gennemgået planen og vil oprette den append-only kobling.</label><div className="row-actions"><button type="button" className="btn" disabled={partyBusy || !partyConfirmed} onClick={applyPartyLink}>Bekræft og anvend</button></div></div>}
+          {reviewedDocument.documentType === "internal_voucher" && <div className="card"><p className="muted">Interne bilag kan bekræftes uden ekstern part. Beslutningen er append-only og ændrer ikke bilag, moms eller journal.</p><button type="button" className="btn secondary" disabled={partyBusy} onClick={confirmInternalNoParty}>Bekræft ingen ekstern part</button></div>}
         </section>
       )}
 

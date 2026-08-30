@@ -18,7 +18,7 @@ import { responseBodyFromBytes } from "../response-body";
 import { okResponse } from "./_shared";
 import { readJsonBody, requireString } from "./_shared";
 import { withCompanyMutation } from "../mutations";
-import { applyDocumentPartyLink, inspectDocumentPartyLinks, listDocumentPartyLinks, planDocumentPartyLink, supersedeDocumentPartyLink } from "../../core/document-party-links";
+import { applyDocumentPartyLink, decideInternalNoExternalParty, inspectDocumentPartyLinks, listDocumentPartyLinks, planDocumentPartyLink, supersedeDocumentPartyLink, supersedeInternalNoExternalParty } from "../../core/document-party-links";
 import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../../core/workspace-control";
 import { authorizeWorkspaceRoute } from "../../core/workspace-access";
 
@@ -39,6 +39,7 @@ export function handleDocumentPartyLinks(config:ServerConfig,slug:string,request
 export function handleDocumentPartyLinkInspect(config:ServerConfig,slug:string,idRaw:string):Response {const id=Number(idRaw);if(!Number.isInteger(id)||id<=0)throw ApiError.notFound("document not found");const db=openVerifiedRead(config,slug);try{return okResponse({links:inspectDocumentPartyLinks(db,id)});}finally{db.close();}}
 export async function handleDocumentPartyLinkPlan(config:ServerConfig,slug:string,request:Request):Promise<Response>{const body=await readJsonBody(request);const db=openVerifiedRead(config,slug);const control=openWorkspaceControlReadOnlyDb(config.workspaceRoot);try{return okResponse(planDocumentPartyLink(db,control,partyInput(slug,body)));}finally{control.close();db.close();}}
 export async function handleDocumentPartyLinkAction(config:ServerConfig,slug:string,request:Request,action:"apply"|"supersede"):Promise<Response>{const result=await withCompanyMutation(request,config,slug,(ctx,body)=>{const principal=partyLinkPrincipal(config,slug);if(action==="supersede")return supersedeDocumentPartyLink(ctx.db,{documentId:Number(body.documentId),role:body.role as any,planHash:requireString(body,"planHash"),reason:requireString(body,"reason"),confirm:true,actor:ctx.actor.createdBy,principal});const control=openWorkspaceControlDb(config.workspaceRoot);try{return applyDocumentPartyLink(ctx.db,control,{...partyInput(slug,body),planHash:requireString(body,"planHash"),confirm:true,actor:ctx.actor.createdBy,principal,idempotencyKey:typeof body.idempotencyKey==="string"?body.idempotencyKey:undefined});}finally{control.close();}},{requireConfirm:true});return okResponse(result);}
+export async function handleInternalNoExternalParty(config:ServerConfig,slug:string,request:Request,supersede=false):Promise<Response>{const result=await withCompanyMutation(request,config,slug,(ctx,body)=>{const base={documentId:Number(body.documentId),reason:requireString(body,"reason"),confirm:true,actor:ctx.actor.createdBy,principal:partyLinkPrincipal(config,slug)};return supersede?supersedeInternalNoExternalParty(ctx.db,{...base,decisionHash:requireString(body,"decisionHash")}):decideInternalNoExternalParty(ctx.db,{...base,idempotencyKey:typeof body.idempotencyKey==="string"?body.idempotencyKey:undefined});},{requireConfirm:true});return okResponse(result);}
 
 export function handleCompanyDocuments(config: ServerConfig, slug: string): Response {
   const data = buildCompanyDocuments(config.workspaceRoot, slug);

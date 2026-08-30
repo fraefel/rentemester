@@ -109,6 +109,8 @@ const workspaceDocumentInboxArtifact = readFileSync(join(import.meta.dir, "works
 const workspaceDocumentInboxHandoffClaimsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0026-workspace-inbox-handoff-claims-v26.json"));
 const workspaceIntercompanyDispositionsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0027-intercompany-dispositions-v27.json"));
 const workspaceIntercompanyDispositionLifecycleArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0028-intercompany-disposition-lifecycle-v28.json"));
+const workspaceInboxSingleAssignmentArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0029-workspace-inbox-single-assignment-v29.json"));
+const workspaceDocumentPartyRoleTaxonomyArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0030-document-party-role-taxonomy-v30.json"));
 
 export const WORKSPACE_CONTROL_BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(baselineArtifact)
@@ -148,6 +150,12 @@ export const WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_CHECKSUM = createHash("s
 export const WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceDocumentInboxHandoffClaimsArtifact).digest("hex");
 export const WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceIntercompanyDispositionsArtifact).digest("hex");
 export const WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITION_LIFECYCLE_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceIntercompanyDispositionLifecycleArtifact).digest("hex");
+export const WORKSPACE_CONTROL_INBOX_SINGLE_ASSIGNMENT_MIGRATION_ID = 29;
+export const WORKSPACE_CONTROL_INBOX_SINGLE_ASSIGNMENT_MIGRATION_NAME = "rentemester-workspace-inbox-single-assignment-v29";
+export const WORKSPACE_CONTROL_INBOX_SINGLE_ASSIGNMENT_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceInboxSingleAssignmentArtifact).digest("hex");
+export const WORKSPACE_CONTROL_DOCUMENT_PARTY_ROLE_TAXONOMY_MIGRATION_ID = 30;
+export const WORKSPACE_CONTROL_DOCUMENT_PARTY_ROLE_TAXONOMY_MIGRATION_NAME = "rentemester-document-party-role-taxonomy-v30";
+export const WORKSPACE_CONTROL_DOCUMENT_PARTY_ROLE_TAXONOMY_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceDocumentPartyRoleTaxonomyArtifact).digest("hex");
 
 export type WorkspaceControlPaths = {
   root: string;
@@ -227,6 +235,8 @@ const migrations: readonly WorkspaceMigration[] = [
   { id: WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_ID, name: WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_CHECKSUM, artifact: workspaceDocumentInboxHandoffClaimsArtifact },
   { id: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_ID, name: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_CHECKSUM, artifact: workspaceIntercompanyDispositionsArtifact },
   { id: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITION_LIFECYCLE_MIGRATION_ID, name: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITION_LIFECYCLE_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITION_LIFECYCLE_MIGRATION_CHECKSUM, artifact: workspaceIntercompanyDispositionLifecycleArtifact },
+  { id: WORKSPACE_CONTROL_INBOX_SINGLE_ASSIGNMENT_MIGRATION_ID, name: WORKSPACE_CONTROL_INBOX_SINGLE_ASSIGNMENT_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_INBOX_SINGLE_ASSIGNMENT_MIGRATION_CHECKSUM, artifact: workspaceInboxSingleAssignmentArtifact },
+  { id: WORKSPACE_CONTROL_DOCUMENT_PARTY_ROLE_TAXONOMY_MIGRATION_ID, name: WORKSPACE_CONTROL_DOCUMENT_PARTY_ROLE_TAXONOMY_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_DOCUMENT_PARTY_ROLE_TAXONOMY_MIGRATION_CHECKSUM, artifact: workspaceDocumentPartyRoleTaxonomyArtifact },
 ];
 
 /** Latest immutable control-schema migration this runtime can safely serve. */

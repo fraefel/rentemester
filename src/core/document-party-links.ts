@@ -14,9 +14,10 @@ export const DOCUMENT_PARTY_LINK_ERRORS = {
   CONFIRMATION_REQUIRED: "CONFIRMATION_REQUIRED", ACTOR_REQUIRED: "ACTOR_REQUIRED", PRINCIPAL_REQUIRED: "PRINCIPAL_REQUIRED",
   LINK_NOT_FOUND: "LINK_NOT_FOUND", SUPERSEDE_REASON_REQUIRED: "SUPERSEDE_REASON_REQUIRED", IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
 } as const;
-export type DocumentPartyRole = "customer"|"vendor"|"owner"|"adviser"|"employee"|"authority"|"bank";
+export const DOCUMENT_PARTY_ROLES = ["issuer", "supplier", "customer", "recipient", "payer", "payee", "processor", "acquirer", "related_company", "establishment", "location", "payment_descriptor", "vendor", "owner", "adviser", "employee", "authority", "bank"] as const;
+export type DocumentPartyRole = typeof DOCUMENT_PARTY_ROLES[number];
 type PlanError = typeof DOCUMENT_PARTY_LINK_ERRORS[keyof typeof DOCUMENT_PARTY_LINK_ERRORS];
-const roles = new Set<DocumentPartyRole>(["customer","vendor","owner","adviser","employee","authority","bank"]);
+const roles = new Set<DocumentPartyRole>(DOCUMENT_PARTY_ROLES);
 const canonical = (v: unknown): string => v === null || typeof v !== "object" ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : `{${Object.keys(v as object).sort().map(k=>`${JSON.stringify(k)}:${canonical((v as any)[k])}`).join(",")}}`;
 const hash = (v: unknown) => createHash("sha256").update(canonical(v)).digest("hex");
 const value = (v: unknown, max = 512) => typeof v === "string" && v.trim() && v.trim().length <= max ? v.trim() : null;
@@ -73,4 +74,39 @@ export function supersedeDocumentPartyLink(ledger:Database,input:{documentId:num
   return {ok:true as const,id:e?.id ?? null,idempotent:!e};
 }
 export function inspectDocumentPartyLinks(ledger:Database, documentId:number) { return ledger.query("SELECT id,party_id,party_role,event_type,evidence_kind,evidence_json,document_sha256,document_payload_sha256,party_snapshot_json,plan_hash,reason,actor,principal,created_at FROM document_party_link_events WHERE document_id=? ORDER BY id").all(documentId); }
-export function listDocumentPartyLinks(ledger:Database, input:{status?:"linked"|"unlinked";limit?:number}={}) { const linked="EXISTS(SELECT 1 FROM current_document_party_links l WHERE l.document_id=d.id)"; const where=input.status==="unlinked"?`WHERE NOT ${linked}`:input.status==="linked"?`WHERE ${linked}`:""; return ledger.query(`SELECT d.id,d.document_no,d.sha256_hash, ${linked} AS linked FROM documents d ${where} ORDER BY d.id DESC LIMIT ?`).all(Math.min(Math.max(input.limit??100,1),100)); }
+export function listDocumentPartyLinks(ledger:Database, input:{status?:"linked"|"unlinked"|DocumentResolutionState;limit?:number}={}) { const linked="EXISTS(SELECT 1 FROM current_document_party_links l WHERE l.document_id=d.id)"; const internal="EXISTS(SELECT 1 FROM current_document_party_resolution_events r WHERE r.document_id=d.id)"; const state=`CASE WHEN ${internal} THEN 'internal_no_external_party' WHEN ${linked} THEN 'resolved' ELSE 'unresolved' END`; const wanted=input.status==="linked"?"resolved":input.status==="unlinked"?"unresolved":input.status; const where=wanted?`WHERE ${state}=?`:""; return ledger.query(`SELECT d.id,d.document_no,d.sha256_hash, ${linked} AS linked, ${state} AS resolution_state FROM documents d ${where} ORDER BY d.id DESC LIMIT ?`).all(...(wanted?[wanted,Math.min(Math.max(input.limit??100,1),100)]:[Math.min(Math.max(input.limit??100,1),100)])); }
+
+export const DOCUMENT_RESOLUTION_REASONS = ["NO_PARTY_DECISION", "NO_IDENTIFIER_EVIDENCE", "MULTIPLE_CANDIDATES", "SCOPE_MISMATCH", "REVIEW_REQUIRED"] as const;
+export type DocumentResolutionReason = typeof DOCUMENT_RESOLUTION_REASONS[number];
+export type DocumentResolutionState = "resolved" | "internal_no_external_party" | "unresolved";
+
+/** A no-party decision is a first-class, hash-bound decision.  It exists only
+ * for internal vouchers and never changes the immutable document, VAT, or
+ * journal facts. */
+export function decideInternalNoExternalParty(ledger: Database, input: { documentId:number; reason: string; confirm:boolean; actor?:string; principal?:string; idempotencyKey?:string }) {
+  if (!input.confirm) return fail(DOCUMENT_PARTY_LINK_ERRORS.CONFIRMATION_REQUIRED);
+  if (!value(input.actor,160)) return fail(DOCUMENT_PARTY_LINK_ERRORS.ACTOR_REQUIRED);
+  if (!value(input.principal,160)) return fail(DOCUMENT_PARTY_LINK_ERRORS.PRINCIPAL_REQUIRED);
+  const reason=value(input.reason,1000); if (!reason) return fail(DOCUMENT_PARTY_LINK_ERRORS.SUPERSEDE_REASON_REQUIRED);
+  const doc=ledger.query("SELECT id,document_type,sha256_hash,payload_json FROM documents WHERE id=?").get(input.documentId) as any;
+  if (!doc || doc.document_type!=="internal_voucher") return fail(DOCUMENT_PARTY_LINK_ERRORS.DOCUMENT_NOT_FOUND);
+  if ((ledger.query("SELECT 1 FROM current_document_party_links WHERE document_id=? LIMIT 1").get(input.documentId) as any)) return fail(DOCUMENT_PARTY_LINK_ERRORS.IDEMPOTENCY_CONFLICT);
+  const payload={documentId:doc.id,documentSha256:doc.sha256_hash,documentPayloadSha256:hash(JSON.parse(doc.payload_json??"{}")),state:"internal_no_external_party",reason}; const decisionHash=hash(payload);
+  const existing=input.idempotencyKey ? ledger.query("SELECT id,decision_hash FROM document_party_resolution_events WHERE idempotency_key=?").get(input.idempotencyKey) as any : null;
+  if(existing && existing.decision_hash!==decisionHash) return fail(DOCUMENT_PARTY_LINK_ERRORS.IDEMPOTENCY_CONFLICT);
+  const current=ledger.query("SELECT id,decision_hash FROM current_document_party_resolution_events WHERE document_id=? AND state='internal_no_external_party'").get(input.documentId) as any;
+  if(existing || current) { if(current && current.decision_hash!==decisionHash) return fail(DOCUMENT_PARTY_LINK_ERRORS.IDEMPOTENCY_CONFLICT); return {ok:true as const,id:(existing??current).id,idempotent:true,decisionHash}; }
+  const row=ledger.query("INSERT INTO document_party_resolution_events(document_id,state,reason,document_sha256,document_payload_sha256,decision_hash,idempotency_key,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id").get(input.documentId,"internal_no_external_party",reason,payload.documentSha256,payload.documentPayloadSha256,decisionHash,input.idempotencyKey??null,input.actor,input.principal,new Date().toISOString()) as any;
+  return {ok:true as const,id:row.id,idempotent:false,decisionHash};
+}
+export function supersedeInternalNoExternalParty(ledger:Database,input:{documentId:number;decisionHash:string;reason:string;confirm:boolean;actor?:string;principal?:string}) {
+  if(!input.confirm) return fail(DOCUMENT_PARTY_LINK_ERRORS.CONFIRMATION_REQUIRED); if(!value(input.actor,160)) return fail(DOCUMENT_PARTY_LINK_ERRORS.ACTOR_REQUIRED); if(!value(input.principal,160)) return fail(DOCUMENT_PARTY_LINK_ERRORS.PRINCIPAL_REQUIRED); const reason=value(input.reason,1000); if(!reason) return fail(DOCUMENT_PARTY_LINK_ERRORS.SUPERSEDE_REASON_REQUIRED);
+  const current=ledger.query("SELECT * FROM current_document_party_resolution_events WHERE document_id=? AND state='internal_no_external_party' AND decision_hash=?").get(input.documentId,input.decisionHash) as any; if(!current)return fail(DOCUMENT_PARTY_LINK_ERRORS.LINK_NOT_FOUND);
+  const row=ledger.query("INSERT OR IGNORE INTO document_party_resolution_events(document_id,state,reason,document_sha256,document_payload_sha256,decision_hash,supersedes_hash,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id").get(input.documentId,"superseded",reason,current.document_sha256,current.document_payload_sha256,current.decision_hash,current.decision_hash,input.actor,input.principal,new Date().toISOString()) as any; return {ok:true as const,id:row?.id??null,idempotent:!row};
+}
+export function documentResolution(ledger:Database,documentId:number): {state:DocumentResolutionState; reason:DocumentResolutionReason|null; decisionHash:string|null} {
+  const internal=ledger.query("SELECT decision_hash FROM current_document_party_resolution_events WHERE document_id=? AND state='internal_no_external_party'").get(documentId) as any;
+  if(internal)return {state:"internal_no_external_party",reason:null,decisionHash:internal.decision_hash};
+  const linked=ledger.query("SELECT 1 FROM current_document_party_links WHERE document_id=? LIMIT 1").get(documentId) as any;
+  return linked?{state:"resolved",reason:null,decisionHash:null}:{state:"unresolved",reason:"NO_PARTY_DECISION",decisionHash:null};
+}

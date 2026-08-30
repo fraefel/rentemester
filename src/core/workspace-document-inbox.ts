@@ -135,12 +135,27 @@ export function approveWorkspaceInboxAssignment(db: Database, input: { sourceId:
  * Performs the only ledger boundary. A deterministic source marker lets a
  * retry recover after a crash between company commit and control completion.
  */
-export function completeWorkspaceInboxAssignment(controlDb: Database, companyDb: Database, companyRoot: string, input: { sourceId: string; companySlug: string; actor: string }) {
+export function completeWorkspaceInboxAssignment(controlDb: Database, companyDb: Database, companyRoot: string, input: { sourceId: string; companySlug: string; actor: string; at?: string; leaseMs?: number; faultAt?: "before-company-ingest"|"after-company-ingest"|"before-control-complete" }) {
   const source = inspectWorkspaceInboxSource(controlDb, input.sourceId);
   if (!source) throw new Error("workspace inbox source not found");
   const assignment = source.assignments.find((x: any) => x.companySlug === input.companySlug);
   if (!assignment) throw new Error("workspace inbox assignment is not approved");
   if (assignment.state === "completed") return source;
+  const at=input.at ? iso(input.at,"at") : new Date().toISOString();
+  const claimId=`inbox-claim-${randomUUID()}`, leaseExpiresAt=new Date(Date.parse(at)+Math.min(Math.max(input.leaseMs??120_000,1_000),900_000)).toISOString();
+  let claimed=false;
+  controlDb.exec("BEGIN IMMEDIATE");
+  try {
+    const row=controlDb.query("SELECT source_hash,state,lease_expires_at FROM rm_workspace_inbox_handoff_claims WHERE source_id=? AND company_slug=?").get(source.sourceId,input.companySlug) as {source_hash:string;state:string;lease_expires_at:string}|null;
+    if (row?.source_hash && row.source_hash!==source.sha256) throw new Error("workspace inbox handoff claim conflicts with different source bytes");
+    if (row?.state==="completed") { controlDb.exec("COMMIT"); return inspectWorkspaceInboxSource(controlDb,source.sourceId)!; }
+    if (row && Date.parse(row.lease_expires_at)>Date.parse(at)) throw new Error("workspace inbox handoff is already in progress; inspect status before retrying");
+    if (row) controlDb.query("UPDATE rm_workspace_inbox_handoff_claims SET state='claimed',claim_id=?,lease_expires_at=?,updated_at=? WHERE source_id=? AND company_slug=?").run(claimId,leaseExpiresAt,at,source.sourceId,input.companySlug);
+    else controlDb.query("INSERT INTO rm_workspace_inbox_handoff_claims(source_id,company_slug,source_hash,state,claim_id,lease_expires_at,created_at,updated_at) VALUES(?,?,?,'claimed',?,?,?,?)").run(source.sourceId,input.companySlug,source.sha256,claimId,leaseExpiresAt,at,at);
+    claimed=true; controlDb.exec("COMMIT");
+  } catch(error) { try { controlDb.exec("ROLLBACK"); } catch {} throw error; }
+  if (!claimed) throw new Error("workspace inbox handoff claim failed");
+  if (input.faultAt==="before-company-ingest") throw new Error("injected workspace inbox fault before company ingest");
   const sourceMarker = `workspace-inbox:${source.sourceId}`;
   const recovered = companyDb.query("SELECT id,document_no,sha256_hash FROM documents WHERE source=? LIMIT 1").get(sourceMarker) as { id: number; document_no: string; sha256_hash: string } | null;
   let documentId: number, documentNo: string;
@@ -159,8 +174,11 @@ export function completeWorkspaceInboxAssignment(controlDb: Database, companyDb:
       documentId = result.documentId; documentNo = result.documentNo;
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }
-  const at = new Date().toISOString();
-  controlDb.transaction(() => {
+  if (input.faultAt==="after-company-ingest") throw new Error("injected workspace inbox fault after company ingest");
+  if (input.faultAt==="before-control-complete") throw new Error("injected workspace inbox fault before control completion");
+  controlDb.exec("BEGIN IMMEDIATE"); try {
+    const claim=controlDb.query("SELECT state,claim_id,source_hash FROM rm_workspace_inbox_handoff_claims WHERE source_id=? AND company_slug=?").get(source.sourceId,input.companySlug) as {state:string;claim_id:string;source_hash:string}|null;
+    if (!claim || claim.source_hash!==source.sha256 || (claim.state!=="claimed" && claim.state!=="completed")) throw new Error("workspace inbox handoff claim became stale");
     const current = controlDb.query("SELECT state,document_id FROM rm_workspace_inbox_assignments WHERE source_id=? AND company_slug=?").get(source.sourceId, input.companySlug) as { state: string; document_id: number | null } | null;
     if (!current) throw new Error("workspace inbox assignment disappeared");
     if (current.state === "completed" && current.document_id !== documentId) throw new Error("workspace inbox assignment completion conflicts");
@@ -168,6 +186,8 @@ export function completeWorkspaceInboxAssignment(controlDb: Database, companyDb:
       controlDb.query("UPDATE rm_workspace_inbox_assignments SET state='completed',document_id=?,document_no=?,completed_at=? WHERE source_id=? AND company_slug=? AND state='approved'").run(documentId, documentNo, at, source.sourceId, input.companySlug);
       append(controlDb, source.sourceId, "handoff_completed", { companySlug: input.companySlug, documentId, documentNo, sourceHash: source.sha256 }, input.actor, at);
     }
-  })();
+    controlDb.query("UPDATE rm_workspace_inbox_handoff_claims SET state='completed',document_id=?,document_no=?,updated_at=? WHERE source_id=? AND company_slug=?").run(documentId,documentNo,at,source.sourceId,input.companySlug);
+    controlDb.exec("COMMIT");
+  } catch(error) { try { controlDb.exec("ROLLBACK"); } catch {} throw error; }
   return inspectWorkspaceInboxSource(controlDb, source.sourceId)!;
 }

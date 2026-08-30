@@ -1,0 +1,5 @@
+{
+  "id": 26,
+  "name": "rentemester-workspace-inbox-handoff-claims-v26",
+  "sql": "CREATE TABLE rm_workspace_inbox_handoff_claims (\n source_id TEXT NOT NULL REFERENCES rm_workspace_inbox_sources(source_id),\n company_slug TEXT NOT NULL,\n source_hash TEXT NOT NULL CHECK(length(source_hash)=64),\n state TEXT NOT NULL CHECK(state IN ('claimed','completed')),\n claim_id TEXT NOT NULL,\n lease_expires_at TEXT NOT NULL,\n document_id INTEGER,\n document_no TEXT,\n created_at TEXT NOT NULL,\n updated_at TEXT NOT NULL,\n PRIMARY KEY(source_id,company_slug)\n);\nCREATE TRIGGER rm_workspace_inbox_handoff_claims_no_delete BEFORE DELETE ON rm_workspace_inbox_handoff_claims BEGIN SELECT RAISE(ABORT, 'workspace inbox handoff claims are durable'); END;\n"
+}

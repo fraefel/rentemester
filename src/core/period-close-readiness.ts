@@ -7,7 +7,7 @@ import { buildTrialBalance } from "./financial-statements";
 import { buildVatReport } from "./vat";
 import { resolveAccountRole } from "./account-roles";
 import { fromOre, toOre } from "./money";
-import { importedReceivableBalanceOre } from "./imported-receivables";
+import { importedReceivableBalanceOre, importedReceivableControlDate } from "./imported-receivables";
 
 export type CloseControlStatus = "passed" | "warning" | "blocked" | "unavailable";
 export type CloseReadinessItem = { code: string; status: CloseControlStatus; waivable: boolean; count: number; amount: number; evidence: readonly Record<string, unknown>[]; sourceHash: string };
@@ -100,6 +100,17 @@ function dkkControlAccounts(db: Database, cutoff: string): CloseReadinessItem {
 
   const foreignPayable = db.query("SELECT id,currency FROM payables WHERE bill_date<=? AND UPPER(currency)!='DKK' LIMIT 1").get(cutoff) as { id:number; currency:string } | null;
   if (foreignPayable) return unavailable("DKK_CONTROL_ACCOUNTS", `payable ${foreignPayable.id} uses ${foreignPayable.currency}; DKK payable control cannot value it independently`);
+  const importedBoundary = importedReceivableControlDate(db, debtors.accountNo);
+  if (importedBoundary) {
+    const overlap = db.query(`SELECT d.id FROM documents d
+      JOIN issued_invoice_postings p ON p.invoice_document_id=d.id
+      JOIN journal_entries j ON j.id=p.journal_entry_id
+      WHERE d.document_type='issued_invoice' AND d.invoice_date<=? AND j.status='posted'
+        AND j.reversal_of_entry_id IS NULL
+        AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=j.id)
+        AND p.receivable_account_id=(SELECT id FROM accounts WHERE account_no=?) LIMIT 1`).get(importedBoundary, debtors.accountNo) as {id:number} | null;
+    if (overlap) throw new Error(`native receivable ${overlap.id} overlaps imported cut-over boundary ${importedBoundary}`);
+  }
   const receivableRows = rows(db, `SELECT d.id AS document_id, p.journal_entry_id, p.booked_gross_dkk,
       COALESCE(SUM(CASE WHEN ip.payment_date<=? AND ipj.status='posted' AND ipj.reversal_of_entry_id IS NULL
         AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=ipj.id) THEN ip.amount ELSE 0 END),0) AS paid_amount
@@ -109,7 +120,8 @@ function dkkControlAccounts(db: Database, cutoff: string): CloseReadinessItem {
     WHERE d.document_type='issued_invoice' AND d.invoice_date<=? AND j.transaction_date<=? AND j.status='posted' AND j.reversal_of_entry_id IS NULL
       AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=j.id)
       AND p.receivable_account_id=(SELECT id FROM accounts WHERE account_no=?)
-    GROUP BY d.id,p.journal_entry_id,p.booked_gross_dkk ORDER BY d.id`, cutoff, cutoff, cutoff, debtors.accountNo);
+      AND (? IS NULL OR d.invoice_date>?)
+    GROUP BY d.id,p.journal_entry_id,p.booked_gross_dkk ORDER BY d.id`, cutoff, cutoff, cutoff, debtors.accountNo, importedBoundary, importedBoundary);
   const payableRows = rows(db, `SELECT p.id AS payable_id,p.journal_entry_id,p.gross_amount,
       COALESCE(SUM(CASE WHEN pp.payment_date<=? AND ppj.status='posted' AND ppj.reversal_of_entry_id IS NULL
         AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=ppj.id) THEN pp.amount ELSE 0 END),0) AS paid_amount
@@ -124,7 +136,7 @@ function dkkControlAccounts(db: Database, cutoff: string): CloseReadinessItem {
   const payableOpenOre = payableRows.reduce((sum,row)=>sum + toOre(Number(row.gross_amount)) - toOre(Number(row.paid_amount)),0n);
   const sources: DkkControlSource[] = [
     { role:"bank", accountNo:bank.accountNo, ledgerOre:ledger.get("bank")!, sourceOre:bankOre, evidence:bankSource.ok ? bankSource.evidence : [{role:"bank",sourceCount:0,statementBalanceDkk:0}] },
-    { role:"debtors", accountNo:debtors.accountNo, ledgerOre:ledger.get("debtors")!, sourceOre:receivableOre + importedReceivables.total, evidence:[...receivableRows.map(row=>({role:"debtors",source:"native",documentId:row.document_id,journalEntryId:row.journal_entry_id,grossDkk:row.booked_gross_dkk,paidDkk:row.paid_amount})), ...importedReceivables.evidence.map(row=>({role:"debtors",...row}))] },
+    { role:"debtors", accountNo:debtors.accountNo, ledgerOre:ledger.get("debtors")!, sourceOre:receivableOre + importedReceivables.total, evidence:[...receivableRows.map(row=>({role:"debtors",source:"native",documentId:row.document_id,journalEntryId:row.journal_entry_id,grossDkk:row.booked_gross_dkk,paidDkk:row.paid_amount,importedCutoverBoundary:importedBoundary})), ...importedReceivables.evidence.map(row=>({role:"debtors",importedCutoverBoundary:importedBoundary,...row}))] },
     { role:"creditors", accountNo:creditors.accountNo, ledgerOre:ledger.get("creditors")!, sourceOre:-payableOpenOre, evidence:payableRows.map(row=>({role:"creditors",payableId:row.payable_id,journalEntryId:row.journal_entry_id,grossDkk:row.gross_amount,paidDkk:row.paid_amount})) },
   ];
   const evidence = sources.map(source => ({ role:source.role, accountNo:source.accountNo, ledgerBalanceDkk:fromOre(source.ledgerOre), sourceBalanceDkk:fromOre(source.sourceOre), differenceDkk:fromOre(source.ledgerOre-source.sourceOre), sourceCount:source.evidence.length, sourceIds:source.evidence }));

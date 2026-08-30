@@ -502,11 +502,11 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
       if (!landed.ok) throw new ImportRollback(landed);
       const openItems = planMigrationOpenItemControls(db, source);
       if (openItems.errors.length > 0) throw new Error(openItems.errors.join("; "));
+      const controlDate=(source.historicalEntries??[]).reduce((latest,entry)=>entry.transactionDate>latest?entry.transactionDate:latest,source.cutOverDate);
       if (source.importedReceivableSchedule) {
-        const schedule = validateImportedReceivableSchedule(source.importedReceivableSchedule);
+        const schedule = validateImportedReceivableSchedule(source.importedReceivableSchedule, controlDate);
         if (!schedule.ok) throw new Error(schedule.errors.join("; "));
         const receivableControls=openItems.balances.filter(balance=>balance.kind==="receivable");
-        const controlDate=(source.historicalEntries??[]).reduce((latest,entry)=>entry.transactionDate>latest?entry.transactionDate:latest,source.cutOverDate);
         for (const balance of receivableControls) {
           if (importedScheduleBalanceOre(schedule.schedule,controlDate,balance.accountNo)!==toOre(balance.amount)) throw new Error(`imported receivable schedule does not reconcile exactly to control ${balance.accountNo} at ${controlDate}`);
         }
@@ -540,7 +540,7 @@ function runDineroV4(db: Database, resolved: MultiArtifactSource, source: Import
       }
       const provenance = persistDineroEvidence(db, resolved, source, options, "accepted", landed);
       if (source.importedReceivableSchedule) {
-        const recordedSchedule = recordImportedReceivableSchedule(db, provenance.attemptId, source.importedReceivableSchedule);
+        const recordedSchedule = recordImportedReceivableSchedule(db, provenance.attemptId, source.importedReceivableSchedule, controlDate);
         if (!recordedSchedule.ok) throw new Error(recordedSchedule.errors.join("; "));
         landed.auditTrail.push(`Recorded immutable imported receivable schedule ${recordedSchedule.scheduleHash}`);
       }

@@ -11,6 +11,8 @@ import { ensureCompanyDirs } from "../../src/core/paths";
 import { createSystemBackup } from "../../src/core/system-backups";
 import { restoreSystemBackup } from "../../src/core/system-restore";
 import { CURRENT_SCHEMA_VERSION, readSchemaMigrations } from "../../src/core/schema-version";
+import { recordImportedReceivableSchedule } from "../../src/core/imported-receivables";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
 
 const roots: string[] = [];
 function fixture() { const root = mkdtempSync(join(tmpdir(), "rm-period-close-")); roots.push(root); const db = openDb(join(root, "ledger.sqlite")); migrate(db); seedAccounts(db); seedNativeAccountRoles(db); return db; }
@@ -131,6 +133,35 @@ describe("#580 period-close readiness", () => {
     const item = dkkControl(db, "2025-01-01", "2025-01-31");
     expect(item.status).toBe("passed");
     expect(item.evidence).toContainEqual(expect.objectContaining({ role: "bank", ledgerBalanceDkk: 80, sourceBalanceDkk: 80 }));
+    db.close();
+  });
+
+  test("combines imported claims only through their exact cut-over and rejects native overlap", () => {
+    const db = fixture();
+    const h = (letter: string) => letter.repeat(64);
+    db.query("INSERT INTO dinero_import_sources(id,raw_sha256,raw_size_bytes,canonical_listing_sha256,canonical_listing_count) VALUES(1,?,1,?,0)").run(h("a"),h("b"));
+    db.query("INSERT INTO dinero_import_inventories(id,source_id,source_raw_sha256,canonical_listing_sha256,canonical_listing_count,entry_count,total_size_bytes) VALUES(1,1,?,?,0,0,0)").run(h("a"),h("b"));
+    db.query("INSERT INTO dinero_import_attempts(id,inventory_id,source_id,source_raw_sha256,parser_contract,actor,cutover_date,outcome,result_sha256) VALUES(1,1,1,?,'synthetic-v1','agent:test','2025-01-01','accepted',?)").run(h("a"),h("c"));
+    expect(recordImportedReceivableSchedule(db,1,{contract:"rentemester-imported-receivables-v1",sourceDocumentHash:h("d"),invoices:[{id:"IMPORTED-1",invoiceDate:"2025-01-01",grossAmount:100,controlAccountNo:"1100",recognitionRef:"opening",documentHash:h("e"),payments:[]}]},"2025-01-31").ok).toBe(true);
+    const importedPosting=postJournalEntry(db,{transactionDate:"2025-01-01",text:"Imported receivable control",lines:[{accountNo:"1100",debitAmount:100},{accountNo:"5000",creditAmount:100}]});
+    expect(importedPosting.ok, importedPosting.errors.join("; ")).toBe(true);
+
+    const addNative = (date:string, amount:number, hash:string) => {
+      const net=amount/1.25;
+      const payload={invoiceType:"full",vatTreatment:"standard",issueDate:date,currency:"DKK",lines:[{description:"Synthetic service",quantity:1,unitPriceExVat:net,lineTotalExVat:net}],totals:{netAmount:net,vatRate:0.25,vatAmount:amount-net,grossAmount:amount}};
+      const document=db.query("INSERT INTO documents(source,sha256_hash,document_type,invoice_date,amount_inc_vat,vat_amount,invoice_no,currency,payload_json) VALUES('synthetic',?,'issued_invoice',?,?,?,?, 'DKK',?) RETURNING id").get(hash,date,amount,amount-net,`NATIVE-${date}-${amount}`,JSON.stringify(payload)) as {id:number};
+      const posted=postIssuedInvoiceToLedger(db,{invoiceDocumentId:document.id,transactionDate:date});
+      expect(posted.ok, posted.errors.join("; ")).toBe(true);
+    };
+    addNative("2025-02-01",50,h("f"));
+    const combined=dkkControl(db,"2025-01-01","2025-02-28");
+    expect(combined.status).toBe("passed");
+    expect(combined.evidence.find((row)=>row.role==="debtors")).toEqual(expect.objectContaining({sourceBalanceDkk:150}));
+
+    addNative("2025-01-15",10,h("1"));
+    const overlap=dkkControl(db,"2025-01-01","2025-02-28");
+    expect(overlap.status).toBe("unavailable");
+    expect(overlap.evidence[0]).toEqual(expect.objectContaining({detail:"control execution failed"}));
     db.close();
   });
 

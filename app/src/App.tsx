@@ -78,6 +78,59 @@ import { BookkeepingBatchView } from "./views/BookkeepingBatchView";
 import { WorkspaceRegistryView } from "./views/WorkspaceRegistryView";
 import { WorkspaceInboxView } from "./views/WorkspaceInboxView";
 import { CfoCockpitView } from "./views/CfoCockpitView";
+import {
+  CompanyNavigationShell,
+  CompanyTaskNavigation,
+} from "./components/CompanyNav";
+import type { ReactElement } from "react";
+import {
+  COMPANY_ROUTE_DEFINITIONS,
+  assertCompanyRouteCoverage,
+  companyRoutePattern,
+  type CompanyRouteId,
+} from "./company-navigation";
+
+const COMPANY_ROUTE_ELEMENTS: Record<CompanyRouteId, ReactElement> = {
+  dashboard: <DashboardView />,
+  "income-statement": <IncomeStatementView />,
+  balance: <BalanceView />,
+  "trial-balance": <TrialBalanceView />,
+  obligations: <ObligationsView />,
+  liquidity: <LiquidityView />,
+  budget: <BudgetView />,
+  journal: <JournalView />,
+  drafts: <AccountingDraftsView />,
+  "posting-rules": <PostingRulesView />,
+  "batch-bookkeeping": <BookkeepingBatchView />,
+  bank: <BankView />,
+  vat: <VatView />,
+  documents: <DocumentsView />,
+  payables: <PayablesView />,
+  invoices: <InvoicesView />,
+  "invoice-templates": <RecurringInvoicesView />,
+  contacts: <ContactsView />,
+  "workspace-register": <WorkspaceRegistryView />,
+  "workspace-inbox": <WorkspaceInboxView />,
+  mileage: <MileageView />,
+  assets: <AssetsView />,
+  suggestions: <SuggestionsView />,
+  archive: <ArchiveView />,
+  "multi-year": <MultiYearView />,
+  manage: <ManageCompanyView />,
+  retention: <RetentionView />,
+  integrity: <IntegrityView />,
+  accounts: <AccountsView />,
+  exceptions: <ExceptionsView />,
+  "period-lock": <PeriodsView />,
+  "bank-accounts": <BankAccountsView />,
+  gdpr: <GdprView />,
+  accruals: <AccrualsView />,
+  "annual-report": <AnnualReportView />,
+  "receipt-email": <BilagsmailView />,
+};
+
+// Keep the executable route registration and the navigation catalogue in lockstep.
+assertCompanyRouteCoverage(Object.keys(COMPANY_ROUTE_ELEMENTS));
 
 export function App() {
   const health = useAsync(() => api.health(), []);
@@ -139,127 +192,26 @@ function CockpitApp() {
       </header>
 
       <main>
-        <Routes>
-          <Route path="/" element={<PortfolioView />} />
-          {hosted && <Route path="/cfo" element={<CfoCockpitView />} />}
-          <Route path="/companies/new" element={<AddCompanyView />} />
-          {hosted && canManageWorkspace && <Route path="/koncernstruktur" element={<GroupOverviewView />} />}
-          {hosted && canManageWorkspace && <Route path="/adgang" element={<WorkspaceAccessView />} />}
-          <Route path="/companies/:slug" element={<DashboardView />} />
-          <Route
-            path="/companies/:slug/resultatopgorelse"
-            element={<IncomeStatementView />}
-          />
-          <Route path="/companies/:slug/balance" element={<BalanceView />} />
-          <Route
-            path="/companies/:slug/saldobalance"
-            element={<TrialBalanceView />}
-          />
-          <Route
-            path="/companies/:slug/forpligtelser"
-            element={<ObligationsView />}
-          />
-          <Route
-            path="/companies/:slug/likviditet"
-            element={<LiquidityView />}
-          />
-          <Route
-            path="/companies/:slug/budget"
-            element={<BudgetView />}
-          />
-          <Route
-            path="/companies/:slug/posteringer"
-            element={<JournalView />}
-          />
-          <Route path="/companies/:slug/kladder" element={<AccountingDraftsView />} />
-          <Route path="/companies/:slug/posteringsregler" element={<PostingRulesView />} />
-          <Route path="/companies/:slug/batchbogfoering" element={<BookkeepingBatchView />} />
-          <Route path="/companies/:slug/bank" element={<BankView />} />
-          <Route path="/companies/:slug/moms" element={<VatView />} />
-          <Route path="/companies/:slug/bilag" element={<DocumentsView />} />
-          <Route
-            path="/companies/:slug/leverandoerfaktura"
-            element={<PayablesView />}
-          />
-          <Route path="/companies/:slug/arkiv" element={<ArchiveView />} />
-          <Route
-            path="/companies/:slug/fleraar"
-            element={<MultiYearView />}
-          />
-          <Route
-            path="/companies/:slug/fakturaer"
-            element={<InvoicesView />}
-          />
-          <Route
-            path="/companies/:slug/faktura-skabeloner"
-            element={<RecurringInvoicesView />}
-          />
-          <Route
-            path="/companies/:slug/kontakter"
-            element={<ContactsView />}
-          />
-          <Route path="/companies/:slug/workspace-register" element={<WorkspaceRegistryView />} />
-          <Route path="/companies/:slug/workspace-inbox" element={<WorkspaceInboxView />} />
-          <Route
-            path="/companies/:slug/koersel"
-            element={<MileageView />}
-          />
-          <Route
-            path="/companies/:slug/anlaeg"
-            element={<AssetsView />}
-          />
-          <Route
-            path="/companies/:slug/agent-forslag"
-            element={<SuggestionsView />}
-          />
-          <Route
-            path="/companies/:slug/manage"
-            element={<ManageCompanyView />}
-          />
-          <Route path="/help" element={<HelpView />} />
-          <Route path="/lovgrundlag" element={<RulesView />} />
-          <Route
-            path="/companies/:slug/retention"
-            element={<RetentionView />}
-          />
-          <Route
-            path="/companies/:slug/integritet"
-            element={<IntegrityView />}
-          />
-          <Route
-            path="/companies/:slug/kontoplan"
-            element={<AccountsView />}
-          />
-          <Route
-            path="/companies/:slug/undtagelser"
-            element={<ExceptionsView />}
-          />
-          <Route
-            path="/companies/:slug/periodelas"
-            element={<PeriodsView />}
-          />
-          <Route
-            path="/companies/:slug/bankkonti"
-            element={<BankAccountsView />}
-          />
-          <Route
-            path="/companies/:slug/gdpr"
-            element={<GdprView />}
-          />
-          <Route
-            path="/companies/:slug/periodisering"
-            element={<AccrualsView />}
-          />
-          <Route
-            path="/companies/:slug/aarsrapport"
-            element={<AnnualReportView />}
-          />
-          <Route
-            path="/companies/:slug/bilagsmail"
-            element={<BilagsmailView />}
-          />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <CompanyNavigationShell>
+          <CompanyTaskNavigation />
+          <Routes>
+            <Route path="/" element={<PortfolioView />} />
+            {hosted && <Route path="/cfo" element={<CfoCockpitView />} />}
+            <Route path="/companies/new" element={<AddCompanyView />} />
+            {hosted && canManageWorkspace && <Route path="/koncernstruktur" element={<GroupOverviewView />} />}
+            {hosted && canManageWorkspace && <Route path="/adgang" element={<WorkspaceAccessView />} />}
+            {COMPANY_ROUTE_DEFINITIONS.map((route) => (
+              <Route
+                key={route.id}
+                path={companyRoutePattern(route.segment)}
+                element={COMPANY_ROUTE_ELEMENTS[route.id]}
+              />
+            ))}
+            <Route path="/help" element={<HelpView />} />
+            <Route path="/lovgrundlag" element={<RulesView />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </CompanyNavigationShell>
       </main>
     </div>
   );

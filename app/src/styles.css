@@ -1225,75 +1225,68 @@ tr.account-row:hover {
 }
 
 /* ==========================================================================
-   Per-company sub-navigation — twelve views in four labelled groups
+   Per-company navigation — task areas plus current-area destinations
    ========================================================================== */
 
-.company-nav {
+.company-task-navigation {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-md) var(--space-lg);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--space-xs);
   border-bottom: 1px solid var(--border);
   margin-bottom: var(--space-lg);
 }
-.company-tabs {
+.company-areas,
+.company-destinations {
   display: flex;
   flex-wrap: wrap;
-  /* A faint divider sits between groups (see .company-tab-group::before),
-     so the row-gap carries the visible vertical rhythm when wrapping. */
-  gap: var(--space-xxs) 0;
-}
-/* Each group is its own non-breaking cluster: the four tabs of a group wrap
-   together, never splitting mid-group, which keeps the bar legible. */
-.company-tab-group {
-  display: flex;
   gap: var(--space-xxs);
-  position: relative;
-  padding-left: var(--space-md);
-  margin-left: var(--space-xs);
 }
-.company-tab-group:first-child {
-  padding-left: 0;
-  margin-left: 0;
+.company-areas {
+  width: 100%;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border);
 }
-/* Hairline separator between groups. */
-.company-tab-group:not(:first-child)::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 20%;
-  bottom: 30%;
-  width: 1px;
-  background: var(--border);
-}
-.company-tabs a {
+.company-areas button,
+.company-destinations a {
   color: var(--text-dim);
   font-size: var(--text-size-md);
   font-weight: var(--text-weight-medium);
   padding: var(--space-xs) var(--space-sm);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+  min-width: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
   transition: color 0.12s ease;
 }
-.company-tabs a:hover {
+.company-areas button:hover,
+.company-destinations a:hover {
   color: var(--text);
   text-decoration: none;
-  border-bottom-color: var(--border-strong);
+  border-color: var(--border-strong);
 }
-.company-tabs a.active {
+.company-areas button.active,
+.company-destinations a.active {
   color: var(--text);
   font-weight: var(--text-weight-semibold);
-  border-bottom-color: var(--accent);
+  border-color: var(--accent);
+  background: var(--surface-2);
 }
-.company-tabs a:focus-visible {
+.company-areas button.current:not(.active) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.company-areas button:focus-visible,
+.company-destinations a:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  border-radius: var(--radius-sm);
+  outline-offset: 2px;
 }
-.company-nav .year-selector {
-  padding-bottom: var(--space-xs);
+.company-year-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-md);
 }
 
 /* ==========================================================================
@@ -1678,15 +1671,6 @@ table.statement-table td.num.muted {
   .bank-summary {
     grid-template-columns: repeat(2, 1fr);
   }
-  /* The grouped sub-nav wraps group-by-group; once it does, drop the
-     hairline dividers and indent — each group reads as its own short row. */
-  .company-tab-group {
-    padding-left: 0;
-    margin-left: 0;
-  }
-  .company-tab-group:not(:first-child)::before {
-    display: none;
-  }
 }
 
 @media (max-width: 640px) {
@@ -1736,17 +1720,16 @@ table.statement-table td.num.muted {
     width: 100%;
     flex-wrap: wrap;
   }
-  .company-nav {
-    align-items: stretch;
+  .company-year-controls {
+    justify-content: flex-start;
   }
-  .company-nav .year-selector {
-    padding-bottom: var(--space-sm);
-  }
-  /* Each tab group becomes a full-width row of tabs on a phone. */
-  .company-tab-group {
+  .company-areas,
+  .company-destinations {
     width: 100%;
-    flex-wrap: wrap;
-    gap: var(--space-xxs) var(--space-xxs);
+  }
+  .company-areas button,
+  .company-destinations a {
+    max-width: 100%;
   }
   /* Tighten statement-table padding so the columns fit a phone width. */
   table.statement-table th,

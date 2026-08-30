@@ -406,7 +406,9 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 164, hash: "6c89f417feaf461c69976b17e70b04205323c61f0d58ebfb067998a60d66410d" },
+  // #577 adds the six live inbox operations. The workflow above remains the
+  // canonical explanation; this identity snapshot prevents silent drift.
+  mcp: { count: 170, hash: "9b874caf4541d574f5195b2c37c16a92d98f9af94a9cfd2b653dd32768b5c3f0" },
   cli: { count: 229, hash: "841ae59ba233fd7be98a309d8e9a570cc6359b43b0d422fa88ab40306f7e4d84" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
@@ -414,7 +416,7 @@ export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
-  { capabilityId: "workspace-document-inbox", pattern: /workspace-inbox/ },
+  { capabilityId: "workspace-document-inbox", pattern: /workspace[_-]inbox/ },
   { capabilityId: "corporate-records", pattern: /(?:corporate[_-]record|corporate-record)/ },
   { capabilityId: "workspace-parties", pattern: /(?:workspace[_-]party|^cli:party )/ },
   { capabilityId: "digisense-nemhandel", pattern: /(?:efaktura|digisense|peppol|send-public)/ },

@@ -76,6 +76,7 @@ import { WorkspaceAccessView } from "./views/WorkspaceAccessView";
 import { PostingRulesView } from "./views/PostingRulesView";
 import { BookkeepingBatchView } from "./views/BookkeepingBatchView";
 import { WorkspaceRegistryView } from "./views/WorkspaceRegistryView";
+import { WorkspaceInboxView } from "./views/WorkspaceInboxView";
 
 export function App() {
   const health = useAsync(() => api.health(), []);
@@ -195,6 +196,7 @@ function CockpitApp() {
             element={<ContactsView />}
           />
           <Route path="/companies/:slug/workspace-register" element={<WorkspaceRegistryView />} />
+          <Route path="/companies/:slug/workspace-inbox" element={<WorkspaceInboxView />} />
           <Route
             path="/companies/:slug/koersel"
             element={<MileageView />}

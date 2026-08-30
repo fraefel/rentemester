@@ -5,12 +5,15 @@
  * every write and `--confirm yes` makes the append-only boundary explicit.
  */
 import { readFileSync } from "node:fs";
-import { resolveWorkspaceRoot } from "../core/workspace";
+import { resolveWorkspaceRoot, resolveWorkspaceSlug } from "../core/workspace";
 import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
 import { approvePartyMerge, createParty, inspectParty, linkPartyRole, proposePartyMerge, searchParties } from "../core/party-registry";
 import { enrichCorporateRecord, ingestCorporateRecord, inspectCorporateRecord, linkCorporateRecord, listCorporateRecords, readCorporateRecordBytes, supersedeCorporateRecord } from "../core/corporate-records";
 import { companyKnowledgeHistory, proposeCompanyKnowledge, queryCompanyKnowledge, reviewCompanyKnowledge, supersedeCompanyKnowledge } from "../core/company-knowledge";
 import { applyOwnershipSnapshot, ownershipHistory, projectExactCompanyOwnership, proposeOwnershipSnapshot, queryOwnershipGraph, reviewOwnershipSnapshot } from "../core/ownership-graph";
+import { approveWorkspaceInboxAssignment, completeWorkspaceInboxAssignment, ingestWorkspaceInboxSource, inspectWorkspaceInboxSource, listWorkspaceInboxSources } from "../core/workspace-document-inbox";
+import { companyPaths } from "../core/paths";
+import { migrate, openDb } from "../core/db";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 
 const need = (ctx: CommandContext, flag: string) => { const v = ctx.trimToNull(ctx.arg(flag)); if (!v) ctx.fatal(`${flag} is required`); return v!; };
@@ -47,4 +50,12 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("ownership", "apply", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,...applyOwnershipSnapshot(db,{snapshotId:need(ctx,"--snapshot-id"),snapshotHash:need(ctx,"--snapshot-hash"),diffHash:need(ctx,"--diff-hash"),actor:actor(ctx),principal:principal(ctx),authorized:true})});}finally{db.close();} });
   dispatch.on("ownership", "history", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{ctx.emitResult({ok:true,history:ownershipHistory(db,ctx.arg("--snapshot-id"))});}finally{db.close();} });
   dispatch.on("ownership", "projection", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{ctx.emitResult({ok:true,projection:projectExactCompanyOwnership(db,need(ctx,"--as-of"))});}finally{db.close();} });
+  // #577: workspace inbox sources are immutable control-plane evidence. No
+  // ledger opens before `complete`, which targets one explicit company.
+  dispatch.on("workspace-inbox", "list", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{ctx.emitResult({ok:true,...listWorkspaceInboxSources(db,{visibilityAnchorSlug:need(ctx,"--company"),cursor:Number(ctx.arg("--cursor")??0),limit:Number(ctx.arg("--limit")??25)})});}finally{db.close();} });
+  dispatch.on("workspace-inbox", "inspect", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{const source=inspectWorkspaceInboxSource(db,need(ctx,"--source-id"),need(ctx,"--company"));ctx.emitResult(source?{ok:true,source}:{ok:false,errors:["workspace inbox source not found"]});}finally{db.close();} });
+  dispatch.on("workspace-inbox", "status", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{const source=inspectWorkspaceInboxSource(db,need(ctx,"--source-id"),need(ctx,"--company"));ctx.emitResult(source?{ok:true,source}:{ok:false,errors:["workspace inbox source not found"]});}finally{db.close();} });
+  dispatch.on("workspace-inbox", "ingest", (ctx) => { confirm(ctx); const root=workspace(ctx),db=openWorkspaceControlDb(root);try{const input=json(ctx,"--input");ctx.emitResult({ok:true,source:ingestWorkspaceInboxSource(db,{...input,visibilityAnchorSlug:need(ctx,"--company"),idempotencyKey:need(ctx,"--idempotency-key"),bytes:readFileSync(need(ctx,"--file")),visibleCompanySlugs:new Set([need(ctx,"--company")]),actor:actor(ctx) }as any)});}finally{db.close();} });
+  dispatch.on("workspace-inbox", "assign", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{const source=inspectWorkspaceInboxSource(db,need(ctx,"--source-id"),need(ctx,"--company"));if(!source)ctx.emitResult({ok:false,errors:["workspace inbox source not found"]});else ctx.emitResult({ok:true,source:approveWorkspaceInboxAssignment(db,{sourceId:need(ctx,"--source-id"),companySlug:need(ctx,"--target-company"),actor:actor(ctx)})});}finally{db.close();} });
+  dispatch.on("workspace-inbox", "complete", (ctx) => { confirm(ctx);const root=workspace(ctx),sourceId=need(ctx,"--source-id"),target=need(ctx,"--target-company"),control=openWorkspaceControlDb(root);let ledger: ReturnType<typeof openDb>|undefined;try{if(!inspectWorkspaceInboxSource(control,sourceId,need(ctx,"--company"))){ctx.emitResult({ok:false,errors:["workspace inbox source not found"]});return;}const companyRoot=resolveWorkspaceSlug(root,target);if(!companyRoot){ctx.fatal("--target-company is not a workspace company");return;}ledger=openDb(companyPaths(companyRoot).db);migrate(ledger);ctx.emitResult({ok:true,source:completeWorkspaceInboxAssignment(control,ledger,companyRoot,{sourceId,companySlug:target,actor:actor(ctx)})});}finally{ledger?.close();control.close();} });
 }

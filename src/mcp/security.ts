@@ -16,7 +16,9 @@ export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = O
   ..."company_knowledge_context".split(" ").map((n) => [n, "company.knowledge.read"]),
   ..."ownership_graph_query ownership_snapshot_history".split(" ").map((n) => [n, "company.ownership.read"]),
   ..."documents_invoice_extraction documents_list documents_parsed_text documents_parse_status".split(" ").map((n) => [n, "company.documents.read"]),
+  ..."workspace_inbox_list workspace_inbox_inspect workspace_inbox_status".split(" ").map((n) => [n, "company.documents.read"]),
   ..."documents_ingest documents_parse documents_parse_pending mail_intake_ingest imap_intake_poll".split(" ").map((n) => [n, "company.documents.upload"]),
+  ..."workspace_inbox_ingest workspace_inbox_assign workspace_inbox_complete".split(" ").map((n) => [n, "company.documents.upload"]),
   ..."accounts_add accounts_role_confirm bank_account_update company_sync_cvr customer_create documents_enrich documents_extract_invoice documents_set_company_context posting_rule_propose recurring_invoice_create vendor_create".split(" ").map((n) => [n, "company.master-data"]),
   ..."workspace_party_create workspace_party_link_role corporate_record_ingest corporate_record_link corporate_record_enrich corporate_record_supersede".split(" ").map((n) => [n, "company.master-data"]),
   ..."company_knowledge_propose company_knowledge_review company_knowledge_supersede".split(" ").map((n) => [n, "company.knowledge.manage"]),
@@ -133,6 +135,13 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
       if(Array.isArray(args.links))for(const link of args.links as Array<any>)if(link?.type==="company"&&typeof link.id==="string")scopes.add(link.id);
       if(args.type==="company"&&typeof args.id==="string")scopes.add(args.id);
       if(scopes.size>0){const needed=(sensitivity==="normal"&&name!=="corporate_record_ingest"&&name!=="corporate_record_link"&&name!=="corporate_record_supersede")?permission:"company.master-data";if(![...scopes].every(slug=>authorizeWorkspaceRoute(db,context.workspaceRoot,{userId:principal.serviceAccountId,permission:needed,companySlug:slug}).allowed))return null;}
+    }
+    // Inbox routing can name a second legal entity.  The anchor alone never
+    // authorises that destination: validate it before any company database is
+    // opened, and return the same opaque denial for hidden targets.
+    if (name === "workspace_inbox_assign" || name === "workspace_inbox_complete") {
+      if (typeof args.companySlug !== "string" || !isValidSlug(args.companySlug)) return null;
+      if (!authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: args.companySlug }).allowed) return null;
     }
     return { root: company.root, principal: authenticated };
   } finally { db.close(); }

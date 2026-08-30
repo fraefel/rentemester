@@ -100,7 +100,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 155 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 170 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -225,7 +225,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 51
 - **Ordinary write-tools**: 69
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **155** (67 read, 87 ordinary write, 1 destructive)
+- **Total**: **170** (73 read, 96 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -622,6 +622,9 @@ regnskabsperiode (`period reopen`) er fx CLI-only — se også underafsnittet
 - `src/cli/workspace-registry.ts` ↔ `src/mcp/tools/workspace-registry.ts` —
   canonical parties og immutable corporate records med explicit company-scope,
   actor/confirm på writes og filtrering før pagination.
+- `src/cli/workspace-registry.ts` ↔ `src/mcp/tools/workspace-document-inbox.ts` —
+  immutable workspace-indbakke med eksplicit, adgangskontrolleret routing og
+  ét canonical company-handoff; kilden ligger aldrig i en workspace-hovedbog.
 - `src/cli/local.ts` — `local start`: loopback-only launcher for den simple
   én-virksomhedstilstand; det er en proces-host, ikke et MCP-tool.
 - `src/cli/accounting-draft.ts` — det append-only fire-øjne-flow

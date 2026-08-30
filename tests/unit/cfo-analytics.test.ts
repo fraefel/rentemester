@@ -24,12 +24,20 @@ describe("#581 source-linked CFO analytics",()=>{
     const ws=makeWorkspace("cfo-partial",["Alpha ApS","Hidden ApS"]);
     try { postPnlEntry(ws,"alpha-aps","2026-02-10",500,125); postPnlEntry(ws,"hidden-aps","2026-02-10",900,225);
       const result=queryCfoAnalytics(ws,{scope:"portfolio",companySlugs:["alpha-aps","hidden-aps"],from:"2026-01-01",to:"2026-12-31"},["alpha-aps"]);
-      expect(result).toMatchObject({scope:"portfolio",status:"incomplete",partial:true,companies:["alpha-aps"]}); expect(JSON.stringify(result)).not.toContain("hidden-aps");
+      expect(result).toMatchObject({scope:"portfolio",status:"incomplete",partial:true,companies:["alpha-aps"],mode:"juxtaposed-non-consolidated"}); expect((result as any).reconciliation.omitted).toContain("aggregate"); expect(JSON.stringify(result)).not.toContain("hidden-aps");
     } finally { rmSync(ws,{recursive:true,force:true}); }
   });
   test("rejects hidden company scope and malformed cursors without returning a fabricated zero",()=>{
     const ws=makeWorkspace("cfo-reject",["Alpha ApS","Hidden ApS"]);
     try { expect(()=>queryCfoAnalytics(ws,{scope:"company",companySlug:"hidden-aps",from:"2026-01-01",to:"2026-12-31"},["alpha-aps"])).toThrow("not accessible"); expect(()=>queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",cursor:"bad"})).toThrow("cursor"); }
     finally { rmSync(ws,{recursive:true,force:true}); }
+  });
+  test("filters deterministically, keeps currencies separate, and fails closed for unsupported dimensions",()=>{
+    const ws=makeWorkspace("cfo-filters",["Alpha ApS"]);
+    try { postPnlEntry(ws,"alpha-aps","2026-02-10",500,125);
+      const result=queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",account:"1000",currency:"DKK"});
+      expect((result as any).rows).toHaveLength(1); expect((result as any).reconciliation.amountByCurrency).toEqual({DKK:-500});
+      expect(()=>queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",dimension:"region"})).toThrow("dimension filtering is unsupported");
+    } finally { rmSync(ws,{recursive:true,force:true}); }
   });
 });

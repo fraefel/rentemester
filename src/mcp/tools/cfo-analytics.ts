@@ -13,7 +13,7 @@ export function registerCfoAnalyticsTools(server: McpServer): void {
     description: "Read-only, versioned historical journal/archive analytics. Portfolio is explicitly non-consolidated; group delegates only to an approved consolidation profile.",
     inputSchema: {
       workspace:z.string().min(1), scope:z.enum(["company","portfolio","group"]), companySlug:z.string().optional(), companySlugs:z.array(z.string()).max(100).optional(), groupProfileId:z.string().optional(),
-      from:z.string(), to:z.string(), account:z.string().optional(), party:z.string().optional(), currency:z.string().optional(), cursor:z.string().optional(), limit:z.number().int().min(1).max(200).optional(),
+      from:z.string(), to:z.string(), account:z.string().optional(), party:z.string().optional(), dimension:z.string().optional(), currency:z.string().optional(), aggregate:z.enum(["none","sum"]).optional(), cursor:z.string().optional(), limit:z.number().int().min(1).max(200).optional(),
     }, outputSchema:envelopeShape, annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
   }, (args:any) => {
     const principal=currentMcpAuthenticatedPrincipal();

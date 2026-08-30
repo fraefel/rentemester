@@ -6,7 +6,7 @@ export const reportSpecs: CommandSpec[] = [
     key: "report analytics",
     usage: "report analytics --workspace <dir> --scope company|portfolio|group --from <YYYY-MM-DD> --to <YYYY-MM-DD> [--company-slug <slug>|--company-slugs <slug,...>|--group-profile-id <id>]",
     description: "Læser versioneret, kildehenvisende CFO-analyse fra live hovedbøger og importerede arkiver. Portfolio er aldrig konsolideret.",
-    allowedFlags: ["--workspace", "--scope", "--from", "--to", "--company-slug", "--company-slugs", "--group-profile-id", "--account", "--party", "--currency", "--cursor", "--limit"],
+    allowedFlags: ["--workspace", "--scope", "--from", "--to", "--company-slug", "--company-slugs", "--group-profile-id", "--account", "--party", "--dimension", "--currency", "--aggregate", "--cursor", "--limit"],
   },
   {
     key: "report trial-balance",

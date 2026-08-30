@@ -374,6 +374,9 @@ if (!cmd || cmd === "help") {
   if ((commandKey === "documents parse" || commandKey === "documents parse-pending") && confirmValue !== "yes") {
     fatal("--confirm must be exactly yes");
   }
+  if ((commandKey === "period review" || commandKey === "period close") && confirmValue !== "yes") {
+    fatal("--confirm must be exactly yes");
+  }
   if ((commandKey === "expense vat-preflight" || commandKey === "system migrate") &&
       applyValue !== undefined && applyValue !== "yes") {
     fatal("--apply must be exactly yes");

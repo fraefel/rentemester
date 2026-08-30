@@ -1,16 +1,27 @@
 import { migrate } from "../core/db";
 import { closeAccountingPeriod, reopenAccountingPeriod } from "../core/periods";
-import { computePeriodCloseReadiness, loadPeriodCloseReview, reviewPeriodCloseReadiness } from "../core/period-close-readiness";
+import { computePeriodCloseReadiness, loadPeriodCloseReview, periodCloseReviewSchemaAvailable, reviewPeriodCloseReadiness } from "../core/period-close-readiness";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
+import { companyPaths } from "../core/paths";
+import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
 import {
   actorMatchesAllowlist,
-  actorMayForcePeriodClose,
   inferredMutationActor,
   isCanonicalActorId,
   loadActorAllowlist,
   trimToNull,
 } from "../cli-actor";
+
+function confirmed(ctx: CommandContext): void { if (ctx.arg("--confirm") !== "yes") ctx.fatal("--confirm must be exactly yes"); }
+function withReadOnlyCurrentLedger(ctx: CommandContext, action: (db: ReturnType<typeof openLedgerReadOnly>) => void): void {
+  const db=openLedgerReadOnly(companyPaths(ctx.companyRoot()).db);
+  try {
+    const schema=inspectOpenLedger(db);
+    if(schema.status==="corrupt" || schema.status==="newer") { ctx.emitResult({ok:false,errors:["PERIOD_CLOSE_READ_UNAVAILABLE"],schema}); return; }
+    action(db);
+  } finally { db.close(); }
+}
 
 /**
  * `period reopen` is a controlled, fully audit-logged mutation (#247), but it
@@ -53,13 +64,12 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("period", "readiness", (ctx) => {
     const from = ctx.arg("--from"); const to = ctx.arg("--to");
     if (!from || !to) { console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>"); process.exit(2); }
-    const db = openCommandDb(ctx); migrate(db);
-    ctx.emitResult(computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to }) as unknown as Record<string, unknown>);
-    db.close();
+    withReadOnlyCurrentLedger(ctx,db=>ctx.emitResult({ok:true,packet:computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to })}));
   });
   dispatch.on("period", "review", (ctx) => {
     const from = ctx.arg("--from"); const to = ctx.arg("--to");
     if (!from || !to) { console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>"); process.exit(2); }
+    confirmed(ctx);
     const actor = ctx.cliActor ?? process.env.RENTEMESTER_ACTOR;
     if (!actor) { console.error("actor required for mutations"); process.exit(2); }
     const db = openCommandDb(ctx); migrate(db);
@@ -70,8 +80,7 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("period", "status", (ctx) => {
     const reviewId = Number(ctx.arg("--review-id"));
     if (!Number.isSafeInteger(reviewId) || reviewId < 1) { console.error("Missing required --review-id <positive integer>"); process.exit(2); }
-    const db = openCommandDb(ctx); migrate(db);
-    ctx.emitResult({ review: loadPeriodCloseReview(db, reviewId) } as unknown as Record<string, unknown>); db.close();
+    withReadOnlyCurrentLedger(ctx,db=>ctx.emitResult(periodCloseReviewSchemaAvailable(db)?{ok:true,review:loadPeriodCloseReview(db, reviewId)}:{ok:true,status:"unavailable",code:"PERIOD_CLOSE_REVIEW_SCHEMA_UNAVAILABLE",review:null}));
   });
   dispatch.on("period", "close", (ctx) => {
     const from = ctx.arg("--from");
@@ -81,6 +90,7 @@ export function register(dispatch: CommandDispatch): void {
       process.exit(2);
     }
     const force = ctx.arg("--force") === "yes" || ctx.arg("--force") === "true";
+    confirmed(ctx);
     const db = openCommandDb(ctx);
     migrate(db);
     const result = closeAccountingPeriod(db, {
@@ -96,8 +106,10 @@ export function register(dispatch: CommandDispatch): void {
       readinessReviewId: Number(ctx.arg("--review-id")) || undefined,
       forceReason: ctx.arg("--reason") ?? undefined,
       createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR,
-      ...(force && actorMayForcePeriodClose(ctx.companyRoot(), ctx.cliActor ?? process.env.RENTEMESTER_ACTOR) ? { forceAuthorization: { principal: { kind: "local-trusted" as const, subjectId: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? "" }, permissions: ["company.period.force-close"] } } : {}),
-      forceConfirmed: !force || ctx.arg("--confirm") === "yes" || ctx.arg("--confirm") === "true",
+      // Local actor attribution is deliberately not an authorization grant.
+      // CLI force therefore fails closed unless a future trusted local
+      // authorization provider is introduced; hosted requests use live RBAC.
+      forceConfirmed: true,
     });
     ctx.emitResult(result as Record<string, unknown>);
     db.close();

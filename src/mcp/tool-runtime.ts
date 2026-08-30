@@ -313,6 +313,7 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
 /** Read-only company wrapper: never migrates, changes journal mode, or creates sidecars. */
 export function withCompanyReadOnlyDb<TArgs extends { company: string }>(
   handler: (ctx: { db: Database; args: TArgs }) => Envelope | Promise<Envelope>,
+  options: { allowSchemaNotCurrent?: boolean } = {},
 ): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
   return async (args) => {
     const resolved = resolveCompanyArg(args.company);
@@ -321,7 +322,7 @@ export function withCompanyReadOnlyDb<TArgs extends { company: string }>(
     try {
       db = openLedgerReadOnly(companyPaths(resolved.companyRoot).db);
       const schema = inspectOpenLedger(db);
-      if (schema.status !== "current") {
+      if (schema.status !== "current" && !options.allowSchemaNotCurrent) {
         return envelopeToCallResult(errorEnvelopeWithData(
           `schema_${schema.status}: current=${schema.currentVersion} required=${schema.requiredVersion}`,
           { schema },

@@ -109,7 +109,7 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
     teardown(ctx);
   });
 
-  test("force:true closes anyway and audit-logs the bypass with the unreconciled count", () => {
+  test("force:true cannot waive an unavailable independent control reconciliation", () => {
     const ctx = setup("rentemester-close-unrec-force-");
     const { db } = ctx;
 
@@ -127,20 +127,9 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
       forceReason: "synthetic unreconciled-bank close waiver",
       ...reviewed(db, readiness),
     });
-    expect(close.ok).toBe(true);
-    expect(close.periodId).toBeGreaterThan(0);
-
-    // The deliberate bypass is recorded on the period's close audit event.
-    const audit = db
-      .query(
-        `SELECT message FROM audit_log
-          WHERE entity_type = 'accounting_period' AND entity_id = ? AND event_type = 'period_close'
-          ORDER BY id DESC LIMIT 1`,
-      )
-      .get(String(close.periodId)) as { message: string } | null;
-    expect(audit).toBeDefined();
-    expect(audit!.message).toContain("force");
-    expect(audit!.message).toContain("1 uafstemt");
+    expect(close.ok).toBe(false);
+    expect(close.errors).toContain("PERIOD_CLOSE_HAS_NONWAIVABLE_BLOCKERS");
+    expect(db.query("SELECT COUNT(*) AS n FROM accounting_periods").get()).toEqual({ n: 0 });
 
     teardown(ctx);
   });

@@ -21,11 +21,16 @@ function rows(db: Database, sql: string, ...params: SQLQueryBindings[]): Array<R
 function control(code: string, status: CloseControlStatus, waivable: boolean, evidence: readonly Record<string, unknown>[], amount = 0): CloseReadinessItem { const ordered=[...evidence].sort((a,b)=>canonicalCloseReadiness(a).localeCompare(canonicalCloseReadiness(b))); return {code,status,waivable,count:ordered.length,amount,evidence:ordered,sourceHash:closeReadinessDigest(ordered)}; }
 function unavailable(code: string, detail: string): CloseReadinessItem { return control(code,"unavailable",false,[{detail}]); }
 function protect(code: string, run: () => CloseReadinessItem): CloseReadinessItem { try { return run(); } catch { return unavailable(code,"control execution failed"); } }
+export function periodCloseReviewSchemaAvailable(db: Database): boolean { return exists(db,"period_close_readiness_packets") && exists(db,"period_close_reviews"); }
 
 /** Read-only: no `migrate`, DDL, packet persistence, audit write or WAL write. */
 export function computePeriodCloseReadiness(db: Database, input: { periodStart: string; periodEnd: string; cutoff?: string }): CloseReadinessPacket {
   const cutoff=input.cutoff ?? input.periodEnd;
   const items: CloseReadinessItem[]=[];
+  // A readiness packet can be inspected against an older ledger, but it can
+  // never be silently treated as closable: the review/decision evidence is a
+  // mandatory v25 contract.
+  if (!periodCloseReviewSchemaAvailable(db)) items.push(unavailable("PERIOD_CLOSE_REVIEW_SCHEMA","period-close review schema v25 is unavailable; migrate before review or close"));
   items.push(protect("PERIOD_LIFECYCLE",()=>{
     if (!has(db,"accounting_periods","period_start") || !has(db,"accounting_periods","period_end") || !has(db,"accounting_periods","status")) return unavailable("PERIOD_LIFECYCLE","accounting period schema unavailable");
     const all=rows(db,`SELECT p.id,p.period_start,p.period_end,p.kind,p.status,p.reference,
@@ -43,19 +48,23 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
   items.push(protect("EXCEPTIONS_OPEN",()=>{
     if (!has(db,"exceptions","status") || !has(db,"exceptions","severity")) return unavailable("EXCEPTIONS_OPEN","required exception schema unavailable");
     if (!has(db,"exceptions","related_bank_transaction_id") || !has(db,"exceptions","related_document_id") || !has(db,"documents","invoice_date") || !has(db,"bank_transactions","transaction_date")) return unavailable("EXCEPTIONS_OPEN","exception date scope cannot be determined");
-    const evidence=rows(db,`SELECT e.id,e.type,e.severity,bt.transaction_date,d.invoice_date FROM exceptions e LEFT JOIN bank_transactions bt ON bt.id=e.related_bank_transaction_id LEFT JOIN documents d ON d.id=e.related_document_id WHERE e.status='open' AND e.severity IN ('high','medium') AND ((bt.transaction_date BETWEEN ? AND ?) OR (d.invoice_date BETWEEN ? AND ?) OR (bt.transaction_date IS NULL AND d.invoice_date IS NULL)) ORDER BY e.id`,input.periodStart,cutoff,input.periodStart,cutoff); return control("EXCEPTIONS_OPEN",evidence.length?"blocked":"passed",true,evidence);
+    const evidence=rows(db,`SELECT e.id,e.type,e.severity,bt.transaction_date,d.invoice_date FROM exceptions e LEFT JOIN bank_transactions bt ON bt.id=e.related_bank_transaction_id LEFT JOIN documents d ON d.id=e.related_document_id WHERE e.status='open' AND e.severity IN ('high','medium') AND ((bt.transaction_date BETWEEN ? AND ?) OR (d.invoice_date BETWEEN ? AND ?)) ORDER BY e.id`,input.periodStart,cutoff,input.periodStart,cutoff); return control("EXCEPTIONS_OPEN",evidence.length?"blocked":"passed",true,evidence);
+  }));
+  items.push(protect("EXCEPTION_SCOPE_UNKNOWN",()=>{
+    if (!has(db,"exceptions","status") || !has(db,"exceptions","severity") || !has(db,"exceptions","related_bank_transaction_id") || !has(db,"exceptions","related_document_id") || !has(db,"documents","invoice_date") || !has(db,"bank_transactions","transaction_date")) return unavailable("EXCEPTION_SCOPE_UNKNOWN","exception scope schema unavailable");
+    const evidence=rows(db,`SELECT e.id,e.type,e.severity FROM exceptions e LEFT JOIN bank_transactions bt ON bt.id=e.related_bank_transaction_id LEFT JOIN documents d ON d.id=e.related_document_id WHERE e.status='open' AND e.severity IN ('high','medium') AND bt.transaction_date IS NULL AND d.invoice_date IS NULL ORDER BY e.id`); return control("EXCEPTION_SCOPE_UNKNOWN",evidence.length?"blocked":"passed",false,evidence);
   }));
   items.push(protect("BATCH_UNPOSTED_OR_FAILED",()=>{
-    if (!has(db,"bookkeeping_batch_runs","accounting_from") || !has(db,"bookkeeping_batch_runs","accounting_to") || !has(db,"bookkeeping_batch_events","event_type")) return unavailable("BATCH_UNPOSTED_OR_FAILED","batch lifecycle schema unavailable");
-    // Event names are not ordered lifecycle states.  Resolve the actual latest
-    // append-only event, otherwise e.g. `source_stale` can be hidden by a
-    // lexically larger old event name.
-    const evidence=rows(db,`SELECT r.id, e.id AS event_id, e.event_type
+    if (!has(db,"bookkeeping_batch_runs","accounting_from") || !has(db,"bookkeeping_batch_revisions","run_id") || !has(db,"bookkeeping_batch_apply_attempts_v2","revision_id") || !has(db,"bookkeeping_batch_apply_events_v2","event_type") || !has(db,"bookkeeping_batch_final_checks_v2","ok")) return unavailable("BATCH_UNPOSTED_OR_FAILED","durable batch revision/apply schema unavailable");
+    const evidence=rows(db,`SELECT r.id AS run_id,rev.id AS revision_id,a.id AS attempt_id,
+      (SELECT e.event_type FROM bookkeeping_batch_apply_events_v2 e WHERE e.apply_attempt_id=a.id ORDER BY e.id DESC LIMIT 1) AS final_event,
+      (SELECT COUNT(*) FROM bookkeeping_batch_apply_events_v2 e WHERE e.apply_attempt_id=a.id AND e.event_type IN ('item_failed','source_stale')) AS failed_events,
+      (SELECT COUNT(*) FROM bookkeeping_batch_final_checks_v2 c WHERE c.apply_attempt_id=a.id AND c.ok=0) AS failed_checks
       FROM bookkeeping_batch_runs r
-      LEFT JOIN bookkeeping_batch_events e ON e.id=(SELECT e2.id FROM bookkeeping_batch_events e2 WHERE e2.run_id=r.id ORDER BY e2.id DESC LIMIT 1)
+      LEFT JOIN bookkeeping_batch_revisions rev ON rev.id=(SELECT r2.id FROM bookkeeping_batch_revisions r2 WHERE r2.run_id=r.id ORDER BY r2.id DESC LIMIT 1)
+      LEFT JOIN bookkeeping_batch_apply_attempts_v2 a ON a.id=(SELECT a2.id FROM bookkeeping_batch_apply_attempts_v2 a2 WHERE a2.revision_id=rev.id ORDER BY a2.id DESC LIMIT 1)
       WHERE NOT (r.accounting_to < ? OR r.accounting_from > ?)
-        AND (e.id IS NULL OR e.event_type != 'completed')
-      ORDER BY r.id`,input.periodStart,cutoff); return control("BATCH_UNPOSTED_OR_FAILED",evidence.length?"blocked":"passed",true,evidence);
+      AND (a.id IS NULL OR final_event!='completed' OR failed_events>0 OR failed_checks>0) ORDER BY r.id`,input.periodStart,cutoff); return control("BATCH_UNPOSTED_OR_FAILED",evidence.length?"blocked":"passed",true,evidence);
   }));
   items.push(protect("DOCUMENT_OUTSTANDING",()=>{
     if (!has(db,"documents","status") || !has(db,"documents","invoice_date")) return unavailable("DOCUMENT_OUTSTANDING","document status/date schema unavailable");
@@ -68,7 +77,7 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
   items.push(protect("RECEIVABLE_OUTSTANDING",()=>{
     // This ledger has no canonical issued-invoice balance model. Record that
     // explicit product boundary rather than inventing receivables from uploads.
-    if (!exists(db,"invoices")) return control("RECEIVABLE_OUTSTANDING","passed",false,[{scope:"not-modelled-by-this-ledger"}]);
+    if (!exists(db,"invoices")) return unavailable("RECEIVABLE_OUTSTANDING","canonical receivable subledger is not available");
     if (!has(db,"documents","due_date") || !has(db,"documents","total_amount") || !has(db,"documents","document_type")) return unavailable("RECEIVABLE_OUTSTANDING","receivable document schema unavailable");
     const evidence=rows(db,"SELECT id,due_date,total_amount FROM documents WHERE document_type='invoice' AND due_date<=? ORDER BY id",cutoff); return control("RECEIVABLE_OUTSTANDING",evidence.length?"warning":"passed",true,evidence,evidence.reduce((n,r)=>n+Math.abs(Number(r.total_amount??0)),0));
   }));
@@ -83,11 +92,9 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
       WHERE a.account_no IN (?,?,?) AND je.transaction_date<=?
       GROUP BY a.account_no ORDER BY a.account_no`,accounts[0],accounts[1],accounts[2],cutoff);
-    // Rentemester has canonical bank reconciliation and payable balances, but
-    // no independent debtors subledger.  This record is deliberately a
-    // bounded ledger-control check, not a claim that a filing or a separate
-    // subledger was reconciled.
-    return control("DKK_CONTROL_ACCOUNTS","passed",false,evidence);
+    // Ledger balances alone are not a reconciliation.  Do not turn a missing
+    // debtor/creditor subledger comparison into a green control.
+    return unavailable("DKK_CONTROL_ACCOUNTS",`ledger-only balances available for ${evidence.length} control account(s); independent DKK reconciliation is unavailable`);
   }));
   items.push(protect("LEDGER_AUDIT_CHAIN",()=>{const r=verifyAuditChain(db);return control("LEDGER_AUDIT_CHAIN",r.ok?"passed":"blocked",false,r.errors.map(error=>({error})));}));
   items.push(protect("AUDIT_LOG_INTEGRITY",()=>{const r=verifyAuditLogIntegrity(db,{journalCrossCheck:false});return control("AUDIT_LOG_INTEGRITY",r.ok?"passed":"blocked",false,r.errors.map(error=>({error})));}));
@@ -99,7 +106,7 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
   return {...body,hash:closeReadinessDigest(body)};
 }
 export const createPeriodCloseReadinessPacket=computePeriodCloseReadiness;
-function assertReviewSchema(db:Database):void { if(!exists(db,"period_close_readiness_packets")||!exists(db,"period_close_reviews")) throw new Error("period close review schema migration is required; run migrate first"); }
+function assertReviewSchema(db:Database):void { if(!periodCloseReviewSchemaAvailable(db)) throw new Error("period close review schema migration is required; run migrate first"); }
 function principalJson(principal:CloseReviewPrincipal|undefined|null):string|null { if(!principal)return null;if(!principal.subjectId.trim())throw new Error("reviewer principal subject is required");return canonicalCloseReadiness(principal); }
 function parsePrincipal(raw:string|null):CloseReviewPrincipal|null { if(!raw)return null;const v=JSON.parse(raw) as CloseReviewPrincipal;if(!["user","service-account","local-trusted"].includes(v.kind)||!v.subjectId)return null;return v; }
 export function reviewPeriodCloseReadiness(db:Database,input:{packet:CloseReadinessPacket;reviewerActor:string;reviewerPrincipal?:CloseReviewPrincipal|null}):PeriodCloseReview { assertReviewSchema(db);const actor=input.reviewerActor.trim();if(!actor)throw new Error("reviewer actor is required");db.query("INSERT OR IGNORE INTO period_close_readiness_packets(packet_hash,period_start,period_end,cutoff,packet_json) VALUES(?,?,?,?,?)").run(input.packet.hash,input.packet.periodStart,input.packet.periodEnd,input.packet.cutoff,canonicalCloseReadiness(input.packet));const p=db.query("SELECT id FROM period_close_readiness_packets WHERE packet_hash=?").get(input.packet.hash) as {id:number};const row=db.query("INSERT INTO period_close_reviews(packet_id,packet_hash,reviewer_actor,reviewer_principal) VALUES(?,?,?,?) RETURNING id,created_at").get(p.id,input.packet.hash,actor,principalJson(input.reviewerPrincipal)) as {id:number;created_at:string};return{id:row.id,packet:input.packet,reviewerActor:actor,reviewerPrincipal:input.reviewerPrincipal??null,createdAt:row.created_at}; }

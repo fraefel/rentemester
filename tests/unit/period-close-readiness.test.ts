@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { seedNativeAccountRoles } from "../../src/core/account-roles";
-import { createPeriodCloseReadinessPacket, listPeriodCloseOpenItems, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
+import { createPeriodCloseReadinessPacket, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 import { closeAccountingPeriod, reopenAccountingPeriod } from "../../src/core/periods";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { createSystemBackup } from "../../src/core/system-backups";
@@ -38,13 +38,13 @@ describe("#580 period-close readiness", () => {
     expect(() => db.run("UPDATE period_close_readiness_packets SET cutoff='x'")).toThrow(); db.close();
   });
 
-  test("blocks unreconciled bank activity and creates durable forced-close obligations", () => {
+  test("does not let force waive unavailable independent control reconciliation", () => {
     const db = fixture(); db.run("INSERT INTO bank_transactions(transaction_date,text,amount,currency) VALUES('2025-01-02','synthetic',100,'DKK')");
     const packet = createPeriodCloseReadinessPacket(db, { periodStart: "2025-01-01", periodEnd: "2025-01-31" }); expect(packet.items.map(x => x.code)).toContain("BANK_UNRECONCILED");
     expect(closeAccountingPeriod(db, { periodStart: "2025-01-01", periodEnd: "2025-01-31", kind: "custom", readinessPacketHash: packet.hash, createdBy: "user:test" }).ok).toBe(false);
     const review = reviewPeriodCloseReadiness(db, { packet, reviewerActor: "user:test", reviewerPrincipal: { kind: "local-trusted", subjectId: "test" } });
     const forced = closeAccountingPeriod(db, { periodStart: "2025-01-01", periodEnd: "2025-01-31", kind: "custom", readinessPacketHash: packet.hash, readinessReviewId: review.id, force: true, forceAuthorization: { principal: { kind: "local-trusted", subjectId: "test" }, permissions: ["company.period.force-close"] }, forceConfirmed: true, forceReason: "synthetic waiver", createdBy: "user:test" });
-    expect(forced.ok).toBe(true); expect(listPeriodCloseOpenItems(db, forced.periodId!).length).toBeGreaterThan(0); db.close();
+    expect(forced.ok).toBe(false); expect(forced.errors).toContain("PERIOD_CLOSE_HAS_NONWAIVABLE_BLOCKERS"); db.close();
   });
 
   test("reopen appends and supersedes history", () => {

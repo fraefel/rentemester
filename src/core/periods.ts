@@ -675,7 +675,14 @@ function closeAccountingPeriodInImmediateTransaction(db: Database, input: CloseA
   const currentPacket = computePeriodCloseReadiness(db, { periodStart, periodEnd });
   if (!review || review.packet.periodStart !== periodStart || review.packet.periodEnd !== periodEnd || input.readinessPacketHash !== review.packet.hash || currentPacket.hash !== review.packet.hash) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"], readinessPacket: currentPacket };
   const packet = review.packet;
-  if (!input.force && packet.blockers > 0) return { ok: false, appliedRules, errors: [`PERIOD_CLOSE_BLOCKED:${packet.blockers}`], readinessPacket: packet };
+  // `unavailable` is retained as explicit, non-waivable assurance debt. It
+  // is not silently claimed as a successful reconciliation, but it also does
+  // not turn a ledger with an intentionally unsupported optional subledger
+  // into an uncloseable product. Concrete blocked controls do block normal
+  // close; force can never waive either blocked or unavailable non-waivable
+  // controls below.
+  const blockedControls = packet.items.filter(item => item.status === "blocked");
+  if (!input.force && blockedControls.length > 0) return { ok: false, appliedRules, errors: [`PERIOD_CLOSE_BLOCKED:${blockedControls.length}`], readinessPacket: packet };
   const forceAuthorized = input.forceAuthorization?.permissions.includes("company.period.force-close") === true;
   if (input.force && (!input.forceReason?.trim() || !input.createdBy?.trim() || !forceAuthorized || input.forceConfirmed !== true)) return { ok: false, appliedRules, errors: ["FORCED_CLOSE_REQUIRES_COMPANY_PERIOD_FORCE_CLOSE_PERMISSION_CONFIRM_ACTOR_AND_REASON"], readinessPacket: packet };
   if (input.force && packet.items.some(item => !item.waivable && (item.status === "blocked" || item.status === "unavailable"))) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_HAS_NONWAIVABLE_BLOCKERS"], readinessPacket: packet };
@@ -849,6 +856,22 @@ function closeAccountingPeriodInImmediateTransaction(db: Database, input: CloseA
           createdBy: input.createdBy,
           createdByProgram: input.createdByProgram,
         });
+        // A re-close after reopen is a fresh lifecycle decision, not merely
+        // an audit-log line. Keep the exact reviewed packet and every waived
+        // blocker linked to this new decision in the same transaction.
+        const decisionId = recordPeriodCloseDecision(db, {
+          periodId: overlap.id,
+          packet,
+          decision: input.force ? "forced_closed" : "closed",
+          actor: input.createdBy ?? "system",
+          reason: input.force ? input.forceReason : undefined,
+          supersedesDecisionId: latestPeriodCloseDecision(db, overlap.id),
+        });
+        const waivedBlockers = packet.items.filter((item) => item.waivable && item.status === "blocked");
+        if (input.force && waivedBlockers.length > 0) {
+          recordForcedPeriodCloseOpenItems(db, overlap.id, decisionId, packet, input.forceReason!.trim(), input.createdBy!);
+          insertAuditLog(db, { eventType: "PERIOD_CLOSED_WITH_OPEN_ITEMS", entityType: "accounting_period", entityId: overlap.id, message: `Forced re-close with ${waivedBlockers.length} waived readiness blocker(s): ${input.forceReason!.trim()}`, createdBy: input.createdBy, createdByProgram: input.createdByProgram });
+        }
       })();
       const effectiveReference = reference ?? overlap.reference ?? undefined;
       return {
@@ -861,6 +884,7 @@ function closeAccountingPeriodInImmediateTransaction(db: Database, input: CloseA
         reference: effectiveReference,
         appliedRules,
         errors,
+        readinessPacket: packet,
       };
     }
     if (isSamePeriod && overlapEffective === "reported" && status === "reported") {

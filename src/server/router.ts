@@ -89,6 +89,7 @@ import {
   handleCompanyList,
   handlePortfolio,
 } from "./router/portfolio";
+import { handleCfoAnalytics } from "./router/cfo-analytics";
 import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
 import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
 import { handleCompanyKnowledge, handleCompanyKnowledgeAction, handleOwnershipAction, handleOwnershipHistory, handleOwnershipQuery, handleRegistryParties, handleRegistryParty, handleRegistryPartyCreate, handleRegistryPartyMerge, handleRegistryPartyRole, handleRegistryRecord, handleRegistryRecordAction, handleRegistryRecordDownload, handleRegistryRecordIngest, handleRegistryRecords } from "./router/workspace-registry";
@@ -259,6 +260,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "public", effect: "read", permission: "public.read", method: "GET", pattern: "/api/agent-workflows/:id", summary: "Versioneret agent-workflow med live HTTP/CLI-opløsning (#584)." },
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/system/cvr-status", summary: "Er CVR-login konfigureret på serveren? (#402)" },
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/portfolio", summary: "Workspace-portfolio." },
+  { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/cfo-analytics", summary: "Versioneret, kildehenvisende CFO-analyse uden ledger-mutation." },
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/me", summary: "Sikker hosted bruger- og medlemskabs-kontekst." },
   { scope: "workspace", effect: "read", permission: "workspace.members.read", method: "GET", pattern: "/api/workspace/invitations", summary: "Lister workspace-invitationer uden tokens." },
   { scope: "workspace", effect: "write", permission: "workspace.members.manage", method: "POST", pattern: "/api/workspace/invitations", summary: "Opretter og leverer en tidsbegrænset workspace-invitation." },
@@ -684,6 +686,11 @@ export async function handleRequest(
     if (path === "/api/portfolio") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       return handlePortfolio(config, url);
+    }
+
+    if (path === "/api/cfo-analytics") {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleCfoAnalytics(config, url);
     }
 
     if (path === "/api/me") {

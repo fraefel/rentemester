@@ -100,7 +100,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 178 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 179 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -225,7 +225,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 51
 - **Ordinary write-tools**: 69
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **178** (75 read, 102 ordinary write, 1 destructive)
+- **Total**: **179** (76 read, 102 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -284,6 +284,7 @@ frit og parallelt.
 | `payable_list` | `payable list` | `{ company, status?, asOf? (legacy alias: asOfDate), supplier?, vendorId?, from?, to?, minDays? }` | Bygger kreditorlisten: åbne leverandørposter med åben saldo og forfaldsintervaller (forfaldne/ikke-forfaldne). |
 | `period_list` | (ingen — kun MCP)² | `{ company }` | Lister regnskabsperioder (open/closed/reported). |
 | `portfolio_overview` | `dashboard` (delvist) | `{ workspace, asOf? }` | Status side om side for hver virksomhed i workspace'et. Intet konsolideres. |
+| `cfo_analytics_query` | `report analytics` | `{ workspace, scope, from, to, companySlug?/companySlugs?/groupProfileId?, filters?, cursor?, limit? }` | Versioneret, læsende analyse med journal-/arkivkilder. Portfolio er tydeligt ikke-konsolideret; gruppe bruger kun godkendt konsolideringsprofil. |
 | `reconcile_bank` | `reconcile bank` | `{ company, from, to, status?, textMatch?, amount?, account? }` | Bygger bank-afstemningsrapport for periode. |
 | `recurring_invoice_list` | `recurring-invoice list` | `{ company, includeInactive? }` | Lister gentagende fakturaskabeloner. |
 | `recurring_invoice_run_workspace` | `recurring-invoice run-workspace` | `{ workspace, asOfDate, confirm }` | Eksplicit scheduler-kørsel for aktive manifestvirksomheder. Ingen indbygget cron; arkiverede/uinitialiserede springes over og resultater er secret-frie. |
@@ -629,6 +630,9 @@ regnskabsperiode (`period reopen`) er fx CLI-only — se også underafsnittet
   source-linked two-sided disposition lifecycle. MCP requires live, narrow
   membership on both legal-company endpoints; it can plan, propose, approve,
   link, inspect, settle and reopen evidence, but never posts either ledger.
+- `src/cli/report.ts` ↔ `src/mcp/tools/cfo-analytics.ts` — versioneret,
+  source-linked CFO-analyse over live journal og importarkiver. Portfolio er
+  aldrig en konsolidering; group-scope delegerer kun til en godkendt profil.
 - `src/cli/local.ts` — `local start`: loopback-only launcher for den simple
   én-virksomhedstilstand; det er en proces-host, ikke et MCP-tool.
 - `src/cli/accounting-draft.ts` — det append-only fire-øjne-flow

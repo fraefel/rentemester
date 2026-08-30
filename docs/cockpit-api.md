@@ -140,6 +140,7 @@ explicit `YYYY-MM-DD` value and otherwise fails closed.
 |---|---|---|
 | `GET /api` or `GET /api/health` | `service`, `workspace`, `authRequired`, `routes` | Health probe + server identity + route-catalog (#376). `routes` is a machine-readable list of every HTTP endpoint with `{ method, pattern, summary }` so an agent can enumerate the surface without reading source. The catalog is the same `ROUTE_CATALOG` exported from `src/server/router.ts`. |
 | `GET /api/portfolio?asOf=` | `portfolio` | Cross-company portfolio overview. |
+| `GET /api/cfo-analytics?scope=company|portfolio|group&from=&to=` | analytics fields | Versioneret, kildehenvisende CFO-analyse. Hosted adgang filtreres før aggregering; portfolio er ikke konsolideret, og gruppe kræver en godkendt profil. |
 | `GET /api/companies` | `workspace`, `count`, `companies[]` | List workspace companies (`{slug,name,createdAt,archived}`). Discovers and adopts an unlisted-but-present company directory before listing. |
 | `GET /api/companies/:slug/dashboard?asOf=` | `dashboard` | The company dashboard data. |
 | `GET /api/companies/:slug/fiscal-years` | `fiscalYears` | The company's fiscal years. |
@@ -355,7 +356,7 @@ a friendly health probe and any other non-`/api` path is a JSON `404`.
 |---|---|---|---|
 | Driver | The cockpit SPA / any HTTP client | An external MCP client/agent | The in-process `runAgentLoop()` |
 | Scope | A whole workspace; company by slug | One company per call; slug or path | One company, one run |
-| Surface | A small REST-ish route set | 178 loose tools | A single fixed loop |
+| Surface | A small REST-ish route set | 179 loose tools | A single fixed loop |
 | Writes | 6 `POST` routes via `withCompanyMutation` | Write tools with `confirm` | The loop books deterministically |
 
 All four rest on the same `src/core/`, the same rules and the same

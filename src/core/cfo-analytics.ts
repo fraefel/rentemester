@@ -1,0 +1,95 @@
+/**
+ * Source-linked, read-only CFO analytics (#581).
+ *
+ * This is deliberately a query facade, not a warehouse: every row is read
+ * directly from a legal company's immutable journal or its retained import
+ * archive.  Portfolio is a juxtaposition; legal consolidation remains the
+ * existing reviewed group-report contract.
+ */
+import { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { buildConsolidatedReport } from "./consolidated-reports";
+import { companyPaths } from "./paths";
+import { companyRootForSlug, findWorkspaceCompany, listWorkspaceCompanies } from "./workspace";
+import { openWorkspaceControlReadOnlyDb } from "./workspace-control";
+
+export const CFO_ANALYTICS_SCHEMA_VERSION = "rentemester-cfo-analytics-v1";
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LIMIT_MAX = 200;
+
+export type CfoAnalyticsInput = {
+  scope: "company" | "portfolio" | "group";
+  companySlug?: string;
+  companySlugs?: string[];
+  groupProfileId?: string;
+  from: string;
+  to: string;
+  account?: string;
+  party?: string;
+  currency?: string;
+  cursor?: string;
+  limit?: number;
+};
+
+type Row = {
+  companySlug: string; sourceType: "ledger" | "archive"; sourceHash: string;
+  sourceId: string; journalEntryId: number | null; journalEntryNo: string | null;
+  documentId: number | null; documentHash: string | null; partyId: string | null;
+  partyName: string | null; accountNo: string; accountName: string | null;
+  transactionDate: string; currency: string; amount: number; text: string | null;
+};
+
+function sha(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+function validDate(value: string, label: string): string { if (!DATE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) throw new Error(`${label} must be YYYY-MM-DD`); return value; }
+function normal(value: string | undefined): string | undefined { const v=value?.trim(); return v ? v : undefined; }
+function canonicalCursor(row: Row): string { return [row.transactionDate,row.sourceType,row.companySlug,row.sourceId,row.accountNo].join("|"); }
+function decodeCursor(cursor: string | undefined): string | undefined { if (!cursor) return undefined; try { const result=Buffer.from(cursor,"base64url").toString("utf8"); if (result.split("|").length !== 5) throw new Error(); return result; } catch { throw new Error("cursor is invalid"); } }
+function encodeCursor(row: Row): string { return Buffer.from(canonicalCursor(row)).toString("base64url"); }
+
+function sourceRows(companySlug: string, companyRoot: string, input: Required<Pick<CfoAnalyticsInput,"from"|"to">> & Pick<CfoAnalyticsInput,"account"|"party"|"currency">): Row[] {
+  const dbPath=companyPaths(companyRoot).db;
+  if (!existsSync(dbPath)) return [];
+  const db=new Database(dbPath,{readonly:true});
+  try {
+    db.exec("PRAGMA query_only=ON");
+    const ledger=db.query(`SELECT je.id AS journalEntryId,je.entry_no AS journalEntryNo,je.entry_hash AS sourceHash,je.transaction_date AS transactionDate,je.currency AS currency,je.text AS entryText,je.document_id AS documentId,d.sha256_hash AS documentHash,d.supplier_name AS partyName,jl.id AS lineId,jl.debit_amount-jl.credit_amount AS amount,jl.text AS lineText,a.account_no AS accountNo,a.name AS accountName FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id LEFT JOIN documents d ON d.id=je.document_id WHERE je.status='posted' AND je.reversal_of_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM journal_entries r WHERE r.reversal_of_entry_id=je.id) AND je.transaction_date BETWEEN ? AND ? ORDER BY je.transaction_date,je.id,jl.id`).all(input.from,input.to) as any[];
+    const archive=db.query(`SELECT y.id AS archiveId,y.source_system AS sourceSystem,y.fiscal_year AS fiscalYear,p.id AS postingId,p.line_no AS lineNo,p.account_no AS accountNo,p.account_name AS accountName,p.transaction_date AS transactionDate,p.voucher AS voucher,p.text AS text,p.amount AS amount FROM import_archive_years y JOIN import_archive_postings p ON p.archive_year_id=y.id WHERE p.transaction_date BETWEEN ? AND ? ORDER BY p.transaction_date,y.id,p.line_no`).all(input.from,input.to) as any[];
+    const account=normal(input.account), party=normal(input.party)?.toLocaleLowerCase(), currency=normal(input.currency)?.toUpperCase();
+    const live:Row[]=ledger.map(row=>({companySlug,sourceType:"ledger",sourceHash:String(row.sourceHash),sourceId:`journal:${row.journalEntryId}:line:${row.lineId}`,journalEntryId:Number(row.journalEntryId),journalEntryNo:String(row.journalEntryNo),documentId:row.documentId==null?null:Number(row.documentId),documentHash:row.documentHash??null,partyId:null,partyName:row.partyName??null,accountNo:String(row.accountNo),accountName:row.accountName??null,transactionDate:String(row.transactionDate),currency:String(row.currency).toUpperCase(),amount:Number(row.amount),text:row.lineText??row.entryText??null}));
+    const archived:Row[]=archive.map(row=>({companySlug,sourceType:"archive",sourceHash:sha(`${row.sourceSystem}|${row.fiscalYear}|${row.archiveId}`),sourceId:`archive:${row.archiveId}:posting:${row.postingId}`,journalEntryId:null,journalEntryNo:row.voucher??null,documentId:null,documentHash:null,partyId:null,partyName:null,accountNo:String(row.accountNo),accountName:row.accountName??null,transactionDate:String(row.transactionDate),currency:"DKK",amount:Number(row.amount),text:row.text??null}));
+    return [...live,...archived].filter(row => (!account || row.accountNo===account) && (!currency || row.currency===currency) && (!party || `${row.partyName??""} ${row.text??""}`.toLocaleLowerCase().includes(party)));
+  } finally { db.close(); }
+}
+
+function analyticsForCompanies(workspaceRoot:string, companySlugs:string[], input:CfoAnalyticsInput) {
+  const rows=companySlugs.flatMap(slug=>sourceRows(slug,companyRootForSlug(workspaceRoot,slug),input as Required<Pick<CfoAnalyticsInput,"from"|"to">> & Pick<CfoAnalyticsInput,"account"|"party"|"currency">)).sort((a,b)=>canonicalCursor(a).localeCompare(canonicalCursor(b)));
+  const after=decodeCursor(input.cursor); const page=rows.filter(row=>!after || canonicalCursor(row)>after).slice(0,Math.min(Math.max(input.limit??100,1),LIMIT_MAX));
+  const totalAmount=rows.reduce((sum,row)=>sum+row.amount,0);
+  const sourceHashes=[...new Set(rows.map(row=>row.sourceHash))].sort();
+  const freshnessBySource=new Map<string,{source:Row["sourceType"];companySlug:string;latestTransactionDate:string}>();
+  for (const row of rows) { const key=`${row.companySlug}:${row.sourceType}`, current=freshnessBySource.get(key); if (!current || row.transactionDate>current.latestTransactionDate) freshnessBySource.set(key,{source:row.sourceType,companySlug:row.companySlug,latestTransactionDate:row.transactionDate}); }
+  const freshness=[...freshnessBySource.values()].sort((a,b)=>`${a.companySlug}:${a.source}`.localeCompare(`${b.companySlug}:${b.source}`));
+  return { rows:page, page:{limit:Math.min(Math.max(input.limit??100,1),LIMIT_MAX),nextCursor:page.length && rows.findIndex(r=>canonicalCursor(r)===canonicalCursor(page.at(-1)!))<rows.length-1?encodeCursor(page.at(-1)!):null}, freshness, reconciliation:{rowCount:rows.length,amount:totalAmount,sourceHashes,method:"sum(all matching rows.amount); every row is directly linked to its source journal/archive"} };
+}
+
+/** One deterministic, versioned schema shared by CLI, MCP and HTTP. */
+export function queryCfoAnalytics(workspaceRoot:string,input:CfoAnalyticsInput, visibleCompanySlugs?: readonly string[]) {
+  const from=validDate(input.from,"from"),to=validDate(input.to,"to"); if(from>to) throw new Error("from must be on or before to");
+  const requested=input.scope==="company" ? [normal(input.companySlug) ?? ""] : (input.companySlugs?.length ? [...new Set(input.companySlugs)].sort() : listWorkspaceCompanies(workspaceRoot).filter(c=>!c.archived).map(c=>c.slug));
+  if(requested.some(slug=>!slug || !findWorkspaceCompany(workspaceRoot,slug))) throw new Error("companySlug references an unknown workspace company");
+  const visible=visibleCompanySlugs ? new Set(visibleCompanySlugs) : null;
+  const companies=requested.filter(slug=>!visible || visible.has(slug));
+  const hidden=requested.filter(slug=>visible && !visible.has(slug));
+  if(input.scope==="company" && hidden.length) throw new Error("company is not accessible");
+  if(input.scope==="group") {
+    if (!input.groupProfileId) throw new Error("groupProfileId is required for group scope");
+    const control=openWorkspaceControlReadOnlyDb(workspaceRoot); try {
+      const report=buildConsolidatedReport(control,workspaceRoot,new Set(companies),input.groupProfileId,from,to);
+      if(report.status!=="ready") return {schemaVersion:CFO_ANALYTICS_SCHEMA_VERSION,scope:"group",status:"unsupported",asOf:to,limitations:["The approved consolidated report is blocked; no analytics totals are manufactured."],group:report};
+      return {schemaVersion:CFO_ANALYTICS_SCHEMA_VERSION,scope:"group",status:"ready",asOf:to,limitations:["Group analytics delegates to the approved consolidation profile; it does not infer ownership, FX or eliminations."],group:report};
+    } finally { control.close(); }
+  }
+  const result=analyticsForCompanies(workspaceRoot,companies,{...input,from,to});
+  return {schemaVersion:CFO_ANALYTICS_SCHEMA_VERSION,scope:input.scope,status:hidden.length?"incomplete":"ready",asOf:to,from,to,companies,partial:hidden.length>0,limitations:input.scope==="portfolio"?["Portfolio is a juxtaposed, non-consolidated view. No eliminations or inferred currency conversion are applied.",...(hidden.length?["One or more requested companies are hidden; totals include visible companies only."]:[])]:["Rows with no recorded party link expose partyId:null; no party identity is inferred."],...result};
+}

@@ -194,6 +194,9 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("intercompany-reconcile", cli("group reconcile"), "Reconcile approved intercompany mappings.", { dependsOn: ["group-overview"] }),
     read("consolidated-report", cli("group consolidated-report"), "Produce the traceable read-only consolidation view.", { dependsOn: ["intercompany-reconcile"], canonicalRecords: ["workspace group graph", "approved mappings", "approved eliminations", "derived consolidation view"] }),
   ], unsupportedBoundaries: ["Each legal entity keeps its own ledger.", "Group operations remain CLI/HTTP-only where no MCP operation is listed."] }),
+  workflow({ id: "cfo-analytics", capabilityId: "cfo-analytics", title: "Source-linked CFO analytics", intendedOutcome: "Query current and archived accounting history with row-level source evidence, without changing any ledger.", steps: [
+    read("query", mcp("cfo_analytics_query"), "Query the versioned company, juxtaposed portfolio, or approved group analysis.", { outputIdentities:["source journal/archive identifiers", "reconciliation evidence"], canonicalRecords:["posted journal lines", "import archive rows", "approved consolidated report"] }),
+  ], unsupportedBoundaries:["Portfolio output is not legal consolidation and never applies eliminations or inferred FX conversion.","Group output fails closed unless an approved existing consolidation profile supports the requested scope.","No AI classification is added to accounting facts."] }),
   workflow({ id: "intercompany-disposition", capabilityId: "group-intercompany", title: "Intercompany disposition evidence lifecycle", intendedOutcome: "Create a source-linked two-sided disposition, approve it separately, and link each independently posted legal-ledger journal.", steps: [
     read("plan", mcp("intercompany_disposition_plan"), "Validate the exact evidence and both expected sides as a dry-run with no ledger effects.", { boundary:"dry-run", canonicalRecords:["validated disposition payload"] }),
     write("propose", mcp("intercompany_disposition_propose"), "Record the two-sided expected economic disposition and source evidence; it never posts either ledger.", { dependsOn:["plan"], canonicalRecords: ["intercompany disposition proposal", "party and corporate-record references"] }),
@@ -291,6 +294,7 @@ const capabilityTuples: CapabilityTuple[] = [
   ["period-management", "Period management", "Inspect, close and explicitly reopen periods.", "period", ["close period", "reopen period", "period readiness"], ["lock", "fiscal period"], "company", ["period-close-reopen"]],
   ["operations-assurance", "Backup, health and audit", "Verify integrity and create, place, verify or restore backups.", "system", ["verify backup", "healthcheck", "verify audit", "restore backup"], ["readiness", "checksum", "placement"], "system", ["backup-health-audit"]],
   ["group-intercompany", "Portfolio, group and intercompany", "Inspect group state, reconcile mappings and document two-sided dispositions without cross-ledger posting.", "group", ["group overview", "intercompany reconciliation", "intercompany disposition"], ["portfolio", "elimination", "legal group", "intercompany disposition"], "legal-group", ["group-intercompany", "intercompany-disposition"]],
+  ["cfo-analytics", "CFO analytics", "Query source-linked current and archived history across an authorised company, portfolio or approved group report.", "reporting", ["supplier spend", "customer revenue", "historical postings", "source drilldown"], ["CFO", "analytics", "historical", "supplier", "customer", "archive"], "workspace", ["cfo-analytics"]],
   ["digisense-nemhandel", "DigiSense and NemHandel", "Onboard, send once, read status and receive electronic invoices.", "efaktura", ["send e-invoice", "NemHandel onboarding", "receive e-invoice"], ["Digisense", "Peppol", "OIOUBL"], "company", ["digisense-nemhandel"]],
   ["imports", "Imports including Dinero", "Validate and apply supported cut-over imports.", "imports", ["import from Dinero", "migrate accounting data", "import contacts"], ["archive", "cut-over", "source hash"], "company", ["imports-dinero"]],
   ["privacy", "Privacy governance", "Perform audited GDPR discovery and export.", "privacy", ["GDPR export", "data subject discovery"], ["privacy", "erasure"], "company", ["privacy-governance"]],
@@ -419,14 +423,15 @@ type SurfaceBaseline = { count: number; hash: string };
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // #577 adds the six live inbox operations. The workflow above remains the
   // canonical explanation; this identity snapshot prevents silent drift.
-  mcp: { count: 178, hash: "82267463bc839965f06321a6ef983a1c14b14c2b303b721d46711adb2bdf5716" },
-  cli: { count: 237, hash: "a6c55c1866a42514c54b253eb6deef0c7d9c7a0cad37a97922fe81447e34819a" },
+  mcp: { count: 179, hash: "44299b0d863ac4e82263ec1589646e562f2911fc98f6de69e061e0c63c3691f9" },
+  cli: { count: 238, hash: "c6b549f7b075b8c75ff74ab8badca688092ecf59d14f845ef92629564ad9a482" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 174, hash: "2b91bd592dae0190e09ba40e692dc1a0cf3a7355e318b069aa5db4a6ee044ba5" },
+  http: { count: 175, hash: "a97c01a27d9b20e9529f3c8048f85d0ec2fa0b0963991d4e4efb4bee2232f222" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
+  { capabilityId: "cfo-analytics", pattern: /(?:cfo[_-]analytics|report analytics|cfo-analytics)/ },
   { capabilityId: "workspace-document-inbox", pattern: /workspace[_-]inbox/ },
   { capabilityId: "corporate-records", pattern: /(?:corporate[_-]record|corporate-record)/ },
   { capabilityId: "workspace-parties", pattern: /(?:workspace[_-]party|^cli:party )/ },

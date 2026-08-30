@@ -18,7 +18,7 @@ import { formatRunReport } from "../../src/agent/run";
 import { AGENT_ACTOR_ID } from "../../src/agent/contract";
 import { openDb, migrate } from "../../src/core/db";
 import { companyPaths } from "../../src/core/paths";
-import { closeAccountingPeriod } from "../helpers/close-period";
+import { closeAccountingPeriod, seedHistoricalClosedPeriod } from "../helpers/close-period";
 import { ingestDocument } from "../../src/core/documents";
 import { registerPayable } from "../../src/core/payables";
 import { registerAccrual } from "../../src/core/accruals";
@@ -261,12 +261,11 @@ describe("runtime bookkeeper agent — deterministic agent-run (#183)", () => {
         ],
       }], new Set(["3000", "2000"]));
       expect(imported.ok).toBe(true);
-      expect(closeAccountingPeriod(db, {
+      seedHistoricalClosedPeriod(db, {
         periodStart: "2026-01-01",
         periodEnd: "2026-03-31",
         kind: "vat_period",
-        force: true,
-      }).ok).toBe(true);
+      });
       db.close();
 
       const report = runAgentLoop({ companyRoot: root, asOf: AS_OF });

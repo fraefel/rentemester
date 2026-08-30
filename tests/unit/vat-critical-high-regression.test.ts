@@ -10,7 +10,7 @@ import { postDineroPostings } from "../../src/core/import/dinero-postings";
 import { buildVatReport } from "../../src/core/vat";
 import { buildVatFiling } from "../../src/core/vat-filing";
 import { effectivePeriodState, reopenAccountingPeriod, setCompanyVatPeriodType } from "../../src/core/periods";
-import { closeAccountingPeriod } from "../helpers/close-period";
+import { closeAccountingPeriod, seedHistoricalClosedPeriod } from "../helpers/close-period";
 import { vatRubrikkerForPeriod } from "../../src/server/data/vat";
 import { vatPositionForPeriod } from "../../src/server/data/vat";
 import { resolveAccountRole } from "../../src/core/account-roles";
@@ -183,12 +183,11 @@ test("legacy manual amount-only VAT is blocking in report and cockpit projection
   const cockpit = vatPositionForPeriod(db, "2026-05-01", "2026-05-31");
   expect(cockpit.reportOk).toBe(false);
   expect(cockpit.reportErrors).toEqual(report.errors);
-  const closed = closeAccountingPeriod(db, {
+  const closed = seedHistoricalClosedPeriod(db, {
     periodStart: "2026-04-01",
     periodEnd: "2026-06-30",
     kind: "vat_period",
   });
-  expect(closed.ok).toBe(true);
   const filing = buildVatFiling(db, "2026-04-01", "2026-06-30");
   expect(filing.ok).toBe(false);
   expect(filing.periodStatus).toBe("closed");
@@ -508,9 +507,9 @@ test("sanitized pre-normalization Dinero 64060 liability credit is trusted only 
     momsAfYdelseskobUdland: 25,
     kobsmoms: 25,
   });
-  expect(closeAccountingPeriod(db, {
-    periodStart: "2026-05-01", periodEnd: "2026-05-31", kind: "vat_period", force: true,
-  }).ok).toBe(true);
+  seedHistoricalClosedPeriod(db, {
+    periodStart: "2026-05-01", periodEnd: "2026-05-31", kind: "vat_period",
+  });
   const filing = buildVatFiling(db, "2026-05-01", "2026-05-31");
   expect(filing.ok).toBe(true);
   expect(filing.rubrikker).toEqual(report.rubrikker);
@@ -635,12 +634,11 @@ test("legacy VAT roles are recovered from voucher evidence without depending on 
     rubrikA: 250,
   });
 
-  expect(closeAccountingPeriod(db, {
+  seedHistoricalClosedPeriod(db, {
     periodStart: "2026-05-01",
     periodEnd: "2026-05-31",
     kind: "vat_period",
-    force: true,
-  }).ok).toBe(true);
+  });
   const filing = buildVatFiling(db, "2026-05-01", "2026-05-31");
   expect(filing.ok, filing.errors.join("\n")).toBe(true);
   expect(filing.rubrikker).toEqual(report.rubrikker);

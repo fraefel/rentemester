@@ -8,6 +8,7 @@
 import type { Database } from "bun:sqlite";
 import { seedNativeAccountRoles } from "../../src/core/account-roles";
 import { linkBankTransactionToJournal } from "../../src/core/bank-journal-reconciliation";
+import { insertAuditLog } from "../../src/core/actor";
 import { computePeriodCloseReadiness, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 import {
   closeAccountingPeriod as closeCore,
@@ -66,4 +67,21 @@ export function closeAccountingPeriod(
         }
       : {}),
   });
+}
+
+/**
+ * Test-only imported/legacy state for reports that must inspect a period
+ * closed before the current #580 nonwaivable VAT readiness rules existed.
+ * It deliberately bypasses the current close API and records immutable packet,
+ * review, decision and audit evidence so no test can mistake it for a normal
+ * modern close.
+ */
+export function seedHistoricalClosedPeriod(db: Database, input: { periodStart: string; periodEnd: string; kind: "vat_period" | "vat_quarter" | "fiscal_year" | "custom"; status?: "closed" | "reported"; reference?: string }) {
+  const packet = computePeriodCloseReadiness(db, input);
+  const review = reviewPeriodCloseReadiness(db, { packet, reviewerActor: "system:legacy-import", reviewerPrincipal: { kind: "local-trusted", subjectId: "legacy-import" } });
+  const status = input.status ?? "closed";
+  const row = db.query("INSERT INTO accounting_periods(period_start,period_end,kind,status,reference,closed_at,reported_at) VALUES(?,?,?,?,?,CURRENT_TIMESTAMP,CASE WHEN ?='reported' THEN CURRENT_TIMESTAMP END) RETURNING id").get(input.periodStart, input.periodEnd, input.kind === "vat_quarter" ? "vat_period" : input.kind, status, input.reference ?? null, status) as { id: number };
+  db.query("INSERT INTO period_close_decisions(period_id,packet_hash,decision,actor,reason) VALUES(?,?,?,?,'historical imported fixture')").run(row.id, packet.hash, status === "reported" ? "closed" : "closed", "system:legacy-import");
+  insertAuditLog(db, { eventType: "period_close_imported_legacy_fixture", entityType: "accounting_period", entityId: row.id, message: `Imported legacy ${status} period ${input.periodStart}..${input.periodEnd}; not created through current close`, createdBy: "system:legacy-import", createdByProgram: "test-only" });
+  return { periodId: row.id, packetHash: packet.hash, reviewId: review.id };
 }

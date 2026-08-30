@@ -15,6 +15,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { z } from "zod";
 import { existsSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { isAbsolute, resolve, sep } from "node:path";
 import { openDb, migrate } from "../core/db";
 import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
@@ -197,12 +198,49 @@ type WithCompanyDbOptions = {
   enforceActorAllowlist?: boolean;
 };
 
+/**
+ * Registration wraps every `readOnlyHint:true` invocation in this context.
+ * Keeping the bit in AsyncLocalStorage is important: tool callbacks can be
+ * asynchronous and must not inherit a concurrent write tool's opening mode.
+ */
+const readOnlyToolInvocation = new AsyncLocalStorage<boolean>();
+
+/** Used by the registration proxy; exported for its single integration point. */
+export function runMcpReadOnlyTool<T>(callback: () => T): T {
+  return readOnlyToolInvocation.run(true, callback);
+}
+
+type CompanyRuntimeCallback = ((...args: never[]) => unknown) & {
+  readonly companyDbOpening?: "adaptive" | "readonly" | "write";
+};
+
+/** Registration-time contract used by the public MCP registry and its gate. */
+export function assertMcpCompanyReadOnlyHandler(name: string, callback: unknown): void {
+  const opening = (callback as CompanyRuntimeCallback | undefined)?.companyDbOpening;
+  if (opening !== "readonly" && opening !== "adaptive") {
+    throw new Error(`read-only MCP tool ${name} must use the strict company read runtime`);
+  }
+}
+
+function markCompanyRuntime<T extends (...args: never[]) => unknown>(
+  callback: T,
+  opening: CompanyRuntimeCallback["companyDbOpening"],
+): T {
+  Object.defineProperty(callback, "companyDbOpening", { value: opening });
+  return callback;
+}
+
+/** Mark a bespoke callback after it has been audited to use snapshot-only APIs. */
+export function strictMcpReadOnlyHandler<T extends (...args: never[]) => unknown>(callback: T): T {
+  return markCompanyRuntime(callback, "readonly");
+}
+
 export function withCompanyDb<TArgs extends { company: string }>(
   server: McpServer,
   handler: (ctx: { db: Database; actor: McpActor; args: TArgs }) => Envelope | Promise<Envelope>,
   options: WithCompanyDbOptions = {},
 ): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
-  return async (args) => {
+  return markCompanyRuntime(async (args) => {
     if (!args || typeof args.company !== "string" || args.company.length === 0) {
       return envelopeToCallResult(errorEnvelope("company path is required"));
     }
@@ -212,7 +250,13 @@ export function withCompanyDb<TArgs extends { company: string }>(
       return envelopeToCallResult(errorEnvelope(redactPaths(resolution.error)));
     }
     const companyRoot = resolution.companyRoot;
-    if (!existsSync(companyRoot)) {
+    // The shared company runtime is fail-closed: only the confirmed write
+    // wrapper below may opt into a writable/migrating handle. This also keeps
+    // domain registrars safe when they are tested or embedded without the
+    // top-level registration proxy.
+    const readOnly = readOnlyToolInvocation.getStore() !== false;
+    const dbPath = companyPaths(companyRoot).db;
+    if (!existsSync(companyRoot) || (readOnly && !existsSync(dbPath))) {
       console.error(`[mcp:withCompanyDb] company path does not exist: ${companyRoot}`);
       return envelopeToCallResult(
         errorEnvelope("company path does not exist or is not initialized"),
@@ -240,8 +284,19 @@ export function withCompanyDb<TArgs extends { company: string }>(
     // inside guarantees every failure returns a proper `{ ok:false }` envelope.
     let db: Database | undefined;
     try {
-      db = openDb(companyPaths(companyRoot).db);
-      migrate(db);
+      if (readOnly) {
+        db = openLedgerReadOnly(dbPath);
+        const schema = inspectOpenLedger(db);
+        if (schema.status !== "current") {
+          return envelopeToCallResult(errorEnvelopeWithData(
+            `schema_${schema.status}: current=${schema.currentVersion} required=${schema.requiredVersion}`,
+            { schema },
+          ));
+        }
+      } else {
+        db = openDb(dbPath);
+        migrate(db);
+      }
       // Hand the handler the *resolved* company directory under `args.company`
       // so tools that pass it on to core APIs (e.g. `getBackupComplianceStatus`,
       // `issueInvoice`) keep working whether a slug or a raw path was supplied.
@@ -254,7 +309,7 @@ export function withCompanyDb<TArgs extends { company: string }>(
     } finally {
       db?.close();
     }
-  };
+  }, "adaptive");
 }
 
 /**
@@ -283,7 +338,7 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
     }
     // SEC-2: every confirmed MCP write passes the same actor allowlist gate as
     // the CLI. `confirm: true` alone is no longer sufficient.
-    return withCompanyDb<TArgs>(server, async (ctx) => {
+    return readOnlyToolInvocation.run(false, () => withCompanyDb<TArgs>(server, async (ctx) => {
       if (!options.keyIdempotent) return handler(ctx);
       try {
         const key = validateIdempotencyKey((ctx.args as TArgs & { idempotencyKey?: unknown }).idempotencyKey);
@@ -306,7 +361,7 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
         if (error instanceof IdempotencyError) return errorEnvelope(error.message, { code: error.code });
         throw error;
       }
-    }, { enforceActorAllowlist: true })(args);
+    }, { enforceActorAllowlist: true })(args));
   };
 }
 
@@ -315,12 +370,19 @@ export function withCompanyReadOnlyDb<TArgs extends { company: string }>(
   handler: (ctx: { db: Database; args: TArgs }) => Envelope | Promise<Envelope>,
   options: { allowSchemaNotCurrent?: boolean } = {},
 ): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
-  return async (args) => {
+  return markCompanyRuntime(async (args) => {
+    if (!args || typeof args.company !== "string" || args.company.length === 0) {
+      return envelopeToCallResult(errorEnvelope("company path is required"));
+    }
     const resolved = resolveCompanyArg(args.company);
     if (!resolved.ok) return envelopeToCallResult(errorEnvelope(resolved.error));
+    const dbPath = companyPaths(resolved.companyRoot).db;
+    if (!existsSync(resolved.companyRoot) || !existsSync(dbPath)) {
+      return envelopeToCallResult(errorEnvelope("company path does not exist or is not initialized"));
+    }
     let db: Database | undefined;
     try {
-      db = openLedgerReadOnly(companyPaths(resolved.companyRoot).db);
+      db = openLedgerReadOnly(dbPath);
       const schema = inspectOpenLedger(db);
       if (schema.status !== "current" && !options.allowSchemaNotCurrent) {
         return envelopeToCallResult(errorEnvelopeWithData(
@@ -334,7 +396,7 @@ export function withCompanyReadOnlyDb<TArgs extends { company: string }>(
     } finally {
       db?.close();
     }
-  };
+  }, "readonly");
 }
 
 /**

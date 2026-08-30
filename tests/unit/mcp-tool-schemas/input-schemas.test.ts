@@ -170,14 +170,12 @@ describe("#232 — the remaining write tools carry field-level schemas", () => {
     expect(desc).toContain("dryrun");
   });
 
-  test("customer_validate_vat read/write classification is documented as consistent", () => {
+  test("customer_validate_vat is classified as the cache-writing operation it is", () => {
     const tool = tools.find((t) => t.name === "customer_validate_vat");
     expect(tool, "customer_validate_vat not found").toBeDefined();
-    // It stays readOnlyHint:true — but the description must explain that
-    // it writes a transparent cache, so CLI and MCP agree on the meaning.
-    expect(tool.annotations?.readOnlyHint).toBe(true);
+    expect(tool.annotations?.readOnlyHint).toBe(false);
     const desc: string = (tool.description ?? "").toLowerCase();
     expect(desc).toContain("cache");
-    expect(desc).toContain("validate-vat");
+    expect(desc).toContain("confirm:true");
   });
 });

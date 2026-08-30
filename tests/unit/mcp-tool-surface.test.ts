@@ -196,15 +196,10 @@ describe("docs/mcp-tool-surface.md", () => {
     expect(content.slice(idx, idx + 600)).toContain("period reopen");
   });
 
-  test("#260 — customer validate-vat CLI/MCP divergence is not called consistent", () => {
-    // CLI customer validate-vat is an actor-gated mutation; the MCP
-    // customer_validate_vat tool is a read. The doc must not call them
-    // "consistent" — they sit in different governance classes.
+  test("#586 — customer validate-vat documents its cache-writing classification", () => {
     const content = readFileSync(DOC_PATH, "utf8");
-    expect(content).not.toMatch(/CLI og MCP\s+er altså konsistente/);
-    // The divergence must be named explicitly.
-    expect(content).toContain("MUTATING_COMMANDS");
-    expect(content.toLowerCase()).toContain("divergens");
+    expect(content).toContain("write-reversible");
+    expect(content).toContain("confirm:true");
   });
 });
 

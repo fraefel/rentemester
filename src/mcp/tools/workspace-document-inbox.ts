@@ -14,7 +14,7 @@ import { approveWorkspaceInboxAssignment, completeWorkspaceInboxAssignment, inge
 import { currentMcpAuthenticatedPrincipal } from "../security";
 import { authorizeWorkspaceRoute } from "../../core/workspace-access";
 import { deriveMcpActor } from "../actor";
-import { confirmField } from "../tool-runtime";
+import { confirmField, strictMcpReadOnlyHandler } from "../tool-runtime";
 import { envelopeShape, envelopeToCallResult, errorEnvelope, successEnvelope } from "../envelope";
 
 const company = z.string().min(1);
@@ -28,6 +28,7 @@ const write = { readOnlyHint:false, destructiveHint:false, idempotentHint:false,
 const workspace = () => resolveConfiguredWorkspaceRoot() ?? (() => { throw new Error("RENTEMESTER_WORKSPACE is required for workspace inbox tools"); })();
 const actor = (server: McpServer) => deriveMcpActor(server.server.getClientVersion()).createdBy;
 const direct = (handler: (args:any)=>any) => async (args:any) => envelopeToCallResult(await handler(args));
+const readDirect = (handler: (args:any)=>any) => strictMcpReadOnlyHandler(async (args:any) => envelopeToCallResult(await handler(args)));
 function visibleCompanySlugs(): Set<string> {
   // `authorizeMcpTool` has already checked the anchor. For a service account,
   // its explicit target is checked there too; candidates are intentionally
@@ -47,13 +48,13 @@ function sourceVisible(anchor:string, sourceId:string) {
 }
 
 export function registerWorkspaceDocumentInboxTools(server: McpServer): void {
-  server.registerTool("workspace_inbox_list", { title:"List workspace inbox", description:"Lists immutable inbox sources visible through the explicitly authorised company anchor. Filtering is before count, sort and pagination.", inputSchema:{company,cursor:z.number().int().nonnegative().optional(),limit:z.number().int().min(1).max(100).optional()}, outputSchema:envelopeShape, annotations:read }, direct(async ({ company:anchor, cursor, limit }) => {
+  server.registerTool("workspace_inbox_list", { title:"List workspace inbox", description:"Lists immutable inbox sources visible through the explicitly authorised company anchor. Filtering is before count, sort and pagination.", inputSchema:{company,cursor:z.number().int().nonnegative().optional(),limit:z.number().int().min(1).max(100).optional()}, outputSchema:envelopeShape, annotations:read }, readDirect(async ({ company:anchor, cursor, limit }) => {
     const db=openWorkspaceControlReadOnlyDb(workspace()); try { return successEnvelope(listWorkspaceInboxSources(db,{visibilityAnchorSlug:anchor,cursor,limit,visibleCompanySlugs:visibleCompanySlugs()})); } finally { db.close(); }
   }));
-  server.registerTool("workspace_inbox_inspect", { title:"Inspect workspace inbox source", description:"Reads one source, filtered by the authorized anchor. Hidden sources and candidates are indistinguishable from absent sources.", inputSchema:{company,sourceId:z.string().min(1)}, outputSchema:envelopeShape, annotations:read }, direct(async ({ company:anchor, sourceId }) => {
+  server.registerTool("workspace_inbox_inspect", { title:"Inspect workspace inbox source", description:"Reads one source, filtered by the authorized anchor. Hidden sources and candidates are indistinguishable from absent sources.", inputSchema:{company,sourceId:z.string().min(1)}, outputSchema:envelopeShape, annotations:read }, readDirect(async ({ company:anchor, sourceId }) => {
     const source=sourceVisible(anchor,sourceId); return source ? successEnvelope({source}) : errorEnvelope("workspace inbox source not found",{code:"WORKSPACE_INBOX_NOT_FOUND"});
   }));
-  server.registerTool("workspace_inbox_status", { title:"Read workspace inbox status", description:"Reads the durable routing/assignment state. It does not open or mutate a company ledger.", inputSchema:{company,sourceId:z.string().min(1)}, outputSchema:envelopeShape, annotations:read }, direct(async ({ company:anchor, sourceId }) => {
+  server.registerTool("workspace_inbox_status", { title:"Read workspace inbox status", description:"Reads the durable routing/assignment state. It does not open or mutate a company ledger.", inputSchema:{company,sourceId:z.string().min(1)}, outputSchema:envelopeShape, annotations:read }, readDirect(async ({ company:anchor, sourceId }) => {
     const source=sourceVisible(anchor,sourceId); return source ? successEnvelope({source}) : errorEnvelope("workspace inbox source not found",{code:"WORKSPACE_INBOX_NOT_FOUND"});
   }));
   server.registerTool("workspace_inbox_ingest", { title:"Ingest workspace inbox source", description:"Stores immutable source bytes and filtered routing evidence outside all ledgers. Requires actor attribution and confirm:true. Reuse idempotencyKey only for the identical source retry. write-reversible.", inputSchema:{company,sourceId:z.string().min(1).optional(),idempotencyKey:z.string().min(1).max(200),bytesBase64:bytes,filename:z.string().min(1).max(512),mimeType:z.string().min(1).max(160),transport:z.enum(WORKSPACE_INBOX_TRANSPORTS),transportIdentity:z.string().min(1).max(512).optional(),receivedAt:z.string().min(1),metadata:z.record(z.string(),z.unknown()),candidates:z.array(candidate).max(128).optional(),confirm:confirmField}, outputSchema:envelopeShape, annotations:write }, direct(async (args) => {

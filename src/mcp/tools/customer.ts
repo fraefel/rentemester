@@ -2,7 +2,7 @@
  * MCP-tools for kunder (master data).
  *
  *  - `customer_list` (read)
- *  - `customer_validate_vat` (read; cacher resultat fra VIES)
+ *  - `customer_validate_vat` (confirmed write; caches the VIES result)
  *  - `customer_create` (write-reversible)
  */
 
@@ -53,10 +53,8 @@ export function registerCustomerTools(server: McpServer): void {
       title: "Validate VAT number via VIES",
       description:
         "Validerer et EU-VAT-nummer mod EU-Kommissionens VIES-tjeneste og opdaterer en lokal " +
-        "validerings-cache (vies_validations) med resultatet. Klassificeret read (readOnlyHint:true): " +
-        "den skriver ikke bogførings- eller stamdata-state — kun en gennemsigtig opslags-cache med TTL — " +
-        "og kræver derfor ikke confirm:true. Idempotent: et gentaget opslag inden for TTL genbruger cachen. " +
-        "Den tilsvarende CLI-kommando `customer validate-vat` gør præcis det samme.",
+        "validerings-cache (vies_validations) med resultatet. Cache-skrivning er en reversibel " +
+        "sideeffekt og kræver confirm:true. Et gentaget opslag inden for TTL genbruger cachen. write-reversible.",
       inputSchema: {
         company: z
           .string()
@@ -69,11 +67,12 @@ export function registerCustomerTools(server: McpServer): void {
             "EU VAT number to validate, including the 2-letter country prefix, e.g. 'DK12345678' " +
               "or 'DE123456789'. Spaces and dots are tolerated.",
           ),
+        confirm: confirmField,
       },
       outputSchema: envelopeShape,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    withCompanyDb<{ company: string; cvr: string }>(server, async ({ db, args }) => {
+    withCompanyDbConfirmed<{ company: string; cvr: string; confirm?: boolean }>(server, "customer_validate_vat", async ({ db, args }) => {
       const result = await validateVatAgainstVies(db, args.cvr);
       return wrapCoreResult(result);
     }),

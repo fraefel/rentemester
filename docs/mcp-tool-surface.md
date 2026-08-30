@@ -55,7 +55,11 @@ med det samme i komprimeret form.
    altid for kommandoer der bogfører (sporbarhed mod regelsæt).
 4. **Sikkerhedsklassifikation** på fire niveauer:
    - `read` — ingen state-bivirkninger; agenten må kalde frit og parallelt.
-     Markeret med `annotations.readOnlyHint: true`.
+     Markeret med `annotations.readOnlyHint: true`. Company-scoped reads åbner
+     kun en eksisterende SQLite snapshot i læsetilstand: de initialiserer eller
+     migrerer aldrig ledgeren og skriver aldrig WAL/SHM, audit, profil eller
+     workspace-manifest. Manglende, uinitialiserede og schema-pending ledgers
+     returnerer en afgrænset fejl-envelope uden filsystemændringer.
    - `write-reversible` — opretter state der kan tilbageføres via
      `journal_reverse`, `invoice_credit_note`, `exception_resolve` eller ved
      en korrigerende post. Kræver `confirm: true`.
@@ -222,10 +226,10 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
-- **Read-tools**: 51
-- **Ordinary write-tools**: 69
+- **Read-tools**: 73
+- **Ordinary write-tools**: 105
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **179** (76 read, 102 ordinary write, 1 destructive)
+- **Total**: **179** (73 read, 105 ordinary write, 1 destructive)
 
 ## Read-tools
 
@@ -241,7 +245,7 @@ paired writes are `documents_parse` and `documents_parse_pending`; both require
 `confirm:true`, the normal actor allow-list, and return bounded summaries only.
 Parsing is evidence, not bookkeeping authority.
 
-51 tools (tæl tabellen — den er facit). Ingen state-bivirkninger; må kaldes
+49 tools i den kuraterede tabel nedenfor. Ingen state-bivirkninger; må kaldes
 frit og parallelt.
 
 | Tool | CLI-ækvivalent | Input | Brief |
@@ -262,8 +266,6 @@ frit og parallelt.
 | `budget_list` | `budget list` | `{ company, period?, accountNo? }` | Lister de gældende (seneste-revision) budgetlinjer. |
 | `budget_vs_actual` | `budget vs-actual` | `{ company, from, to }` | Sammenligner budget mod faktisk bogføring pr. konto pr. måned. |
 | `customer_list` | `customer list` | `{ company, archived?, limit?, offset? }` | Lister kendte kunder. Pagineret. |
-| `customer_validate_vat` | `customer validate-vat` | `{ company, cvr }` | Validerer EU-VAT via VIES og opdaterer en lokal validerings-cache. Klassificeret `read` (se note nedenfor): den skriver kun en gennemsigtig opslags-cache, ingen bogførings-/stamdata-state, og kræver ikke `confirm`. |
-| `cvr_lookup` | `customer cvr-lookup` | `{ company, cvr }` | Slår en dansk virksomhed op i CVR-registret. Kræver `CVR_USERNAME`/`CVR_PASSWORD`. |
 | `documents_list` | `documents list` | `{ company, limit?, offset? }` | Lister gemte bilag. Pagineret. |
 | `efaktura_onboarding_status` | `efaktura onboarding-status` | `{ company }` | Lokal, secret-redacted DigiSense-readiness for ledgerens profil; foretager ingen netværkskald og returnerer aldrig API-nøgle eller signature secret. |
 | `exceptions_list` | `exceptions list` | `{ company, status?, includeArchived? }` | Lister exceptions-køen (open/resolved/all). |
@@ -308,29 +310,13 @@ samme arkiv-artefakt som `import archive` skriver.
 
 > **`customer_validate_vat` — read/write-klassifikation.** Tool'et slår et
 > EU-VAT-nummer op mod VIES og *skriver* resultatet til en lokal cache-tabel
-> (`vies_validations`). Det er bevidst klassificeret `read`
-> (`readOnlyHint: true`) og kræver derfor *ikke* `confirm: true`: den eneste
-> side-effekt er en gennemsigtig opslags-cache med TTL — der skrives hverken
-> i finanskæden eller i stamdata, og et gentaget opslag inden for TTL
-> genbruger blot cachen (`idempotentHint: true`).
+> (`vies_validations`). Det er derfor klassificeret `write-reversible`
+> (`readOnlyHint: false`) og kræver `confirm:true`. Den skriver ikke i
+> finanskæden eller stamdata, og et gentaget opslag inden for TTL genbruger
+> blot cachen (`idempotentHint: true`).
 >
-> **Bemærk en bevidst CLI/MCP-divergens i governance-klasse.** Den ramme
-> handling er den samme (et cache-opdaterende VIES-opslag), men de to
-> overflader klassificerer den forskelligt:
->
-> - **MCP-tool'et `customer_validate_vat`** er `read` — det er *ikke*
->   `confirm`-gatet og kræver ingen actor.
-> - **CLI-kommandoen `customer validate-vat`** står derimod i
->   `MUTATING_COMMANDS` (`src/cli-actor.ts`): den er actor-gatet og afvises
->   uden en kendt actor med `actor required for mutations`.
->
-> Det er altså *ikke* korrekt at kalde de to "konsistente" — de sidder i
-> materielt forskellige governance-klasser (read vs. actor-gatet mutation).
-> Divergensen er accepteret: CLI'en behandler enhver cache-skrivende handling
-> som muterende for at få actor-attribution på opslaget, mens MCP-laget
-> vægter at et opslag skal kunne kaldes frit. Vil man harmonisere, skal
-> enten CLI-kommandoen ud af `MUTATING_COMMANDS`, eller MCP-tool'et
-> omklassificeres til en `confirm`-gatet write.
+> MCP og CLI klassificerer begge cache-opdateringen som en bekræftet mutation;
+> der er ingen read-only undtagelse for VIES-cachen.
 
 ## Write-tools
 
@@ -347,7 +333,7 @@ uden at kernen kaldes.
 
 ### write-reversible
 
-14 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
+16 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
 append-only finanskæde.
 
 | Tool | CLI-ækvivalent | Input | Brief |
@@ -356,6 +342,8 @@ append-only finanskæde.
 | `bank_import` | `bank import` | `{ company, csvPath \| csvContent, account?, profile?, confirm }` | Importerer banktransaktioner fra CSV. Se den kanoniske [idempotenskontrakt](bank-import-idempotency.md). |
 | `budget_set` | `budget set` | `{ company, accountNo, period, amount, notes?, confirm }` | Sætter et budget for én konto i én kalendermåned. Append-only revisioner — seneste vinder. |
 | `company_sync_cvr` | `company sync-cvr` | `{ company, confirm }` | Henter virksomhedens stamdata fra CVR og opdaterer companies-rækken. Regnskabsåret røres ikke. |
+| `customer_validate_vat` | `customer validate-vat` | `{ company, cvr, confirm }` | Validerer EU-VAT via VIES og opdaterer den lokale cache. |
+| `cvr_lookup` | `customer cvr-lookup` | `{ company, cvr, confirm }` | Slår en dansk virksomhed op i CVR-registret og cacher snapshottet. Kræver `CVR_USERNAME`/`CVR_PASSWORD`. |
 | `customer_create` | `customer create` | `{ company, input: CreateCustomerInput, fromCvr?, confirm }` | Opretter append-only kundepost. Kan arkiveres. |
 | `documents_ingest` | `documents ingest` | `{ company, filePath, metadata: DocumentMetadata, vendorId?, force?, confirm }` | Indlæser og hash-lagrer et bilag. `internal_voucher` kræver bank-id, begrundelse og moms 0. |
 | `documents_set_company_context` | `documents set-company-context` | `{ company, documentId, sourceReference, businessUseReason, confirm }` | Gemmer append-only, hash-bundet virksomheds-kontekst for et dansk forenklet købsbilag; ændrer aldrig modtagerfelter på fakturaen. |
@@ -727,9 +715,8 @@ ord-for-ord, CLI/MCP-pendanter og er derfor hverken CLI-only eller MCP-only:
 >   `dashboard`, men er et workspace-tool (`workspace`-parameter, ikke
 >   `company`).
 > - **`customer_validate_vat` (MCP) vs. `customer validate-vat` (CLI)** —
->   MCP-tool'et er `read` (ikke confirm-gatet, ingen actor); CLI-kommandoen er
->   `actor`-gatet via `MUTATING_COMMANDS`. Se "Read-tools"-sektionen for den
->   bevidste divergens i governance-klasse.
+>   begge overflader klassificerer den cache-skrivende handling som en
+>   bekræftet mutation.
 >
 > ### Den oprindelige løse note (for historisk reference)
 >

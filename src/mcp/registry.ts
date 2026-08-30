@@ -35,7 +35,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { migrate, openDb } from "../core/db";
 import { companyPaths } from "../core/paths";
 import { evaluateBackupLock } from "../core/backup-governance";
-import { resolveCompanyArg } from "./tool-runtime";
+import { assertMcpCompanyReadOnlyHandler, resolveCompanyArg, runMcpReadOnlyTool } from "./tool-runtime";
 import { envelopeToCallResult, errorEnvelope } from "./envelope";
 import { registerAccountsTools } from "./tools/accounts";
 import { registerAuditTools } from "./tools/audit";
@@ -148,7 +148,7 @@ function lockGuardedCallback(
 // `system_*` tool) gets its callback wrapped with the backup lock. Read tools
 // and system/backup tools pass through untouched — backing up must always
 // stay possible, since that is the only way out of the lock.
-function lockGuardServer(server: McpServer): McpServer {
+export function lockGuardServer(server: McpServer): McpServer {
   return new Proxy(server, {
     get(target, prop, receiver) {
       if (prop === "registerTool") {
@@ -164,8 +164,15 @@ function lockGuardServer(server: McpServer): McpServer {
           // A retry key is a domain contract, never a registry-wide affordance.
           // Tools expose it only when their mutation and durable receipt are
           // committed in the same transaction (currently the five #583 tools).
-          const guarded =
-            readOnly || name.startsWith("system_") ? callback : lockGuardedCallback(name, callback);
+          // A company-scoped read tool is only registrable through the shared
+          // runtime.  Raw callbacks could open SQLite in its default writable
+          // mode and silently recreate WAL/SHM files or apply migrations.
+          if (readOnly && config.inputSchema && "company" in config.inputSchema) {
+            assertMcpCompanyReadOnlyHandler(name, callback);
+          }
+          const guarded = readOnly
+            ? (...args: unknown[]) => runMcpReadOnlyTool(() => callback(...args))
+            : name.startsWith("system_") ? callback : lockGuardedCallback(name, callback);
           return (target.registerTool as (...a: unknown[]) => unknown)(name, config, guarded);
         };
       }

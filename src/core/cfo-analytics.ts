@@ -6,13 +6,13 @@
  * archive.  Portfolio is a juxtaposition; legal consolidation remains the
  * existing reviewed group-report contract.
  */
-import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { buildConsolidatedReport } from "./consolidated-reports";
 import { companyPaths } from "./paths";
 import { companyRootForSlug, findWorkspaceCompany, listWorkspaceCompanies } from "./workspace";
 import { openWorkspaceControlReadOnlyDb } from "./workspace-control";
+import { openLedgerReadOnly } from "./ledger-inspection";
 
 export const CFO_ANALYTICS_SCHEMA_VERSION = "rentemester-cfo-analytics-v1";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -54,7 +54,7 @@ function encodeCursor(row: Row): string { return Buffer.from(canonicalCursor(row
 function sourceRows(companySlug: string, companyRoot: string, input: Required<Pick<CfoAnalyticsInput,"from"|"to">> & Pick<CfoAnalyticsInput,"account"|"party"|"currency">): Row[] {
   const dbPath=companyPaths(companyRoot).db;
   if (!existsSync(dbPath)) return [];
-  const db=new Database(dbPath,{readonly:true});
+  const db=openLedgerReadOnly(dbPath);
   try {
     db.exec("PRAGMA query_only=ON");
     const ledger=db.query(`SELECT je.id AS journalEntryId,je.entry_no AS journalEntryNo,je.entry_hash AS sourceHash,je.transaction_date AS transactionDate,je.currency AS currency,je.text AS entryText,je.document_id AS documentId,d.sha256_hash AS documentHash,d.supplier_name AS partyName,jl.id AS lineId,jl.debit_amount-jl.credit_amount AS amount,jl.text AS lineText,a.account_no AS accountNo,a.name AS accountName FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id LEFT JOIN documents d ON d.id=je.document_id WHERE je.status='posted' AND je.reversal_of_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM journal_entries r WHERE r.reversal_of_entry_id=je.id) AND je.transaction_date BETWEEN ? AND ? ORDER BY je.transaction_date,je.id,jl.id`).all(input.from,input.to) as any[];
@@ -77,7 +77,7 @@ function sourceRows(companySlug: string, companyRoot: string, input: Required<Pi
 
 function readEvidenceCompleteness(companySlug:string,companyRoot:string,from:string,to:string) {
   const dbPath=companyPaths(companyRoot).db; if(!existsSync(dbPath)) return {companySlug,status:"unavailable" as const,reason:"company ledger not found"};
-  const db=new Database(dbPath,{readonly:true}); try { db.exec("PRAGMA query_only=ON");
+  const db=openLedgerReadOnly(dbPath); try {
     const journal=db.query("SELECT COUNT(*) AS count FROM journal_entries WHERE status='posted' AND reversal_of_entry_id IS NULL AND transaction_date BETWEEN ? AND ? AND document_id IS NULL").get(from,to) as {count:number};
     const exceptions=db.query("SELECT COUNT(*) AS count FROM exceptions WHERE status='open'").get() as {count:number};
     return {companySlug,status:"ready" as const,postedWithoutDocument:journal.count,openExceptions:exceptions.count};

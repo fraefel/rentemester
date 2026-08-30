@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 import { companyPaths } from "../../../core/paths";
 import { inspectLedger } from "../../../core/ledger-inspection";
 import { envelopeShape, errorEnvelope, errorEnvelopeWithData, successEnvelope } from "../../envelope";
-import { redactPaths, resolveCompanyArg } from "../../tool-runtime";
+import { redactPaths, resolveCompanyArg, strictMcpReadOnlyHandler } from "../../tool-runtime";
 
 export function registerSystemHealthcheckTools(server: McpServer): void {
   server.registerTool(
@@ -33,7 +33,7 @@ export function registerSystemHealthcheckTools(server: McpServer): void {
       outputSchema: envelopeShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ company }: { company: string }) => {
+    strictMcpReadOnlyHandler(async ({ company }: { company: string }) => {
       if (typeof company !== "string" || company.length === 0) {
         const env = errorEnvelope("company path is required");
         return {
@@ -72,6 +72,6 @@ export function registerSystemHealthcheckTools(server: McpServer): void {
         isError: !env.ok,
         structuredContent: env,
       };
-    },
+    }),
   );
 }

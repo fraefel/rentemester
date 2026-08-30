@@ -29,7 +29,7 @@ import { createCompany, getCompanySettings } from "../../core/company";
 import { companyPaths } from "../../core/paths";
 import { vatPeriodWindowFor } from "../../core/periods";
 import { diffDaysSafe as daysBetween } from "../../core/dates";
-import { openDb, migrate } from "../../core/db";
+import { inspectOpenLedger, openLedgerReadOnly } from "../../core/ledger-inspection";
 import { verifyAuditChain } from "../../core/ledger";
 import { buildInvoiceList } from "../../core/invoice-list";
 import { listExceptions } from "../../core/exceptions";
@@ -79,9 +79,9 @@ function todayIsoDate(): string {
 }
 
 /**
- * Builds the juxtaposed status row for a single company. Opens, migrates and
- * closes the company's ledger; failures are captured per-company so one broken
- * volume never sinks the whole overview.
+ * Builds the juxtaposed status row for a single company. It opens an existing
+ * snapshot only; failures are captured per-company so one broken volume never
+ * sinks the whole overview.
  */
 function companyStatusRow(
   slug: string,
@@ -94,9 +94,12 @@ function companyStatusRow(
   if (!existsSync(dbPath)) {
     return { ...base, ok: false, error: "company ledger not found on disk" };
   }
-  const db = openDb(dbPath);
+  const db = openLedgerReadOnly(dbPath);
   try {
-    migrate(db);
+    const schema = inspectOpenLedger(db);
+    if (schema.status !== "current") {
+      return { ...base, ok: false, error: `schema_${schema.status}` };
+    }
     const settings = getCompanySettings(db);
     // The VAT period window follows the company's real SKAT cadence
     // (`vatPeriodType`) — a monthly filer gets a one-month window, a

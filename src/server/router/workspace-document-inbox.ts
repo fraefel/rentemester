@@ -12,7 +12,8 @@ import { assertLocalhostWriteAllowed, assertMutationContentType, assertMutationO
 import { okResponse, readJsonBody, requireString } from "./_shared";
 
 function actor(config: ServerConfig) { if (!config.requestPrincipal) throw ApiError.unauthorized("missing or invalid credentials"); return resolveCockpitActor(config.requestPrincipal).createdBy; }
-function writeGate(request: Request, config: ServerConfig, body: Record<string, unknown>) { assertLocalhostWriteAllowed(request, config); assertMutationOriginAllowed(request, config); assertMutationContentType(request); if (body.confirm !== true) throw ApiError.badRequest("denne handling er irreversibel og kræver 'confirm: true'", { subcode: "CONFIRM_REQUIRED" }); }
+function writeGate(request: Request, config: ServerConfig): void { assertLocalhostWriteAllowed(request, config); assertMutationOriginAllowed(request, config); assertMutationContentType(request); }
+function requireConfirm(body: Record<string, unknown>): void { if (body.confirm !== true) throw ApiError.badRequest("denne handling er irreversibel og kræver 'confirm: true'", { subcode: "CONFIRM_REQUIRED" }); }
 function allowedCompanies(config: ServerConfig): Set<string> {
   const principal = config.requestPrincipal;
   if (!config.betterAuthProvider || !principal?.userId) return new Set(listWorkspaceCompanies(config.workspaceRoot).map(c => c.slug));
@@ -25,7 +26,7 @@ export function handleWorkspaceInboxList(config: ServerConfig, anchor: string, u
 }
 export function handleWorkspaceInboxInspect(config: ServerConfig, anchor: string, sourceId: string): Response { const source = sourceForAnchor(config, anchor, sourceId); if (!source) throw ApiError.notFound("workspace inbox source not found"); return okResponse({ source }); }
 export async function handleWorkspaceInboxIngest(config: ServerConfig, request: Request, anchor: string): Promise<Response> {
-  const body = await readJsonBody(request); writeGate(request, config, body);
+  writeGate(request, config); const body = await readJsonBody(request); requireConfirm(body);
   if (typeof body.bytesBase64 !== "string") throw ApiError.badRequest("bytesBase64 is required");
   let bytes: Buffer; try { bytes = Buffer.from(body.bytesBase64, "base64"); } catch { throw ApiError.badRequest("bytesBase64 is invalid"); }
   const db = openWorkspaceControlDb(config.workspaceRoot); try {
@@ -34,7 +35,7 @@ export async function handleWorkspaceInboxIngest(config: ServerConfig, request: 
   } finally { db.close(); }
 }
 export async function handleWorkspaceInboxApprove(config: ServerConfig, request: Request, anchor: string, sourceId: string): Promise<Response> {
-  const body = await readJsonBody(request); writeGate(request, config, body); const companySlug = requireString(body, "companySlug");
+  writeGate(request, config); const body = await readJsonBody(request); requireConfirm(body); const companySlug = requireString(body, "companySlug");
   if (!allowedCompanies(config).has(companySlug)) throw ApiError.notFound("workspace inbox source not found");
   const db = openWorkspaceControlDb(config.workspaceRoot); try { if (!inspectWorkspaceInboxSource(db, sourceId, anchor)) throw ApiError.notFound("workspace inbox source not found"); return okResponse({ source: approveWorkspaceInboxAssignment(db, { sourceId, companySlug, actor: actor(config) }) }); } finally { db.close(); }
 }

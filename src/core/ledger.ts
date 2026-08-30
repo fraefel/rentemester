@@ -1175,6 +1175,10 @@ export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions 
             ba.ledger_account_no,
             je.status, je.reversal_of_entry_id, je.source_bank_transaction_id,
             EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id = je.id) AS has_reversal,
+            EXISTS(SELECT 1 FROM bank_reconciliation_correction_events correction
+                    WHERE correction.supersedes_kind = 'append-only'
+                      AND correction.supersedes_id = link.id
+                      AND correction.bank_transaction_id = link.bank_transaction_id) AS is_superseded,
             COALESCE(SUM(CASE WHEN a.account_no = ba.ledger_account_no THEN jl.debit_amount - jl.credit_amount ELSE 0 END), 0) AS journal_bank_movement,
             EXISTS(SELECT 1 FROM journal_entries direct WHERE direct.source_bank_transaction_id = bt.id) AS has_direct_link
        FROM bank_journal_reconciliation_links link
@@ -1190,12 +1194,12 @@ export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions 
     amount: number; amount_dkk: number | null; currency: string;
     ledger_account_no: string | null; status: string; reversal_of_entry_id: number | null;
     source_bank_transaction_id: number | null; has_reversal: number;
-    journal_bank_movement: number; has_direct_link: number;
+    journal_bank_movement: number; has_direct_link: number; is_superseded: number;
   }>;
   for (const link of bankJournalLinks) {
     const label = `bank-journal reconciliation link ${link.id}`;
     if (!link.ledger_account_no) errors.push(`${label}: bank transaction has no mapped ledger account`);
-    if (link.status !== "posted" || link.reversal_of_entry_id != null || Number(link.has_reversal) !== 0) {
+    if (!Number(link.is_superseded) && (link.status !== "posted" || link.reversal_of_entry_id != null || Number(link.has_reversal) !== 0)) {
       errors.push(`${label}: journal entry ${link.journal_entry_id} is not an active original posted entry`);
     }
     if (link.source_bank_transaction_id != null || Number(link.has_direct_link) !== 0) {
@@ -1210,12 +1214,12 @@ export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions 
   // v33 correction evidence is append-only but deliberately richer than an
   // audit-log message: verify the complete same-bank chain and the exact
   // replacement bytes so every consumer sees one deterministic current row.
-  const correctionEvents = db.query(`SELECT event.*, bt.amount,bt.amount_dkk,bt.currency,ba.ledger_account_no,je.entry_hash,je.status,je.reversal_of_entry_id,je.source_bank_transaction_id,EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=je.id) AS has_reversal,COALESCE(SUM(CASE WHEN a.account_no=event.bank_account_no THEN jl.debit_amount-jl.credit_amount ELSE 0 END),0) AS bank_movement,EXISTS(SELECT 1 FROM audit_log audit WHERE audit.event_type='bank_reconciliation_corrected' AND audit.entity_type='bank_transaction' AND audit.entity_id=CAST(event.bank_transaction_id AS TEXT) AND audit.actor LIKE event.actor || ' via %') AS has_audit FROM bank_reconciliation_correction_events event JOIN bank_transactions bt ON bt.id=event.bank_transaction_id JOIN bank_accounts ba ON ba.id=bt.bank_account_id JOIN journal_entries je ON je.id=event.replacement_journal_entry_id LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id LEFT JOIN accounts a ON a.id=jl.account_id GROUP BY event.id ORDER BY event.id`).all() as any[];
+  const correctionEvents = db.query(`SELECT event.*, bt.amount,bt.amount_dkk,bt.currency,ba.ledger_account_no,je.entry_hash,je.status,je.reversal_of_entry_id,je.source_bank_transaction_id,EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=je.id) AS has_reversal,EXISTS(SELECT 1 FROM bank_reconciliation_correction_events child WHERE child.supersedes_kind='correction' AND child.supersedes_id=event.id AND child.bank_transaction_id=event.bank_transaction_id) AS is_superseded,COALESCE(SUM(CASE WHEN a.account_no=event.bank_account_no THEN jl.debit_amount-jl.credit_amount ELSE 0 END),0) AS bank_movement,EXISTS(SELECT 1 FROM audit_log audit WHERE audit.event_type='bank_reconciliation_corrected' AND audit.entity_type='bank_transaction' AND audit.entity_id=CAST(event.bank_transaction_id AS TEXT) AND audit.actor LIKE event.actor || ' via %') AS has_audit FROM bank_reconciliation_correction_events event JOIN bank_transactions bt ON bt.id=event.bank_transaction_id JOIN bank_accounts ba ON ba.id=bt.bank_account_id JOIN journal_entries je ON je.id=event.replacement_journal_entry_id LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id LEFT JOIN accounts a ON a.id=jl.account_id GROUP BY event.id ORDER BY event.id`).all() as any[];
   for (const event of correctionEvents) {
     const label = `bank reconciliation correction ${event.id}`;
     const amount = String(event.currency).trim().toUpperCase() === "DKK" ? Number(event.amount) : Number(event.amount_dkk);
     if (event.ledger_account_no !== event.bank_account_no || compareDkk(amount, Number(event.bank_amount_dkk)) !== 0 || compareDkk(amount, Number(event.bank_movement)) !== 0) errors.push(`${label}: bank account or amount evidence is inconsistent`);
-    if (event.entry_hash !== event.replacement_journal_hash || event.status !== "posted" || event.reversal_of_entry_id != null || event.source_bank_transaction_id != null || Number(event.has_reversal) !== 0) errors.push(`${label}: replacement journal hash or lifecycle is invalid`);
+    if (event.entry_hash !== event.replacement_journal_hash || event.status !== "posted" || event.reversal_of_entry_id != null || event.source_bank_transaction_id != null || (!Number(event.is_superseded) && Number(event.has_reversal) !== 0)) errors.push(`${label}: replacement journal hash or lifecycle is invalid`);
     if (!event.has_audit) errors.push(`${label}: missing bank_reconciliation_corrected audit event`);
     const target = `${event.supersedes_kind}:${event.supersedes_id}`;
     if (event.supersedes_reconciliation_id !== target) errors.push(`${label}: typed supersession target is inconsistent`);

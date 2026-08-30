@@ -136,4 +136,32 @@ describe("append-only bank reconciliation for imported journals", () => {
       expect(verifyAuditChain(db,{companyRoot:root}).ok).toBe(true);
     } finally { db.close(); rmSync(root,{recursive:true,force:true}); }
   });
+
+  test("supersedes an append-only link and retains a green audit through a second correction", () => {
+    const { root, db, bank1 } = setup();
+    try {
+      const old = postVerifiedHistoricalImportEntry(db, { transactionDate:"2026-03-04", text:"Append-only original", createdBy:"agent:test", lines:[{accountNo:"3000",debitAmount:100},{accountNo:"2000",creditAmount:100}] });
+      expect(linkBankTransactionToJournal(db,{bankTransactionId:bank1,journalEntryId:Number(old.entryId),matchMethod:"manual-review",createdBy:"agent:test"}).ok).toBe(true);
+      const firstReplacement = postVerifiedHistoricalImportEntry(db, { transactionDate:"2026-03-04", text:"First replacement", createdBy:"agent:test", lines:[{accountNo:"3000",debitAmount:100},{accountNo:"2000",creditAmount:100}] });
+      expect(reverseJournalEntry(db,{entryId:Number(old.entryId),transactionDate:"2026-03-05",reason:"first correction",createdBy:"agent:test"}).ok).toBe(true);
+      const principal={kind:"service-account" as const,subjectId:"synthetic-bookkeeper"};
+      const firstPlan=planBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(firstReplacement.entryId)});
+      expect(firstPlan.ok).toBe(true); if(!firstPlan.ok) return;
+      expect(firstPlan.plan.reconciliationId).toStartWith("append-only:");
+      expect(applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(firstReplacement.entryId),expectedReconciliationId:firstPlan.plan.reconciliationId,planHash:firstPlan.plan.planHash,reason:"reviewed first correction",actor:"agent:test",principal,confirm:true}).ok).toBe(true);
+
+      const secondReplacement = postVerifiedHistoricalImportEntry(db, { transactionDate:"2026-03-06", text:"Second replacement", createdBy:"agent:test", lines:[{accountNo:"3000",debitAmount:100},{accountNo:"2000",creditAmount:100}] });
+      expect(reverseJournalEntry(db,{entryId:Number(firstReplacement.entryId),transactionDate:"2026-03-06",reason:"second correction",createdBy:"agent:test"}).ok).toBe(true);
+      const secondPlan=planBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(secondReplacement.entryId)});
+      expect(secondPlan.ok).toBe(true); if(!secondPlan.ok) return;
+      expect(secondPlan.plan.reconciliationId).toStartWith("correction:");
+      expect(applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(secondReplacement.entryId),expectedReconciliationId:secondPlan.plan.reconciliationId,planHash:secondPlan.plan.planHash,reason:"reviewed second correction",actor:"agent:test",principal,confirm:true}).ok).toBe(true);
+
+      expect(db.query("SELECT COUNT(*) AS count FROM bank_journal_reconciliations WHERE bank_transaction_id=?").get(bank1)).toEqual({count:1});
+      expect(listBankTransactions(db,{status:"matched"}).rows[0]).toMatchObject({id:bank1,journalEntryId:Number(secondReplacement.entryId)});
+      expect(verifyAuditChain(db,{companyRoot:root}).ok).toBe(true);
+      expect(() => db.run("UPDATE bank_reconciliation_correction_events SET reason='changed'")).toThrow("append-only");
+      expect(() => db.run("DELETE FROM bank_reconciliation_correction_events")).toThrow("append-only");
+    } finally { db.close(); rmSync(root,{recursive:true,force:true}); }
+  });
 });

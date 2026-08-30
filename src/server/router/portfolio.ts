@@ -5,7 +5,22 @@ import { buildPortfolioOverview, resolveAsOfDate } from "../data";
 import { okResponse } from "./_shared";
 import { openWorkspaceControlDb } from "../../core/workspace-control";
 import { listActiveCompanyMembershipSlugs } from "../../core/workspace-access";
-import { resolveCanonicalLiveCompanies } from "../../core/workspace";
+import {
+  requireCanonicalLiveCompanies,
+  WorkspaceCanonicalityError,
+} from "../../core/workspace";
+import { ApiError } from "../errors";
+
+function canonicalCompanies(config: ServerConfig) {
+  try {
+    return requireCanonicalLiveCompanies(config.workspaceRoot).map((item) => item.entry);
+  } catch (error) {
+    if (error instanceof WorkspaceCanonicalityError) {
+      throw ApiError.conflict(error.message, { subcode: "WORKSPACE_CANONICALITY_FAILED" });
+    }
+    throw error;
+  }
+}
 
 /**
  * Hosted Better Auth reads are restricted before any discovery or ledger read.
@@ -26,17 +41,24 @@ function hostedVisibleCompanySlugs(config: ServerConfig): string[] | null {
 export function handlePortfolio(config: ServerConfig, url: URL): Response {
   const asOf = resolveAsOfDate(url.searchParams.get("asOf"));
   const visibleSlugs = hostedVisibleCompanySlugs(config);
-  const overview = buildPortfolioOverview(
-    config.workspaceRoot,
-    asOf,
-    visibleSlugs === null ? {} : { companySlugs: visibleSlugs },
-  );
-  return okResponse({ portfolio: overview });
+  try {
+    const overview = buildPortfolioOverview(
+      config.workspaceRoot,
+      asOf,
+      visibleSlugs === null ? {} : { companySlugs: visibleSlugs },
+    );
+    return okResponse({ portfolio: overview });
+  } catch (error) {
+    if (error instanceof WorkspaceCanonicalityError) {
+      throw ApiError.conflict(error.message, { subcode: "WORKSPACE_CANONICALITY_FAILED" });
+    }
+    throw error;
+  }
 }
 
 export function handleCompanyList(config: ServerConfig): Response {
   const visibleSlugs = hostedVisibleCompanySlugs(config);
-  const canonical = resolveCanonicalLiveCompanies(config.workspaceRoot).companies.map((item) => item.entry);
+  const canonical = canonicalCompanies(config);
   const companies = visibleSlugs === null ? canonical : canonical.filter((company) => new Set(visibleSlugs).has(company.slug));
   return okResponse({
     workspace: config.workspaceRoot,

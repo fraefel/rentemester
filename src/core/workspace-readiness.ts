@@ -18,6 +18,7 @@ import {
   isValidSlug,
   loadWorkspaceManifest,
   resolveCanonicalLiveCompanies,
+  type CanonicalLiveCompanyDiagnostic,
   workspaceExists,
 } from "./workspace";
 import { verifyAuditChain } from "./ledger";
@@ -34,6 +35,7 @@ export type WorkspaceReadiness = {
     companyLedgers: ReadinessCheck;
   };
   companyCount: number;
+  diagnostics: CanonicalLiveCompanyDiagnostic[];
 };
 
 function isRegularFile(path: string): boolean {
@@ -128,6 +130,7 @@ export function assessWorkspaceReadiness(workspaceRoot: string): WorkspaceReadin
   let canonicalLiveOk = false;
   let companyCount = 0;
   let slugs: string[] = [];
+  let diagnostics: CanonicalLiveCompanyDiagnostic[] = [];
   try {
     const manifestPath = join(workspaceRoot, WORKSPACE_MANIFEST_FILE);
     if (!workspaceExists(workspaceRoot) || !isRegularFile(manifestPath)) {
@@ -142,7 +145,8 @@ export function assessWorkspaceReadiness(workspaceRoot: string): WorkspaceReadin
       seen.add(company.slug);
     }
     const canonical = resolveCanonicalLiveCompanies(workspaceRoot);
-    canonicalLiveOk = !canonical.excluded.some((item) => item.reason === "missing-cvr" || item.reason === "duplicate-cvr" || item.reason === "ledger-unavailable");
+    diagnostics = canonical.blockers;
+    canonicalLiveOk = diagnostics.length === 0;
     slugs = canonical.companies.map((company) => company.entry.slug);
     companyCount = slugs.length;
     manifestOk = true;
@@ -163,5 +167,6 @@ export function assessWorkspaceReadiness(workspaceRoot: string): WorkspaceReadin
       checks.companyLedgers === "ok",
     checks,
     companyCount: manifestOk ? companyCount : 0,
+    diagnostics: manifestOk ? diagnostics : [],
   };
 }

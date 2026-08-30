@@ -1,13 +1,19 @@
 // Tests: src/server/data.ts — portfolio aggregation across workspace companies.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildPortfolioOverview } from "../../src/server/data";
 import { handleRequest } from "../../src/server/router";
 import type { ServerConfig } from "../../src/server/config";
 import { createCompany } from "../../src/core/company";
-import { initWorkspace, companyRootForSlug } from "../../src/core/workspace";
+import {
+  companyRootForSlug,
+  initWorkspace,
+  loadWorkspaceManifest,
+  saveWorkspaceManifest,
+} from "../../src/core/workspace";
 import { companyPaths } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { postJournalEntry } from "../../src/core/ledger";
@@ -16,6 +22,14 @@ import { recordException } from "../../src/core/exceptions";
 
 function tmpRoot(label: string) {
   return mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
+}
+
+function dataDirectoryDigest(companyRoot: string) {
+  const dataDir = join(companyRoot, "data");
+  return readdirSync(dataDir).sort().map((name) => ({
+    name,
+    sha256: createHash("sha256").update(readFileSync(join(dataDir, name))).digest("hex"),
+  }));
 }
 
 function config(workspaceRoot: string): ServerConfig {
@@ -271,16 +285,16 @@ describe("portfolio aggregation", () => {
     }
   });
 
-  test("a company with no ledger on disk degrades gracefully", () => {
+  test("a registered live company with no ledger fails portfolio discovery closed", () => {
     const ws = tmpRoot("pf-noledger");
     try {
       initWorkspace(ws);
       createCompany(ws, { name: "Acme ApS", cvr: "DK10000011" });
       // Remove the ledger file to simulate a registered-but-missing company.
       rmSync(companyPaths(companyRootForSlug(ws, "acme-aps")).db, { force: true });
-      const overview = buildPortfolioOverview(ws, "2026-05-20");
-      expect(overview.companies).toEqual([]);
-      expect(overview.companyCount).toBe(0);
+      expect(() => buildPortfolioOverview(ws, "2026-05-20")).toThrow(
+        "WORKSPACE_LIVE_COMPANY_LEDGER_UNAVAILABLE:acme-aps",
+      );
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -303,6 +317,102 @@ describe("portfolio aggregation", () => {
       expect(body.portfolio.companies[0].slug).toBe("acme-aps");
     } finally {
       rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("portfolio discovery leaves ledger database and sidecars byte-for-byte unchanged", () => {
+    const ws = tmpRoot("pf-read-only");
+    try {
+      initWorkspace(ws);
+      createCompany(ws, { name: "Read Only ApS", cvr: "DK10000017" });
+      const companyRoot = companyRootForSlug(ws, "read-only-aps");
+      const db = openDb(companyPaths(companyRoot).db);
+      db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      db.close();
+      const before = dataDirectoryDigest(companyRoot);
+      expect(buildPortfolioOverview(ws, "2026-05-20").companyCount).toBe(1);
+      expect(dataDirectoryDigest(companyRoot)).toEqual(before);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("workspace reads ignore unregistered dry-run, baseline, restore and retest ledger copies", async () => {
+    const ws = tmpRoot("pf-canonical-only");
+    try {
+      initWorkspace(ws);
+      createCompany(ws, { name: "Canonical ApS", cvr: "DK10000013" });
+      seedException(ws, "canonical-aps", "UNMATCHED_BANK_TRANSACTION");
+      const canonicalRoot = companyRootForSlug(ws, "canonical-aps");
+      for (const slug of ["dry-run-copy", "baseline-copy", "restore-copy", "retest-copy"]) {
+        cpSync(canonicalRoot, join(ws, slug), { recursive: true });
+      }
+      const manifest = loadWorkspaceManifest(ws);
+      saveWorkspaceManifest(ws, {
+        ...manifest,
+        companies: [...manifest.companies, {
+          slug: "dry-run-copy",
+          name: "Dry run copy",
+          createdAt: "2026-05-20T00:00:00.000Z",
+          archived: false,
+          purpose: "dry-run",
+        }],
+      });
+      const manifestBefore = readFileSync(join(ws, "workspace.json"));
+
+      const listResponse = await handleRequest(new Request("http://localhost/api/companies"), config(ws));
+      const listBody = await listResponse.json();
+      expect(listResponse.status).toBe(200);
+      expect(listBody.companies.map((company: { slug: string }) => company.slug)).toEqual(["canonical-aps"]);
+
+      const portfolioResponse = await handleRequest(
+        new Request("http://localhost/api/portfolio?asOf=2026-05-20"),
+        config(ws),
+      );
+      const portfolioBody = await portfolioResponse.json();
+      expect(portfolioResponse.status).toBe(200);
+      expect(portfolioBody.portfolio.companyCount).toBe(1);
+      expect(portfolioBody.portfolio.rollup.openTaskCount).toBe(1);
+
+      const directResponse = await handleRequest(
+        new Request("http://localhost/api/companies/dry-run-copy/dashboard"),
+        config(ws),
+      );
+      expect(directResponse.status).toBe(404);
+      expect(readFileSync(join(ws, "workspace.json"))).toEqual(manifestBefore);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("HTTP discovery fails closed on duplicate or missing live identity", async () => {
+    const duplicateWs = tmpRoot("pf-duplicate-cvr");
+    const missingWs = tmpRoot("pf-missing-cvr");
+    try {
+      initWorkspace(duplicateWs);
+      createCompany(duplicateWs, { name: "Alpha ApS", cvr: "DK10000014" });
+      createCompany(duplicateWs, { name: "Beta ApS", cvr: "10000014" });
+      for (const path of ["/api/companies", "/api/portfolio?asOf=2026-05-20"]) {
+        const response = await handleRequest(new Request(`http://localhost${path}`), config(duplicateWs));
+        const body = await response.json();
+        expect(response.status).toBe(409);
+        expect(body.subcode).toBe("WORKSPACE_CANONICALITY_FAILED");
+        expect(body.errors).toEqual([
+          "WORKSPACE_DUPLICATE_LEGAL_IDENTITY:alpha-aps,WORKSPACE_DUPLICATE_LEGAL_IDENTITY:beta-aps",
+        ]);
+        expect(JSON.stringify(body)).not.toContain("10000014");
+        expect(body).not.toHaveProperty("portfolio");
+        expect(body).not.toHaveProperty("companies");
+      }
+
+      initWorkspace(missingWs);
+      createCompany(missingWs, { name: "No Identity ApS" });
+      const missing = await handleRequest(new Request("http://localhost/api/companies"), config(missingWs));
+      expect(missing.status).toBe(200);
+      expect(await missing.json()).toMatchObject({ count: 0, companies: [] });
+    } finally {
+      rmSync(duplicateWs, { recursive: true, force: true });
+      rmSync(missingWs, { recursive: true, force: true });
     }
   });
 });

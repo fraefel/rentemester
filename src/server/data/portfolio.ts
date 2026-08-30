@@ -12,6 +12,7 @@ import type { Database } from "bun:sqlite";
 import { companyPaths } from "../../core/paths";
 import { diffDaysSafe as daysBetween } from "../../core/dates";
 import { openDb, migrate } from "../../core/db";
+import { openLedgerReadOnly } from "../../core/ledger-inspection";
 import { getCompanySettings } from "../../core/company";
 import { buildInvoiceList, buildOverdueInvoiceList } from "../../core/invoice-list";
 import { listBankTransactions } from "../../core/reconciliation";
@@ -25,7 +26,7 @@ import {
   companyRootForSlug,
   findWorkspaceCompany,
   listWorkspaceCompanies,
-  resolveCanonicalLiveCompanies,
+  requireCanonicalLiveCompanies,
   type WorkspaceCompanyEntry,
 } from "../../core/workspace";
 import { ApiError } from "../errors";
@@ -124,7 +125,7 @@ function summariseCompany(
 
   let db: Database;
   try {
-    db = openDb(dbPath);
+    db = openLedgerReadOnly(dbPath);
   } catch {
     // An unreadable ledger degrades gracefully — treated as "missing".
     return {
@@ -151,7 +152,6 @@ function summariseCompany(
     };
   }
   try {
-    migrate(db);
     const company = getCompanySettings(db);
     const { label: fyLabel, year: yearNum } = currentFiscalYear(db, company);
     const yearStart = `${yearNum}-01-01`;
@@ -295,9 +295,9 @@ export function buildPortfolioOverview(
   const entries = options.companySlugs
     ? (() => {
       const allowed = new Set(options.companySlugs);
-      return resolveCanonicalLiveCompanies(workspaceRoot).companies.map((item) => item.entry).filter((entry) => allowed.has(entry.slug));
+      return requireCanonicalLiveCompanies(workspaceRoot).map((item) => item.entry).filter((entry) => allowed.has(entry.slug));
     })()
-    : resolveCanonicalLiveCompanies(workspaceRoot).companies.map((item) => item.entry);
+    : requireCanonicalLiveCompanies(workspaceRoot).map((item) => item.entry);
   const companies = entries.map((entry) =>
     summariseCompany(workspaceRoot, entry, asOfDate),
   );
@@ -368,11 +368,11 @@ export function buildCompanyDashboardData(
   slug: string,
   asOfDate: string,
 ) {
-  const canonical = resolveCanonicalLiveCompanies(workspaceRoot).companies.find((item) => item.entry.slug === slug);
-  if (!canonical) {
+  const entry = findWorkspaceCompany(workspaceRoot, slug);
+  if (!entry) {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
   }
-  const companyRoot = canonical.companyRoot;
+  const companyRoot = companyRootForSlug(workspaceRoot, slug);
   const dbPath = companyPaths(companyRoot).db;
   if (!existsSync(dbPath)) {
     throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);

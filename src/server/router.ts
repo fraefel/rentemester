@@ -24,7 +24,7 @@ import type { ServerConfig } from "./config";
 
 export type { RoutePermission } from "../core/access-permissions";
 
-import { isValidSlug, resolveCanonicalLiveCompany } from "../core/workspace";
+import { findRoutableWorkspaceCompany, isValidSlug } from "../core/workspace";
 import { authorizeWorkspaceRoute } from "../core/workspace-access";
 import { insertWorkspaceAuthorizationAudit, openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
 import { authMiddleware, type Principal } from "./auth";
@@ -693,10 +693,7 @@ export async function handleRequest(
     if (route) {
       authorizeCatalogRoute(config, principal, route);
       assertCatalogRouteSecurity(request, config, principal, route);
-      // Workspace routing is manifest-authoritative. A copied, archived,
-      // non-live or invalid company must never become reachable by guessing a
-      // sibling directory's slug.
-      if (route.companySlug && !resolveCanonicalLiveCompany(config.workspaceRoot, route.companySlug)) {
+      if (route.companySlug && !findRoutableWorkspaceCompany(config.workspaceRoot, route.companySlug)) {
         throw ApiError.notFound("virksomhed findes ikke i det aktive workspace");
       }
     } else if (path === "/api" || path.startsWith("/api/")) {

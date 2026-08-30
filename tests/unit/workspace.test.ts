@@ -1,6 +1,6 @@
 // Tests: src/core/workspace.ts, src/core/company.ts (workspace model + createCompany)
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -54,7 +54,7 @@ describe("workspace model", () => {
     try {
       initWorkspace(root);
       const manifest = {
-        version: 1 as const,
+        version: 2 as const,
         companies: [
           { slug: "acme", name: "Acme ApS", createdAt: "2026-05-20T00:00:00.000Z", archived: false },
           { slug: "beta", name: "Beta IVS", createdAt: "2026-05-20T01:00:00.000Z", archived: true },
@@ -62,6 +62,28 @@ describe("workspace model", () => {
       };
       saveWorkspaceManifest(root, manifest);
       expect(loadWorkspaceManifest(root)).toEqual({ ...manifest, companies: manifest.companies.map((company) => ({ ...company, purpose: "live" })) });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loads legacy v1 entries as live but never accepts purpose under v1", () => {
+    const root = tmpRoot("ws-legacy-manifest");
+    try {
+      const path = join(root, WORKSPACE_MANIFEST_FILE);
+      writeFileSync(path, JSON.stringify({
+        version: 1,
+        companies: [{ slug: "legacy", name: "Legacy ApS", createdAt: "2026-05-20T00:00:00.000Z", archived: false }],
+      }));
+      expect(loadWorkspaceManifest(root)).toEqual({
+        version: 2,
+        companies: [{ slug: "legacy", name: "Legacy ApS", createdAt: "2026-05-20T00:00:00.000Z", archived: false, purpose: "live" }],
+      });
+      writeFileSync(path, JSON.stringify({
+        version: 1,
+        companies: [{ slug: "copy", name: "Copy", createdAt: "2026-05-20T00:00:00.000Z", archived: false, purpose: "dry-run" }],
+      }));
+      expect(() => loadWorkspaceManifest(root)).toThrow("workspace manifest purpose requires version 2");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -188,9 +210,11 @@ describe("canonical live-company resolution", () => {
       const resolved = resolveCanonicalLiveCompanies(root);
       expect(resolved.companies).toEqual([]);
       expect(resolved.excluded).toEqual([
-        { slug: "copy-aps", reason: "duplicate-cvr" },
-        { slug: "dry-run-aps", reason: "non-live" },
-        { slug: "live-aps", reason: "duplicate-cvr" },
+        { slug: "dry-run-aps", reasonCode: "WORKSPACE_COMPANY_NOT_LIVE" },
+      ]);
+      expect(resolved.blockers).toEqual([
+        { slug: "copy-aps", reasonCode: "WORKSPACE_DUPLICATE_LEGAL_IDENTITY" },
+        { slug: "live-aps", reasonCode: "WORKSPACE_DUPLICATE_LEGAL_IDENTITY" },
       ]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

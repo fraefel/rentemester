@@ -56,6 +56,23 @@ describe("company CLI", () => {
     }
   });
 
+  test("company list fails closed on duplicate normalized CVR identity", async () => {
+    const ws = tmpRoot("company-cli-duplicate");
+    try {
+      await run(["company", "add", "--name", "Alpha ApS", "--cvr", "DK10000016"], { RENTEMESTER_WORKSPACE: ws });
+      await run(["company", "add", "--name", "Beta ApS", "--cvr", "10000016"], { RENTEMESTER_WORKSPACE: ws });
+      const res = await run(["company", "list"], { RENTEMESTER_WORKSPACE: ws });
+      expect(res.exitCode).toBe(2);
+      expect(res.stderr).toContain(
+        "WORKSPACE_DUPLICATE_LEGAL_IDENTITY:alpha-aps,WORKSPACE_DUPLICATE_LEGAL_IDENTITY:beta-aps",
+      );
+      expect(res.stdout).not.toContain("companies");
+      expect(`${res.stdout}${res.stderr}`).not.toContain("10000016");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   test("--company accepts a workspace slug and resolves it to the company dir", async () => {
     const ws = tmpRoot("company-cli-slug");
     try {

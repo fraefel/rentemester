@@ -37,7 +37,8 @@ import { buildVatReport } from "../../core/vat";
 import { getBackupComplianceStatus } from "../../core/system-backups";
 import {
   companyRootForSlug,
-  resolveCanonicalLiveCompanies,
+  requireCanonicalLiveCompanies,
+  WorkspaceCanonicalityError,
   resolveConfiguredWorkspaceRoot,
   resolveWorkspaceRoot,
 } from "../../core/workspace";
@@ -306,14 +307,17 @@ export function registerPortfolioTools(server: McpServer): void {
         return envelopeToCallResult(errorEnvelope(redactPaths(ws.error)));
       }
       const asOfDate = args.asOf ?? todayIsoDate();
-      let canonical: ReturnType<typeof resolveCanonicalLiveCompanies>;
+      let canonical: ReturnType<typeof requireCanonicalLiveCompanies>;
       try {
-        canonical = resolveCanonicalLiveCompanies(ws.root);
+        canonical = requireCanonicalLiveCompanies(ws.root);
       } catch (error) {
+        if (error instanceof WorkspaceCanonicalityError) {
+          return envelopeToCallResult(errorEnvelope(error.message, { code: "WORKSPACE_CANONICALITY_FAILED" }));
+        }
         const message = error instanceof Error ? error.message : String(error);
         return envelopeToCallResult(errorEnvelope(redactPaths(message)));
       }
-      const companies = canonical.companies
+      const companies = canonical
         .slice()
         .sort((a, b) => a.entry.slug.localeCompare(b.entry.slug))
         .map((item) =>

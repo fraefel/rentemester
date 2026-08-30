@@ -101,6 +101,9 @@ try {
     throw new Error(`first company creation failed: ${JSON.stringify(createBody)}`);
   }
   const slug = createBody.company.slug;
+  run(["docker", "exec", first, "bun", "-e",
+    `import {cpSync} from "node:fs";for(const copy of ["dry-run-copy","baseline-copy","restore-copy","retest-copy"])cpSync("/workspace/${slug}","/workspace/"+copy,{recursive:true});`,
+  ]);
   const canonicalCompanies = await api(first, "/api/companies");
   if (canonicalCompanies?.companies?.map((company: { slug: string }) => company.slug).join(",") !== slug) {
     throw new Error(`mounted workspace must expose only its canonical live company: ${JSON.stringify(canonicalCompanies)}`);
@@ -138,7 +141,7 @@ try {
     companiesBody?.companies?.length !== 1 ||
     companiesBody.companies[0]?.slug !== "container-example-aps"
   ) throw new Error(JSON.stringify(companiesBody));
-  console.log("container integration passed: CLI example, constrained networkless non-root read-only runtime, legacy host-path PDF text/layout, cache, no-text outcome, persisted restart");
+  console.log("container integration passed: CLI example, canonical-only mounted workspace, constrained networkless non-root read-only runtime, legacy host-path PDF text/layout, cache, no-text outcome, persisted restart");
 } finally {
   run(["docker", "rm", "--force", first], { allowFailure: true });
   run(["docker", "rm", "--force", second], { allowFailure: true });

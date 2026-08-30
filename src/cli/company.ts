@@ -18,7 +18,9 @@ import {
   resolveConfiguredWorkspaceRoot,
   resolveWorkspaceRoot,
   workspaceExists,
-  resolveCanonicalLiveCompanies,
+  requireCanonicalLiveCompanies,
+  WorkspaceCanonicalityError,
+  type WorkspaceCompanyEntry,
 } from "../core/workspace";
 import { openCommandDb } from "../cli-dispatch";
 import { inferredMutationActor } from "../cli-actor";
@@ -246,9 +248,15 @@ export function register(dispatch: CommandDispatch): void {
 
   dispatch.on("company", "list", (ctx) => {
     const workspaceRoot = requireWorkspaceRoot(ctx);
-    const companies = workspaceExists(workspaceRoot)
-      ? resolveCanonicalLiveCompanies(workspaceRoot).companies.map((item) => item.entry)
-      : [];
+    let companies: WorkspaceCompanyEntry[];
+    try {
+      companies = workspaceExists(workspaceRoot)
+        ? requireCanonicalLiveCompanies(workspaceRoot).map((item) => item.entry)
+        : [];
+    } catch (error) {
+      if (error instanceof WorkspaceCanonicalityError) ctx.fatal(error.message);
+      throw error;
+    }
     ctx.emitResult({
       ok: true,
       message:

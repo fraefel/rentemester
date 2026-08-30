@@ -51,6 +51,7 @@ describe("workspace readiness", () => {
           companyLedgers: "ok",
         },
         companyCount: 0,
+        diagnostics: [],
       });
       expect(sha256(join(workspace, "workspace.json"))).toBe(beforeManifest);
       expect(sha256(ledger)).toBe(beforeLedger);
@@ -82,6 +83,7 @@ describe("workspace readiness", () => {
           companyLedgers: "ok",
         },
         companyCount: 1,
+        diagnostics: [],
       });
       expect(existsSync(controlPath)).toBe(false);
       expect(serialized).not.toContain(workspace);
@@ -105,7 +107,9 @@ describe("workspace readiness", () => {
         workspaceControl: "ok",
         companyLedgers: "failed",
       });
-      expect(JSON.stringify(result.body)).not.toContain("ready-example-aps");
+      expect(result.body.diagnostics).toEqual([
+        { slug: "ready-example-aps", reasonCode: "WORKSPACE_LIVE_COMPANY_LEDGER_UNAVAILABLE" },
+      ]);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -132,6 +136,43 @@ describe("workspace readiness", () => {
         checks: { companyLedgers: "failed" },
       });
       expect({ sha256: sha256(ledger), entries: readdirSync(dirname(ledger)).sort() }).toEqual(before);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("duplicate legal identity stays fail-closed across a persisted restart", async () => {
+    const workspace = prepareReadyWorkspace("ready-duplicate", ["Alpha ApS", "Beta ApS"]);
+    try {
+      for (const slug of ["alpha-aps", "beta-aps"]) {
+        const db = new Database(companyPaths(companyRootForSlug(workspace, slug)).db);
+        try { db.query("UPDATE companies SET cvr = ? WHERE id = 1").run("DK10000123"); }
+        finally { db.close(); }
+      }
+      let expected: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const cockpit = startCockpitServer(config({ workspaceRoot: workspace, port: 0 }));
+        try {
+          const response = await fetch(`${cockpit.url}/api/ready`);
+          const body = await response.json();
+          expect(response.status).toBe(503);
+          expect(body).toMatchObject({
+            ok: false,
+            ready: false,
+            checks: { companyLedgers: "failed" },
+            companyCount: 0,
+            diagnostics: [
+              { slug: "alpha-aps", reasonCode: "WORKSPACE_DUPLICATE_LEGAL_IDENTITY" },
+              { slug: "beta-aps", reasonCode: "WORKSPACE_DUPLICATE_LEGAL_IDENTITY" },
+            ],
+          });
+          if (attempt === 0) expected = body;
+          else expect(body).toEqual(expected);
+          expect(JSON.stringify(body)).not.toContain("10000123");
+        } finally {
+          cockpit.stop();
+        }
+      }
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

@@ -23,7 +23,7 @@ export function createDimensionDefinition(db: Database, input: { dimensionId: st
   if (!by || !principal) return fail("ACTOR_AND_PRINCIPAL_REQUIRED");
   const current = db.query("SELECT * FROM current_accounting_dimension_definitions WHERE dimension_id=?").get(dimensionId) as any;
   if (current) return current.kind === kind && current.name === name ? { ok:true as const, id:current.id, idempotent:true } : fail("DIMENSION_CONFLICT");
-  const row = db.query("INSERT INTO accounting_dimension_definition_events(dimension_id,kind,name,event_type,actor,principal,created_at) VALUES(?,?,?,'defined',?,?,?) RETURNING id").get(dimensionId,kind,name,by,principal,new Date().toISOString()) as any;
+  const row = db.query("INSERT INTO accounting_dimension_definition_events(dimension_id,kind,name,status,event_type,actor,principal,created_at) VALUES(?,?,?,'active','defined',?,?,?) RETURNING id").get(dimensionId,kind,name,by,principal,new Date().toISOString()) as any;
   return { ok:true as const, id:row.id, idempotent:false };
 }
 
@@ -37,6 +37,44 @@ export function createDimensionMember(db: Database, input: { dimensionId:string;
   const row=db.query("INSERT INTO accounting_dimension_member_events(dimension_id,member_id,name,status,effective_from,effective_to,event_type,actor,principal,created_at) VALUES(?,?,?,?,?,?,'defined',?,?,?) RETURNING id").get(dimensionId,memberId,name,status,input.effectiveFrom??null,input.effectiveTo??null,by,principal,new Date().toISOString()) as any;
   return {ok:true as const,id:row.id,idempotent:false};
 }
+
+type LifecycleAction="activate"|"deactivate"|"rename"|"supersede";
+type LifecycleInput={dimensionId:string;memberId?:string;name?:string;supersedesId?:string;actor?:string;principal?:string;confirm:boolean};
+/** Append a lifecycle event.  IDs are stable: a rename or status change only
+ * adds a new event, while old labels remain available in the event history. */
+export function changeDimensionDefinition(db:Database, action:LifecycleAction, input:LifecycleInput) {
+  if(!["activate","deactivate","rename","supersede"].includes(action)) return fail("INVALID_LIFECYCLE_ACTION");
+  if(!input.confirm)return fail("CONFIRMATION_REQUIRED"); const dimensionId=text(input.dimensionId,64),by=actor(input.actor),principal=text(input.principal,160);
+  if(!dimensionId||!by||!principal)return fail("ACTOR_AND_PRINCIPAL_REQUIRED");
+  const current=db.query("SELECT * FROM current_accounting_dimension_definitions WHERE dimension_id=?").get(dimensionId) as any;
+  if(!current)return fail("DIMENSION_NOT_FOUND");
+  const name=action==="rename"?text(input.name,160):current.name;
+  if(!name)return fail("INVALID_DIMENSION"); const status=action==="activate"?"active":action==="supersede"?"superseded":action==="deactivate"?"inactive":current.status;
+  if(current.status===status&&current.name===name&&action!=="supersede")return {ok:true as const,id:current.id,idempotent:true};
+  const supersedesId=text(input.supersedesId,64);
+  if(action==="supersede" && (!supersedesId || !db.query("SELECT 1 FROM current_accounting_dimension_definitions WHERE dimension_id=? AND status='active'").get(supersedesId)))return fail("SUPERSEDING_DIMENSION_NOT_FOUND");
+  const eventType=action==="deactivate"?"deactivated":action==="activate"?"activated":action==="rename"?"renamed":"superseded";
+  const row=db.query("INSERT INTO accounting_dimension_definition_events(dimension_id,kind,name,status,event_type,supersedes_dimension_id,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id").get(dimensionId,current.kind,name,status,eventType,action==="supersede"?supersedesId:null,by,principal,new Date().toISOString()) as any;
+  return {ok:true as const,id:row.id,idempotent:false};
+}
+
+export function changeDimensionMember(db:Database, action:LifecycleAction, input:LifecycleInput) {
+  if(!["activate","deactivate","rename","supersede"].includes(action)) return fail("INVALID_LIFECYCLE_ACTION");
+  if(!input.confirm)return fail("CONFIRMATION_REQUIRED"); const dimensionId=text(input.dimensionId,64),memberId=text(input.memberId,64),by=actor(input.actor),principal=text(input.principal,160);
+  if(!dimensionId||!memberId||!by||!principal)return fail("ACTOR_AND_PRINCIPAL_REQUIRED");
+  const current=db.query("SELECT * FROM current_accounting_dimension_members WHERE dimension_id=? AND member_id=?").get(dimensionId,memberId) as any;
+  if(!current)return fail("MEMBER_NOT_FOUND"); const name=action==="rename"?text(input.name,160):current.name;
+  if(!name)return fail("INVALID_MEMBER"); const status=action==="activate"?"active":action==="supersede"?"superseded":action==="deactivate"?"inactive":current.status;
+  if(current.status===status&&current.name===name&&action!=="supersede")return {ok:true as const,id:current.id,idempotent:true};
+  const supersedesId=text(input.supersedesId,64);
+  if(action==="supersede" && (!supersedesId || !db.query("SELECT 1 FROM current_accounting_dimension_members WHERE dimension_id=? AND member_id=? AND status='active'").get(dimensionId,supersedesId)))return fail("SUPERSEDING_MEMBER_NOT_FOUND");
+  const eventType=action==="deactivate"?"deactivated":action==="activate"?"activated":action==="rename"?"renamed":"superseded";
+  const row=db.query("INSERT INTO accounting_dimension_member_events(dimension_id,member_id,name,status,effective_from,effective_to,event_type,supersedes_member_id,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id").get(dimensionId,memberId,name,status,current.effective_from,current.effective_to,eventType,action==="supersede"?supersedesId:null,by,principal,new Date().toISOString()) as any;
+  return {ok:true as const,id:row.id,idempotent:false};
+}
+
+export function listDimensionDefinitions(db:Database) { return db.query("SELECT * FROM accounting_dimension_definition_events ORDER BY dimension_id,id").all(); }
+export function listDimensionMembers(db:Database,dimensionId?:string) { return dimensionId ? db.query("SELECT * FROM accounting_dimension_member_events WHERE dimension_id=? ORDER BY member_id,id").all(dimensionId) : db.query("SELECT * FROM accounting_dimension_member_events ORDER BY dimension_id,member_id,id").all(); }
 
 /** Pure proposal.  It reads the immutable line and binds the exact line and
  * entry hashes; it never creates a draft or changes a journal. */

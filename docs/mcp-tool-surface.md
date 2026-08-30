@@ -683,8 +683,10 @@ ord-for-ord, CLI/MCP-pendanter og er derfor hverken CLI-only eller MCP-only:
 - `src/cli/supplier-commitments.ts` ↔ `src/mcp/tools/supplier-commitments.ts` —
   reviewede leverandørforpligtelser og deres deterministiske occurrence-flow.
 - `src/cli/dimensions.ts` ↔ `src/mcp/tools/dimensions.ts` — company-scoped,
-  append-only dimension definitions, members and hash-bound journal-line
-  allocations. Assignments never alter journal bytes, VAT or legal totals.
+  append-only dimension definitions and members, including activate,
+  deactivate, rename and supersede lifecycle events with queryable historical
+  labels, plus hash-bound journal-line allocations. Assignments never alter
+  journal bytes, VAT or legal totals.
 - `src/cli/posting-rules.ts` ↔ `src/mcp/tools/posting-rules.ts` —
   forslag, lifecycle og dry-run forklaring af virksomheds-lokale
   konteringsregler.

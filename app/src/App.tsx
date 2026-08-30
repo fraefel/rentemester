@@ -78,6 +78,7 @@ import { BookkeepingBatchView } from "./views/BookkeepingBatchView";
 import { WorkspaceRegistryView } from "./views/WorkspaceRegistryView";
 import { WorkspaceInboxView } from "./views/WorkspaceInboxView";
 import { CfoCockpitView } from "./views/CfoCockpitView";
+import { DimensionsView } from "./views/DimensionsView";
 import {
   CompanyNavigationShell,
   CompanyTaskNavigation,
@@ -120,6 +121,7 @@ const COMPANY_ROUTE_ELEMENTS: Record<CompanyRouteId, ReactElement> = {
   retention: <RetentionView />,
   integrity: <IntegrityView />,
   accounts: <AccountsView />,
+  dimensions: <DimensionsView />,
   exceptions: <ExceptionsView />,
   "period-lock": <PeriodsView />,
   "bank-accounts": <BankAccountsView />,

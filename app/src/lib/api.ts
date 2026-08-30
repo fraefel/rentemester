@@ -81,6 +81,7 @@ import { bookkeepingBatchApi } from "./api/bookkeeping-batch";
 import { workspaceRegistryApi } from "./api/workspace-registry";
 import { cfoAnalyticsApi } from "./api/cfo-analytics";
 import { supplierCommitmentsApi } from "./api/supplier-commitments";
+import { dimensionsApi } from "./api/dimensions";
 
 // One method per key — the earlier legacy `closePeriod` / `reopenPeriod` /
 // `resolveException` duplicates (#UI-9) have been deleted, so no spread-order
@@ -118,4 +119,5 @@ export const api = {
   ...workspaceRegistryApi,
   ...cfoAnalyticsApi,
   ...supplierCommitmentsApi,
+  ...dimensionsApi,
 };

@@ -260,6 +260,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   workflow({ id: "accounting-dimensions", capabilityId: "accounting-dimensions", title: "Reviewed accounting dimensions", intendedOutcome: "Classify immutable journal lines by approved company dimensions without changing legal amounts, VAT or journal hashes.", steps: [
     write("define", mcp("dimension_definition_create"), "Define a company-scoped dimension.", { canonicalRecords:["dimension definition events"] }),
     write("member", mcp("dimension_member_create"), "Define an active or historical member.", { dependsOn:["define"], canonicalRecords:["dimension member events"] }),
+    write("lifecycle", mcp("dimension_member_lifecycle"), "Append a reviewed member lifecycle event without losing its stable identity or historical label.", { dependsOn:["member"], canonicalRecords:["dimension member events"] }),
     read("plan", mcp("dimension_assignment_plan"), "Produce the exact read-only allocation plan and hash.", { dependsOn:["member"], boundary:"dry-run", canonicalRecords:["dimension assignment plan"] }),
     write("apply", mcp("dimension_assignment_apply"), "Append the reviewed hash-bound allocation.", { dependsOn:["plan"], canonicalRecords:["dimension assignment events"] }),
     read("inspect", mcp("dimension_assignment_list"), "Read source-linked assignment history and drilldown ids.", { dependsOn:["apply"] }),
@@ -453,9 +454,9 @@ type SurfaceBaseline = { count: number; hash: string };
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // Public surface changes require an explicit discovery review.
-  mcp: { count: 198, hash: "f93e33ec8d121fce3db128696e275ce0582f55b9896e49c76f6c5ee4146be7ba" },
-  cli: { count: 251, hash: "3fddd945ddc8bcdf944253cb310cea814e7b3d0f75a7a83158a677913f05f71b" },
-  http: { count: 191, hash: "ea8c4bcba9a9f6653358bc3db665050d6a8139edbf5f6a567e2132076ca5791d" },
+  mcp: { count: 202, hash: "02f44eb50834e7d3394a35a8cd230783dd511ebefa76ded578a8755c4d3fc139" },
+  cli: { count: 255, hash: "5f39ba3918c28e18ad5541b4a49ac51a1ec4f2fc67adda6ff6899ee37f1ea348" },
+  http: { count: 195, hash: "45d9e6fb68454713f0d566b4ed9d0a6a325709d6199e478dde4ee84ebd8877c3" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

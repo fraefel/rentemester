@@ -44,6 +44,7 @@ export const COMPANY_ROUTE_DEFINITIONS = [
   { id: "retention", segment: "retention", label: "Retention", area: "administration" },
   { id: "integrity", segment: "integritet", label: "Integritet", area: "administration" },
   { id: "accounts", segment: "kontoplan", label: "Kontoplan", area: "administration" },
+  { id: "dimensions", segment: "dimensioner", label: "Dimensioner", area: "administration" },
   { id: "exceptions", segment: "undtagelser", label: "Undtagelser", area: "bookkeeping" },
   { id: "period-lock", segment: "periodelas", label: "Periodelås", area: "vat-periods" },
   { id: "bank-accounts", segment: "bankkonti", label: "Bankkonti", area: "administration" },

@@ -504,6 +504,13 @@ export function applySchemaMigrations(db: Database): void {
             .replace(/CREATE VIEW document_pdf_parses[\s\S]*?;\n?/, "")
             .replaceAll("CREATE INDEX idx_", "CREATE INDEX IF NOT EXISTS idx_");
         }
+        if (migration.id === 29 && db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_party_resolution_events'").get()) {
+          // Recovery after a migration-ledger loss: v29's append-only tables,
+          // views and guards are already present. Re-running its table rename
+          // and CREATE sequence would both fail and risk disturbing evidence;
+          // restoring the missing immutable migration row is sufficient.
+          sql = "";
+        }
         if (sql.trim()) db.exec(sql);
       }
       db.query(`INSERT INTO schema_migrations (id, name, checksum, applied_by_version, applied_by_commit) VALUES (?, ?, ?, ?, ?)`)

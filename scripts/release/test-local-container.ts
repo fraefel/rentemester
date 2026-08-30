@@ -96,11 +96,15 @@ try {
   if (emptyCompaniesBody?.companies?.length !== 0) {
     throw new Error(`fresh volume must start with zero companies: ${JSON.stringify(emptyCompaniesBody)}`);
   }
-  const createBody = await api(first, "/api/companies", { name: "Container Example ApS" });
+  const createBody = await api(first, "/api/companies", { name: "Container Example ApS", cvr: "DK10000001" });
   if (createBody?.company?.slug !== "container-example-aps") {
     throw new Error(`first company creation failed: ${JSON.stringify(createBody)}`);
   }
   const slug = createBody.company.slug;
+  const canonicalCompanies = await api(first, "/api/companies");
+  if (canonicalCompanies?.companies?.map((company: { slug: string }) => company.slug).join(",") !== slug) {
+    throw new Error(`mounted workspace must expose only its canonical live company: ${JSON.stringify(canonicalCompanies)}`);
+  }
   const ingest = async (fileName: string, bytes: Uint8Array, invoiceNo: string) => api(first, `/api/companies/${slug}/documents/ingest`, { fileName, fileBase64: Buffer.from(bytes).toString("base64"), metadata: syntheticMetadata(invoiceNo), confirm: true });
   const textDocument = await ingest("synthetic-text.pdf", syntheticTextPdf(), "SYN-001");
   const textId = textDocument?.document?.id;

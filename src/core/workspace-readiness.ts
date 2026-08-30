@@ -17,6 +17,7 @@ import {
   companyRootForSlug,
   isValidSlug,
   loadWorkspaceManifest,
+  resolveCanonicalLiveCompanies,
   workspaceExists,
 } from "./workspace";
 import { verifyAuditChain } from "./ledger";
@@ -124,6 +125,7 @@ function checkLedger(workspaceRoot: string, slug: string): boolean {
  */
 export function assessWorkspaceReadiness(workspaceRoot: string): WorkspaceReadiness {
   let manifestOk = false;
+  let canonicalLiveOk = false;
   let companyCount = 0;
   let slugs: string[] = [];
   try {
@@ -139,7 +141,9 @@ export function assessWorkspaceReadiness(workspaceRoot: string): WorkspaceReadin
       }
       seen.add(company.slug);
     }
-    slugs = manifest.companies.map((company) => company.slug);
+    const canonical = resolveCanonicalLiveCompanies(workspaceRoot);
+    canonicalLiveOk = !canonical.excluded.some((item) => item.reason === "missing-cvr" || item.reason === "duplicate-cvr" || item.reason === "ledger-unavailable");
+    slugs = canonical.companies.map((company) => company.entry.slug);
     companyCount = slugs.length;
     manifestOk = true;
   } catch {
@@ -147,7 +151,7 @@ export function assessWorkspaceReadiness(workspaceRoot: string): WorkspaceReadin
   }
 
   const workspaceControlOk = checkWorkspaceControl(workspaceRoot);
-  const companyLedgersOk = manifestOk && slugs.every((slug) => checkLedger(workspaceRoot, slug));
+  const companyLedgersOk = manifestOk && canonicalLiveOk && slugs.every((slug) => checkLedger(workspaceRoot, slug));
   const checks = {
     workspaceManifest: manifestOk ? "ok" : "failed",
     workspaceControl: workspaceControlOk ? "ok" : "failed",

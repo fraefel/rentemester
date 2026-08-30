@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { writeFileAtomic } from "./atomic-file";
 import { companyPaths } from "./paths";
+import { openLedgerReadOnly } from "./ledger-inspection";
 
 /**
  * Workspace model.
@@ -11,9 +12,8 @@ import { companyPaths } from "./paths";
  * Rentemester company directory (a `data/ledger.sqlite` plus the usual
  * `companyPaths` subdirs).
  *
- * The company directories are the source of truth: a `workspace.json` manifest
- * in the root is a lightweight index (slug, display name, createdAt, archived).
- * A present-but-unlisted directory can be adopted into the manifest.
+ * `workspace.json` is authoritative. A directory is not a workspace company
+ * until an explicit write registers it in the manifest.
  *
  * This module is intentionally pure filesystem + JSON: the later cockpit API
  * (#170) and MCP tools (#172) call these same functions.
@@ -22,6 +22,8 @@ import { companyPaths } from "./paths";
 export const WORKSPACE_MANIFEST_FILE = "workspace.json";
 
 const MANIFEST_VERSION = 1 as const;
+
+export type WorkspaceCompanyPurpose = "live" | "test" | "dry-run" | "restore" | "backup" | "retest" | "baseline";
 
 export type WorkspaceCompanyEntry = {
   /** Filesystem-safe identifier; the subdirectory name under the workspace. */
@@ -32,6 +34,8 @@ export type WorkspaceCompanyEntry = {
   createdAt: string;
   /** Soft-deletion flag; archived companies stay on disk. */
   archived: boolean;
+  /** `live` is the backwards-compatible default for pre-purpose manifests. */
+  purpose?: WorkspaceCompanyPurpose;
 };
 
 export type WorkspaceManifest = {
@@ -117,6 +121,61 @@ function emptyManifest(): WorkspaceManifest {
   return { version: MANIFEST_VERSION, companies: [] };
 }
 
+function purposeOf(entry: WorkspaceCompanyEntry): WorkspaceCompanyPurpose {
+  return entry.purpose ?? "live";
+}
+
+const PURPOSES = new Set<WorkspaceCompanyPurpose>(["live", "test", "dry-run", "restore", "backup", "retest", "baseline"]);
+
+/** Normalizes a CVR/VAT identifier for comparison without exposing it. */
+export function normalizeCompanyCvr(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (normalized.startsWith("DK")) normalized = normalized.slice(2);
+  return normalized.length > 0 ? normalized : null;
+}
+
+export type CanonicalLiveCompany = { entry: WorkspaceCompanyEntry; companyRoot: string; cvr: string };
+export type CanonicalLiveCompanyDiagnostic = { slug: string; reason: "non-live" | "archived" | "ledger-unavailable" | "missing-cvr" | "duplicate-cvr" };
+export type CanonicalLiveCompanyResolution = { companies: CanonicalLiveCompany[]; excluded: CanonicalLiveCompanyDiagnostic[] };
+
+/**
+ * The single read-only authority for companies which may participate in a
+ * workspace-wide live surface. It never creates, migrates, renames or adopts.
+ */
+export function resolveCanonicalLiveCompanies(workspaceRoot: string): CanonicalLiveCompanyResolution {
+  const candidates = listWorkspaceCompanies(workspaceRoot).slice().sort((a, b) => a.slug.localeCompare(b.slug));
+  const excluded: CanonicalLiveCompanyDiagnostic[] = [];
+  const valid: CanonicalLiveCompany[] = [];
+  for (const entry of candidates) {
+    if (entry.archived) { excluded.push({ slug: entry.slug, reason: "archived" }); continue; }
+    if (purposeOf(entry) !== "live") { excluded.push({ slug: entry.slug, reason: "non-live" }); continue; }
+    const companyRoot = companyRootForSlug(workspaceRoot, entry.slug);
+    try {
+      const db = openLedgerReadOnly(companyPaths(companyRoot).db);
+      let cvr: string | null;
+      try { cvr = normalizeCompanyCvr((db.query("SELECT cvr FROM companies ORDER BY id ASC LIMIT 1").get() as { cvr?: unknown } | null)?.cvr); }
+      finally { db.close(); }
+      if (!cvr) { excluded.push({ slug: entry.slug, reason: "missing-cvr" }); continue; }
+      valid.push({ entry: { ...entry, purpose: purposeOf(entry) }, companyRoot, cvr });
+    } catch { excluded.push({ slug: entry.slug, reason: "ledger-unavailable" }); }
+  }
+  const duplicateCvrs = new Set<string>();
+  const seen = new Set<string>();
+  for (const item of valid) { if (seen.has(item.cvr)) duplicateCvrs.add(item.cvr); seen.add(item.cvr); }
+  const companies = valid.filter((item) => {
+    if (!duplicateCvrs.has(item.cvr)) return true;
+    excluded.push({ slug: item.entry.slug, reason: "duplicate-cvr" });
+    return false;
+  });
+  return { companies, excluded: excluded.sort((a, b) => a.slug.localeCompare(b.slug) || a.reason.localeCompare(b.reason)) };
+}
+
+/** True only for a canonical registered live company. */
+export function resolveCanonicalLiveCompany(workspaceRoot: string, slug: string): CanonicalLiveCompany | null {
+  return resolveCanonicalLiveCompanies(workspaceRoot).companies.find((company) => company.entry.slug === slug) ?? null;
+}
+
 function sortedManifest(manifest: WorkspaceManifest): WorkspaceManifest {
   return {
     version: MANIFEST_VERSION,
@@ -150,6 +209,7 @@ export function loadWorkspaceManifest(workspaceRoot: string): WorkspaceManifest 
     name: String(raw.name),
     createdAt: String(raw.createdAt),
     archived: Boolean(raw.archived),
+    purpose: PURPOSES.has(raw.purpose) ? raw.purpose : "live",
   }));
   return { version: MANIFEST_VERSION, companies };
 }
@@ -291,6 +351,7 @@ export function registerCompanyDirIntoWorkspace(
     name,
     createdAt: options?.createdAt ?? new Date().toISOString(),
     archived: false,
+    purpose: "live",
   });
   return { status: "registered", slug };
 }
@@ -322,6 +383,7 @@ export function adoptCompanyDir(
     name,
     createdAt: options?.createdAt ?? new Date().toISOString(),
     archived: false,
+    purpose: "live",
   });
 }
 

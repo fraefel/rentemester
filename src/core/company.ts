@@ -540,6 +540,7 @@ export function createCompany(
     name,
     createdAt: new Date().toISOString(),
     archived: false,
+    purpose: "live",
   });
   return { ...init, slug, name };
 }

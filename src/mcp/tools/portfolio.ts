@@ -37,7 +37,7 @@ import { buildVatReport } from "../../core/vat";
 import { getBackupComplianceStatus } from "../../core/system-backups";
 import {
   companyRootForSlug,
-  listWorkspaceCompanies,
+  resolveCanonicalLiveCompanies,
   resolveConfiguredWorkspaceRoot,
   resolveWorkspaceRoot,
 } from "../../core/workspace";
@@ -306,22 +306,21 @@ export function registerPortfolioTools(server: McpServer): void {
         return envelopeToCallResult(errorEnvelope(redactPaths(ws.error)));
       }
       const asOfDate = args.asOf ?? todayIsoDate();
-      let registered: ReturnType<typeof listWorkspaceCompanies>;
+      let canonical: ReturnType<typeof resolveCanonicalLiveCompanies>;
       try {
-        registered = listWorkspaceCompanies(ws.root);
+        canonical = resolveCanonicalLiveCompanies(ws.root);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return envelopeToCallResult(errorEnvelope(redactPaths(message)));
       }
-      const active = registered.filter((c) => !c.archived);
-      const companies = active
+      const companies = canonical.companies
         .slice()
-        .sort((a, b) => a.slug.localeCompare(b.slug))
-        .map((entry) =>
+        .sort((a, b) => a.entry.slug.localeCompare(b.entry.slug))
+        .map((item) =>
           companyStatusRow(
-            entry.slug,
-            entry.name,
-            companyRootForSlug(ws.root, entry.slug),
+            item.entry.slug,
+            item.entry.name,
+            item.companyRoot,
             asOfDate,
           ),
         );

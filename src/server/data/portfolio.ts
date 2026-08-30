@@ -25,9 +25,9 @@ import {
   companyRootForSlug,
   findWorkspaceCompany,
   listWorkspaceCompanies,
+  resolveCanonicalLiveCompanies,
   type WorkspaceCompanyEntry,
 } from "../../core/workspace";
-import { discoverWorkspaceCompanies } from "../discovery";
 import { ApiError } from "../errors";
 import { currentFiscalYear, roundKroner } from "./shared";
 import { actualBankBalanceAsOf, bankStatementStatusAsOf } from "./bank";
@@ -292,15 +292,12 @@ export function buildPortfolioOverview(
   asOfDate: string,
   options: PortfolioOverviewOptions = {},
 ): PortfolioOverview {
-  // Discover-and-adopt any present-but-unlisted company directory first
-  // (#256): the portfolio is the cockpit's landing page, so an owner who set
-  // a company up via the CLI must land on that real company — not onboarding.
   const entries = options.companySlugs
     ? (() => {
       const allowed = new Set(options.companySlugs);
-      return listWorkspaceCompanies(workspaceRoot).filter((entry) => allowed.has(entry.slug));
+      return resolveCanonicalLiveCompanies(workspaceRoot).companies.map((item) => item.entry).filter((entry) => allowed.has(entry.slug));
     })()
-    : discoverWorkspaceCompanies(workspaceRoot);
+    : resolveCanonicalLiveCompanies(workspaceRoot).companies.map((item) => item.entry);
   const companies = entries.map((entry) =>
     summariseCompany(workspaceRoot, entry, asOfDate),
   );
@@ -371,11 +368,11 @@ export function buildCompanyDashboardData(
   slug: string,
   asOfDate: string,
 ) {
-  const entry = findWorkspaceCompany(workspaceRoot, slug);
-  if (!entry) {
+  const canonical = resolveCanonicalLiveCompanies(workspaceRoot).companies.find((item) => item.entry.slug === slug);
+  if (!canonical) {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
   }
-  const companyRoot = companyRootForSlug(workspaceRoot, slug);
+  const companyRoot = canonical.companyRoot;
   const dbPath = companyPaths(companyRoot).db;
   if (!existsSync(dbPath)) {
     throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);

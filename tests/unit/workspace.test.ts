@@ -12,6 +12,7 @@ import {
   loadWorkspaceManifest,
   registerCompanyDirIntoWorkspace,
   resolveWorkspaceSlug,
+  resolveCanonicalLiveCompanies,
   saveWorkspaceManifest,
   slugifyCompanyName,
   workspaceExists,
@@ -60,7 +61,7 @@ describe("workspace model", () => {
         ],
       };
       saveWorkspaceManifest(root, manifest);
-      expect(loadWorkspaceManifest(root)).toEqual(manifest);
+      expect(loadWorkspaceManifest(root)).toEqual({ ...manifest, companies: manifest.companies.map((company) => ({ ...company, purpose: "live" })) });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -171,6 +172,27 @@ describe("slug resolution", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("canonical live-company resolution", () => {
+  test("uses only registered unique live CVRs and excludes sibling copies", () => {
+    const root = tmpRoot("ws-canonical");
+    try {
+      initWorkspace(root);
+      createCompany(root, { name: "Live ApS", cvr: "DK12345678" });
+      createCompany(root, { name: "Copy ApS", cvr: "12345678" });
+      createCompany(root, { name: "Dry Run ApS", cvr: "DK87654321" });
+      const manifest = loadWorkspaceManifest(root);
+      saveWorkspaceManifest(root, { ...manifest, companies: manifest.companies.map((entry) => entry.slug === "dry-run-aps" ? { ...entry, purpose: "dry-run" } : entry) });
+      const resolved = resolveCanonicalLiveCompanies(root);
+      expect(resolved.companies).toEqual([]);
+      expect(resolved.excluded).toEqual([
+        { slug: "copy-aps", reason: "duplicate-cvr" },
+        { slug: "dry-run-aps", reason: "non-live" },
+        { slug: "live-aps", reason: "duplicate-cvr" },
+      ]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
 

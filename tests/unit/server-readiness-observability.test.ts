@@ -17,6 +17,11 @@ function sha256(path: string): string {
 
 function prepareReadyWorkspace(label: string, companies = ["Ready Example ApS"]): string {
   const workspace = makeWorkspace(label, companies);
+  for (const [index, company] of loadWorkspaceManifest(workspace).companies.entries()) {
+    const ledger = new Database(companyPaths(companyRootForSlug(workspace, company.slug)).db);
+    try { ledger.query("UPDATE companies SET cvr = ? WHERE id = 1").run(`DK${String(10000000 + index)}`); }
+    finally { ledger.close(); }
+  }
   const control = openWorkspaceControlDb(workspace);
   control.close();
   return workspace;
@@ -59,6 +64,8 @@ describe("workspace readiness", () => {
   test("fails closed without creating a missing control database or leaking diagnostics", async () => {
     const workspace = makeWorkspace("ready-missing-control", ["Private Example ApS"]);
     try {
+      const ledger = new Database(companyPaths(companyRootForSlug(workspace, "private-example-aps")).db);
+      try { ledger.query("UPDATE companies SET cvr = ? WHERE id = 1").run("DK10000099"); } finally { ledger.close(); }
       const controlPath = workspaceControlPaths(workspace).db;
       expect(existsSync(controlPath)).toBe(false);
 
@@ -89,10 +96,7 @@ describe("workspace readiness", () => {
     const workspace = prepareReadyWorkspace("ready-missing-ledger");
     try {
       const manifest = loadWorkspaceManifest(workspace);
-      saveWorkspaceManifest(workspace, {
-        ...manifest,
-        companies: manifest.companies.map((company) => ({ ...company, archived: true })),
-      });
+      saveWorkspaceManifest(workspace, manifest);
       unlinkSync(companyPaths(companyRootForSlug(workspace, "ready-example-aps")).db);
       const result = await get(config({ workspaceRoot: workspace }), "/api/ready");
       expect(result.status).toBe(503);

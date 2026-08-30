@@ -147,8 +147,8 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-summaries");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
-      createCompany(ws, { name: "Beta IVS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000001" });
+      createCompany(ws, { name: "Beta IVS", cvr: "DK10000002" });
       const overview = buildPortfolioOverview(ws, "2026-05-20");
       expect(overview.companyCount).toBe(2);
       const slugs = overview.companies.map((c) => c.slug).sort();
@@ -168,8 +168,8 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-totals");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
-      createCompany(ws, { name: "Beta IVS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000003" });
+      createCompany(ws, { name: "Beta IVS", cvr: "DK10000004" });
       const overview = buildPortfolioOverview(ws, "2026-05-20");
       const sum = overview.companies.reduce((a, c) => a + c.openInvoiceCount, 0);
       expect(overview.totals.openInvoiceCount).toBe(sum);
@@ -184,7 +184,7 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-realfigures");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000005" });
       // Income 1000, expense 400 → resultat 600; 25%-VAT → payable 150.
       seedPnl(ws, "acme-aps", "2026-03-15", 1000, 400);
       const overview = buildPortfolioOverview(ws, "2026-05-20");
@@ -205,7 +205,7 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-vatfix");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000006" });
       seedPnl(ws, "acme-aps", "2026-02-01", 1000, 0);
       const overview = buildPortfolioOverview(ws, "2026-05-20");
       // Output VAT booked on account 1200 (250) with no input → payable 250.
@@ -219,7 +219,7 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-bank");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000007" });
       seedPnl(ws, "acme-aps", "2026-03-15", 1000, 400);
       seedBankRow(ws, "acme-aps", "2026-04-01", 700, 700);
       seedBankRow(ws, "acme-aps", "2026-04-10", -200, 500);
@@ -234,7 +234,7 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-tasks");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000008" });
       seedException(ws, "acme-aps", "UNMATCHED_BANK_TRANSACTION");
       seedException(ws, "acme-aps", "UNMATCHED_BANK_TRANSACTION");
       seedException(ws, "acme-aps", "MAIL_INTAKE_NO_ATTACHMENT");
@@ -254,8 +254,8 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-rollup");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
-      createCompany(ws, { name: "Beta ApS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000009" });
+      createCompany(ws, { name: "Beta ApS", cvr: "DK10000010" });
       seedPnl(ws, "acme-aps", "2026-03-15", 1000, 400); // resultat 600, VAT 150
       seedBankRow(ws, "acme-aps", "2026-04-01", 500, 500);
       seedException(ws, "acme-aps", "UNMATCHED_BANK_TRANSACTION");
@@ -275,15 +275,12 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-noledger");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000011" });
       // Remove the ledger file to simulate a registered-but-missing company.
       rmSync(companyPaths(companyRootForSlug(ws, "acme-aps")).db, { force: true });
       const overview = buildPortfolioOverview(ws, "2026-05-20");
-      const c = overview.companies[0]!;
-      expect(c.ledgerMissing).toBe(true);
-      expect(c.resultat).toBe(0);
-      expect(c.vat).toBeNull();
-      expect(c.actualBankBalance).toBeNull();
+      expect(overview.companies).toEqual([]);
+      expect(overview.companyCount).toBe(0);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -293,7 +290,7 @@ describe("portfolio aggregation", () => {
     const ws = tmpRoot("pf-endpoint");
     try {
       initWorkspace(ws);
-      createCompany(ws, { name: "Acme ApS" });
+      createCompany(ws, { name: "Acme ApS", cvr: "DK10000012" });
       const res = await handleRequest(
         new Request("http://localhost/api/portfolio?asOf=2026-05-20"),
         config(ws),

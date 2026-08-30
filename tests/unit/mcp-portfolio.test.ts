@@ -169,7 +169,7 @@ describe("portfolio MCP tools (#172)", () => {
     const ws = tmpWorkspace("overview");
     try {
       createCompany(ws, { name: "Acme ApS", cvr: "DK12345678" });
-      createCompany(ws, { name: "Beta IVS" });
+      createCompany(ws, { name: "Beta IVS", cvr: "DK87654321" });
       const h = harness(registerPortfolioTools);
       const env = await h.call("portfolio_overview", { workspace: ws });
       expect(env.ok).toBe(true);

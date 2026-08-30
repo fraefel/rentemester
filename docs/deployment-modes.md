@@ -36,6 +36,10 @@ Rentemester har allerede størstedelen af den nødvendige datagrænse:
   dokumentarkiv, fakturaer, konfiguration, logs, exports og backups;
 - et workspace er en mappe med `workspace.json` og én virksomhed pr.
   undermappe/slug;
+- `workspace.json` er den autoritative registrering: kun aktive `live`-poster
+  med en unik, normaliseret CVR indgår i cockpit, portfolio og readiness.
+  Test-, dry-run-, restore-, backup-, retest- og baseline-kopier må gerne
+  ligge som søskendemapper, men bliver aldrig adopteret ved læsning;
 - CLI'en kan fortsat arbejde direkte på en enkelt rå virksomhedssti med
   `--company <path>`;
 - CLI og MCP kan slå en virksomhed op via slug, når et workspace er

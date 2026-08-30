@@ -1,12 +1,11 @@
 // Portfolio + workspace company-list read handlers.
 
 import type { ServerConfig } from "../config";
-import { discoverWorkspaceCompanies } from "../discovery";
 import { buildPortfolioOverview, resolveAsOfDate } from "../data";
 import { okResponse } from "./_shared";
 import { openWorkspaceControlDb } from "../../core/workspace-control";
 import { listActiveCompanyMembershipSlugs } from "../../core/workspace-access";
-import { listWorkspaceCompanies } from "../../core/workspace";
+import { resolveCanonicalLiveCompanies } from "../../core/workspace";
 
 /**
  * Hosted Better Auth reads are restricted before any discovery or ledger read.
@@ -36,18 +35,9 @@ export function handlePortfolio(config: ServerConfig, url: URL): Response {
 }
 
 export function handleCompanyList(config: ServerConfig): Response {
-  // Discover-and-adopt any present-but-unlisted company directory before
-  // listing (#256): an owner who set a company up via the CLI then opened the
-  // cockpit must see that real company, not "0 virksomheder" + a blank create.
   const visibleSlugs = hostedVisibleCompanySlugs(config);
-  const companies = visibleSlugs === null
-    ? discoverWorkspaceCompanies(config.workspaceRoot)
-    : (() => {
-      const allowed = new Set(visibleSlugs);
-      // Hosted reads must not run discover-and-adopt: authorization is only
-      // meaningful for companies already registered in the manifest.
-      return listWorkspaceCompanies(config.workspaceRoot).filter((company) => allowed.has(company.slug));
-    })();
+  const canonical = resolveCanonicalLiveCompanies(config.workspaceRoot).companies.map((item) => item.entry);
+  const companies = visibleSlugs === null ? canonical : canonical.filter((company) => new Set(visibleSlugs).has(company.slug));
   return okResponse({
     workspace: config.workspaceRoot,
     count: companies.length,
@@ -56,6 +46,7 @@ export function handleCompanyList(config: ServerConfig): Response {
       name: c.name,
       createdAt: c.createdAt,
       archived: c.archived,
+      purpose: c.purpose,
     })),
   });
 }

@@ -18,6 +18,7 @@ import {
   resolveConfiguredWorkspaceRoot,
   resolveWorkspaceRoot,
   workspaceExists,
+  resolveCanonicalLiveCompanies,
 } from "../core/workspace";
 import { openCommandDb } from "../cli-dispatch";
 import { inferredMutationActor } from "../cli-actor";
@@ -246,7 +247,7 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("company", "list", (ctx) => {
     const workspaceRoot = requireWorkspaceRoot(ctx);
     const companies = workspaceExists(workspaceRoot)
-      ? listWorkspaceCompanies(workspaceRoot)
+      ? resolveCanonicalLiveCompanies(workspaceRoot).companies.map((item) => item.entry)
       : [];
     ctx.emitResult({
       ok: true,
@@ -262,6 +263,7 @@ export function register(dispatch: CommandDispatch): void {
         name: c.name,
         createdAt: c.createdAt,
         archived: c.archived,
+        purpose: c.purpose,
       })),
     });
   });

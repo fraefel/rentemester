@@ -45,8 +45,8 @@ describe("company CLI", () => {
   test("company list reports companies in the workspace", async () => {
     const ws = tmpRoot("company-cli-list");
     try {
-      await run(["company", "add", "--name", "Acme ApS"], { RENTEMESTER_WORKSPACE: ws });
-      await run(["company", "add", "--name", "Beta IVS"], { RENTEMESTER_WORKSPACE: ws });
+      await run(["company", "add", "--name", "Acme ApS", "--cvr", "DK10000001"], { RENTEMESTER_WORKSPACE: ws });
+      await run(["company", "add", "--name", "Beta IVS", "--cvr", "DK10000002"], { RENTEMESTER_WORKSPACE: ws });
       const res = await run(["company", "list"], { RENTEMESTER_WORKSPACE: ws });
       expect(res.exitCode).toBe(0);
       expect(res.stdout).toContain("acme-aps");

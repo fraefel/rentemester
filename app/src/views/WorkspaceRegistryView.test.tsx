@@ -39,4 +39,19 @@ describe("WorkspaceRegistryView", () => {
     await userEvent.click(screen.getByRole("button", { name: "Opdater" }));
     expect(await screen.findByText("Refreshed supplier")).toBeInTheDocument();
   });
+
+  test("keeps ownership state compact and makes redaction explicit", async () => {
+    mockFetch({
+      "GET /api/companies/synthetic-company/workspace-parties": parties,
+      "GET /api/companies/synthetic-company/corporate-records": records,
+      "GET /api/companies/synthetic-company/knowledge": { context: { assertions: [], conflicts: [] } },
+      "GET /api/companies/synthetic-company/ownership": { asOf: "2026-08-30", facts: [], partial: true, consolidation: { eligible: false, reason: "hidden endpoints" } },
+      "GET /api/companies/synthetic-company/ownership/history": { history: [{ snapshotId: "synthetic-snapshot", state: "approved", snapshotHash: "0123456789abcdef" }] },
+    });
+    renderAt(<WorkspaceRegistryView />, { route: "/virksomheder/synthetic-company/workspace-register", path: "/virksomheder/:slug/workspace-register" });
+    expect(await screen.findByText("Delvist synlige relationer; skjulte endpoints og antal vises ikke.")).toBeInTheDocument();
+    expect(screen.getByText("Ingen synlige, godkendte facts.")).toBeInTheDocument();
+    expect(screen.getByText("Forslag, review og apply")).toBeInTheDocument();
+    expect(screen.queryByText("hidden endpoints")).not.toBeInTheDocument();
+  });
 });

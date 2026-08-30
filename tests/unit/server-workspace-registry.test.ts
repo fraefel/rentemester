@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { createParty, linkPartyRole } from "../../src/core/party-registry";
 import { ingestCorporateRecord, linkCorporateRecord } from "../../src/core/corporate-records";
-import { activateWorkspaceUser, grantCompanyMembership } from "../../src/core/workspace-access";
+import { activateWorkspaceUser, authorizeWorkspaceRoute, grantCompanyMembership } from "../../src/core/workspace-access";
 import { openWorkspaceControlDb } from "../../src/core/workspace-control";
-import { createWorkspaceServicePrincipal } from "../../src/core/workspace-service-principals";
+import { createWorkspaceServicePrincipal, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../src/core/workspace-service-principals";
 import { proposeCompanyKnowledge, reviewCompanyKnowledge } from "../../src/core/company-knowledge";
 import { createBetterAuthRequestProvider, openWorkspaceBetterAuth, WORKSPACE_SERVICE_PRINCIPAL_HEADER } from "../../src/server/better-auth";
 import { config, get, makeWorkspace } from "./server-api/_shared";
+import { applyOwnershipSnapshot, proposeOwnershipSnapshot, reviewOwnershipSnapshot } from "../../src/core/ownership-graph";
 
 const SECRET = "I0UjL6i0-ScgvjfIgzMKJxPQyDpPXwg2mMKdLW3Y3WQ";
 const ORIGIN = "http://127.0.0.1:4319";
@@ -23,6 +24,53 @@ function record(db: ReturnType<typeof openWorkspaceControlDb>, recordId: string,
 }
 
 describe("workspace registry HTTP access projection", () => {
+  test("enforces ownership roles for every endpoint, survives rotation and revokes immediately", async () => {
+    const workspace = makeWorkspace("ownership-http", ["Allowed ApS", "Hidden ApS"]);
+    const runtime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN, "http://localhost"], baseURL: ORIGIN });
+    const db = openWorkspaceControlDb(workspace);
+    let verifierRuntime: ReturnType<typeof openWorkspaceBetterAuth> | undefined;
+    try {
+      const owner = { kind: "local_operator" as const, id: "synthetic-owner" };
+      const initial = proposeOwnershipSnapshot(db, { snapshotId: "edge-existing", source: "synthetic", observedAt: at, facts: [{ owner: { kind: "company", companySlug: "allowed-aps" }, ownedCompanySlug: "hidden-aps", validFrom: "2026-01-01", validToExclusive: "2027-01-01", economicBasisPoints: 10000, controlType: "equity", jurisdiction: "DK", evidenceRefs: ["synthetic"] }], actor: "user:owner", principal: owner });
+      reviewOwnershipSnapshot(db, { snapshotId: initial.snapshotId, decision: "approved", actor: "user:review", principal: owner });
+      applyOwnershipSnapshot(db, { snapshotId: initial.snapshotId, snapshotHash: initial.snapshotHash, diffHash: initial.diffHash, actor: "user:review", principal: owner, authorized: true });
+      const service = await createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "ownership test", actor: "user:owner" });
+      activateWorkspaceUser(db, { userId: service.serviceAccountId, workspaceRole: "member", actor: "user:owner" });
+      grantCompanyMembership(db, workspace, { userId: service.serviceAccountId, companySlug: "allowed-aps", role: "reader", actor: "user:owner" });
+      const hostedAuth = { secret: SECRET, secrets: [{ version: 1, value: SECRET }], baseURL: ORIGIN, trustedOrigins: [ORIGIN], authEmail: { provider: "http-json-v1" as const, url: "https://mailer.example.test/send", bearerToken: "synthetic-mail-token", from: "auth@example.test" }, rateLimitIpHeader: "x-real-ip" as const };
+      const hosted = config({ workspaceRoot: workspace, deploymentProfile: "hosted", hostedBetterAuth: hostedAuth, betterAuthProvider: createBetterAuthRequestProvider(runtime.auth) });
+      const headers = { [WORKSPACE_SERVICE_PRINCIPAL_HEADER]: service.secret, "content-type": "application/json", origin: ORIGIN };
+      const filtered = await get(hosted, "/api/companies/allowed-aps/ownership?asOf=2026-02-01", { headers });
+      expect(filtered.status).toBe(200);
+      expect(filtered.body).toMatchObject({ ok: true, partial: true, facts: [] });
+      expect(JSON.stringify(filtered.body)).not.toContain("hidden-aps");
+      expect((await get(hosted, "/api/companies/allowed-aps/ownership/propose", { method: "POST", headers, body: JSON.stringify({ confirm: true }) })).status).toBe(401);
+      expect((await get(hosted, "/api/companies/allowed-aps/ownership?asOf=2026-02-01", { headers: { actor: "user:owner" } })).status).toBe(401);
+      grantCompanyMembership(db, workspace, { userId: service.serviceAccountId, companySlug: "allowed-aps", role: "reviewer", actor: "user:owner" });
+      const body = { confirm: true, snapshotId: "edge-new", source: "synthetic", observedAt: at, facts: [{ owner: { kind: "company", companySlug: "allowed-aps" }, ownedCompanySlug: "hidden-aps", validFrom: "2027-01-01", economicBasisPoints: 10000, controlType: "equity", jurisdiction: "DK", evidenceRefs: ["new"] }] };
+      expect((await get(hosted, "/api/companies/allowed-aps/ownership/propose", { method: "POST", headers, body: JSON.stringify(body) })).status).toBe(401);
+      grantCompanyMembership(db, workspace, { userId: service.serviceAccountId, companySlug: "hidden-aps", role: "reviewer", actor: "user:owner" });
+      expect(authorizeWorkspaceRoute(db, workspace, { userId: service.serviceAccountId, companySlug: "allowed-aps", permission: "company.ownership.manage" }).allowed).toBe(true);
+      expect(authorizeWorkspaceRoute(db, workspace, { userId: service.serviceAccountId, companySlug: "hidden-aps", permission: "company.ownership.manage" }).allowed).toBe(true);
+      expect((await get(hosted, "/api/companies/allowed-aps/ownership/propose", { method: "POST", headers, body: JSON.stringify(body) })).status).toBe(200);
+      verifierRuntime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN, "http://localhost"], baseURL: ORIGIN });
+      const verifier = createBetterAuthRequestProvider(verifierRuntime.auth);
+      const continuedHosted = config({ workspaceRoot: workspace, deploymentProfile: "hosted", hostedBetterAuth: hostedAuth, betterAuthProvider: verifier });
+      const rotated = await rotateWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: service.serviceAccountId, credentialId: service.credentialId, actor: "user:owner" });
+      expect((await get(hosted, "/api/companies/allowed-aps/ownership?asOf=2026-02-01", { headers })).status).toBe(401);
+      const rotatedHeaders = { ...headers, [WORKSPACE_SERVICE_PRINCIPAL_HEADER]: rotated.secret };
+      expect((await verifier.verifyServicePrincipal!(new Request(`${ORIGIN}/api`, { headers: rotatedHeaders }))).state).toBe("valid");
+      const continued = await get(continuedHosted, "/api/companies/allowed-aps/ownership?asOf=2026-02-01", { headers: rotatedHeaders });
+      expect(continued).toEqual({ status: 200, body: expect.any(Object) });
+      await revokeWorkspaceServiceCredential(db, runtime.auth, { serviceAccountId: service.serviceAccountId, credentialId: rotated.credentialId, actor: "user:owner" });
+      expect((await get(continuedHosted, "/api/companies/allowed-aps/ownership?asOf=2026-02-01", { headers: rotatedHeaders })).status).toBe(401);
+    } finally {
+      verifierRuntime?.close();
+      db.close();
+      runtime.close();
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
   test("uses the live service-principal membership before pagination and requires every corporate company scope", async () => {
     const workspace = makeWorkspace("workspace-registry-http", ["Allowed ApS", "Hidden ApS"]);
     const runtime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });

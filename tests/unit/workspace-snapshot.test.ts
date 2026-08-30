@@ -12,6 +12,7 @@ import { verifyAuditChain } from "../../src/core/ledger";
 import { companyRootForSlug } from "../../src/core/workspace";
 import { makeWorkspace } from "./server-api/_shared";
 import { proposeCompanyKnowledge, reviewCompanyKnowledge, queryCompanyKnowledge } from "../../src/core/company-knowledge";
+import { applyOwnershipSnapshot, ownershipHistory, projectExactCompanyOwnership, proposeOwnershipSnapshot, queryOwnershipGraph, reviewOwnershipSnapshot } from "../../src/core/ownership-graph";
 
 function tempPath(label: string) { return join(mkdtempSync(join(tmpdir(), `${label}-`)), "artifact.tar"); }
 
@@ -43,6 +44,12 @@ function addOwner(workspace: string) {
 }
 
 describe("credential-free workspace snapshot and restore", () => {
+  test("preserves reviewed ownership snapshots, facts and v1-safe projection without credentials", () => {
+    const workspace=makeWorkspace("workspace-ownership-snapshot",["Alpha Company","Beta Company"]);const outPath=tempPath("workspace-ownership-out");const target=join(mkdtempSync(join(tmpdir(),"workspace-ownership-target-")),"restored");
+    try { addOwner(workspace);const db=openWorkspaceControlDb(workspace);try { const principal={kind:"local_operator" as const,id:"snapshot-test"};const snapshot=proposeOwnershipSnapshot(db,{snapshotId:"ownership-snapshot",source:"synthetic-registry",observedAt:"2026-01-01T00:00:00Z",facts:[{owner:{kind:"company",companySlug:"alpha-company"},ownedCompanySlug:"beta-company",validFrom:"2026-01-01",economicBasisPoints:10000,controlType:"equity",jurisdiction:"DK",evidenceRefs:["synthetic-evidence"]}],actor:"user:test",principal});reviewOwnershipSnapshot(db,{snapshotId:snapshot.snapshotId,decision:"approved",actor:"user:review",principal});applyOwnershipSnapshot(db,{snapshotId:snapshot.snapshotId,snapshotHash:snapshot.snapshotHash,diffHash:snapshot.diffHash,actor:"user:review",principal,authorized:true}); } finally {db.close();}
+      expect(createWorkspaceSnapshot(workspace,{outPath,createdAt:"2026-08-23T11:00:00.000Z"}).ok).toBeTrue();const entries=readTar(readFileSync(outPath));const ownershipEntry=entries.find(entry=>entry.path==="ownership-graph.json");expect(ownershipEntry).toBeDefined();const archiveText=entries.map(entry=>new TextDecoder().decode(entry.content)).join("\n");expect(archiveText).not.toContain("private-session-token");expect(archiveText).not.toContain("private-password-hash");const restored=restoreWorkspaceSnapshot({snapshotPath:outPath,targetWorkspaceRoot:target});expect(restored.ok).toBeTrue();const read=openWorkspaceControlDb(target);try{expect(ownershipHistory(read,"ownership-snapshot")[0]).toMatchObject({state:"applied"});expect(queryOwnershipGraph(read,{asOf:"2026-02-01"}).facts).toHaveLength(1);expect(projectExactCompanyOwnership(read,"2026-02-01")).toMatchObject({eligible:true,edges:[{parentCompanySlug:"alpha-company",childCompanySlug:"beta-company",basisPoints:10000}]});expect(read.query("SELECT count(*) AS n FROM rm_ownership_snapshot_events").get()).toEqual({n:3});}finally{read.close();}
+    } finally {rmSync(workspace,{recursive:true,force:true});rmSync(dirname(outPath),{recursive:true,force:true});rmSync(dirname(target),{recursive:true,force:true});}
+  });
   test("includes source-backed company knowledge without exporting credentials", () => {
     const workspace=makeWorkspace("workspace-knowledge-snapshot",["Alpha Company"]);const outPath=tempPath("workspace-knowledge-out");const target=join(mkdtempSync(join(tmpdir(),"workspace-knowledge-target-")),"restored");
     try { const db=openWorkspaceControlDb(workspace);try { const principal={kind:"local_operator" as const,id:"snapshot-test"};const assertion=proposeCompanyKnowledge(db,{companySlug:"alpha-company",predicate:"markets",value:["DK"],source:{kind:"external_snapshot",ref:"synthetic-source"},validFrom:"2026-01-01",actor:"user:test",principal});reviewCompanyKnowledge(db,{assertionId:assertion.assertionId,decision:"approved",actor:"user:review",principal}); } finally {db.close();}

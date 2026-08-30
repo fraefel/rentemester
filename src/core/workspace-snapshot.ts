@@ -56,6 +56,8 @@ export type WorkspaceSnapshotManifestV1 = {
   accessPlan: ManifestFile;
   /** Non-credential operating knowledge is portable; auth state remains omitted. */
   companyKnowledge?: ManifestFile;
+  /** Source-backed legal ownership history is portable; credentials remain omitted. */
+  ownershipGraph?: ManifestFile;
   companies: Array<{
     slug: string;
     name: string;
@@ -144,6 +146,7 @@ export function createWorkspaceSnapshot(
     const accessPlanPath = join(staging, "access-plan.json");
     writeFileAtomic(accessPlanPath, `${JSON.stringify(accessPlan, null, 2)}\n`);
     let companyKnowledge: ManifestFile | undefined;
+    let ownershipGraph: ManifestFile | undefined;
     if (existsSync(controlDbPath)) {
       const controlDb = openWorkspaceControlDb(workspaceRoot);
       try {
@@ -153,6 +156,19 @@ export function createWorkspaceSnapshot(
           const path = join(staging, "company-knowledge.json");
           writeFileAtomic(path, `${JSON.stringify({ version: 1, assertions, events })}\n`);
           companyKnowledge = fileEvidence(staging, path);
+        }
+      } finally { controlDb.close(); }
+    }
+    if (existsSync(controlDbPath)) {
+      const controlDb = openWorkspaceControlDb(workspaceRoot);
+      try {
+        const snapshots = controlDb.query("SELECT snapshot_id,source,observed_at,snapshot_hash,diff_hash,canonical_facts,diff_json,actor,principal_kind,principal_id,created_at FROM rm_ownership_source_snapshots ORDER BY id").all();
+        const events = controlDb.query("SELECT snapshot_id,event_type,actor,principal_kind,principal_id,created_at FROM rm_ownership_snapshot_events ORDER BY id").all();
+        const facts = controlDb.query("SELECT fact_id,snapshot_id,fact_hash,canonical_fact,owner_kind,owner_id,owned_company_slug,valid_from,valid_to_exclusive,economic_exact_bp,economic_min_bp,economic_max_bp,voting_bp,control_type,share_class,jurisdiction,review_state,created_at FROM rm_ownership_facts ORDER BY id").all();
+        if (snapshots.length > 0 || events.length > 0 || facts.length > 0) {
+          const path = join(staging, "ownership-graph.json");
+          writeFileAtomic(path, `${JSON.stringify({ version: 1, snapshots, events, facts })}\n`);
+          ownershipGraph = fileEvidence(staging, path);
         }
       } finally { controlDb.close(); }
     }
@@ -198,6 +214,7 @@ export function createWorkspaceSnapshot(
       workspaceManifest: fileEvidence(staging, workspaceManifestPath),
       accessPlan: fileEvidence(staging, accessPlanPath),
       ...(companyKnowledge ? { companyKnowledge } : {}),
+      ...(ownershipGraph ? { ownershipGraph } : {}),
       companies: companyEntries.sort((a, b) => a.slug.localeCompare(b.slug)),
     };
     writeFileAtomic(join(staging, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -238,6 +255,7 @@ function parseManifest(raw: string): WorkspaceSnapshotManifestV1 | null {
       !validInstant(value.createdAt) || !isReleaseProvenance(value.provenance) ||
       !isManifestFile(value.workspaceManifest) || !isManifestFile(value.accessPlan) ||
       (value.companyKnowledge !== undefined && !isManifestFile(value.companyKnowledge)) ||
+      (value.ownershipGraph !== undefined && !isManifestFile(value.ownershipGraph)) ||
       !Array.isArray(value.companies) || value.companies.length === 0) return null;
     const slugs = new Set<string>();
     for (const company of value.companies) {
@@ -305,10 +323,10 @@ export function restoreWorkspaceSnapshot(input: {
     const manifestPath = join(extracted, "manifest.json");
     const manifest = existsSync(manifestPath) ? parseManifest(readFileSync(manifestPath, "utf8")) : null;
     if (!manifest) throw new Error("workspace snapshot manifest is invalid");
-    const expected = ["manifest.json", manifest.workspaceManifest.path, manifest.accessPlan.path, ...(manifest.companyKnowledge ? [manifest.companyKnowledge.path] : []),
+    const expected = ["manifest.json", manifest.workspaceManifest.path, manifest.accessPlan.path, ...(manifest.companyKnowledge ? [manifest.companyKnowledge.path] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph.path] : []),
       ...manifest.companies.map((company) => company.backup.path)].sort();
     if (JSON.stringify(written) !== JSON.stringify(expected)) throw new Error("workspace snapshot contains unlisted files");
-    for (const file of [manifest.workspaceManifest, manifest.accessPlan, ...(manifest.companyKnowledge ? [manifest.companyKnowledge] : []), ...manifest.companies.map((company) => company.backup)]) {
+    for (const file of [manifest.workspaceManifest, manifest.accessPlan, ...(manifest.companyKnowledge ? [manifest.companyKnowledge] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph] : []), ...manifest.companies.map((company) => company.backup)]) {
       const error = verifyFile(extracted, file);
       if (error) throw new Error(error);
     }
@@ -333,6 +351,16 @@ export function restoreWorkspaceSnapshot(input: {
       try { controlDb.transaction(() => {
         for (const row of raw.assertions) controlDb.query("INSERT INTO rm_company_knowledge_assertions(assertion_id,company_slug,predicate,value_json,value_hash,source_kind,source_ref,valid_from,valid_to_exclusive,certainty,actor,principal_kind,principal_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(row.assertion_id,row.company_slug,row.predicate,row.value_json,row.value_hash,row.source_kind,row.source_ref,row.valid_from,row.valid_to_exclusive,row.certainty,row.actor,row.principal_kind,row.principal_id,row.created_at);
         for (const row of raw.events) controlDb.query("INSERT INTO rm_company_knowledge_events(assertion_id,event_type,reason,supersedes_assertion_id,actor,principal_kind,principal_id,created_at) VALUES(?,?,?,?,?,?,?,?)").run(row.assertion_id,row.event_type,row.reason,row.supersedes_assertion_id,row.actor,row.principal_kind,row.principal_id,row.created_at);
+      })(); } finally { controlDb.close(); }
+    }
+    if (manifest.ownershipGraph) {
+      const raw = JSON.parse(readFileSync(join(extracted, ...manifest.ownershipGraph.path.split("/")), "utf8")) as { version:number; snapshots:any[]; events:any[]; facts:any[] };
+      if (raw.version !== 1 || !Array.isArray(raw.snapshots) || !Array.isArray(raw.events) || !Array.isArray(raw.facts)) throw new Error("workspace ownership snapshot is invalid");
+      const controlDb = openWorkspaceControlDb(staging);
+      try { controlDb.transaction(() => {
+        for (const row of raw.snapshots) controlDb.query("INSERT INTO rm_ownership_source_snapshots(snapshot_id,source,observed_at,snapshot_hash,diff_hash,canonical_facts,diff_json,actor,principal_kind,principal_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(row.snapshot_id,row.source,row.observed_at,row.snapshot_hash,row.diff_hash,row.canonical_facts,row.diff_json,row.actor,row.principal_kind,row.principal_id,row.created_at);
+        for (const row of raw.events) controlDb.query("INSERT INTO rm_ownership_snapshot_events(snapshot_id,event_type,actor,principal_kind,principal_id,created_at) VALUES(?,?,?,?,?,?)").run(row.snapshot_id,row.event_type,row.actor,row.principal_kind,row.principal_id,row.created_at);
+        for (const row of raw.facts) controlDb.query("INSERT INTO rm_ownership_facts(fact_id,snapshot_id,fact_hash,canonical_fact,owner_kind,owner_id,owned_company_slug,valid_from,valid_to_exclusive,economic_exact_bp,economic_min_bp,economic_max_bp,voting_bp,control_type,share_class,jurisdiction,review_state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(row.fact_id,row.snapshot_id,row.fact_hash,row.canonical_fact,row.owner_kind,row.owner_id,row.owned_company_slug,row.valid_from,row.valid_to_exclusive,row.economic_exact_bp,row.economic_min_bp,row.economic_max_bp,row.voting_bp,row.control_type,row.share_class,row.jurisdiction,row.review_state,row.created_at);
       })(); } finally { controlDb.close(); }
     }
     for (const company of manifest.companies) {

@@ -40,6 +40,12 @@ function purchaseDocument(workspace: string, slug: string, invoiceNo: string): n
 }
 
 describe("MCP service principal guard", () => {
+  test("authorizes ownership snapshots only when a real service credential has every endpoint role", async () => {
+    const workspace=makeWorkspace("mcp-ownership-guard",["Allowed ApS","Hidden ApS"]);const runtime=openWorkspaceBetterAuth(workspace,{secret:SECRET,trustedOrigins:[ORIGIN],baseURL:ORIGIN});const db=openWorkspaceControlDb(workspace);
+    try { const issued=await createWorkspaceServicePrincipal(db,runtime.auth,{displayName:"ownership agent",actor:"user:owner"});activateWorkspaceUser(db,{userId:issued.serviceAccountId,workspaceRole:"member",actor:"user:owner"});grantCompanyMembership(db,workspace,{userId:issued.serviceAccountId,companySlug:"allowed-aps",role:"reviewer",actor:"user:owner"});const contextFor=(token:string)=>createMcpSecurityContextFromEnv({RENTEMESTER_WORKSPACE:workspace,RENTEMESTER_SERVICE_PRINCIPAL_TOKEN:token})!;const args={company:"allowed-aps",snapshotId:"ownership-mcp",source:"synthetic",observedAt:"2026-01-01T00:00:00Z",facts:[{owner:{kind:"company",companySlug:"allowed-aps"},ownedCompanySlug:"hidden-aps",validFrom:"2026-01-01",economicBasisPoints:10000,controlType:"equity",jurisdiction:"DK",evidenceRefs:["synthetic"]}],confirm:true};
+      expect(await authorizeMcpTool(contextFor(issued.secret),"ownership_graph_query",{company:"allowed-aps",asOf:"2026-02-01"})).not.toBeNull();expect(await authorizeMcpTool(contextFor(issued.secret),"ownership_snapshot_propose",args)).toBeNull();grantCompanyMembership(db,workspace,{userId:issued.serviceAccountId,companySlug:"hidden-aps",role:"reviewer",actor:"user:owner"});expect(await authorizeMcpTool(contextFor(issued.secret),"ownership_snapshot_propose",args)).not.toBeNull();const rotated=await rotateWorkspaceServiceCredential(db,runtime.auth,{serviceAccountId:issued.serviceAccountId,credentialId:issued.credentialId,actor:"user:owner"});expect(await authorizeMcpTool(contextFor(issued.secret),"ownership_snapshot_propose",args)).toBeNull();expect(await authorizeMcpTool(contextFor(rotated.secret),"ownership_snapshot_propose",args)).not.toBeNull();await revokeWorkspaceServiceCredential(db,runtime.auth,{serviceAccountId:issued.serviceAccountId,credentialId:rotated.credentialId,actor:"user:owner"});expect(await authorizeMcpTool(contextFor(rotated.secret),"ownership_snapshot_propose",args)).toBeNull();
+    } finally {db.close();runtime.close();rmSync(workspace,{recursive:true,force:true});}
+  });
   test("captures token, revalidates revocation, and confines company paths", async () => {
     const workspace = makeWorkspace("mcp-service-guard", ["Allowed ApS", "Hidden ApS"]);
     const outside = mkdtempSync(join(tmpdir(), "rentemester-mcp-outside-"));
@@ -70,7 +76,7 @@ describe("MCP service principal guard", () => {
 
   test("keeps a complete, unique map for the live MCP surface", () => {
     expect(new Set(Object.keys(MCP_TOOL_PERMISSIONS)).size).toBe(Object.keys(MCP_TOOL_PERMISSIONS).length);
-    expect(Object.keys(MCP_TOOL_PERMISSIONS)).toHaveLength(155);
+    expect(Object.keys(MCP_TOOL_PERMISSIONS)).toHaveLength(163);
   });
 
   test("a hosted service principal replays after token rotation but never across revoked membership, principal, or company", async () => {

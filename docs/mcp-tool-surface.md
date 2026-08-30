@@ -104,7 +104,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 213 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 214 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -227,10 +227,10 @@ Tallene gælder en kørende `src/mcp/server.ts` (verificeret via `tools/list`).
 Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
-- **Read-tools**: 88
+- **Read-tools**: 89
 - **Ordinary write-tools**: 120
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **213** (read and write tool counts are verified from the live registry in CI)
+- **Total**: **214** (read and write tool counts are verified from the live registry in CI)
 
 ## Read-tools
 
@@ -246,7 +246,7 @@ paired writes are `documents_parse` and `documents_parse_pending`; both require
 `confirm:true`, the normal actor allow-list, and return bounded summaries only.
 Parsing is evidence, not bookkeeping authority.
 
-49 tools i den kuraterede tabel nedenfor. Ingen state-bivirkninger; må kaldes
+50 tools i den kuraterede tabel nedenfor. Ingen state-bivirkninger; må kaldes
 frit og parallelt.
 
 | Tool | CLI-ækvivalent | Input | Brief |

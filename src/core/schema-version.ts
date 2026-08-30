@@ -132,6 +132,9 @@ export const BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME = "rentemester-bookkeep
 const PERIOD_CLOSE_REVIEWS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0025-period-close-reviews.json"));
 export const PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM = createHash("sha256").update(PERIOD_CLOSE_REVIEWS_MIGRATION_ARTIFACT).digest("hex");
 export const PERIOD_CLOSE_REVIEWS_MIGRATION_NAME = "rentemester-period-close-reviews-v25";
+const DOCUMENT_PARTY_LINKS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0026-document-party-links.json"));
+export const DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_PARTY_LINKS_MIGRATION_ARTIFACT).digest("hex");
+export const DOCUMENT_PARTY_LINKS_MIGRATION_NAME = "rentemester-document-party-links-v26";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -179,6 +182,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 23, name: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME, checksum: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM },
   { id: 24, name: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM },
   { id: 25, name: PERIOD_CLOSE_REVIEWS_MIGRATION_NAME, checksum: PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM },
+  { id: 26, name: DOCUMENT_PARTY_LINKS_MIGRATION_NAME, checksum: DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -409,6 +413,7 @@ export function applySchemaMigrations(db: Database): void {
     { id: 23, name: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME, checksum: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM, artifact: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_ARTIFACT },
     { id: 24, name: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_ARTIFACT },
     { id: 25, name: PERIOD_CLOSE_REVIEWS_MIGRATION_NAME, checksum: PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM, artifact: PERIOD_CLOSE_REVIEWS_MIGRATION_ARTIFACT },
+    { id: 26, name: DOCUMENT_PARTY_LINKS_MIGRATION_NAME, checksum: DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM, artifact: DOCUMENT_PARTY_LINKS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;

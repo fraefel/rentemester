@@ -7,6 +7,28 @@ export const documentsApi = {
       `/api/companies/${encodeURIComponent(slug)}/documents`,
     ).then((r) => r.documents),
 
+  /** #588: review-only party-link state, kept separate from invoice facts. */
+  documentPartyLinks: (slug: string, status?: "linked" | "unlinked") =>
+    request<{ ok: true; links: Array<{ id: number; document_no: string | null; linked: 0 | 1 }> }>(
+      `/api/companies/${encodeURIComponent(slug)}/documents/party-links${status ? `?status=${status}` : ""}`,
+    ).then((r) => r.links),
+
+  documentPartyLinkHistory: (slug: string, documentId: number) =>
+    request<{ ok: true; links: Array<Record<string, unknown>> }>(
+      `/api/companies/${encodeURIComponent(slug)}/documents/${documentId}/party-links`,
+    ).then((r) => r.links),
+
+  searchCanonicalParties: (slug: string, query: string) =>
+    request<{ ok: true; rows: Array<{ partyId: string; name: string }>; count: number }>(
+      `/api/companies/${encodeURIComponent(slug)}/workspace-parties?query=${encodeURIComponent(query)}`,
+    ),
+
+  planDocumentPartyLink: (slug: string, input: Record<string, unknown>) =>
+    request<{ ok: boolean; plan?: { planHash: string }; errors?: string[] }>(`/api/companies/${encodeURIComponent(slug)}/documents/party-links/plan`, { method: "POST", body: JSON.stringify(input) }),
+
+  applyDocumentPartyLink: (slug: string, input: Record<string, unknown>) =>
+    request<{ ok: boolean; id?: number; errors?: string[] }>(`/api/companies/${encodeURIComponent(slug)}/documents/party-links/apply`, { method: "POST", body: JSON.stringify(input) }),
+
   /**
    * URL of a stored bilag file — opened directly in a new browser tab, so it
    * is a plain URL builder rather than a fetch. The server serves the file

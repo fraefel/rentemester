@@ -13,10 +13,20 @@ import { companyPaths } from "../core/paths";
 import { extractDocumentInvoice, invoiceExtractionSurface } from "../server/invoice-extraction-surface";
 import { resolveConfiguredInvoiceExtractor } from "../server/invoice-extractor";
 import { documentPdfParsedText, documentPdfParseStatus } from "../server/router/documents";
+import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
+import { resolveWorkspaceRoot } from "../core/workspace";
+import { applyDocumentPartyLink, inspectDocumentPartyLinks, listDocumentPartyLinks, planDocumentPartyLink, supersedeDocumentPartyLink } from "../core/document-party-links";
 
 const parseSummary = (run: any) => ({ documentId: run?.documentId, status: run?.status, errorCode: run?.errorCode ?? null, cached: Boolean(run?.cached), pageCount: Array.isArray(run?.pages) ? run.pages.length : 0, itemCount: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.layout?.length ?? 0), 0) : 0, textLength: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0) : 0, resultHash: run?.resultHash });
 
 export function register(dispatch: CommandDispatch): void {
+  const partyInput = (ctx: any) => ({ documentId:Number(ctx.arg("--document-id")), companySlug:ctx.arg("--company-slug")!, role:ctx.arg("--role"), partyId:ctx.arg("--party-id"), jurisdiction:ctx.arg("--jurisdiction"), identifierKind:ctx.arg("--identifier-kind"), identifier:ctx.arg("--identifier"), legacyKind:ctx.arg("--legacy-kind"), legacyId:ctx.arg("--legacy-id"), reviewedLegacyReference:ctx.arg("--reviewed-legacy-reference") });
+  const registry = (ctx:any, write=false) => (write ? openWorkspaceControlDb : openWorkspaceControlReadOnlyDb)(resolveWorkspaceRoot(ctx.arg("--workspace")!));
+  dispatch.on("documents", "party-link-plan", (ctx) => { const ledger=openLedgerReadOnly(ctx.companyRoot()), control=registry(ctx); try { ctx.emitResult(planDocumentPartyLink(ledger,control,partyInput(ctx)) as any); } finally {control.close();ledger.close();} });
+  dispatch.on("documents", "party-link-apply", (ctx) => { const ledger=openCommandDb(ctx), control=registry(ctx); migrate(ledger); try { ctx.emitResult(applyDocumentPartyLink(ledger,control,{...partyInput(ctx),planHash:ctx.arg("--plan-hash")!,confirm:ctx.arg("--confirm")==="yes",actor:ctx.cliActor??ctx.inferredMutationActor()??undefined,principal:ctx.arg("--principal"),idempotencyKey:ctx.arg("--idempotency-key")} ) as any); } finally {control.close();ledger.close();} });
+  dispatch.on("documents", "party-link-supersede", (ctx) => { const ledger=openCommandDb(ctx); migrate(ledger); try { ctx.emitResult(supersedeDocumentPartyLink(ledger,{documentId:Number(ctx.arg("--document-id")),role:ctx.arg("--role") as any,planHash:ctx.arg("--plan-hash")!,reason:ctx.arg("--reason")!,confirm:ctx.arg("--confirm")==="yes",actor:ctx.cliActor??ctx.inferredMutationActor()??undefined,principal:ctx.arg("--principal")}) as any); } finally {ledger.close();} });
+  dispatch.on("documents", "party-link-inspect", (ctx) => { const ledger=openLedgerReadOnly(ctx.companyRoot()); try { ctx.emitResult({ok:true,links:inspectDocumentPartyLinks(ledger,Number(ctx.arg("--document-id")))}); } finally {ledger.close();} });
+  dispatch.on("documents", "party-link-list", (ctx) => { const ledger=openLedgerReadOnly(ctx.companyRoot()); try { ctx.emitResult({ok:true,links:listDocumentPartyLinks(ledger,{status:ctx.arg("--status") as any})}); } finally {ledger.close();} });
   dispatch.on("documents", "set-company-context", (ctx) => {
     const documentId = Number(ctx.arg("--document-id"));
     const sourceReference = ctx.arg("--source-reference");

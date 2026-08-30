@@ -42,13 +42,22 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 // #433 — the keys we own in the URL. Listed once so "Ryd filtre" can clear
 // them all without touching other params (e.g. `?year=`).
-const FILTER_PARAM_KEYS = ["q", "from", "to", "status", "type"] as const;
+const FILTER_PARAM_KEYS = ["q", "from", "to", "status", "type", "party"] as const;
 
 type StatusFilter = "all" | "booked" | "unbooked";
 type TypeFilter = "all" | "purchase_sale" | "cash_register_receipt" | "internal_voucher";
 
 type SortKey = "date" | "amount";
 type SortDir = "asc" | "desc";
+type PartyFilter = "all" | "linked" | "unlinked" | "ambiguous";
+type PartyCandidate = { partyId: string; name: string };
+type PartyPlan = {
+  planHash: string;
+  documentSha256?: string;
+  documentPayloadSha256?: string;
+  evidence?: { kind?: string; jurisdiction?: string; identifierKind?: string; identifier?: string };
+  partySnapshot?: { name?: string };
+};
 
 function isStatusFilter(v: string): v is StatusFilter {
   return v === "all" || v === "booked" || v === "unbooked";
@@ -112,12 +121,24 @@ export function DocumentsView() {
     },
     [slug],
   );
+  const partyLinks = useAsync(() => api.documentPartyLinks(slug), [slug]);
   // True while the document-intake modal (#213, slice 3) is open.
   const [ingesting, setIngesting] = useState(false);
   // Holds the bilag id whose Bogfør-modal is open (#407); null when none.
   const [bookingDocumentId, setBookingDocumentId] = useState<number | null>(
     null,
   );
+  // #588: a deliberately small, reviewed flow. A person selects a document,
+  // sees its recorded identity, then selects a visible canonical party. Names
+  // only help find a candidate; the server still requires exact evidence.
+  const [partyReviewId, setPartyReviewId] = useState<number | null>(null);
+  const [partyCandidates, setPartyCandidates] = useState<PartyCandidate[]>([]);
+  const [selectedPartyId, setSelectedPartyId] = useState("");
+  const [partyRole, setPartyRole] = useState<"vendor" | "customer">("vendor");
+  const [partyPlan, setPartyPlan] = useState<PartyPlan | null>(null);
+  const [partyError, setPartyError] = useState<string | null>(null);
+  const [partyBusy, setPartyBusy] = useState(false);
+  const [partyConfirmed, setPartyConfirmed] = useState(false);
 
   // --- #433 filter-bar params (client-side; reflected in URL) ---------------
   const q = params.get("q") ?? "";
@@ -125,8 +146,10 @@ export function DocumentsView() {
   const toDate = params.get("to") ?? "";
   const statusRaw = params.get("status") ?? "all";
   const typeRaw = params.get("type") ?? "all";
+  const partyRaw = params.get("party") ?? "all";
   const status: StatusFilter = isStatusFilter(statusRaw) ? statusRaw : "all";
   const type: TypeFilter = isTypeFilter(typeRaw) ? typeRaw : "all";
+  const party: PartyFilter = partyRaw === "linked" || partyRaw === "unlinked" || partyRaw === "ambiguous" ? partyRaw : "all";
 
   // #433 — sorter for the date/amount columns. Default is the order returned
   // by the server (the document id), which is what the page used to do; only
@@ -172,6 +195,7 @@ export function DocumentsView() {
   }
 
   const allDocuments = state.data?.documents.documents ?? [];
+  const linkedIds = useMemo(() => new Set((partyLinks.data ?? []).filter((link) => link.linked === 1).map((link) => link.id)), [partyLinks.data]);
 
   const filteredDocuments = useMemo(() => {
     if (!hasActiveFilter) return allDocuments;
@@ -187,9 +211,14 @@ export function DocumentsView() {
       if (status === "booked" && doc.journalEntryNo === null) return false;
       if (status === "unbooked" && doc.journalEntryNo !== null) return false;
       if (type !== "all" && doc.documentType !== type) return false;
+      if (party === "linked" && !linkedIds.has(doc.id)) return false;
+      if (party === "unlinked" && linkedIds.has(doc.id)) return false;
+      // Ambiguity is intentionally not inferred: it needs an explicit reviewed
+      // plan conflict, so this view offers the bounded unlinked review queue.
+      if (party === "ambiguous") return false;
       return true;
     });
-  }, [allDocuments, hasActiveFilter, q, fromDate, toDate, status, type]);
+  }, [allDocuments, hasActiveFilter, q, fromDate, toDate, status, type, party, linkedIds]);
 
   const sortedDocuments = useMemo(() => {
     if (!sort) return filteredDocuments;
@@ -231,6 +260,84 @@ export function DocumentsView() {
 
   const totalCount = d.documents.length;
   const matchCount = sortedDocuments.length;
+  const reviewedDocument = partyReviewId === null ? null : allDocuments.find((doc) => doc.id === partyReviewId) ?? null;
+
+  async function beginPartyReview(doc: DocumentRow) {
+    setPartyReviewId(doc.id);
+    setSelectedPartyId("");
+    setPartyRole("vendor");
+    setPartyPlan(null);
+    setPartyError(null);
+    setPartyConfirmed(false);
+    setPartyBusy(true);
+    try {
+      // This is a membership-scoped search. It is not a match decision.
+      const result = await api.searchCanonicalParties(slug, doc.supplierName ?? "");
+      setPartyCandidates(result.rows);
+    } catch (error) {
+      setPartyCandidates([]);
+      setPartyError(error instanceof Error ? error.message : "Kunne ikke hente synlige parter.");
+    } finally {
+      setPartyBusy(false);
+    }
+  }
+
+  function identityInput(doc: DocumentRow) {
+    return {
+      documentId: doc.id,
+      partyId: selectedPartyId,
+      role: partyRole,
+      jurisdiction: doc.supplierCountryCode ?? undefined,
+      identifierKind: doc.supplierIdentifierKind ?? undefined,
+      identifier: doc.supplierVatOrCvr ?? undefined,
+    };
+  }
+
+  async function planPartyLink() {
+    if (!reviewedDocument || !selectedPartyId) return;
+    setPartyBusy(true);
+    setPartyError(null);
+    setPartyPlan(null);
+    try {
+      const result = await api.planDocumentPartyLink(slug, identityInput(reviewedDocument));
+      if (!result.ok || !result.plan) {
+        setPartyError(result.errors?.join(", ") ?? "Planen kunne ikke godkendes.");
+        return;
+      }
+      setPartyPlan(result.plan as PartyPlan);
+    } catch (error) {
+      setPartyError(error instanceof Error ? error.message : "Kunne ikke planlægge koblingen.");
+    } finally {
+      setPartyBusy(false);
+    }
+  }
+
+  async function applyPartyLink() {
+    if (!reviewedDocument || !partyPlan || !partyConfirmed) return;
+    setPartyBusy(true);
+    setPartyError(null);
+    try {
+      const result = await api.applyDocumentPartyLink(slug, {
+        ...identityInput(reviewedDocument),
+        planHash: partyPlan.planHash,
+        confirm: true,
+        // A UI retry remains safe for this exact reviewed plan.
+        idempotencyKey: `document-party-link-${reviewedDocument.id}-${partyPlan.planHash}`,
+      });
+      if (!result.ok) {
+        setPartyError(result.errors?.join(", ") ?? "Koblingen kunne ikke gemmes.");
+        return;
+      }
+      await Promise.all([partyLinks.reload(), state.reload()]);
+      // Inspect after the write so the visible status/history is current.
+      await api.documentPartyLinkHistory(slug, reviewedDocument.id);
+      setPartyReviewId(null);
+    } catch (error) {
+      setPartyError(error instanceof Error ? error.message : "Koblingen kunne ikke gemmes.");
+    } finally {
+      setPartyBusy(false);
+    }
+  }
 
   return (
     <section className="statement">
@@ -301,6 +408,15 @@ export function DocumentsView() {
           />
         </label>
         <label className="journal-filter-field">
+          <span className="muted">Kanonisk part</span>
+          <select value={party} onChange={(e) => setFilter("party", e.target.value)}>
+            <option value="all">Alle</option>
+            <option value="linked">Koblet</option>
+            <option value="unlinked">Mangler review</option>
+            <option value="ambiguous">Tvetydige (kræver review)</option>
+          </select>
+        </label>
+        <label className="journal-filter-field">
           <span className="muted">Til</span>
           <input
             type="date"
@@ -349,6 +465,30 @@ export function DocumentsView() {
         {" · "}
         {d.linkedCount} bogført · {d.unlinkedCount} ubehandlet
       </p>
+
+      {reviewedDocument && (
+        <section className="card" aria-label="Gennemgå kanonisk part">
+          <div className="page-head">
+            <div>
+              <h3>Gennemgå kanonisk part</h3>
+              <p className="muted">Bilag {reviewedDocument.documentNo ?? `#${reviewedDocument.id}`}. Navne er kun søgehjælp — koblingen kræver den uforanderlige identitet nedenfor.</p>
+            </div>
+            <button type="button" className="btn secondary" onClick={() => setPartyReviewId(null)}>Luk</button>
+          </div>
+          <dl className="key-value-list">
+            <div><dt>Identitet på bilaget</dt><dd>{reviewedDocument.supplierCountryCode ?? "—"} · {reviewedDocument.supplierIdentifierKind ?? "—"} · {reviewedDocument.supplierVatOrCvr ?? "Ingen verificerbar identifikator"}</dd></div>
+            <div><dt>Bevis</dt><dd>Originalfilen og bogføringen ændres ikke. Planen binder bilagets hash til den valgte part.</dd></div>
+          </dl>
+          <div className="row-actions">
+            <label>Rolle <select value={partyRole} onChange={(event) => { setPartyRole(event.target.value as "vendor" | "customer"); setPartyPlan(null); }}><option value="vendor">Leverandør</option><option value="customer">Kunde</option></select></label>
+            <label>Vælg kanonisk part <select aria-label="Vælg kanonisk part" value={selectedPartyId} onChange={(event) => { setSelectedPartyId(event.target.value); setPartyPlan(null); }} disabled={partyBusy}><option value="">Vælg en synlig part…</option>{partyCandidates.map((candidate) => <option key={candidate.partyId} value={candidate.partyId}>{candidate.name}</option>)}</select></label>
+            <button type="button" className="btn secondary" disabled={partyBusy || !selectedPartyId || !reviewedDocument.supplierVatOrCvr} onClick={planPartyLink}>Vis plan</button>
+          </div>
+          {!reviewedDocument.supplierVatOrCvr && <p className="flag warning">Bilaget har ingen verificerbar identifikator. Navne alene kan ikke kobles.</p>}
+          {partyError && <p className="flag warning" role="alert">{partyError}</p>}
+          {partyPlan && <div className="card"><p><strong>Plan klar</strong> — {partyPlan.partySnapshot?.name ?? "Valgt part"}; bevis: {partyPlan.evidence?.kind ?? "exact_identifier"}.</p><p className="muted">Plan-hash: <code>{partyPlan.planHash}</code></p><label><input type="checkbox" checked={partyConfirmed} onChange={(event) => setPartyConfirmed(event.target.checked)} /> Jeg har gennemgået planen og vil oprette den append-only kobling.</label><div className="row-actions"><button type="button" className="btn" disabled={partyBusy || !partyConfirmed} onClick={applyPartyLink}>Bekræft og anvend</button></div></div>}
+        </section>
+      )}
 
       <div className="card statement-card table-scroll">
         <table className="data statement-table">
@@ -414,6 +554,8 @@ export function DocumentsView() {
                         {doc.supplierCountryCode ?? "—"} · {doc.supplierIdentifierKind ?? "—"} · {doc.supplierIdentityStatus ?? "—"}
                       </div>
                     )}
+                    <div className="muted">{linkedIds.has(doc.id) ? "Kanonisk part koblet" : "Kanonisk part ikke koblet — gennemgå før anvendelse"}</div>
+                    {!linkedIds.has(doc.id) && <button type="button" className="btn small secondary" onClick={() => beginPartyReview(doc)}>Gennemgå part</button>}
                   </td>
                   <td>{doc.invoiceNo ?? "—"}</td>
                   <td className="entry-date">{doc.invoiceDate ?? "—"}</td>

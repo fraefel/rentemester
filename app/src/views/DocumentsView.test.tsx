@@ -17,6 +17,7 @@ function route(over = {}) {
   return {
     "GET /api/companies/acme-aps/documents": { documents: documents(over) },
     "GET /api/companies/acme-aps/fiscal-years": { fiscalYears: FISCAL_YEARS },
+    "GET /api/companies/acme-aps/documents/party-links": { links: [] },
   };
 }
 
@@ -28,6 +29,35 @@ function renderView(route = "/companies/acme-aps/bilag") {
 }
 
 describe("DocumentsView — Bilag", () => {
+  test("#588 requires explicit reviewed plan and confirmation before applying a canonical party", async () => {
+    const applied: Array<Record<string, unknown>> = [];
+    mockFetch({
+      ...route({ linkedCount: 0, unlinkedCount: 1 }),
+      "GET /api/companies/acme-aps/workspace-parties": { rows: [{ partyId: "party-1", name: "Leverandør ApS" }], count: 1 },
+      "POST /api/companies/acme-aps/documents/party-links/plan": { plan: { planHash: "a".repeat(64), evidence: { kind: "exact_identifier" }, partySnapshot: { name: "Leverandør ApS" } } },
+      "POST /api/companies/acme-aps/documents/party-links/apply": (() => ({ id: 1 })),
+      "GET /api/companies/acme-aps/documents/1/party-links": { links: [{ id: 1, event_type: "linked" }] },
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await originalFetch(input, init);
+      if (String(input).includes("/party-links/apply")) applied.push(JSON.parse(String(init?.body)));
+      return response;
+    }) as typeof fetch;
+    renderView();
+    await userEvent.click(await screen.findByRole("button", { name: "Gennemgå part" }));
+    expect(await screen.findByText(/Navne er kun søgehjælp/)).toBeInTheDocument();
+    await screen.findByRole("option", { name: "Leverandør ApS" });
+    expect(screen.getByRole("button", { name: "Vis plan" })).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText("Vælg kanonisk part"), "party-1");
+    await userEvent.click(screen.getByRole("button", { name: "Vis plan" }));
+    expect(await screen.findByText("Plan klar")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bekræft og anvend" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: "Bekræft og anvend" }));
+    expect(applied).toHaveLength(1);
+    expect(applied[0]).toMatchObject({ confirm: true, partyId: "party-1", planHash: "a".repeat(64) });
+  });
   test("lists ingested documents with their details", async () => {
     mockFetch(route());
     renderView();

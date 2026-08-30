@@ -81,6 +81,8 @@ export const MUTATING_COMMANDS = new Set([
   "documents ingest",
   "documents enrich",
   "documents set-company-context",
+  "documents party-link-apply",
+  "documents party-link-supersede",
   "documents extract-invoice",
   "documents parse",
   "documents parse-pending",

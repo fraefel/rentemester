@@ -77,6 +77,10 @@ import {
   handleCompanyDocumentParseStatus,
   handleCompanyDocuments,
   handleCompanyDocumentVatPreflight,
+  handleDocumentPartyLinks,
+  handleDocumentPartyLinkInspect,
+  handleDocumentPartyLinkPlan,
+  handleDocumentPartyLinkAction,
 } from "./router/documents";
 import { handleGroupConsolidatedReport, handleGroupDispositionAction, handleGroupDispositionStatus, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
 import {
@@ -348,6 +352,9 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/invoice-extraction", summary: "Citeret fakturaudtræk uden filsti eller secrets." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/parse-status", summary: "PDF-parserstatus uden child-stderr." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/parsed-text", summary: "Pagineret PDF-tekst, højst 10 sider." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/party-links", summary: "Kanoniske partskoblinger pr. bilag (#588)." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/party-links", summary: "Append-only partskoblingshistorik (#588)." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "POST", pattern: "/api/companies/:slug/documents/party-links/plan", summary: "Read-only partskoblingsplan (#588)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bookkeeping-batch", summary: "Read-only batchplan med plan-hash og partitioner." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/persist", summary: "Persisterer en reviewbar batchrevision." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/bookkeeping-batch/dry-run", summary: "Kompatibilitetsalias for persist." },
@@ -399,6 +406,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/ingest", summary: "Modtager et bilag." },
   { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/:id/parse", summary: "Parser et gemt PDF-bilag med confirm." },
   { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/parse-pending", summary: "Parser ventende PDF-bilag med confirm." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/documents/party-links/apply", summary: "Anvender auditeret partskobling (#588)." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/documents/party-links/supersede", summary: "Supersederer auditeret partskobling (#588)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/documents/book-expense", summary: "Bogfører et bilag som udgift mod en banktransaktion." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/invoices/issue", summary: "Udsteder en faktura." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/invoices/preview", summary: "Forhåndsviser en faktura-PDF uden at udstede." },
@@ -1006,6 +1015,10 @@ export async function handleRequest(
       const slug = decodeURIComponent(documentsMatch[1]!);
       return handleCompanyDocuments(config, slug);
     }
+    const documentPartyLinksMatch = /^\/api\/companies\/([^/]+)\/documents\/party-links$/.exec(path);
+    if (documentPartyLinksMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleDocumentPartyLinks(config,decodeURIComponent(documentPartyLinksMatch[1]!),request); }
+    const documentPartyLinkInspectMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/party-links$/.exec(path);
+    if (documentPartyLinkInspectMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleDocumentPartyLinkInspect(config,decodeURIComponent(documentPartyLinkInspectMatch[1]!),documentPartyLinkInspectMatch[2]!); }
 
     const documentFileMatch =
       /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/file$/.exec(path);
@@ -1451,6 +1464,10 @@ export async function handleRequest(
       const slug = decodeURIComponent(documentIngestMatch[1]!);
       return await handleDocumentIngest(config, request, slug);
     }
+    const documentPartyPlanMatch = /^\/api\/companies\/([^/]+)\/documents\/party-links\/plan$/.exec(path);
+    if (documentPartyPlanMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPartyLinkPlan(config,decodeURIComponent(documentPartyPlanMatch[1]!),request); }
+    const documentPartyApplyMatch = /^\/api\/companies\/([^/]+)\/documents\/party-links\/(apply|supersede)$/.exec(path);
+    if (documentPartyApplyMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPartyLinkAction(config,decodeURIComponent(documentPartyApplyMatch[1]!),request,documentPartyApplyMatch[2]! as "apply"|"supersede"); }
     const documentParsePendingMatch = /^\/api\/companies\/([^/]+)\/documents\/parse-pending$/.exec(path);
     if (documentParsePendingMatch) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleDocumentPdfParsePending(config, request, decodeURIComponent(documentParsePendingMatch[1]!)); }
     const documentParseMatch = /^\/api\/companies\/([^/]+)\/documents\/(\d+)\/parse$/.exec(path);

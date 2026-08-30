@@ -423,11 +423,11 @@ type SurfaceBaseline = { count: number; hash: string };
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // #577 adds the six live inbox operations. The workflow above remains the
   // canonical explanation; this identity snapshot prevents silent drift.
-  mcp: { count: 179, hash: "44299b0d863ac4e82263ec1589646e562f2911fc98f6de69e061e0c63c3691f9" },
-  cli: { count: 238, hash: "c6b549f7b075b8c75ff74ab8badca688092ecf59d14f845ef92629564ad9a482" },
+  mcp: { count: 184, hash: "b37011ccf48a1a9fe26e7252c13972e0066ceb7f4c9f18ccb043fec9eb0f90f8" },
+  cli: { count: 243, hash: "1b67fabcaa4e94346505cd7f6541d30bede9381a03e2f6d2a28ce6ec7dde49e4" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 175, hash: "a97c01a27d9b20e9529f3c8048f85d0ec2fa0b0963991d4e4efb4bee2232f222" },
+  http: { count: 181, hash: "54a60671f4f3c4719a384621ace89e6d3a7ad6bb2fc23715b18fb1809525be67" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

@@ -10,6 +10,10 @@ import { z } from "zod";
 import { PDF_EVIDENCE_TAMPERED, PdfParseError, parseRegisteredPdfBatch, parseRegisteredPdfDocument, planCurrentPdfParses } from "../../core/document-pdf-parser";
 import { type DocumentMetadata, enrichDocumentMetadata, ingestDocument, purchaseVatLinesFromPayload } from "../../core/documents";
 import { setDocumentCompanyContext } from "../../core/document-company-context";
+import { applyDocumentPartyLink, inspectDocumentPartyLinks, listDocumentPartyLinks, planDocumentPartyLink, supersedeDocumentPartyLink } from "../../core/document-party-links";
+import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../../core/workspace-control";
+import { companyRootForSlug, listWorkspaceCompanies, resolveConfiguredWorkspaceRoot } from "../../core/workspace";
+import { realpathSync } from "node:fs";
 import { recordException } from "../../core/exceptions";
 import { resolveDocumentMasterData } from "../../core/master-data";
 import { extractDocumentInvoice, invoiceExtractionSurface } from "../../server/invoice-extraction-surface";
@@ -17,7 +21,22 @@ import { resolveConfiguredInvoiceExtractor } from "../../server/invoice-extracto
 import { documentPdfParsedText, documentPdfParseStatus } from "../../server/router/documents";
 import { envelopeShape, errorEnvelope, successEnvelope, wrapCoreResult } from "../envelope";
 import { applyPagination, paginationDescriptionSuffix, paginationFields } from "../pagination";
-import { confirmField, withCompanyDb, withCompanyDbConfirmed, withCompanyReadOnlyDb } from "../tool-runtime";
+import { confirmField, idempotencyKeyField, withCompanyDb, withCompanyDbConfirmed, withCompanyReadOnlyDb } from "../tool-runtime";
+
+const documentPartyLinkFields = {
+  documentId: z.number().int().positive(), role: z.enum(["customer","vendor","owner","adviser","employee","authority","bank"]), partyId: z.string().min(3).max(64).optional(), jurisdiction: z.string().length(2).optional(), identifierKind: z.enum(["dk_cvr","eu_vat","non_eu"]).optional(), identifier: z.string().min(1).max(160).optional(), legacyKind: z.enum(["customer","vendor"]).optional(), legacyId: z.string().min(1).max(160).optional(), reviewedLegacyReference: z.string().min(1).max(500).optional(),
+} as const;
+const partyLinkPrincipal=(actor:any)=>actor?.createdBy ?? "mcp:authenticated";
+const documentPartyWorkspace=()=>resolveConfiguredWorkspaceRoot()??(()=>{throw new Error("RENTEMESTER_WORKSPACE is required for canonical document-party links");})();
+function documentPartyScope(companyRoot:string){
+  const workspace=documentPartyWorkspace();
+  const actual=realpathSync(companyRoot);
+  const company=listWorkspaceCompanies(workspace).find((entry)=>{
+    try{return realpathSync(companyRootForSlug(workspace,entry.slug))===actual;}catch{return false;}
+  });
+  if(!company)throw new Error("company is not registered in the configured workspace");
+  return {workspace,companySlug:company.slug};
+}
 
 const parseSummary = (run: any, documentId?: number) => ({ documentId, status: run?.status, errorCode: run?.errorCode ?? null, cached: Boolean(run?.cached), pageCount: Array.isArray(run?.pages) ? run.pages.length : 0, itemCount: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.layout?.length ?? 0), 0) : 0, textLength: Array.isArray(run?.pages) ? run.pages.reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0) : 0, resultHash: run?.resultHash });
 
@@ -113,6 +132,11 @@ const documentMetadataSchema = z
   );
 
 export function registerDocumentTools(server: McpServer): void {
+  server.registerTool("documents_party_link_plan", { title:"Plan canonical document party link", description:"Read-only deterministic plan that binds a document's immutable identity to one visible canonical party. Names never resolve parties.", inputSchema:{company:z.string().min(1),...documentPartyLinkFields}, outputSchema:envelopeShape, annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyReadOnlyDb<any>(({db,args})=>{const scope=documentPartyScope(args.company);const registry=openWorkspaceControlReadOnlyDb(scope.workspace);try{return successEnvelope(planDocumentPartyLink(db,registry,{...args,companySlug:scope.companySlug}));}finally{registry.close();}}));
+  server.registerTool("documents_party_link_list", { title:"List document party links", description:"Read-only current link status; linked and unlinked filters are deterministic.", inputSchema:{company:z.string().min(1),status:z.enum(["linked","unlinked"]).optional()}, outputSchema:envelopeShape, annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyReadOnlyDb<any>(({db,args})=>successEnvelope({links:listDocumentPartyLinks(db,args)})));
+  server.registerTool("documents_party_link_inspect", { title:"Inspect document party link history", description:"Read-only append-only link and supersession provenance.", inputSchema:{company:z.string().min(1),documentId:z.number().int().positive()}, outputSchema:envelopeShape, annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyReadOnlyDb<any>(({db,args})=>successEnvelope({links:inspectDocumentPartyLinks(db,args.documentId)})));
+  server.registerTool("documents_party_link_apply", { title:"Apply canonical document party link", description:"Records an append-only hash-bound canonical party link. Requires confirm:true and idempotencyKey; it never alters document or journal data.", inputSchema:{company:z.string().min(1),...documentPartyLinkFields,planHash:z.string().length(64),idempotencyKey:idempotencyKeyField,confirm:confirmField}, outputSchema:envelopeShape, annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyDbConfirmed<any>(server,"documents_party_link_apply",({db,actor,args})=>{const scope=documentPartyScope(args.company);const registry=openWorkspaceControlDb(scope.workspace);try{return wrapCoreResult(applyDocumentPartyLink(db,registry,{...args,companySlug:scope.companySlug,confirm:args.confirm===true,actor:actor.createdBy,principal:partyLinkPrincipal(actor),idempotencyKey:args.idempotencyKey}));}finally{registry.close();}}));
+  server.registerTool("documents_party_link_supersede", { title:"Supersede document party link", description:"Appends a documented correction; never deletes historical party-link evidence. Requires confirm:true.", inputSchema:{company:z.string().min(1),documentId:z.number().int().positive(),role:z.enum(["customer","vendor","owner","adviser","employee","authority","bank"]),planHash:z.string().length(64),reason:z.string().min(1).max(1000),confirm:confirmField}, outputSchema:envelopeShape, annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}}, withCompanyDbConfirmed<any>(server,"documents_party_link_supersede",({db,actor,args})=>wrapCoreResult(supersedeDocumentPartyLink(db,{...args,confirm:args.confirm===true,actor:actor.createdBy,principal:partyLinkPrincipal(actor)}))));
   server.registerTool(
     "documents_set_company_context",
     { title: "Set simplified-invoice company context", description: "Records append-only, hash-bound company context for one Danish simplified purchase invoice. Does not modify recipient invoice fields. Requires confirm:true. write-reversible.", inputSchema: { company: z.string().min(1), documentId: z.number().int().positive(), sourceReference: z.string().min(1).max(2000), businessUseReason: z.string().min(1).max(2000), confirm: confirmField }, outputSchema: envelopeShape, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },

@@ -16,6 +16,29 @@ import { ApiError } from "../errors";
 import { invoiceExtractionSurface } from "../invoice-extraction-surface";
 import { responseBodyFromBytes } from "../response-body";
 import { okResponse } from "./_shared";
+import { readJsonBody, requireString } from "./_shared";
+import { withCompanyMutation } from "../mutations";
+import { applyDocumentPartyLink, inspectDocumentPartyLinks, listDocumentPartyLinks, planDocumentPartyLink, supersedeDocumentPartyLink } from "../../core/document-party-links";
+import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../../core/workspace-control";
+import { authorizeWorkspaceRoute } from "../../core/workspace-access";
+
+function partyLinkPrincipal(config: ServerConfig, slug: string) {
+  const principal=config.requestPrincipal;
+  if (!principal) throw ApiError.unauthorized("missing or invalid credentials");
+  // In hosted mode the membership, never a caller supplied actor, is access.
+  if (config.betterAuthProvider) {
+    if (!principal.userId) throw ApiError.unauthorized("missing or invalid credentials");
+    const control=openWorkspaceControlReadOnlyDb(config.workspaceRoot);
+    try { if (!authorizeWorkspaceRoute(control,config.workspaceRoot,{userId:principal.userId,companySlug:slug,permission:"company.master-data"}).allowed) throw ApiError.notFound("document not found"); }
+    finally { control.close(); }
+  }
+  return principal.serviceAccountId ? `service-account:${principal.serviceAccountId}` : principal.id;
+}
+function partyInput(slug:string, body:Record<string,unknown>) { return { documentId:Number(body.documentId),companySlug:slug,role:body.role as any,partyId:typeof body.partyId==="string"?body.partyId:undefined,jurisdiction:typeof body.jurisdiction==="string"?body.jurisdiction:undefined,identifierKind:typeof body.identifierKind==="string"?body.identifierKind:undefined,identifier:typeof body.identifier==="string"?body.identifier:undefined,legacyKind:typeof body.legacyKind==="string"?body.legacyKind as any:undefined,legacyId:typeof body.legacyId==="string"?body.legacyId:undefined,reviewedLegacyReference:typeof body.reviewedLegacyReference==="string"?body.reviewedLegacyReference:undefined}; }
+export function handleDocumentPartyLinks(config:ServerConfig,slug:string,request:Request):Response { const u=new URL(request.url),db=openVerifiedRead(config,slug);try{return okResponse({links:listDocumentPartyLinks(db,{status:(u.searchParams.get("status")??undefined) as any})});}finally{db.close();} }
+export function handleDocumentPartyLinkInspect(config:ServerConfig,slug:string,idRaw:string):Response {const id=Number(idRaw);if(!Number.isInteger(id)||id<=0)throw ApiError.notFound("document not found");const db=openVerifiedRead(config,slug);try{return okResponse({links:inspectDocumentPartyLinks(db,id)});}finally{db.close();}}
+export async function handleDocumentPartyLinkPlan(config:ServerConfig,slug:string,request:Request):Promise<Response>{const body=await readJsonBody(request);const db=openVerifiedRead(config,slug);const control=openWorkspaceControlReadOnlyDb(config.workspaceRoot);try{return okResponse(planDocumentPartyLink(db,control,partyInput(slug,body)));}finally{control.close();db.close();}}
+export async function handleDocumentPartyLinkAction(config:ServerConfig,slug:string,request:Request,action:"apply"|"supersede"):Promise<Response>{const result=await withCompanyMutation(request,config,slug,(ctx,body)=>{const principal=partyLinkPrincipal(config,slug);if(action==="supersede")return supersedeDocumentPartyLink(ctx.db,{documentId:Number(body.documentId),role:body.role as any,planHash:requireString(body,"planHash"),reason:requireString(body,"reason"),confirm:true,actor:ctx.actor.createdBy,principal});const control=openWorkspaceControlDb(config.workspaceRoot);try{return applyDocumentPartyLink(ctx.db,control,{...partyInput(slug,body),planHash:requireString(body,"planHash"),confirm:true,actor:ctx.actor.createdBy,principal,idempotencyKey:typeof body.idempotencyKey==="string"?body.idempotencyKey:undefined});}finally{control.close();}},{requireConfirm:true});return okResponse(result);}
 
 export function handleCompanyDocuments(config: ServerConfig, slug: string): Response {
   const data = buildCompanyDocuments(config.workspaceRoot, slug);

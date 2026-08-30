@@ -168,6 +168,9 @@ export const IMPORTED_RECEIVABLES_MIGRATION_NAME = "rentemester-imported-receiva
 const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0037-imported-receivable-boundaries.json"));
 export const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM = createHash("sha256").update(IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT).digest("hex");
 export const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME = "rentemester-imported-receivable-boundaries-v37";
+const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0038-legacy-imported-receivable-backfills.json"));
+export const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM = createHash("sha256").update(LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT).digest("hex");
+export const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME = "rentemester-legacy-imported-receivable-backfills-v38";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -227,6 +230,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 35, name: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_NAME, checksum: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_CHECKSUM },
   { id: 36, name: IMPORTED_RECEIVABLES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLES_MIGRATION_CHECKSUM },
   { id: 37, name: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM },
+  { id: 38, name: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -469,6 +473,7 @@ export function applySchemaMigrations(db: Database): void {
   { id: 35, name: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_NAME, checksum: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_CHECKSUM, artifact: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_ARTIFACT },
   { id: 36, name: IMPORTED_RECEIVABLES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLES_MIGRATION_CHECKSUM, artifact: IMPORTED_RECEIVABLES_MIGRATION_ARTIFACT },
   { id: 37, name: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM, artifact: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT },
+  { id: 38, name: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM, artifact: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -752,6 +757,11 @@ export function applySchemaMigrations(db: Database): void {
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 37").get()) {
     const parsed = JSON.parse(IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 38").get()) {
+    const parsed = JSON.parse(LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }

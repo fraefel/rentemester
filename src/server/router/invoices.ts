@@ -12,6 +12,12 @@ import {
 } from "../data";
 import { okResponse } from "./_shared";
 import { responseBodyFromBytes } from "../response-body";
+import { openLedgerReadOnly } from "../../core/ledger-inspection";
+import { companyPaths } from "../../core/paths";
+import { companyRootForSlug } from "../../core/workspace";
+import { applyLegacyImportedReceivableBackfill, planLegacyImportedReceivableBackfill } from "../../core/imported-receivables";
+import { withCompanyMutation } from "../mutations";
+import { readJsonBody } from "./_shared";
 
 export function handleCompanyRecurringInvoices(
   config: ServerConfig,
@@ -72,4 +78,18 @@ export function handleCompanyImportedReceivables(
 ): Response {
   const asOf = url.searchParams.get("asOf") ?? new Date().toISOString().slice(0, 10);
   return okResponse({ importedReceivables: buildCompanyImportedReceivables(config.workspaceRoot, slug, asOf) });
+}
+
+export async function handleCompanyImportedReceivablesBackfillPlan(config:ServerConfig,slug:string,request:Request):Promise<Response>{
+  const body=await readJsonBody(request);const db=openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot,slug)).db);
+  try{return okResponse({backfill:planLegacyImportedReceivableBackfill(db,body as any)});}finally{db.close();}
+}
+
+export async function handleCompanyImportedReceivablesBackfillApply(config:ServerConfig,slug:string,request:Request):Promise<Response>{
+  const result=await withCompanyMutation(request,config,slug,(ctx,body)=>{
+    const p=ctx.principal;
+    const principal=p.serviceAccountId?{kind:"service-account" as const,subjectId:p.serviceAccountId}:{kind:"user" as const,subjectId:p.userId??p.id};
+    return applyLegacyImportedReceivableBackfill(ctx.db,{...(body as any),actor:ctx.actor.createdBy,principal,confirm:true});
+  },{requireConfirm:true});
+  return okResponse({backfill:result});
 }

@@ -5,11 +5,13 @@
  * Split out of `../invoice.ts`. Registration order preserved.
  */
 
-import { openCommandDb, optionalNumberOrFatal } from "../../cli-dispatch";
+import { openCommandDb, optionalNumberOrFatal, readJsonObjectCliInput } from "../../cli-dispatch";
 import { migrate } from "../../core/db";
 import { getInvoiceStatus } from "../../core/invoice-payments";
 import { buildInvoiceList, buildOverdueInvoiceList, findInvoices } from "../../core/invoice-list";
-import { listImportedReceivables } from "../../core/imported-receivables";
+import { applyLegacyImportedReceivableBackfill, listImportedReceivables, planLegacyImportedReceivableBackfill, type LegacyImportedReceivableBackfillInput } from "../../core/imported-receivables";
+import { openLedgerReadOnly } from "../../core/ledger-inspection";
+import { companyPaths } from "../../core/paths";
 import { invoiceStatusDa } from "../../core/messages";
 import type { CommandDispatch } from "../../cli-dispatch";
 import { emitHumanReport, formatKroner } from "../../cli-format";
@@ -41,6 +43,16 @@ function renderInvoiceRowsHuman(title: string, rows: any[], emptyMessage: string
 }
 
 export function registerQueryCommands(dispatch: CommandDispatch): void {
+  dispatch.on("invoice", "imported-receivables-backfill-plan", (ctx) => {
+    const inputPath=ctx.arg("--input") ?? ctx.fatal("Missing required --input <file.json>");
+    const input=readJsonObjectCliInput(ctx,inputPath,"--input") as unknown as LegacyImportedReceivableBackfillInput;
+    const db=openLedgerReadOnly(companyPaths(ctx.companyRoot()).db); try{ctx.emitResult(planLegacyImportedReceivableBackfill(db,input));}finally{db.close();}
+  });
+  dispatch.on("invoice", "imported-receivables-backfill-apply", (ctx) => {
+    const inputPath=ctx.arg("--input") ?? ctx.fatal("Missing required --input <file.json>");
+    const input=readJsonObjectCliInput(ctx,inputPath,"--input") as unknown as LegacyImportedReceivableBackfillInput;
+    const db=openCommandDb(ctx); try{migrate(db);ctx.emitResult(applyLegacyImportedReceivableBackfill(db,{...input,planHash:ctx.arg("--plan-hash")??"",idempotencyKey:ctx.arg("--idempotency-key")??"",actor:ctx.cliActor??ctx.inferredMutationActor()??undefined,principal:{kind:ctx.arg("--principal-kind") as "user"|"service-account",subjectId:ctx.arg("--principal-subject-id")??""},confirm:ctx.arg("--confirm")==="yes"}));}finally{db.close();}
+  });
   dispatch.on("invoice", "imported-receivables", (ctx) => {
     const db = openCommandDb(ctx); migrate(db);
     const result = listImportedReceivables(db, ctx.arg("--as-of") ?? new Date().toISOString().slice(0,10));

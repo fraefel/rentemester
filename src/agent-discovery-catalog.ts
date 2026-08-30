@@ -241,10 +241,12 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("supported-systems", cli("import systems"), "Discover supported systems and required files."),
     read("dry-run", cli("import run"), "Validate/dry-run the selected source and fiscal scope.", { dependsOn: ["supported-systems"], boundary: "dry-run", requiresActor: true, requiredArguments: ["--dry-run"], outputIdentities: ["source hashes", "import plan"] }),
     write("apply-import", cli("import run"), "Apply the exact validated import.", { dependsOn: ["dry-run"], requiresConfirmation: false, requiredArguments: ["--apply"], outputIdentities: ["import run identity"], canonicalRecords: ["imported ledger records", "source-hash evidence", "import audit"] }),
+    read("plan-legacy-receivables", mcp("invoice_imported_receivables_backfill_plan"), "For an already accepted pre-v36 Dinero cut-over only: bind a separately hash-verified schedule to the immutable source, explicit control date, debtors balance, ledger head and audit head without replaying the import.", { dependsOn:["dry-run"], condition:"Legacy accepted import has no canonical imported-receivable schedule.", boundary:"dry-run", inputIdentities:["dineroImportAttemptId","sourceRawSha256","canonicalInventorySha256","artifactSha256","controlDate","controlAccountNo"], outputIdentities:["planHash","scheduleHash"], canonicalRecords:["legacy imported receivable backfill plan"] }),
+    write("apply-legacy-receivables", mcp("invoice_imported_receivables_backfill_apply"), "Append only the exact reviewed legacy schedule and audit evidence; never replay or rewrite import state.", { dependsOn:["plan-legacy-receivables"], condition:"Legacy branch only.", boundary:"approval", expectedIdempotent:true, retryClass:"natural-idempotent", inputIdentities:["planHash","idempotencyKey"], uncertainOutcomeReadBack:mcp("invoice_imported_receivables"), canonicalRecords:["imported receivable headers","imported receivable events","imported receivable boundary","legacy backfill audit"] }),
     write("import-contacts", cli("import contacts"), "Import Dinero contacts idempotently.", { dependsOn: ["supported-systems"], condition: "Optional contacts branch.", expectedIdempotent: true, requiresConfirmation: false, retryClass: "natural-idempotent", canonicalRecords: ["customers", "vendors", "contact import audit"] }),
     read("archive", mcp("import_archive_list"), "Read the retained source archive.", { dependsOn: ["apply-import"] }),
     read("imported-receivables", mcp("invoice_imported_receivables"), "Read source-evidenced opening debtors at an explicit cutoff. This is a separate archive schedule, never a native invoice list.", { dependsOn: ["apply-import"], inputIdentities: ["asOf"], canonicalRecords: ["imported receivable headers", "imported receivable events", "source hashes"] }),
-  ], unsupportedBoundaries: ["No company-specific mapping is inferred.", "Cut-over apply remains CLI-only."] }),
+  ], unsupportedBoundaries: ["No company-specific mapping is inferred.", "The legacy backfill never replays journals, documents, archive years, paths, import attempts or bank reconciliations.", "A changed ledger/audit head, source hash, schedule or control balance invalidates the reviewed plan."] }),
   workflow({ id: "privacy-governance", capabilityId: "privacy", title: "GDPR discovery and export", intendedOutcome: "Discover and export data-subject records through audited, confirmed operations.", steps: [
     write("discover", mcp("gdpr_discover"), "Create audited discovery evidence.", { canonicalRecords: ["GDPR audit events"] }),
     write("export", mcp("gdpr_export"), "Create the confirmed subject export.", { dependsOn: ["discover"], canonicalRecords: ["GDPR export audit"] }),
@@ -467,9 +469,9 @@ type SurfaceBaseline = { count: number; hash: string };
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // Public surface changes require an explicit discovery review.
-  mcp: { count: 214, hash: "140e4dbbe69f461805a0f0ec71b76874bd8b0def02789eaa8f33dccc0a703a20" },
-  cli: { count: 265, hash: "8d92dd9cd3a66c487ef06e9ba5bbedeaa8f324a34ecd23e92f0c2bb6e65661f0" },
-  http: { count: 209, hash: "f76318add791bb5b7395b521766ce7caf01a83e62a928141390b0e90d3dbbc78" },
+  mcp: { count: 216, hash: "d21f7275feddb06c26e5bcece7db32ba4f2eadba38820afa459ced01d61c1d61" },
+  cli: { count: 267, hash: "34c29e4dee4423dfd3239377068e6482500f8a393dd699e12d8310229940babd" },
+  http: { count: 211, hash: "c09d8b65b46f3bd97965687dc227ce41b9525da3d60fbc79208200c2b0481ca0" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

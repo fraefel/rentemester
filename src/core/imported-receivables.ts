@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { isValidIsoDate } from "./dates";
 import { toOre } from "./money";
+import { insertAuditLog } from "./actor";
+import type { StablePrincipal } from "./idempotency";
 
 export type ImportedReceivableSchedule = {
   contract: "rentemester-imported-receivables-v1";
@@ -18,6 +20,24 @@ const sha = (value: unknown) => createHash("sha256").update(canonical(value)).di
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const hash = (value: unknown) => /^[a-f0-9]{64}$/i.test(text(value));
 const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && toOre(value) > 0n;
+
+export type LegacyImportedReceivableBackfillInput = {
+  dineroImportAttemptId: number;
+  sourceRawSha256: string;
+  canonicalInventorySha256: string;
+  controlDate: string;
+  controlAccountNo: string;
+  artifactSha256: string;
+  schedule: ImportedReceivableSchedule;
+};
+
+export type ApplyLegacyImportedReceivableBackfillInput = LegacyImportedReceivableBackfillInput & {
+  planHash: string;
+  idempotencyKey: string;
+  actor?: string;
+  principal?: StablePrincipal;
+  confirm: boolean;
+};
 
 /** Validate the explicitly supported schedule contract; never derive invoices from voucher text. */
 export function validateImportedReceivableSchedule(input: unknown, controlDate?: string): { ok: true; schedule: ImportedReceivableSchedule; hash: string } | { ok: false; errors: string[] } {
@@ -57,6 +77,95 @@ export function recordImportedReceivableSchedule(db: Database, attemptId: number
       for (const payment of invoice.payments ?? []) addPayment.run(row.id,payment.id,payment.eventKind??"payment",payment.paymentDate,payment.amount,payment.paymentRef,payment.documentHash,checked.hash);
     }
   }).immediate(); return {ok:true,errors:[],scheduleHash:checked.hash}; } catch (error) { return {ok:false,errors:[error instanceof Error ? error.message : String(error)]}; }
+}
+
+function activeLedgerBalanceOre(db: Database, accountNo: string, cutoff: string): bigint {
+  const row = db.query(`SELECT COALESCE(SUM(jl.debit_amount-jl.credit_amount),0) AS balance
+    FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+    JOIN accounts a ON a.id=jl.account_id WHERE a.account_no=? AND je.transaction_date<=?`).get(accountNo,cutoff) as {balance:number};
+  return toOre(Number(row.balance));
+}
+
+function ledgerHead(db: Database): string | null {
+  return (db.query("SELECT entry_hash FROM journal_entries ORDER BY id DESC LIMIT 1").get() as {entry_hash:string}|null)?.entry_hash ?? null;
+}
+
+function auditHead(db: Database): string {
+  const row=db.query("SELECT id,event_type,entity_type,entity_id,message,actor,created_at FROM audit_log ORDER BY id DESC LIMIT 1").get() as Record<string,unknown>|null;
+  return sha(row ?? {empty:true});
+}
+
+function legacyBackfillContext(db: Database, input: LegacyImportedReceivableBackfillInput) {
+  const errors:string[]=[];
+  if(!Number.isInteger(input.dineroImportAttemptId)||input.dineroImportAttemptId<=0)errors.push("DINERO_IMPORT_ATTEMPT_REQUIRED");
+  if(!hash(input.sourceRawSha256)||!hash(input.canonicalInventorySha256)||!hash(input.artifactSha256))errors.push("SOURCE_HASHES_REQUIRED");
+  if(!isValidIsoDate(input.controlDate))errors.push("CONTROL_DATE_INVALID");
+  const account=text(input.controlAccountNo); if(!account)errors.push("CONTROL_ACCOUNT_REQUIRED");
+  const checked=validateImportedReceivableSchedule(input.schedule,input.controlDate); if(!checked.ok)errors.push(...checked.errors);
+  if(checked.ok&&checked.hash!==input.artifactSha256)errors.push("ARTIFACT_HASH_MISMATCH");
+  const attempt=db.query(`SELECT a.id,a.outcome,a.parser_contract,a.source_raw_sha256,i.canonical_listing_sha256
+    FROM dinero_import_attempts a JOIN dinero_import_inventories i ON i.id=a.inventory_id
+    WHERE a.id=?`).get(input.dineroImportAttemptId) as {id:number;outcome:string;parser_contract:string;source_raw_sha256:string;canonical_listing_sha256:string}|null;
+  if(!attempt||attempt.outcome!=="accepted"||!attempt.parser_contract.startsWith("dinero-"))errors.push("ACCEPTED_DINERO_IMPORT_NOT_FOUND");
+  else {
+    if(attempt.source_raw_sha256!==input.sourceRawSha256)errors.push("SOURCE_RAW_HASH_MISMATCH");
+    if(attempt.canonical_listing_sha256!==input.canonicalInventorySha256)errors.push("INVENTORY_HASH_MISMATCH");
+  }
+  const role=db.query(`SELECT account_no FROM account_role_mappings WHERE role='debtors' AND status='confirmed' ORDER BY id DESC LIMIT 2`).all() as Array<{account_no:string}>;
+  if(role.length!==1||role[0]!.account_no!==account)errors.push("DEBTORS_CONTROL_ACCOUNT_MISMATCH");
+  if(checked.ok&&checked.schedule.invoices.some(invoice=>invoice.controlAccountNo!==account))errors.push("SCHEDULE_CONTROL_ACCOUNT_MISMATCH");
+  const overlap=db.query(`SELECT d.id FROM documents d JOIN issued_invoice_postings p ON p.invoice_document_id=d.id
+    JOIN journal_entries je ON je.id=p.journal_entry_id WHERE d.document_type='issued_invoice' AND d.invoice_date<=?
+    AND p.receivable_account_id=(SELECT id FROM accounts WHERE account_no=?) LIMIT 1`).get(input.controlDate,account);
+  if(overlap)errors.push("NATIVE_RECEIVABLE_OVERLAP");
+  const ledgerBalance=account?activeLedgerBalanceOre(db,account,input.controlDate):0n;
+  const scheduleBalance=checked.ok?importedScheduleBalanceOre(checked.schedule,input.controlDate,account):0n;
+  if(checked.ok&&ledgerBalance!==scheduleBalance)errors.push(`CONTROL_BALANCE_MISMATCH:${ledgerBalance}:${scheduleBalance}`);
+  const existing=db.query("SELECT plan_hash,schedule_hash,control_date,control_account_no FROM legacy_imported_receivable_backfills WHERE dinero_import_attempt_id=? LIMIT 1").get(input.dineroImportAttemptId) as {plan_hash:string;schedule_hash:string;control_date:string;control_account_no:string}|null;
+  const state={
+    contract:"rentemester-legacy-imported-receivable-backfill-plan-v1",
+    dineroImportAttemptId:input.dineroImportAttemptId,
+    sourceRawSha256:input.sourceRawSha256,
+    canonicalInventorySha256:input.canonicalInventorySha256,
+    controlDate:input.controlDate,
+    controlAccountNo:account,
+    artifactSha256:input.artifactSha256,
+    scheduleHash:checked.ok?checked.hash:"",
+    invoiceCount:checked.ok?checked.schedule.invoices.length:0,
+    eventCount:checked.ok?checked.schedule.invoices.reduce((n,invoice)=>n+(invoice.payments?.length??0),0):0,
+    ledgerBalanceOre:ledgerBalance.toString(),
+    scheduleBalanceOre:scheduleBalance.toString(),
+    ledgerHeadHash:ledgerHead(db),
+    auditHeadHash:auditHead(db),
+  };
+  return {errors,checked,state,existing};
+}
+
+/** Read-only plan for adopting the canonical v36+ subledger after a legacy accepted import. */
+export function planLegacyImportedReceivableBackfill(db: Database,input:LegacyImportedReceivableBackfillInput) {
+  const context=legacyBackfillContext(db,input);
+  if(context.errors.length)return {ok:false as const,errors:context.errors};
+  if(context.existing)return {ok:true as const,alreadyApplied:true,plan:{...context.state,planHash:context.existing.plan_hash},errors:[] as string[]};
+  return {ok:true as const,alreadyApplied:false,plan:{...context.state,planHash:sha(context.state)},errors:[] as string[]};
+}
+
+/** Atomically appends only schedule, boundary, backfill evidence and audit. */
+export function applyLegacyImportedReceivableBackfill(db:Database,input:ApplyLegacyImportedReceivableBackfillInput) {
+  if(!input.confirm)return {ok:false as const,errors:["CONFIRMATION_REQUIRED"]};
+  const actor=text(input.actor),principalKind=input.principal?.kind,principalId=text(input.principal?.subjectId),key=text(input.idempotencyKey);
+  if(!actor||!principalId||(principalKind!=="user"&&principalKind!=="service-account"))return {ok:false as const,errors:["ACTOR_AND_PRINCIPAL_REQUIRED"]};
+  if(!key||key.length>128)return {ok:false as const,errors:["IDEMPOTENCY_KEY_REQUIRED"]};
+  try{return db.transaction(()=>{
+    const retry=db.query("SELECT id,plan_hash,dinero_import_attempt_id FROM legacy_imported_receivable_backfills WHERE principal_kind=? AND principal_subject_id=? AND idempotency_key=? LIMIT 1").get(principalKind,principalId,key) as {id:number;plan_hash:string;dinero_import_attempt_id:number}|null;
+    if(retry)return retry.plan_hash===input.planHash&&retry.dinero_import_attempt_id===input.dineroImportAttemptId?{ok:true as const,id:retry.id,idempotent:true,planHash:retry.plan_hash,errors:[] as string[]}:{ok:false as const,errors:["IDEMPOTENCY_CONFLICT"]};
+    const proposal=planLegacyImportedReceivableBackfill(db,input); if(!proposal.ok)return proposal;
+    if(proposal.alreadyApplied)return proposal.plan.planHash===input.planHash?{ok:true as const,idempotent:true,planHash:input.planHash,errors:[] as string[]}:{ok:false as const,errors:["BACKFILL_CONFLICT"]};
+    if(proposal.plan.planHash!==input.planHash)return {ok:false as const,errors:["PLAN_HASH_MISMATCH"]};
+    const recorded=recordImportedReceivableSchedule(db,input.dineroImportAttemptId,input.schedule,input.controlDate); if(!recorded.ok)return recorded;
+    const inserted=db.query(`INSERT INTO legacy_imported_receivable_backfills(dinero_import_attempt_id,control_date,control_account_no,source_raw_sha256,canonical_inventory_sha256,artifact_sha256,schedule_hash,plan_hash,ledger_head_hash,audit_head_hash,ledger_balance_ore,idempotency_key,actor,principal_kind,principal_subject_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`).get(input.dineroImportAttemptId,input.controlDate,input.controlAccountNo,input.sourceRawSha256,input.canonicalInventorySha256,input.artifactSha256,recorded.scheduleHash!,input.planHash,proposal.plan.ledgerHeadHash,proposal.plan.auditHeadHash,proposal.plan.ledgerBalanceOre,key,actor,principalKind,principalId,new Date().toISOString()) as {id:number};
+    insertAuditLog(db,{eventType:"legacy_imported_receivables_backfilled",entityType:"dinero_import_attempt",entityId:input.dineroImportAttemptId,message:`Appended verified receivable schedule ${recorded.scheduleHash} at ${input.controlDate} without replaying the import`,createdBy:actor,createdByProgram:"legacy-imported-receivables-backfill"});
+    return {ok:true as const,id:inserted.id,idempotent:false,planHash:input.planHash,scheduleHash:recorded.scheduleHash,errors:[] as string[]};
+  }).immediate();}catch(error){return {ok:false as const,errors:[error instanceof Error?error.message:String(error)]};}
 }
 
 /** One authoritative cut-over boundary per imported receivable control. */

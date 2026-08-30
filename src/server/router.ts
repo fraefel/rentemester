@@ -90,6 +90,8 @@ import {
 import { handleGroupConsolidatedReport, handleGroupDispositionAction, handleGroupDispositionStatus, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
 import {
   handleCompanyImportedReceivables,
+  handleCompanyImportedReceivablesBackfillApply,
+  handleCompanyImportedReceivablesBackfillPlan,
   handleCompanyInvoicePdf,
   handleCompanyInvoices,
   handleCompanyRecurringInvoices,
@@ -396,6 +398,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/multi-year", summary: "Flerårsoversigt." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/invoices", summary: "Udstedte fakturaer." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/imported-receivables", summary: "Kildebeviste importerede tilgodehavender; holdes adskilt fra udstedte fakturaer." },
+  { scope: "company", effect: "read", permission: "company.read", method: "POST", pattern: "/api/companies/:slug/imported-receivables/backfill/plan", summary: "Read-only hash-bundet plan for legacy Dinero-debitorbackfill uden import-replay." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/imported-receivables/backfill/apply", summary: "Appender eksakt reviewet legacy Dinero-debitorplan uden at ændre journaler eller arkiv." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/invoices/:id/pdf", summary: "Henter en faktura-PDF." },
   { scope: "company", effect: "read", permission: "company.master-data", method: "GET", pattern: "/api/companies/:slug/contacts", summary: "Kunder + leverandører." },
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/customers", summary: "Opretter kunde." },
@@ -1225,6 +1229,9 @@ export async function handleRequest(
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       return handleCompanyImportedReceivables(config, decodeURIComponent(importedReceivablesMatch[1]!), url);
     }
+
+    const importedBackfillMatch=/^\/api\/companies\/([^/]+)\/imported-receivables\/backfill\/(plan|apply)$/.exec(path);
+    if(importedBackfillMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");const slug=decodeURIComponent(importedBackfillMatch[1]!);return importedBackfillMatch[2]==="plan"?handleCompanyImportedReceivablesBackfillPlan(config,slug,request):handleCompanyImportedReceivablesBackfillApply(config,slug,request);}
 
     const invoicesMatch = /^\/api\/companies\/([^/]+)\/invoices$/.exec(path);
     if (invoicesMatch) {

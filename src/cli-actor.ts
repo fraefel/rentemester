@@ -58,6 +58,7 @@ export const MUTATING_COMMANDS = new Set([
   // gated. Samme actor-attribuerede skrivning skal gates ens.
   "system export-saft",
   "invoice issue",
+  "invoice imported-receivables-backfill-apply",
   // #265: `invoice create` is the guided path that issues a real, locked,
   // immutable invoice through the SAME core as `invoice issue` — it MUST be
   // gated by the actor allowlist exactly like `invoice issue`.

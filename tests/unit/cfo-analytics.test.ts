@@ -40,4 +40,34 @@ describe("#581 source-linked CFO analytics",()=>{
       expect(()=>queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",dimension:"region"})).toThrow("dimension filtering is unsupported");
     } finally { rmSync(ws,{recursive:true,force:true}); }
   });
+  test("reconciles multi-year supplier spend to immutable journal, document and archive sources without duplication",()=>{
+    const ws=makeWorkspace("cfo-reconciliation",["Alpha ApS"]);
+    try {
+      seedArchiveYear(ws,"alpha-aps",2025,[["3000","Supplier spend",120],["2000","Bank",-120]]);
+      const archiveDb=openDb(companyPaths(companyRootForSlug(ws,"alpha-aps")).db);
+      try {
+        const year=archiveDb.query("SELECT id FROM import_archive_years WHERE fiscal_year=2025").get() as {id:number};
+        archiveDb.query("INSERT INTO import_archive_postings(archive_year_id,line_no,account_no,account_name,transaction_date,voucher,text,amount) VALUES(?,?,?,?,?,?,?,?)").run(year.id,1,"3000","Supplier spend","2025-06-01","ARCH-1","Synthetic supplier",120);
+        archiveDb.query("INSERT INTO import_archive_postings(archive_year_id,line_no,account_no,account_name,transaction_date,voucher,text,amount) VALUES(?,?,?,?,?,?,?,?)").run(year.id,2,"2000","Bank","2025-06-01","ARCH-1","Synthetic supplier",-120);
+      } finally { archiveDb.close(); }
+      postPnlEntry(ws,"alpha-aps","2026-02-10",0,125);
+      const db=companyPaths(companyRootForSlug(ws,"alpha-aps")).db, before=digest(db);
+      const input={scope:"company" as const,companySlug:"alpha-aps",from:"2025-01-01",to:"2026-12-31",account:"3000"};
+      const first=queryCfoAnalytics(ws,input) as any;
+      const second=queryCfoAnalytics(ws,input) as any;
+      expect(first).toEqual(second);
+      expect(first.reconciliation).toMatchObject({rowCount:2,amountByCurrency:{DKK:245}});
+      expect(first.rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({sourceType:"archive",sourceId:expect.stringMatching(/^archive:/),journalEntryId:null,documentId:null}),
+        expect.objectContaining({sourceType:"ledger",sourceId:expect.stringMatching(/^journal:/),journalEntryId:expect.any(Number),documentId:expect.any(Number),documentHash:expect.stringMatching(/^[a-f0-9]{64}$/),partyName:"Leverandør ApS"}),
+      ]));
+      // All double-entry ledger rows reconcile to zero when no account filter
+      // is applied. Archive and live identities remain distinct and are never
+      // deduplicated by a lossy text/date heuristic.
+      const trial=queryCfoAnalytics(ws,{...input,account:undefined}) as any;
+      expect(trial.reconciliation.amountByCurrency).toEqual({DKK:0});
+      expect(new Set(trial.rows.map((row:any)=>row.sourceId)).size).toBe(trial.rows.length);
+      expect(digest(db)).toBe(before);
+    } finally { rmSync(ws,{recursive:true,force:true}); }
+  });
 });

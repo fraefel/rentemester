@@ -93,6 +93,15 @@ export function resolveMcpWorkspaceCompany(context: McpSecurityContext, raw: unk
   } catch { return null; }
 }
 
+/** A workspace argument is an identity, not a spelling.  `/var` and
+ * `/private/var` can name the same macOS workspace, so compare real paths
+ * before rejecting it; a different root or an unresolvable/symlink escape
+ * still fails closed. */
+function isMcpWorkspaceRoot(context: McpSecurityContext, raw: unknown): boolean {
+  if (typeof raw !== "string" || !raw.trim()) return false;
+  try { return realpathSync(raw) === context.workspaceRoot; } catch { return false; }
+}
+
 export async function authorizeMcpTool(context: McpSecurityContext, name: string, args: Record<string, unknown>): Promise<{ root?: string; principal: McpAuthenticatedPrincipal } | null> {
   const permission = MCP_TOOL_PERMISSIONS[name];
   if (!permission) return null;
@@ -103,7 +112,7 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
   const db = openWorkspaceControlReadOnlyDb(context.workspaceRoot);
   try {
     if (permission.startsWith("workspace.")) {
-      if (args.workspace !== undefined && args.workspace !== context.workspaceRoot) return null;
+      if (args.workspace !== undefined && !isMcpWorkspaceRoot(context, args.workspace)) return null;
       return authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission }).allowed ? { principal: authenticated } : null;
     }
     // Workspace fan-out tools are not a single-company operation.  Authorize
@@ -111,7 +120,7 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
     // ledger.  This prevents a partially-authorized key from learning about
     // or mutating a later company through a best-effort loop.
     if (name === "efaktura_modtag_workspace" || name === "recurring_invoice_run_workspace") {
-      if (args.workspace !== context.workspaceRoot) return null;
+      if (!isMcpWorkspaceRoot(context, args.workspace)) return null;
       const active = listWorkspaceCompanies(context.workspaceRoot).filter((company) => !company.archived);
       return active.every((company) => authorizeWorkspaceRoute(db, context.workspaceRoot, {
         userId: principal.serviceAccountId, permission, companySlug: company.slug,

@@ -43,5 +43,16 @@ export const budgetSpecs: CommandSpec[] = [
       "Prognosen er kun så komplet som det vedligeholdte budget; uplanlagt forbrug, moms-afregning og løn er uden for scope.",
     ],
   },
+  {
+    key: "budget forecast-13-week",
+    usage: "budget forecast-13-week --company <path|workspace-slug> --start <YYYY-MM-DD> [--weeks <1-13>]",
+    description: "Read-only 13-week liquidity forecast. Base cash is shown separately from dated reviewed scenario assumptions; monthly account budgets without a documented cash date never change cash.",
+    allowedFlags: ["--company", "--start", "--weeks"],
+    inputNotes: [
+      "--start: first forecast date, YYYY-MM-DD.",
+      "--weeks: optional horizon, 1-13 (default 13).",
+      "When --company resolves in RENTEMESTER_WORKSPACE, reviewed intercompany data is scoped by the workspace company slug, never a ledger-local id.",
+    ],
+  },
   // ===== END BUDGET + LIQUIDITY FORECAST =====
 ];

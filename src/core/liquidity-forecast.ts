@@ -36,7 +36,7 @@ import { addMonths } from "./recurring-invoices";
 import { plannedCommitmentOccurrences } from "./supplier-commitments";
 import { buildPayablesList } from "./payables";
 import { buildVatReport } from "./vat";
-import { vatPeriodsForYear, type VatPeriodType } from "./periods";
+import { effectivePeriodState, vatPeriodsForYear, type VatPeriodType } from "./periods";
 import {
   isValidBudgetPeriod,
   periodStartDate,
@@ -375,7 +375,8 @@ export type ReviewedLiquiditySupplement = {
     | "approved_budget_assumption"
     | "approved_scenario_assumption"
     | "approved_intercompany_disposition";
-  companyId: number;
+  /** Workspace-unique legal-company identity. Never a ledger-local numeric id. */
+  companySlug: string;
   dueDate: string;
   /** Positive absolute amount in the stated currency. */
   amount: number;
@@ -392,6 +393,8 @@ export type ThirteenWeekLiquidityInput = {
   weeks?: number;
   /** Read-only reviewed items from the same legal company only. */
   supplements?: readonly ReviewedLiquiditySupplement[];
+  /** Required before workspace supplements can affect this company. */
+  companySlug?: string;
 };
 
 /** Thirteen-week cash view. Unlike the legacy monthly planning report this
@@ -405,6 +408,8 @@ export type WeeklyLiquidityPeriod = {
   commitments:number;
   /** Approved budget assumptions, never booked facts. */
   budgets:number;
+  /** Account-level monthly budgets with no cash date. Informational only. */
+  undatedBudgetAssumptions:number;
   /** Approved scenario assumptions, never booked facts. */
   scenarios:number;
   /** VAT, tax and other legally due canonical obligations. */
@@ -412,17 +417,13 @@ export type WeeklyLiquidityPeriod = {
   /** Explicit, reviewed company-scoped intercompany dispositions. */
   intercompany:number;
   excluded:Array<{source:string;amount:number;currency:string;reason?:string}>;
+  /** Forecast from observed/canonical cash sources, excluding reviewed assumptions. */
   closingCash:number;
-  sources:Array<{source:string;amount:number;reference:string;assumption?:boolean}>;
+  /** `closingCash` plus dated reviewed scenario/budget/intercompany assumptions. */
+  scenarioClosingCash:number;
+  sources:Array<{source:string;amount:number;reference:string;assumption?:boolean;settlementStatus?:"unknown"}>;
 };
 export type WeeklyLiquidityResult = { ok:boolean; startDate?:string; openingCash:number; lowestPoint:number; completeness:{included:string[];excluded:string[]}; periods:WeeklyLiquidityPeriod[]; errors:string[]; appliedRules:string[] };
-
-function companyIdForLiquidity(db: Database): number | null {
-  const row = db.query("SELECT id FROM companies ORDER BY id ASC LIMIT 1").get() as
-    | { id: number }
-    | null;
-  return row?.id ?? null;
-}
 
 function companyVatPeriodType(db: Database): VatPeriodType | null {
   const columns = db.query("PRAGMA table_info(companies)").all() as Array<{ name: string }>;
@@ -440,26 +441,33 @@ function vatObligationsForWindow(
   db: Database,
   start: string,
   end: string,
-): Array<{ dueDate: string; amount: number; reference: string }> {
+): { canonical:Array<{ dueDate: string; amount: number; reference: string }>; estimates:Array<{ dueDate: string; amount: number; reference: string }> } {
   const cadence = companyVatPeriodType(db);
-  if (cadence === null) return [];
+  if (cadence === null) return { canonical: [], estimates: [] };
   // A Q4/half-year VAT period can have its statutory deadline in the following
   // calendar year, so include the preceding period year as well.
   const years = [...new Set([Number(start.slice(0, 4)) - 1, Number(start.slice(0, 4)), Number(end.slice(0, 4))])];
-  const obligations: Array<{ dueDate: string; amount: number; reference: string }> = [];
+  const canonical: Array<{ dueDate: string; amount: number; reference: string }> = [];
+  const estimates: Array<{ dueDate: string; amount: number; reference: string }> = [];
   for (const year of years) {
     for (const period of vatPeriodsForYear(year, cadence)) {
       if (period.filingDeadline < start || period.filingDeadline > end) continue;
       const report = buildVatReport(db, period.start, period.end);
       if (!report.ok || report.netVatPayable <= 0) continue;
-      obligations.push({
+      const row = {
         dueDate: period.filingDeadline,
         amount: Number(report.netVatPayable),
         reference: `vat:${period.start}:${period.end}`,
-      });
+      };
+      const stateRow = db.query(`SELECT id, status FROM accounting_periods WHERE kind IN ('vat_period','vat_quarter') AND period_start = ? AND period_end = ? ORDER BY CASE kind WHEN 'vat_period' THEN 0 ELSE 1 END, id DESC LIMIT 1`).get(period.start, period.end) as {id:number;status:"open"|"closed"|"reported"}|null;
+      const status = stateRow ? effectivePeriodState(db, stateRow.id, stateRow.status) : "open";
+      // A filing-safe, closed/reported period is a canonical payable. We do
+      // not infer whether settlement was paid: that state is separate.
+      if (status === "closed" || status === "reported") canonical.push(row);
+      else estimates.push(row);
     }
   }
-  return obligations;
+  return { canonical, estimates };
 }
 
 /**
@@ -473,7 +481,7 @@ function budgetAssumptionsForWindow(
   db: Database,
   start: string,
   end: string,
-): Array<{ dueDate: string; amount: number; reference: string }> {
+): Array<{ period:string; amount: number; reference: string }> {
   const startPeriod = start.slice(0, 7);
   const endPeriod = end.slice(0, 7);
   const rows = db.query(
@@ -488,10 +496,9 @@ function budgetAssumptionsForWindow(
   return rows
     .filter((row) => Number.isFinite(row.amount) && row.amount > 0)
     .map((row) => ({
-      // A monthly account budget is not a dated payable.  Assign it to the
-      // first forecast week in its calendar month deterministically instead
-      // of inventing a supplier payment date.
-      dueDate: `${row.period}-01` < start ? start : `${row.period}-01`,
+      // A monthly account budget is not a dated payable. Keep it visible but
+      // never invent a payment date or subtract it from cash.
+      period: row.period,
       amount: Number(row.amount),
       reference: `budget-revision:${row.id}:account:${row.account_no}`,
     }));
@@ -500,14 +507,13 @@ function budgetAssumptionsForWindow(
 export function buildThirteenWeekLiquidityForecast(db:Database,input:ThirteenWeekLiquidityInput):WeeklyLiquidityResult {
   const weeks=input.weeks??13;
   if(!isValidIsoDate(input.startDate)||!Number.isInteger(weeks)||weeks<1||weeks>13)return {ok:false,openingCash:0,lowestPoint:0,periods:[],errors:["startDate and weeks (1-13) are required"],appliedRules:["liquidity-forecast-13-week-v1"],completeness:{included:[],excluded:[]}};
-  const start=input.startDate, end=addDays(start,weeks*7-1), opening=fromOre(toOre(bookedBankBalance(db,addDays(start,-1))));
-  const rows:WeeklyLiquidityPeriod[]=[];let cash=opening, lowest=opening;
+  const start=input.startDate, end=addDays(start,weeks*7-1), openingOre=toOre(bookedBankBalance(db,addDays(start,-1)));
+  const rows:WeeklyLiquidityPeriod[]=[];let baseCashOre=openingOre, scenarioCashOre=openingOre, lowestOre=openingOre;
   const occurrences=plannedCommitmentOccurrences(db,start,weeks);
   const invoices=buildInvoiceList(db,{status:"all",asOfDate:start}).rows.filter((r):r is typeof r & {effectiveDueDate:string}=>r.openBalance>0&&typeof r.effectiveDueDate==="string"&&r.effectiveDueDate>=start&&r.effectiveDueDate<=addDays(start,weeks*7-1));
   const payables=buildPayablesList(db,{status:"open",asOfDate:start}).rows.filter(x=>x.dueDate>=start&&x.dueDate<=end);
-  const companyId=companyIdForLiquidity(db);
   const supplements=(input.supplements??[]).filter((item) =>
-    item.companyId === companyId &&
+    Boolean(input.companySlug) && item.companySlug === input.companySlug &&
     isValidIsoDate(item.dueDate) && item.dueDate >= start && item.dueDate <= end &&
     Number.isFinite(item.amount) && item.amount > 0 &&
     item.currency.toUpperCase() === "DKK" &&
@@ -518,37 +524,44 @@ export function buildThirteenWeekLiquidityForecast(db:Database,input:ThirteenWee
   const budgetAssumptions=budgetAssumptionsForWindow(db,start,end);
   for(let i=0;i<weeks;i++){
     const weekStart=addDays(start,i*7),weekEnd=addDays(weekStart,6);const sources:WeeklyLiquidityPeriod["sources"]=[],excluded:WeeklyLiquidityPeriod["excluded"]=[];
-    const inv=invoices.filter(x=>x.effectiveDueDate>=weekStart&&x.effectiveDueDate<=weekEnd).reduce((n,x)=>n+x.openBalance,0);if(inv)sources.push({source:"issued_receivables",amount:inv,reference:"invoice-list"});
-    const payable=payables.filter(x=>x.dueDate>=weekStart&&x.dueDate<=weekEnd).reduce((n,x)=>n+Number(x.openBalance),0);if(payable)sources.push({source:"registered_payables",amount:-payable,reference:"payables"});
-    let commitments=0;for(const o of occurrences.filter(x=>x.date>=weekStart&&x.date<=weekEnd)){if(o.currency==="DKK"){commitments+=o.amount;sources.push({source:"approved_commitment",amount:-o.amount,reference:o.commitmentId});}else excluded.push({source:o.commitmentId,amount:o.amount,currency:o.currency});}
-    let budgets=0,scenarios=0,obligations=0,intercompany=0;
-    for(const vat of vatObligations.filter((item)=>item.dueDate>=weekStart&&item.dueDate<=weekEnd)){
-      obligations+=vat.amount;
-      sources.push({source:"canonical_vat_obligation",amount:-vat.amount,reference:vat.reference});
+    const invOre=invoices.filter(x=>x.effectiveDueDate>=weekStart&&x.effectiveDueDate<=weekEnd).reduce((n,x)=>n+toOre(x.openBalance),0n);if(invOre)sources.push({source:"issued_receivables",amount:fromOre(invOre),reference:"invoice-list"});
+    const payableOre=payables.filter(x=>x.dueDate>=weekStart&&x.dueDate<=weekEnd).reduce((n,x)=>n+toOre(Number(x.openBalance)),0n);if(payableOre)sources.push({source:"registered_payables",amount:fromOre(-payableOre),reference:"payables"});
+    let commitmentOre=0n;for(const o of occurrences.filter(x=>x.date>=weekStart&&x.date<=weekEnd)){if(o.currency==="DKK"){const amount=toOre(o.amount);commitmentOre+=amount;sources.push({source:"approved_commitment",amount:fromOre(-amount),reference:o.commitmentId});}else excluded.push({source:o.commitmentId,amount:o.amount,currency:o.currency,reason:"dated_fx_required"});}
+    let budgetOre=0n,scenarioOre=0n,obligationOre=0n,intercompanyOre=0n,undatedBudgetOre=0n;
+    for(const vat of vatObligations.canonical.filter((item)=>item.dueDate>=weekStart&&item.dueDate<=weekEnd)){
+      const amount=toOre(vat.amount); obligationOre+=amount;
+      sources.push({source:"canonical_vat_obligation",amount:fromOre(-amount),reference:vat.reference,settlementStatus:"unknown"});
     }
-    for(const budget of budgetAssumptions.filter((item)=>item.dueDate>=weekStart&&item.dueDate<=weekEnd)){
-      budgets-=budget.amount;
-      sources.push({source:"effective_budget_assumption",amount:-budget.amount,reference:budget.reference,assumption:true});
+    for(const vat of vatObligations.estimates.filter((item)=>item.dueDate>=weekStart&&item.dueDate<=weekEnd)){
+      const amount=toOre(vat.amount); scenarioOre-=amount;
+      sources.push({source:"estimated_vat_assumption",amount:fromOre(-amount),reference:vat.reference,assumption:true,settlementStatus:"unknown"});
+    }
+    // Surface an undated monthly budget once, in the first forecast week that
+    // intersects its month. This is presentation only; it never changes cash.
+    const firstWeekOfMonthInHorizon = i === 0 || weekStart.slice(0,7) !== addDays(weekStart,-7).slice(0,7);
+    for(const budget of budgetAssumptions.filter((item)=>firstWeekOfMonthInHorizon && item.period === weekStart.slice(0,7))){
+      const amount=toOre(budget.amount); undatedBudgetOre-=amount;
+      sources.push({source:"effective_budget_assumption",amount:fromOre(-amount),reference:budget.reference,assumption:true});
     }
     for(const item of supplements.filter((candidate)=>candidate.dueDate>=weekStart&&candidate.dueDate<=weekEnd)){
-      const signed=item.direction==="inflow"?item.amount:-item.amount;
+      const signed=item.direction==="inflow"?toOre(item.amount):-toOre(item.amount);
       switch(item.kind){
-        case "approved_budget_assumption": budgets+=signed; break;
-        case "approved_scenario_assumption": scenarios+=signed; break;
-        // `obligations` is reported as a positive outflow (like payables),
-        // whereas the generic supplement carries a signed cash movement.
-        case "legally_due_obligation": obligations-=signed; break;
-        case "approved_intercompany_disposition": intercompany+=signed; break;
+        case "approved_budget_assumption": budgetOre+=signed; break;
+        case "approved_scenario_assumption": scenarioOre+=signed; break;
+        case "legally_due_obligation": obligationOre-=signed; break;
+        case "approved_intercompany_disposition": intercompanyOre+=signed; break;
       }
-      sources.push({source:item.kind,amount:signed,reference:item.reference,assumption:item.kind.includes("assumption")});
+      sources.push({source:item.kind,amount:fromOre(signed),reference:item.reference,assumption:item.kind.includes("assumption") || item.kind === "approved_intercompany_disposition"});
     }
     if(i===0) for(const item of excludedSupplements){
-      excluded.push({source:item.reference,amount:item.amount,currency:item.currency,reason:item.companyId!==companyId?"company_scope_mismatch":item.currency.toUpperCase()!=="DKK"?"dated_fx_required":"missing_review_or_invalid_canonical_reference"});
+      excluded.push({source:item.reference,amount:item.amount,currency:item.currency,reason:!input.companySlug||item.companySlug!==input.companySlug?"workspace_company_scope_mismatch":item.currency.toUpperCase()!=="DKK"?"dated_fx_required":"missing_review_or_invalid_canonical_reference"});
     }
-    const openingCash=cash;
-    cash+=inv-payable-commitments+budgets+scenarios-obligations+intercompany;
-    lowest=Math.min(lowest,cash);
-    rows.push({weekStart,openingCash,receivables:inv,payables:payable,commitments,budgets,scenarios,obligations,intercompany,excluded,closingCash:cash,sources});
+    const openingCashOre=baseCashOre;
+    const baseMovementOre=invOre-payableOre-commitmentOre-obligationOre;
+    baseCashOre+=baseMovementOre;
+    scenarioCashOre+=baseMovementOre+budgetOre+scenarioOre+intercompanyOre;
+    lowestOre=baseCashOre<lowestOre?baseCashOre:lowestOre;
+    rows.push({weekStart,openingCash:fromOre(openingCashOre),receivables:fromOre(invOre),payables:fromOre(payableOre),commitments:fromOre(commitmentOre),budgets:fromOre(budgetOre),undatedBudgetAssumptions:fromOre(undatedBudgetOre),scenarios:fromOre(scenarioOre),obligations:fromOre(obligationOre),intercompany:fromOre(intercompanyOre),excluded,closingCash:fromOre(baseCashOre),scenarioClosingCash:fromOre(scenarioCashOre),sources});
   }
-  return {ok:true,startDate:start,openingCash:opening,lowestPoint:lowest,periods:rows,errors:[],appliedRules:["liquidity-forecast-13-week-v2"],completeness:{included:["observed opening cash","issued receivables","registered payables","approved DKK commitments","canonical VAT obligations when filing-safe","effective account-level budget assumptions (not payable allocations)","reviewed DKK supplements scoped to this company"],excluded:["foreign-currency commitments or supplements without explicit dated FX","unregistered obligations","unreviewed, malformed, or wrong-company supplements"]}};
+  return {ok:true,startDate:start,openingCash:fromOre(openingOre),lowestPoint:fromOre(lowestOre),periods:rows,errors:[],appliedRules:["liquidity-forecast-13-week-v3"],completeness:{included:["observed opening cash","issued receivables","registered payables","approved DKK commitments","filing-safe closed/reported VAT obligations (settlement status unknown)","dated reviewed DKK supplements scoped by workspace company identity"],excluded:["monthly account budgets without a documented cash date (informational scenario upper-bound only)","open VAT periods (estimated scenario assumption, not legal obligation)","foreign-currency commitments or supplements without explicit dated FX","unregistered obligations","unreviewed, malformed, or wrong-company supplements"]}};
 }

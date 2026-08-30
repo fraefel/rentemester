@@ -11,7 +11,12 @@ import { openCommandDb } from "../cli-dispatch";
 import type { CommandDispatch } from "../cli-dispatch";
 import { formatKronerDa } from "../core/money";
 import { setBudget, listBudget, buildBudgetVsActual } from "../core/budget";
-import { buildLiquidityForecast } from "../core/liquidity-forecast";
+import { buildLiquidityForecast, buildThirteenWeekLiquidityForecast } from "../core/liquidity-forecast";
+import { buildWorkspaceThirteenWeekLiquidityForecast } from "../core/intercompany-liquidity";
+import { openLedgerReadOnly } from "../core/ledger-inspection";
+import { resolveConfiguredWorkspaceRoot, listWorkspaceCompanies, companyRootForSlug } from "../core/workspace";
+import { openWorkspaceControlReadOnlyDb, workspaceControlPaths } from "../core/workspace-control";
+import { existsSync } from "node:fs";
 
 export function register(dispatch: CommandDispatch): void {
   dispatch.on("budget", "set", (ctx) => {
@@ -151,5 +156,43 @@ export function register(dispatch: CommandDispatch): void {
       console.log(`Ultimosaldo: ${formatKronerDa(result.closingBalance)}`);
     }
     db.close();
+  });
+
+  dispatch.on("budget", "forecast-13-week", (ctx) => {
+    const startDate = ctx.arg("--start");
+    const weeksText = ctx.arg("--weeks");
+    if (!startDate) {
+      console.error("Missing required --start <YYYY-MM-DD>");
+      process.exit(2);
+    }
+    const weeks = weeksText === undefined ? undefined : Number(weeksText);
+    if (weeksText !== undefined && (!Number.isInteger(weeks) || weeks! < 1 || weeks! > 13)) {
+      console.error("--weeks must be an integer from 1 to 13");
+      process.exit(2);
+    }
+    // This command is deliberately read-only: unlike older CLI reads it does
+    // not run migrations before opening the ledger.
+    const root = ctx.companyRoot();
+    const db = openLedgerReadOnly(companyPaths(root).db);
+    try {
+      const workspace = resolveConfiguredWorkspaceRoot();
+      const entry = workspace
+        ? listWorkspaceCompanies(workspace).find((item) => item.slug === ctx.arg("--company") || companyRootForSlug(workspace, item.slug) === root)
+        : undefined;
+      const result = workspace && entry
+        ? (() => { const control = existsSync(workspaceControlPaths(workspace).db) ? openWorkspaceControlReadOnlyDb(workspace) : null; try { return buildWorkspaceThirteenWeekLiquidityForecast(control, db, entry.slug, startDate, weeks); } finally { control?.close(); } })()
+        : buildThirteenWeekLiquidityForecast(db, { startDate, weeks });
+      if (ctx.outputFormat === "json") ctx.emitResult(result as unknown as Record<string, unknown>);
+      else if (!result.ok) { console.error(result.errors.join("\n")); process.exitCode = 1; }
+      else {
+        console.log(`13 ugers likviditetsprognose fra ${result.startDate}`);
+        console.table(result.periods.map((period) => ({
+          uge: period.weekStart,
+          baseUltimo: formatKronerDa(period.closingCash),
+          scenarioUltimo: formatKronerDa(period.scenarioClosingCash),
+          udateretBudget: formatKronerDa(period.undatedBudgetAssumptions),
+        })));
+      }
+    } finally { db.close(); }
   });
 }

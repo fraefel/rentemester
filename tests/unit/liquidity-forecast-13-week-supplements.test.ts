@@ -34,7 +34,7 @@ function reviewed(
 ): ReviewedLiquiditySupplement {
   return {
     kind,
-    companyId: 1,
+    companySlug: "synthetic",
     dueDate,
     amount,
     currency: "DKK",
@@ -60,14 +60,14 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
       const foreign = { ...input, dispositionId: "disp-liquidity-eur", amount: 50, currency: "EUR" };
       const foreignProposal = proposeIntercompanyDisposition(control, foreign, { actor: "user:maker", principal: { kind: "user", id: "maker" } });
       approveIntercompanyDisposition(control, foreign.dispositionId, foreignProposal.payloadHash, { actor: "user:review", principal: { kind: "user", id: "review" } });
-      expect(reviewedIntercompanyLiquiditySupplements(control, left.slug, 1, "2026-01-01", "2026-01-15")).toEqual(expect.arrayContaining([
-        expect.objectContaining({ direction: "inflow", amount: 75, currency: "DKK", companyId: 1 }),
-        expect.objectContaining({ direction: "inflow", amount: 50, currency: "EUR", companyId: 1 }),
+      expect(reviewedIntercompanyLiquiditySupplements(control, left.slug, "2026-01-01", "2026-01-15")).toEqual(expect.arrayContaining([
+        expect.objectContaining({ direction: "inflow", amount: 75, currency: "DKK", companySlug: left.slug }),
+        expect.objectContaining({ direction: "inflow", amount: 50, currency: "EUR", companySlug: left.slug }),
       ]));
-      expect(reviewedIntercompanyLiquiditySupplements(control, right.slug, 1, "2026-01-01", "2026-01-15")).toEqual(expect.arrayContaining([
-        expect.objectContaining({ direction: "outflow", amount: 75, currency: "DKK", companyId: 1 }),
+      expect(reviewedIntercompanyLiquiditySupplements(control, right.slug, "2026-01-01", "2026-01-15")).toEqual(expect.arrayContaining([
+        expect.objectContaining({ direction: "outflow", amount: 75, currency: "DKK", companySlug: right.slug }),
       ]));
-      expect(reviewedIntercompanyLiquiditySupplements(control, "other", 1, "2026-01-01", "2026-01-15")).toEqual([]);
+      expect(reviewedIntercompanyLiquiditySupplements(control, "other", "2026-01-01", "2026-01-15")).toEqual([]);
     } finally { control.close(); }
   });
 
@@ -77,13 +77,13 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
       expect(setBudget(db, { accountNo: "3000", period: "2026-01", amount: 80 }).ok).toBe(true);
       expect(setBudget(db, { accountNo: "3000", period: "2026-01", amount: 90 }).ok).toBe(true);
       const forecast = buildThirteenWeekLiquidityForecast(db, { startDate: "2026-01-01" });
-      expect(forecast.periods[0]).toMatchObject({ budgets: -90, closingCash: -90 });
+      expect(forecast.periods[0]).toMatchObject({ budgets: 0, undatedBudgetAssumptions: -90, closingCash: 0, scenarioClosingCash: 0 });
       expect(forecast.periods[0]!.sources).toEqual(expect.arrayContaining([
         expect.objectContaining({ source: "effective_budget_assumption", amount: -90, reference: "budget-revision:2:account:3000", assumption: true }),
       ]));
-      expect(forecast.completeness.included.join(" ")).toContain("account-level budget assumptions");
+      expect(forecast.completeness.excluded.join(" ")).toContain("monthly account budgets");
       const midMonth = buildThirteenWeekLiquidityForecast(db, { startDate: "2026-01-15" });
-      expect(midMonth.periods[0]).toMatchObject({ budgets: -90, closingCash: -90 });
+      expect(midMonth.periods[0]).toMatchObject({ budgets: 0, undatedBudgetAssumptions: -90, closingCash: 0 });
     } finally { db.close(); }
   });
 
@@ -104,6 +104,7 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
           { accountNo: "1200", creditAmount: 25 },
         ],
       }).ok).toBe(true);
+      db.run("INSERT INTO accounting_periods(period_start, period_end, kind, status) VALUES ('2025-10-01','2025-12-31','vat_period','closed')");
       const forecast = buildThirteenWeekLiquidityForecast(db, { startDate: "2026-02-01" });
       const vatWeek = forecast.periods.find((period) => period.sources.some((source) => source.source === "canonical_vat_obligation"));
       expect(vatWeek).toMatchObject({ obligations: 25 });
@@ -113,11 +114,32 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
     } finally { db.close(); }
   });
 
+  test("treats open VAT as a dated estimate, never a canonical legal obligation", () => {
+    const db = fixture();
+    try {
+      db.run("INSERT INTO documents (document_no, source, sha256_hash, invoice_date, amount_inc_vat, currency) VALUES ('open-vat','synthetic',?,'2025-12-15',125,'DKK')", "c".repeat(64));
+      expect(postJournalEntry(db, { transactionDate:"2025-12-15", text:"open VAT", documentId:1, lines:[{accountNo:"2000",debitAmount:125},{accountNo:"1000",creditAmount:100,vatCode:"DK_SALE_25"},{accountNo:"1200",creditAmount:25}] }).ok).toBe(true);
+      const period = buildThirteenWeekLiquidityForecast(db, { startDate:"2026-02-01" }).periods.find((row) => row.sources.some((source) => source.source === "estimated_vat_assumption"));
+      expect(period).toMatchObject({ obligations:0, scenarios:-25, closingCash:125, scenarioClosingCash:100 });
+      expect(period!.sources).toEqual(expect.arrayContaining([expect.objectContaining({source:"estimated_vat_assumption",settlementStatus:"unknown",assumption:true})]));
+    } finally { db.close(); }
+  });
+
+  test("requires workspace-unique company scope even when two ledgers both use id 1", () => {
+    const db = fixture();
+    try {
+      const supplement = {...reviewed("approved_intercompany_disposition", "2026-01-04", 22), companySlug:"other-ledger"};
+      const forecast = buildThirteenWeekLiquidityForecast(db, {startDate:"2026-01-01",companySlug:"this-ledger",supplements:[supplement]});
+      expect(forecast.periods[0]).toMatchObject({intercompany:0,scenarioClosingCash:0});
+      expect(forecast.periods[0]!.excluded).toEqual(expect.arrayContaining([expect.objectContaining({reason:"workspace_company_scope_mismatch"})]));
+    } finally { db.close(); }
+  });
+
   test("keeps approved budgets and scenarios visibly distinct from booked facts", () => {
     const db = fixture();
     try {
       const forecast = buildThirteenWeekLiquidityForecast(db, {
-        startDate: "2026-01-01",
+        startDate: "2026-01-01", companySlug: "synthetic",
         supplements: [
           reviewed("approved_budget_assumption", "2026-01-02", 120),
           reviewed("approved_scenario_assumption", "2026-01-03", 30, "inflow"),
@@ -127,7 +149,8 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
       expect(forecast.periods[0]).toMatchObject({
         budgets: -120,
         scenarios: 30,
-        closingCash: -90,
+        closingCash: 0,
+        scenarioClosingCash: -90,
       });
       expect(forecast.periods[0]!.sources).toEqual(expect.arrayContaining([
         expect.objectContaining({ source: "approved_budget_assumption", amount: -120, assumption: true }),
@@ -139,18 +162,18 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
   test("includes reviewed tax and intercompany amounts only for the same legal company", () => {
     const db = fixture();
     try {
-      const wrongCompany = { ...reviewed("approved_intercompany_disposition", "2026-01-04", 999), companyId: 2, reference: "intercompany:wrong-company" };
+      const wrongCompany = { ...reviewed("approved_intercompany_disposition", "2026-01-04", 999), companySlug: "other", reference: "intercompany:wrong-company" };
       const forecast = buildThirteenWeekLiquidityForecast(db, {
-        startDate: "2026-01-01",
+        startDate: "2026-01-01", companySlug: "synthetic",
         supplements: [
           reviewed("legally_due_obligation", "2026-01-04", 40),
           reviewed("approved_intercompany_disposition", "2026-01-05", 15, "inflow"),
           wrongCompany,
         ],
       });
-      expect(forecast.periods[0]).toMatchObject({ obligations: 40, intercompany: 15, closingCash: -25 });
+      expect(forecast.periods[0]).toMatchObject({ obligations: 40, intercompany: 15, closingCash: -40, scenarioClosingCash: -25 });
       expect(forecast.periods[0]!.excluded).toEqual([
-        expect.objectContaining({ source: "intercompany:wrong-company", reason: "company_scope_mismatch" }),
+        expect.objectContaining({ source: "intercompany:wrong-company", reason: "workspace_company_scope_mismatch" }),
       ]);
     } finally { db.close(); }
   });
@@ -160,7 +183,7 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
     try {
       const eur = { ...reviewed("legally_due_obligation", "2026-01-04", 40), currency: "EUR", reference: "tax:eur" };
       const noReview = { ...reviewed("approved_budget_assumption", "2026-01-04", 50), approvalReference: "", reference: "budget:no-review" };
-      const forecast = buildThirteenWeekLiquidityForecast(db, { startDate: "2026-01-01", supplements: [eur, noReview] });
+      const forecast = buildThirteenWeekLiquidityForecast(db, { startDate: "2026-01-01", companySlug: "synthetic", supplements: [eur, noReview] });
       expect(forecast.periods[0]).toMatchObject({ obligations: 0, budgets: 0, closingCash: 0 });
       expect(forecast.periods[0]!.excluded).toEqual(expect.arrayContaining([
         expect.objectContaining({ source: "tax:eur", reason: "dated_fx_required", currency: "EUR" }),
@@ -173,7 +196,7 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
     const db = fixture();
     try {
       const forecast = buildThirteenWeekLiquidityForecast(db, {
-        startDate: "2026-01-01",
+        startDate: "2026-01-01", companySlug: "synthetic",
         supplements: [
           reviewed("approved_budget_assumption", "2026-01-02", 100),
           reviewed("legally_due_obligation", "2026-01-03", 70),
@@ -181,7 +204,7 @@ describe("13-week liquidity forecast reviewed supplements (#590)", () => {
         ],
       });
       const first = forecast.periods[0]!;
-      expect(first.closingCash).toBe(
+      expect(first.scenarioClosingCash).toBe(
         first.openingCash + first.receivables - first.payables - first.commitments +
         first.budgets + first.scenarios - first.obligations + first.intercompany,
       );

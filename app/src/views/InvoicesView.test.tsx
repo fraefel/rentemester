@@ -5,9 +5,21 @@ import { InvoicesView } from "./InvoicesView";
 import { renderAt } from "../test/render";
 import { invoices, mockFetch } from "../test/fixtures";
 
-function route(over = {}) {
+function route(over = {}, importedOver = {}) {
   return {
     "GET /api/companies/acme-aps/invoices": { invoices: invoices(over) },
+    "GET /api/companies/acme-aps/imported-receivables": {
+      importedReceivables: {
+        ok: true,
+        asOfDate: "2026-12-31",
+        boundary: "Importerede tilgodehavender holdes adskilt fra Rentemester-fakturaer.",
+        count: 0,
+        totalOpen: 0,
+        rows: [],
+        errors: [],
+        ...importedOver,
+      },
+    },
   };
 }
 
@@ -78,8 +90,35 @@ describe("InvoicesView — Fakturaer", () => {
     const select = await screen.findByLabelText("Vælg regnskabsår");
     await userEvent.selectOptions(select, "2025");
     const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
-    const lastUrl = String(calls[calls.length - 1]![0]);
-    expect(lastUrl).toContain("year=2025");
+    expect(calls.some(([url]) => String(url).includes("/invoices?year=2025"))).toBe(true);
+  });
+
+  test("shows imported receivables as a separate source-evidenced archive", async () => {
+    mockFetch(route({}, {
+      count: 1,
+      totalOpen: 1250,
+      rows: [{
+        source: "imported",
+        externalInvoiceId: "SRC-1001",
+        customerExternalId: "customer-1",
+        customerName: "Kunde A/S",
+        invoiceDate: "2025-12-15",
+        dueDate: "2026-01-15",
+        grossAmount: 1250,
+        paidAmount: 0,
+        openBalance: 1250,
+        controlAccountNo: "1200",
+        sourceRecognitionRef: "source-journal-1",
+        sourceDocumentHash: "a".repeat(64),
+        scheduleHash: "b".repeat(64),
+        archiveBoundary: "cutover",
+      }],
+    }));
+    renderView();
+    const archive = await screen.findByRole("region", { name: "Importerede tilgodehavender" });
+    expect(within(archive).getByText("SRC-1001")).toBeInTheDocument();
+    expect(within(archive).getByText(/adskilt fra Rentemester-fakturaer/)).toBeInTheDocument();
+    expect(within(archive).getAllByText("1.250,00 kr.")).toHaveLength(2);
   });
 
   test("an archived year shows an honest 'not available' state", async () => {

@@ -147,6 +147,7 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain('"/companies/release-check/manage?source=release-candidate"');
     expect(candidate).toContain('company add \\');
     expect(candidate).toContain('--workspace /workspace --name "Release Check" --slug release-check');
+    expect(candidate).toContain("--cvr 12345678");
     expect(candidate).toContain("--virtual-time-budget=5000 --dump-dom \"$base_url$route\"");
     expect(candidate).toContain("<div id=\"root\"><div class=\"app-shell\"");
     expect(candidate).toContain("grep -F 'Release Check'");

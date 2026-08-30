@@ -37,3 +37,4 @@ export * from "./types/bilagsmail";
 export * from "./types/group";
 export * from "./types/accounting-drafts";
 export * from "./types/workspace";
+export * from "./types/cfo-analytics";

@@ -77,6 +77,7 @@ import { PostingRulesView } from "./views/PostingRulesView";
 import { BookkeepingBatchView } from "./views/BookkeepingBatchView";
 import { WorkspaceRegistryView } from "./views/WorkspaceRegistryView";
 import { WorkspaceInboxView } from "./views/WorkspaceInboxView";
+import { CfoCockpitView } from "./views/CfoCockpitView";
 
 export function App() {
   const health = useAsync(() => api.health(), []);
@@ -126,6 +127,7 @@ function CockpitApp() {
           <NavLink to="/" end>
             Portefølje
           </NavLink>
+          {hosted && <NavLink to="/cfo">CFO-overblik</NavLink>}
           {canManageWorkspace && <NavLink to="/companies/new">Tilføj virksomhed</NavLink>}
           {hosted && canManageWorkspace && <NavLink to="/koncernstruktur">Koncernstruktur</NavLink>}
           {hosted && canManageWorkspace && <NavLink to="/adgang">Brugere</NavLink>}
@@ -139,6 +141,7 @@ function CockpitApp() {
       <main>
         <Routes>
           <Route path="/" element={<PortfolioView />} />
+          {hosted && <Route path="/cfo" element={<CfoCockpitView />} />}
           <Route path="/companies/new" element={<AddCompanyView />} />
           {hosted && canManageWorkspace && <Route path="/koncernstruktur" element={<GroupOverviewView />} />}
           {hosted && canManageWorkspace && <Route path="/adgang" element={<WorkspaceAccessView />} />}

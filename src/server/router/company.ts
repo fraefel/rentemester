@@ -18,6 +18,7 @@ import {
   buildCompanyAgentSuggestions,
   buildCompanyArchiveYear,
   buildCompanyBudget,
+  buildCompanyBudgetDimensionActuals,
   buildCompanyBudgetVsActual,
   buildCompanyCashflow,
   buildCompanyMileage,
@@ -125,6 +126,17 @@ export function handleCompanyBudgetVsActual(
   const year = resolveYearParam(url.searchParams.get("year"));
   const data = buildCompanyBudgetVsActual(config.workspaceRoot, slug, year);
   return okResponse({ budgetVsActual: data });
+}
+
+/** Read-only classifications next to, never inside, the account-level budget. */
+export function handleCompanyBudgetDimensionActuals(
+  config: ServerConfig,
+  slug: string,
+  url: URL,
+): Response {
+  const year = resolveYearParam(url.searchParams.get("year"));
+  const data = buildCompanyBudgetDimensionActuals(config.workspaceRoot, slug, year);
+  return okResponse({ budgetDimensionActuals: data });
 }
 
 export function handleCompanyArchiveYear(

@@ -76,7 +76,23 @@ describe("MCP service principal guard", () => {
 
   test("keeps a complete, unique map for the live MCP surface", () => {
     expect(new Set(Object.keys(MCP_TOOL_PERMISSIONS)).size).toBe(Object.keys(MCP_TOOL_PERMISSIONS).length);
-    expect(Object.keys(MCP_TOOL_PERMISSIONS)).toHaveLength(205);
+    expect(Object.keys(MCP_TOOL_PERMISSIONS)).toHaveLength(206);
+  });
+
+  test("requires reviewer permission for an atomic dimension replacement", async () => {
+    const workspace = makeWorkspace("mcp-dimension-replace-permission", ["Allowed ApS"]);
+    const runtime = openWorkspaceBetterAuth(workspace, { secret: SECRET, trustedOrigins: [ORIGIN], baseURL: ORIGIN });
+    const db = openWorkspaceControlDb(workspace);
+    try {
+      const issued = await createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "dimension agent", actor: "user:owner" });
+      activateWorkspaceUser(db, { userId: issued.serviceAccountId, workspaceRole: "member", actor: "user:owner" });
+      grantCompanyMembership(db, workspace, { userId: issued.serviceAccountId, companySlug: "allowed-aps", role: "bookkeeper", actor: "user:owner" });
+      const context = createMcpSecurityContextFromEnv({ RENTEMESTER_WORKSPACE: workspace, RENTEMESTER_SERVICE_PRINCIPAL_TOKEN: issued.secret })!;
+      const args = { company: "allowed-aps", journalLineId: 1, expectedAssignmentId: 1, allocations: [{ dimensionId: "project", memberId: "alpha", amountMinor: 100, currency: "DKK" }], planHash: "a".repeat(64), reason: "synthetic review", idempotencyKey: "replace-synthetic", confirm: true };
+      expect(await authorizeMcpTool(context, "dimension_assignment_replace", args)).toBeNull();
+      grantCompanyMembership(db, workspace, { userId: issued.serviceAccountId, companySlug: "allowed-aps", role: "reviewer", actor: "user:owner" });
+      expect(await authorizeMcpTool(context, "dimension_assignment_replace", args)).not.toBeNull();
+    } finally { db.close(); runtime.close(); rmSync(workspace, { recursive: true, force: true }); }
   });
 
   test("a hosted service principal replays after token rotation but never across revoked membership, principal, or company", async () => {

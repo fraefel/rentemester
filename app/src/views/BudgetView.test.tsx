@@ -13,17 +13,21 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BudgetView } from "./BudgetView";
 import { renderAt } from "../test/render";
-import { budget, budgetVsActual, mockFetch } from "../test/fixtures";
+import { budget, budgetDimensionActuals, budgetVsActual, mockFetch } from "../test/fixtures";
 
 function route(over: {
   budget?: Parameters<typeof budget>[0];
   budgetVsActual?: Parameters<typeof budgetVsActual>[0];
+  budgetDimensionActuals?: Parameters<typeof budgetDimensionActuals>[0];
   postResult?: unknown;
 } = {}) {
   return {
     "GET /api/companies/acme-aps/budget": { budget: budget(over.budget) },
     "GET /api/companies/acme-aps/budget-vs-actual": {
       budgetVsActual: budgetVsActual(over.budgetVsActual),
+    },
+    "GET /api/companies/acme-aps/budget-dimension-actuals": {
+      budgetDimensionActuals: budgetDimensionActuals(over.budgetDimensionActuals),
     },
     "POST /api/companies/acme-aps/budget": over.postResult ?? {
       budget: {
@@ -110,6 +114,19 @@ describe("BudgetView — Budget", () => {
     // space), so match either a regular or a non-breaking space before %.
     expect(await screen.findByText(/1\.000,00/)).toBeInTheDocument();
     expect(screen.getByText(/20[\s ]?%/)).toBeInTheDocument();
+  });
+
+  test("compares a selected approved dimension with honest account-budget context and a journal drilldown", async () => {
+    mockFetch(route());
+    renderView();
+    await screen.findByRole("heading", { name: "Acme ApS" });
+    await userEvent.click(screen.getByRole("tab", { name: /Sammenlign med faktisk/i }));
+    const selector = await screen.findByLabelText("Filter dimension");
+    await userEvent.selectOptions(selector, "project:alpha");
+    expect(screen.getByRole("heading", { name: /Dimensioner mod konto-budget/i })).toBeInTheDocument();
+    expect(screen.getByText(/aldrig som et opdigtet dimensionsbudget/i)).toBeInTheDocument();
+    expect(screen.getByText(/2\.400,00/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Journal-linje 101/i })).toHaveAttribute("href", expect.stringContaining("journalLineId=101"));
   });
 
   test("Tilføj budgetlinje appends a new revision via POST", async () => {

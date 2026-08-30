@@ -5,6 +5,8 @@
 import type { FiscalYearEntry, StatementCompany } from "./common";
 
 export type JournalLine = {
+  /** Immutable ledger id used only to resolve its append-only dimension history. */
+  journalLineId: number | null;
   accountNo: string;
   accountName: string;
   debit: number;

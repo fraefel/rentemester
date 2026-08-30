@@ -18,6 +18,7 @@
 // like every other server/data builder.
 
 import {
+  buildDimensionActuals,
   buildBudgetVsActual,
   listBudget,
   periodsInRange,
@@ -81,6 +82,35 @@ export type CompanyBudgetVsActual = {
   totalBudget: number;
   totalActual: number;
   totalVariance: number;
+};
+
+/**
+ * Canonical, approved dimension classifications beside the legal account
+ * budget. Budgets are intentionally NOT allocated to dimensions: a classified
+ * subset is useful for review, but must never be represented as a separate
+ * dimension budget unless one has been explicitly modelled and reviewed.
+ */
+export type CompanyBudgetDimensionActuals = {
+  slug: string;
+  selectedYear: string;
+  archived: boolean;
+  company: StatementCompanyBlock;
+  fiscalYears: FiscalYearEntry[];
+  periodStart: string;
+  periodEnd: string;
+  rows: Array<{
+    dimensionId: string;
+    memberId: string;
+    accountNo: string;
+    period: string;
+    actual: number;
+    journalLineId: number;
+  }>;
+  /** Legal whole-account actuals, included to make partial classification visible. */
+  accountTotals: Array<{ accountNo: string; period: string; actual: number }>;
+  /** Deterministic selector values based solely on current approved assignments. */
+  dimensionOptions: Array<{ value: string; label: string }>;
+  budgetScope: "account";
 };
 
 // --------------------------------------------------------------------------
@@ -230,3 +260,59 @@ export function buildCompanyBudgetVsActual(
   }
 }
 
+/**
+ * Read-only dimension drill-down for the budget cockpit (#589). It uses the
+ * same fiscal-year resolution as the normal budget report and only current,
+ * approved assignment events from the ledger view.  Archive years deliberately
+ * return no dimensions: imported historical posting rows have no immutable
+ * journal-line identity to which an assignment can safely be attached.
+ */
+export function buildCompanyBudgetDimensionActuals(
+  workspaceRoot: string,
+  slug: string,
+  year: number | null,
+): CompanyBudgetDimensionActuals {
+  const ctx = resolveStatementContext(workspaceRoot, slug, year);
+  try {
+    const selectedYear = ctx.years.find((y) => y.label === ctx.selectedLabel);
+    const { periodStart, periodEnd } = fiscalYearPeriodRange(selectedYear, ctx.selectedLabel);
+    let rows: CompanyBudgetDimensionActuals["rows"] = [];
+    let accountTotals: CompanyBudgetDimensionActuals["accountTotals"] = [];
+    if (!ctx.isArchivedOnly) {
+      const raw = buildDimensionActuals(ctx.db, periodStart, periodEnd);
+      if (!raw.ok) {
+        throw ApiError.badRequest(raw.errors.join("; ") || "kunne ikke bygge dimensionsaktualer");
+      }
+      rows = raw.rows;
+      // Comparison context is limited to the account/month cells that have a
+      // current approved dimension assignment. Unrelated balancing accounts
+      // would add noise and could be mistaken for dimension coverage.
+      const comparedCells = new Set(rows.map((row) => `${row.accountNo}\u001f${row.period}`));
+      accountTotals = (raw.accountTotals ?? []).filter((row) =>
+        comparedCells.has(`${row.accountNo}\u001f${row.period}`),
+      );
+    }
+    const options = new Map<string, string>();
+    for (const row of rows) {
+      options.set(row.dimensionId, row.dimensionId);
+      options.set(`${row.dimensionId}:${row.memberId}`, `${row.dimensionId}: ${row.memberId}`);
+    }
+    return {
+      slug: ctx.entry.slug,
+      selectedYear: ctx.selectedLabel,
+      archived: ctx.isArchivedOnly,
+      company: statementCompanyBlock(ctx.company),
+      fiscalYears: ctx.years,
+      periodStart,
+      periodEnd,
+      rows,
+      accountTotals,
+      dimensionOptions: [...options.entries()]
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.value.localeCompare(b.value)),
+      budgetScope: "account",
+    };
+  } finally {
+    ctx.db.close();
+  }
+}

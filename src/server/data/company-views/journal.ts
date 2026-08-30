@@ -10,6 +10,8 @@ import { archiveYearRow } from "../archive";
 // --------------------------------------------------------------------------
 
 export type JournalLine = {
+  /** Immutable ledger line id; never an array index. Null only for imported archives. */
+  journalLineId: number | null;
   accountNo: string;
   accountName: string;
   debit: number;
@@ -127,6 +129,7 @@ export function buildCompanyJournal(
 
         let all: JournalEntry[] = [...groups.values()].map((g, i) => {
           const lines: JournalLine[] = g.lines.map((r) => ({
+            journalLineId: null,
             accountNo: r.accountNo,
             accountName: r.accountName ?? "",
             debit: r.amount > 0 ? roundKroner(r.amount) : 0,
@@ -246,7 +249,8 @@ export function buildCompanyJournal(
 
     const lineRows = ctx.db
       .query(
-        `SELECT jl.journal_entry_id AS entryId,
+        `SELECT jl.id               AS journalLineId,
+                jl.journal_entry_id AS entryId,
                 a.account_no        AS accountNo,
                 a.name              AS accountName,
                 jl.debit_amount     AS debit,
@@ -261,6 +265,7 @@ export function buildCompanyJournal(
       )
       .all(yearStart, yearEnd) as Array<{
       entryId: number;
+      journalLineId: number;
       accountNo: string;
       accountName: string;
       debit: number;
@@ -272,6 +277,7 @@ export function buildCompanyJournal(
     for (const row of lineRows) {
       const list = linesByEntry.get(row.entryId) ?? [];
       list.push({
+        journalLineId: row.journalLineId,
         accountNo: row.accountNo,
         accountName: row.accountName,
         debit: roundKroner(row.debit),

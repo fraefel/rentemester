@@ -52,6 +52,7 @@ import {
   handleCompanyArchiveYear,
   handleCompanyBilagsmail,
   handleCompanyBudget,
+  handleCompanyBudgetDimensionActuals,
   handleCompanyBudgetVsActual,
   handleCompanyCashflow,
   handleCompanyExceptions,
@@ -366,6 +367,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/dimensions/define", summary: "Opretter dimensionsdefinition (#589)." },
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/dimensions/member", summary: "Opretter dimensionsmedlem (#589)." },
   { scope: "company", effect: "write", permission: "company.draft.write", method: "POST", pattern: "/api/companies/:slug/dimensions/apply", summary: "Anvender eksakt reviewet dimensionsplan (#589)." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/dimensions/replace", summary: "Erstatter atomisk en eksakt reviewet dimensionsklassifikation (#589)." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/dimensions/supersede", summary: "Superseder dimensionsklassifikation append-only (#589)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dimensions", summary: "Append-only dimensionsdefinitioner (#589)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dimensions/members", summary: "Append-only dimensionsmedlemmer (#589)." },
@@ -400,6 +402,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/cashflow", summary: "Likviditetsprognose." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/budget", summary: "Budget pr. konto pr. måned (#339)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/budget-vs-actual", summary: "Budget vs. faktisk for året (#339)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/budget-dimension-actuals", summary: "Godkendte dimensionsaktualer med konto-budgetkontekst (#589)." },
   { scope: "company", effect: "write", permission: "company.admin", method: "POST", pattern: "/api/companies/:slug/budget", summary: "Sætter (append-only revision) en budgetlinje (#339)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/exceptions", summary: "Exceptions queue — undtagelser, filtrerbar pr. status (#332)." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/exceptions/:id/resolve", summary: "Løser en exception." },
@@ -919,7 +922,7 @@ export async function handleRequest(
     if (bookkeepingWorkbenchMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingWorkbench(config, decodeURIComponent(bookkeepingWorkbenchMatch[1]!), url); }
     const dimensionPlanMatch=/^\/api\/companies\/([^/]+)\/dimensions\/plan$/.exec(path);
     if(dimensionPlanMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleDimensionPlan(config,decodeURIComponent(dimensionPlanMatch[1]!),request);}
-    const dimensionActionMatch=/^\/api\/companies\/([^/]+)\/dimensions\/(define|member|apply|supersede|definition-lifecycle|member-lifecycle)$/.exec(path);
+    const dimensionActionMatch=/^\/api\/companies\/([^/]+)\/dimensions\/(define|member|apply|replace|supersede|definition-lifecycle|member-lifecycle)$/.exec(path);
     if(dimensionActionMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleDimensionAction(config,decodeURIComponent(dimensionActionMatch[1]!),request,dimensionActionMatch[2]! as any);}
     const dimensionListMatch=/^\/api\/companies\/([^/]+)\/dimensions\/(\d+)$/.exec(path);
     if(dimensionListMatch){if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");return handleDimensionAssignments(config,decodeURIComponent(dimensionListMatch[1]!),Number(dimensionListMatch[2]));}
@@ -1349,6 +1352,14 @@ export async function handleRequest(
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       const slug = decodeURIComponent(budgetVsActualMatch[1]!);
       return handleCompanyBudgetVsActual(config, slug, url);
+    }
+
+    const budgetDimensionActualsMatch =
+      /^\/api\/companies\/([^/]+)\/budget-dimension-actuals$/.exec(path);
+    if (budgetDimensionActualsMatch) {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      const slug = decodeURIComponent(budgetDimensionActualsMatch[1]!);
+      return handleCompanyBudgetDimensionActuals(config, slug, url);
     }
 
     const budgetMatch = /^\/api\/companies\/([^/]+)\/budget$/.exec(path);

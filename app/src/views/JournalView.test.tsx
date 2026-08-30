@@ -18,6 +18,15 @@ function renderView() {
   });
 }
 
+function dimensionsRoute() {
+  return {
+    ...route(),
+    "GET /api/companies/acme-aps/dimensions/101": { assignments: [{ id: 7, allocations_json: JSON.stringify([{ dimensionId: "project", memberId: "alpha", amountMinor: 2228628, currency: "DKK" }]), source: "reviewed", plan_hash: "a".repeat(64), event_type: "assigned", supersedes_assignment_id: null, actor: "user:owner", principal: "service:cockpit", created_at: "2026-08-30T12:00:00.000Z" }] },
+    "POST /api/companies/acme-aps/dimensions/plan": { ok: true, plan: { planHash: "b".repeat(64) } },
+    "POST /api/companies/acme-aps/dimensions/replace": { ok: true },
+  };
+}
+
 describe("JournalView — Posteringer", () => {
   test("lists the posted journal entries", async () => {
     mockFetch(route());
@@ -39,6 +48,19 @@ describe("JournalView — Posteringer", () => {
     await userEvent.click(summary);
     expect(await screen.findByText("Omsætning")).toBeInTheDocument();
     expect(screen.getByText("Salgsmoms")).toBeInTheDocument();
+  });
+
+  test("shows approved dimensions with provenance and requires a hash-bound review before correction", async () => {
+    mockFetch(dimensionsRoute());
+    renderView();
+    await userEvent.click(await screen.findByRole("button", { name: /Salg af ydelse/ }));
+    await userEvent.click(await screen.findByText(/project: alpha/i));
+    expect(screen.getByText(/Kilde: reviewed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Godkendt af user:owner/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Gennemgå og ret/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Validér revideret plan/i }));
+    expect(await screen.findByText(/Plan-hash:/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Erstat nuværende tildeling atomisk/i })).toBeDisabled();
   });
 
   test("the company sub-nav exposes the new tabs", async () => {

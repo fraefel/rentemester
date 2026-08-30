@@ -115,6 +115,40 @@ export function applyDimensionAssignment(db: Database, input: DimensionAssignmen
   return {ok:true as const,id:row.id,idempotent:false,planHash:input.planHash};
 }
 
+/**
+ * Atomically replaces the current classification after a human has reviewed a
+ * precise replacement plan.  This is intentionally not `supersede(); apply()`:
+ * a failed second request must never leave a posted line without a current
+ * classification.  Both append-only events commit together or neither does.
+ */
+export function replaceDimensionAssignment(db: Database, input: DimensionAssignmentInput & { expectedAssignmentId:number; planHash:string; reason:string; actor?:string; principal?:string; confirm:boolean; idempotencyKey?:string }) {
+  if(!input.confirm)return fail("CONFIRMATION_REQUIRED");
+  const by=actor(input.actor), principal=text(input.principal,160), reason=text(input.reason,1000);
+  if(!by||!principal||!reason)return fail("ACTOR_AND_PRINCIPAL_REQUIRED");
+  const planned=planDimensionAssignment(db,input);
+  if(!planned.ok)return planned;
+  if(planned.plan.planHash!==input.planHash)return fail("PLAN_HASH_MISMATCH");
+  const result=db.transaction(()=>{
+    const idempotencyKey=text(input.idempotencyKey,200);
+    if(input.idempotencyKey&&!idempotencyKey)return fail("INVALID_IDEMPOTENCY_KEY");
+    if(idempotencyKey){
+      const prior=db.query("SELECT id,plan_hash FROM accounting_dimension_assignment_events WHERE idempotency_key=?").get(idempotencyKey) as any;
+      if(prior)return prior.plan_hash===input.planHash?{ok:true as const,id:prior.id,idempotent:true,planHash:input.planHash}:{...fail("IDEMPOTENCY_CONFLICT")};
+    }
+    const current=db.query("SELECT * FROM current_accounting_dimension_assignments WHERE journal_line_id=?").get(planned.plan.journalLineId) as any;
+    if(!current){
+      const replacement=db.query("SELECT id FROM current_accounting_dimension_assignments WHERE journal_line_id=? AND plan_hash=?").get(planned.plan.journalLineId,input.planHash) as any;
+      return replacement?{ok:true as const,id:replacement.id,idempotent:true,planHash:input.planHash}:{...fail("CURRENT_ASSIGNMENT_NOT_FOUND")};
+    }
+    if(current.id!==input.expectedAssignmentId)return fail("CURRENT_ASSIGNMENT_CONFLICT");
+    if(current.plan_hash===input.planHash)return {ok:true as const,id:current.id,idempotent:true,planHash:input.planHash};
+    const superseded=db.query("INSERT INTO accounting_dimension_assignment_events(journal_line_id,journal_entry_id,journal_entry_hash,line_currency,line_amount_minor,allocations_json,source,plan_hash,event_type,supersedes_assignment_id,reason,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?, 'superseded',?,?,?,?,?) RETURNING id").get(current.journal_line_id,current.journal_entry_id,current.journal_entry_hash,current.line_currency,current.line_amount_minor,current.allocations_json,current.source,current.plan_hash,current.id,reason,by,principal,new Date().toISOString()) as any;
+    const assigned=db.query("INSERT INTO accounting_dimension_assignment_events(journal_line_id,journal_entry_id,journal_entry_hash,line_currency,line_amount_minor,allocations_json,source,plan_hash,event_type,idempotency_key,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?, 'assigned',?,?,?,?) RETURNING id").get(planned.plan.journalLineId,planned.plan.journalEntryId,planned.plan.journalEntryHash,planned.plan.lineCurrency,planned.plan.lineAmountMinor,canonical(planned.plan.allocations),planned.plan.source,input.planHash,idempotencyKey??null,by,principal,new Date().toISOString()) as any;
+    return {ok:true as const,id:assigned.id,supersededId:superseded.id,idempotent:false,planHash:input.planHash};
+  }).immediate();
+  return result;
+}
+
 export function supersedeDimensionAssignment(db: Database,input:{assignmentId:number;reason:string;actor?:string;principal?:string;confirm:boolean}) {
   if(!input.confirm)return fail("CONFIRMATION_REQUIRED"); const by=actor(input.actor),principal=text(input.principal,160),reason=text(input.reason,1000);if(!by||!principal||!reason)return fail("ACTOR_AND_PRINCIPAL_REQUIRED");
   const row=db.query("SELECT * FROM current_accounting_dimension_assignments WHERE id=?").get(input.assignmentId) as any;if(!row)return fail("ASSIGNMENT_NOT_FOUND");

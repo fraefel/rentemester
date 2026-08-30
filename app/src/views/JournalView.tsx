@@ -18,10 +18,11 @@ import { formatKroner } from "../lib/format";
 import { useAsync } from "../lib/useAsync";
 import type { CompanyJournal, JournalEntry } from "../lib/types";
 import { ErrorState, Loading } from "../components/Feedback";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ArchivedBanner } from "../components/ArchivedBanner";
 import { CompanyNav, useCompanyYear } from "../components/CompanyNav";
 
-const FILTER_PARAM_KEYS = ["q", "from", "to", "amountMin", "amountMax", "journalEntryId"] as const;
+const FILTER_PARAM_KEYS = ["q", "from", "to", "amountMin", "amountMax", "journalEntryId", "journalLineId"] as const;
 
 export function JournalView() {
   const { slug = "" } = useParams();
@@ -31,6 +32,7 @@ export function JournalView() {
   const [params, setParams] = useSearchParams();
   const account = params.get("account") ?? undefined;
   const journalEntryId = Number(params.get("journalEntryId")) || null;
+  const journalLineId = Number(params.get("journalLineId")) || null;
   const clearAccount = () => {
     const next = new URLSearchParams(params);
     next.delete("account");
@@ -66,7 +68,8 @@ export function JournalView() {
     toDate !== "" ||
     amountMin !== "" ||
     amountMax !== "" ||
-    journalEntryId !== null;
+    journalEntryId !== null ||
+    journalLineId !== null;
 
   const state = useAsync<CompanyJournal>(
     () => api.journal(slug, year, account),
@@ -81,6 +84,7 @@ export function JournalView() {
     const maxN = amountMax === "" ? null : Number(amountMax);
     return entries.filter((entry) => {
       if (journalEntryId !== null && entry.id !== journalEntryId) return false;
+      if (journalLineId !== null && !entry.lines.some((line) => line.journalLineId === journalLineId)) return false;
       if (needle !== "" && !entryMatchesText(entry, needle)) return false;
       if (fromDate !== "" && entry.date < fromDate) return false;
       if (toDate !== "" && entry.date > toDate) return false;
@@ -90,7 +94,7 @@ export function JournalView() {
         return false;
       return true;
     });
-  }, [state.data, hasActiveFilter, q, fromDate, toDate, amountMin, amountMax, journalEntryId]);
+  }, [state.data, hasActiveFilter, q, fromDate, toDate, amountMin, amountMax, journalEntryId, journalLineId]);
 
   if (state.loading && !state.data)
     return <Loading label="Henter posteringer…" />;
@@ -304,6 +308,7 @@ function EntryRow({
                 <th scope="col">Navn</th>
                 <th className="num" scope="col">Debet</th>
                 <th className="num" scope="col">Kredit</th>
+                <th scope="col">Dimensioner</th>
               </tr>
             </thead>
             <tbody>
@@ -321,6 +326,13 @@ function EntryRow({
                   </td>
                   <td className="num">
                     {line.credit ? formatKroner(line.credit, currency) : "—"}
+                  </td>
+                  <td>
+                    {line.journalLineId === null ? (
+                      <span className="muted">Ingen dimensionshistorik</span>
+                    ) : (
+                      <DimensionAssignments slug={slug} journalLineId={line.journalLineId} />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -347,4 +359,94 @@ function EntryRow({
       )}
     </li>
   );
+}
+
+type Allocation = { dimensionId: string; memberId: string; amountMinor: number; currency: string };
+type AssignmentEvent = {
+  id: number; allocations_json: string; source: string; plan_hash: string;
+  event_type: "assigned" | "superseded"; supersedes_assignment_id: number | null;
+  actor: string; principal: string; created_at: string;
+};
+
+function parseAllocations(value: string): Allocation[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is Allocation => Boolean(item) && typeof item === "object" &&
+      typeof (item as Allocation).dimensionId === "string" && typeof (item as Allocation).memberId === "string" &&
+      Number.isSafeInteger((item as Allocation).amountMinor) && typeof (item as Allocation).currency === "string");
+  } catch { return []; }
+}
+
+/** Current means an assigned event that no later supersession explicitly retires. */
+function currentAssignment(events: AssignmentEvent[]): AssignmentEvent | null {
+  const retired = new Set(events.map((event) => event.supersedes_assignment_id).filter((id): id is number => id !== null));
+  return events.find((event) => event.event_type === "assigned" && !retired.has(event.id)) ?? null;
+}
+
+function DimensionAssignments({ slug, journalLineId }: { slug: string; journalLineId: number }) {
+  const state = useAsync<AssignmentEvent[]>(() => api.dimensionAssignments(slug, journalLineId) as Promise<AssignmentEvent[]>, [slug, journalLineId]);
+  if (state.loading && !state.data) return <span className="muted">Henter dimensioner…</span>;
+  if (state.error) return <span className="muted">Dimensionshistorik kunne ikke hentes</span>;
+  const events = state.data ?? [];
+  const current = currentAssignment(events);
+  if (!current) return <span className="muted">Ingen godkendt dimension</span>;
+  const allocations = parseAllocations(current.allocations_json);
+  return <details className="dimension-assignment">
+    <summary>{allocations.map((item) => `${item.dimensionId}: ${item.memberId}`).join(", ") || "Godkendt dimension"}</summary>
+    <p className="muted">
+      Kilde: {current.source} · plan-hash <code>{current.plan_hash}</code><br />
+      Godkendt af {current.actor} via {current.principal} · {current.created_at}
+    </p>
+    <DimensionReview slug={slug} journalLineId={journalLineId} current={current} onChanged={state.reload} />
+  </details>;
+}
+
+/**
+ * The legal posting is immutable. A correction therefore first retires the
+ * current allocation and only then applies the exact hash-bound replacement.
+ * This compact form intentionally accepts only explicit allocation ids and
+ * amounts — it does not guess a dimension or silently redistribute amounts.
+ */
+function DimensionReview({ slug, journalLineId, current, onChanged }: { slug: string; journalLineId: number; current: AssignmentEvent; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [allocations, setAllocations] = useState<Allocation[]>(() => parseAllocations(current.allocations_json));
+  const [plan, setPlan] = useState<{ planHash: string } | null>(null);
+  const [reviewed, setReviewed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmSupersede, setConfirmSupersede] = useState(false);
+
+  function change(index: number, key: keyof Allocation, value: string) {
+    setPlan(null); setReviewed(false);
+    setAllocations((rows) => rows.map((row, i) => i === index
+      ? { ...row, [key]: key === "amountMinor" ? Number(value) : value } : row));
+  }
+  async function makePlan() {
+    setError(null);
+    try {
+      const result = await api.planDimensionAssignment(slug, { journalLineId, allocations, source: "reviewed" });
+      if (!result.ok || !result.plan) throw new Error(result.errors?.join(", ") || "Planen kunne ikke valideres.");
+      setPlan(result.plan);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+  async function replace(reason: string) {
+    if (!reason.trim()) throw new Error("Skriv en begrundelse for korrektionen.");
+    if (!plan || !reviewed) throw new Error("Gennemgå først den præcise plan.");
+    await api.replaceDimensionAssignment(slug, { journalLineId, expectedAssignmentId: current.id, allocations, source: "reviewed", planHash: plan.planHash, reason, idempotencyKey: `cockpit-dimension-replace-${current.id}-${plan.planHash}` });
+    setEditing(false); setPlan(null); setReviewed(false); setConfirmSupersede(false); onChanged();
+  }
+  if (!editing) return <button type="button" className="btn secondary" onClick={() => setEditing(true)}>Gennemgå og ret</button>;
+  return <div className="dimension-review card">
+    <p><strong>Ret dimensionsklassifikation</strong></p>
+    <p className="muted">Posteringen ændres aldrig. Den nuværende tildeling supersederes og den reviewede plan anvendes atomisk med begrundelse.</p>
+    {allocations.map((allocation, index) => <div className="row-actions" key={`${allocation.dimensionId}-${index}`}>
+      <label>Dimension<input aria-label={`Dimension ${index + 1}`} value={allocation.dimensionId} onChange={(event) => change(index, "dimensionId", event.target.value)} /></label>
+      <label>Medlem<input aria-label={`Medlem ${index + 1}`} value={allocation.memberId} onChange={(event) => change(index, "memberId", event.target.value)} /></label>
+      <label>Øre<input aria-label={`Øre ${index + 1}`} type="number" value={allocation.amountMinor} onChange={(event) => change(index, "amountMinor", event.target.value)} /></label>
+    </div>)}
+    <div className="row-actions"><button type="button" className="btn secondary" onClick={() => void makePlan()}>Validér revideret plan</button><button type="button" className="btn secondary" onClick={() => setEditing(false)}>Annullér</button></div>
+    {plan && <div className="card"><p>Plan-hash: <code>{plan.planHash}</code></p><label><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /> Jeg har gennemgået den præcise plan.</label><button type="button" className="btn secondary" disabled={!reviewed} onClick={() => setConfirmSupersede(true)}>Erstat nuværende tildeling atomisk</button></div>}
+    {error && <p className="muted" role="alert">{error}</p>}
+    {confirmSupersede && <ConfirmDialog title="Erstat dimensionsklassifikation" body={<p>Den nuværende klassifikation bevares i revisionssporet. Supersession og den præcise, hash-bundne erstatning gemmes atomisk, så linjen aldrig står uden en aktuel tildeling.</p>} confirmLabel="Erstat tildeling" confirmKind="danger" noteLabel="Begrundelse" onConfirm={replace} onClose={() => setConfirmSupersede(false)} />}
+  </div>;
 }

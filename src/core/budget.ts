@@ -374,7 +374,7 @@ export function buildBudgetVsActual(
     hasBudget: boolean;
   };
   const cells = new Map<string, Cell>();
-  const keyOf = (accountNo: string, period: string) => `${accountNo} ${period}`;
+  const keyOf = (accountNo: string, period: string) => `${accountNo}\u001f${period}`;
 
   for (const row of actualRows) {
     const key = keyOf(row.account_no, row.period);

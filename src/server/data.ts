@@ -103,12 +103,14 @@ export type {
 export {
   buildCompanyBudget,
   buildCompanyBudgetVsActual,
+  buildCompanyBudgetDimensionActuals,
 } from "./data/budget";
 export type {
   CompanyBudgetLine,
   CompanyBudget,
   CompanyBudgetVsActualLine,
   CompanyBudgetVsActual,
+  CompanyBudgetDimensionActuals,
 } from "./data/budget";
 
 // --- data/company-views.ts -------------------------------------------------

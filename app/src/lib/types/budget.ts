@@ -76,6 +76,34 @@ export type BudgetVsActualResponse = {
   budgetVsActual: CompanyBudgetVsActual;
 };
 
+/** Approved classifications for a legal account actual. Budget remains account-level. */
+export type CompanyBudgetDimensionActuals = {
+  slug: string;
+  selectedYear: string;
+  archived: boolean;
+  company: StatementCompany;
+  fiscalYears: FiscalYearEntry[];
+  periodStart: string;
+  periodEnd: string;
+  rows: Array<{
+    dimensionId: string;
+    memberId: string;
+    accountNo: string;
+    period: string;
+    actual: number;
+    journalLineId: number;
+  }>;
+  accountTotals: Array<{ accountNo: string; period: string; actual: number }>;
+  dimensionOptions: Array<{ value: string; label: string }>;
+  /** Explicitly prevents the UI from pretending this is a dimension budget. */
+  budgetScope: "account";
+};
+
+export type BudgetDimensionActualsResponse = {
+  ok: true;
+  budgetDimensionActuals: CompanyBudgetDimensionActuals;
+};
+
 /** Input for `api.setBudget` — append a budget revision for one cell. */
 export type SetBudgetInput = {
   accountNo: string;

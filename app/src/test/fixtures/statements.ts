@@ -150,6 +150,7 @@ export function journal(over: Partial<CompanyJournal> = {}): CompanyJournal {
         total: 22286.28,
         lines: [
           {
+            journalLineId: 101,
             accountNo: "55000",
             accountName: "Bank",
             debit: 22286.28,
@@ -157,6 +158,7 @@ export function journal(over: Partial<CompanyJournal> = {}): CompanyJournal {
             text: null,
           },
           {
+            journalLineId: 102,
             accountNo: "1000",
             accountName: "Omsætning",
             debit: 0,
@@ -164,6 +166,7 @@ export function journal(over: Partial<CompanyJournal> = {}): CompanyJournal {
             text: null,
           },
           {
+            journalLineId: 103,
             accountNo: "64000",
             accountName: "Salgsmoms",
             debit: 0,

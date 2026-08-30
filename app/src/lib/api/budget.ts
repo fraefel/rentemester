@@ -1,5 +1,6 @@
 import type {
   BudgetResponse,
+  BudgetDimensionActualsResponse,
   BudgetVsActualResponse,
   SetBudgetInput,
 } from "../types";
@@ -29,6 +30,15 @@ export const budgetApi = {
         year ? `?year=${encodeURIComponent(year)}` : ""
       }`,
     ).then((r) => r.budgetVsActual),
+
+  /** Current approved dimension actuals. This is deliberately separate from
+   * budget-vs-actual because budget lines have no dimension allocation model. */
+  budgetDimensionActuals: (slug: string, year?: string) =>
+    request<BudgetDimensionActualsResponse>(
+      `/api/companies/${encodeURIComponent(slug)}/budget-dimension-actuals${
+        year ? `?year=${encodeURIComponent(year)}` : ""
+      }`,
+    ).then((r) => r.budgetDimensionActuals),
 
   /**
    * #339 — append a budget revision for one (account, period) cell. The core

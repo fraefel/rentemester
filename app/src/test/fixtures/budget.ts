@@ -1,5 +1,6 @@
 import type {
   CompanyBudget,
+  CompanyBudgetDimensionActuals,
   CompanyBudgetVsActual,
 } from "../../lib/types";
 import {
@@ -39,6 +40,18 @@ export function budget(over: Partial<CompanyBudget> = {}): CompanyBudget {
       },
     ],
     totalBudget: 12000,
+    ...over,
+  };
+}
+
+export function budgetDimensionActuals(over: Partial<CompanyBudgetDimensionActuals> = {}): CompanyBudgetDimensionActuals {
+  return {
+    slug: "acme-aps", selectedYear: "2026", archived: false, company: STATEMENT_COMPANY,
+    fiscalYears: STATEMENT_FISCAL_YEARS, periodStart: "2026-01", periodEnd: "2026-12",
+    rows: [{ dimensionId: "project", memberId: "alpha", accountNo: "2200", period: "2026-06", actual: 2400, journalLineId: 101 }],
+    accountTotals: [{ accountNo: "2200", period: "2026-06", actual: 4000 }],
+    dimensionOptions: [{ value: "project", label: "project" }, { value: "project:alpha", label: "project: alpha" }],
+    budgetScope: "account",
     ...over,
   };
 }

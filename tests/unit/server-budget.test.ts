@@ -24,6 +24,7 @@ import { companyPaths } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { postJournalEntry } from "../../src/core/ledger";
 import { setBudget } from "../../src/core/budget";
+import { applyDimensionAssignment, createDimensionDefinition, createDimensionMember, planDimensionAssignment } from "../../src/core/accounting-dimensions";
 
 function tmpRoot(label: string) {
   return mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -134,9 +135,9 @@ function postExpense(
     const entry = db
       .query(
         `INSERT INTO journal_entries (entry_no, transaction_date, text, rule_version, entry_hash)
-         VALUES (?, ?, ?, 'test', 'h') RETURNING id`,
+         VALUES (?, ?, ?, 'test', ?) RETURNING id`,
       )
-      .get(`E-${date}-${expenseAcc}-${amount}`, date, "test expense") as {
+      .get(`E-${date}-${expenseAcc}-${amount}`, date, "test expense", "h".repeat(64)) as {
       id: number;
     };
     db.run(
@@ -293,6 +294,32 @@ describe("GET /api/companies/:slug/budget-vs-actual", () => {
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+});
+
+describe("GET /api/companies/:slug/budget-dimension-actuals", () => {
+  test("returns only current approved classifications with legal account totals", async () => {
+    const ws = makeWorkspace("budget-dimension-actuals");
+    try {
+      const expense = expenseAccountNo(ws, "acme-aps");
+      const bank = bankAccountNo(ws, "acme-aps");
+      seedBudget(ws, "acme-aps", expense, "2026-06", 5000);
+      postExpense(ws, "acme-aps", "2026-06-05", expense, bank, 3000);
+      const db = openDb(companyPaths(companyRootForSlug(ws, "acme-aps")).db);
+      try {
+        migrate(db);
+        expect(createDimensionDefinition(db, { dimensionId: "project", kind: "project", name: "Project", actor: "user:test", principal: "test", confirm: true }).ok).toBeTrue();
+        expect(createDimensionMember(db, { dimensionId: "project", memberId: "alpha", name: "Alpha", actor: "user:test", principal: "test", confirm: true }).ok).toBeTrue();
+        const line = db.query(`SELECT jl.id FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE a.account_no=? ORDER BY jl.id LIMIT 1`).get(expense) as { id: number };
+        const allocations = [{ dimensionId: "project", memberId: "alpha", amountMinor: 300000, currency: "DKK" }];
+        const plan = planDimensionAssignment(db, { journalLineId: line.id, allocations });
+        if (!plan.ok) throw new Error(plan.errors.join(", "));
+        expect(applyDimensionAssignment(db, { journalLineId: line.id, allocations, planHash: plan.plan.planHash, actor: "user:test", principal: "test", confirm: true }).ok).toBeTrue();
+      } finally { db.close(); }
+      const res = await call(config(ws), "GET", "/api/companies/acme-aps/budget-dimension-actuals?year=2026");
+      expect(res.status).toBe(200);
+      expect(res.body.budgetDimensionActuals).toMatchObject({ budgetScope: "account", rows: [{ dimensionId: "project", memberId: "alpha", accountNo: expense, period: "2026-06", actual: 3000 }], accountTotals: [{ accountNo: expense, period: "2026-06", actual: 3000 }] });
+    } finally { rmSync(ws, { recursive: true, force: true }); }
   });
 });
 

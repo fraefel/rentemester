@@ -104,7 +104,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 205 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 206 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -227,9 +227,9 @@ Tabellerne nedenfor er den autoritative liste pr. tool — bliver prosa-tal og
 tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 
 - **Read-tools**: 73
-- **Ordinary write-tools**: 105
+- **Ordinary write-tools**: 106
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **205** (read and write tool counts are verified from the live registry in CI)
+- **Total**: **206** (read and write tool counts are verified from the live registry in CI)
 
 ## Read-tools
 
@@ -343,7 +343,7 @@ uden at kernen kaldes.
 
 ### write-reversible
 
-16 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
+17 tools. Opretter state der kan tilbageføres/arkiveres uden at røre den
 append-only finanskæde.
 
 | Tool | CLI-ækvivalent | Input | Brief |
@@ -351,6 +351,7 @@ append-only finanskæde.
 | `accounts_role_confirm` | `accounts role-confirm` | `{ company, role, accountNo, confirm }` | Bekræfter eksplicit ét kompatibelt kontorolle-forslag med actor- og versionsspor; senere confirmation kan ændre mappingen. |
 | `bank_import` | `bank import` | `{ company, csvPath \| csvContent, account?, profile?, confirm }` | Importerer banktransaktioner fra CSV. Se den kanoniske [idempotenskontrakt](bank-import-idempotency.md). |
 | `budget_set` | `budget set` | `{ company, accountNo, period, amount, notes?, confirm }` | Sætter et budget for én konto i én kalendermåned. Append-only revisioner — seneste vinder. |
+| `dimension_assignment_replace` | `dimensions replace` | `{ company, journalLineId, expectedAssignmentId, allocations, planHash, reason, idempotencyKey?, confirm }` | Erstatter atomisk den forventede aktuelle dimensionsklassifikation med den eksakte reviewede plan; journalen ændres aldrig, og der opstår ingen ubeskyttet mellemtilstand. |
 | `company_sync_cvr` | `company sync-cvr` | `{ company, confirm }` | Henter virksomhedens stamdata fra CVR og opdaterer companies-rækken. Regnskabsåret røres ikke. |
 | `customer_validate_vat` | `customer validate-vat` | `{ company, cvr, confirm }` | Validerer EU-VAT via VIES og opdaterer den lokale cache. |
 | `cvr_lookup` | `customer cvr-lookup` | `{ company, cvr, confirm }` | Slår en dansk virksomhed op i CVR-registret og cacher snapshottet. Kræver `CVR_USERNAME`/`CVR_PASSWORD`. |

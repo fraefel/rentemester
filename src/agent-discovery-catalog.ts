@@ -194,6 +194,13 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("intercompany-reconcile", cli("group reconcile"), "Reconcile approved intercompany mappings.", { dependsOn: ["group-overview"] }),
     read("consolidated-report", cli("group consolidated-report"), "Produce the traceable read-only consolidation view.", { dependsOn: ["intercompany-reconcile"], canonicalRecords: ["workspace group graph", "approved mappings", "approved eliminations", "derived consolidation view"] }),
   ], unsupportedBoundaries: ["Each legal entity keeps its own ledger.", "Group operations remain CLI/HTTP-only where no MCP operation is listed."] }),
+  workflow({ id: "intercompany-disposition", capabilityId: "group-intercompany", title: "Intercompany disposition evidence lifecycle", intendedOutcome: "Create a source-linked two-sided disposition, approve it separately, and link each independently posted legal-ledger journal.", steps: [
+    write("propose", cli("group propose-disposition"), "Record the two-sided expected economic disposition and source evidence; it never posts either ledger.", { canonicalRecords: ["intercompany disposition proposal", "party and corporate-record references"] }),
+    write("approve", cli("group approve-disposition"), "Approve the exact payload with a distinct stable principal.", { dependsOn:["propose"], boundary:"approval", canonicalRecords:["intercompany disposition approval"] }),
+    write("link-left", cli("group link-disposition"), "Validate and link the already posted left-company journal at its current ledger head.", { dependsOn:["approve"], boundary:"approval", canonicalRecords:["left legal-ledger link"] }),
+    write("link-right", cli("group link-disposition"), "Validate and link the independently posted right-company journal at its current ledger head.", { dependsOn:["approve"], boundary:"approval", canonicalRecords:["right legal-ledger link"] }),
+    read("status", cli("group disposition-status"), "Inspect one-sided, mismatched or fully linked status without opening a mutation path.", { dependsOn:["link-left|link-right"] }),
+  ], unsupportedBoundaries:["This flow never posts, reverses or eliminates either legal ledger.", "Group eliminations remain a separate read-only/reporting concern."] }),
   workflow({ id: "digisense-nemhandel", capabilityId: "digisense-nemhandel", title: "DigiSense and NemHandel onboarding, send, status and inbound", intendedOutcome: "Configure and onboard, send at most once, read status after uncertainty and ingest inbound documents with deduplication.", steps: [
     read("onboarding-status", mcp("efaktura_onboarding_status"), "Inspect environment and readiness."),
     write("configure", mcp("efaktura_konfigurer"), "Store provider configuration through the secret boundary.", { dependsOn: ["onboarding-status"], expectedIdempotent: true, retryClass: "external-provider-reconciled", canonicalRecords: ["e-invoice configuration audit"] }),
@@ -279,7 +286,7 @@ const capabilityTuples: CapabilityTuple[] = [
   ["exceptions-corrections", "Exceptions and corrections", "Resolve blockers and correct through append-only reversals.", "ledger", ["resolve exception", "reverse posting", "correct bookkeeping"], ["correction", "credit note", "audit"], "company", ["exceptions-corrections"]],
   ["period-management", "Period management", "Inspect, close and explicitly reopen periods.", "period", ["close period", "reopen period", "period readiness"], ["lock", "fiscal period"], "company", ["period-close-reopen"]],
   ["operations-assurance", "Backup, health and audit", "Verify integrity and create, place, verify or restore backups.", "system", ["verify backup", "healthcheck", "verify audit", "restore backup"], ["readiness", "checksum", "placement"], "system", ["backup-health-audit"]],
-  ["group-intercompany", "Portfolio, group and intercompany", "Inspect group state, reconcile mappings and derive consolidation views.", "group", ["group overview", "intercompany reconciliation", "consolidated report"], ["portfolio", "elimination", "legal group"], "legal-group", ["group-intercompany"]],
+  ["group-intercompany", "Portfolio, group and intercompany", "Inspect group state, reconcile mappings and document two-sided dispositions without cross-ledger posting.", "group", ["group overview", "intercompany reconciliation", "intercompany disposition"], ["portfolio", "elimination", "legal group", "intercompany disposition"], "legal-group", ["group-intercompany", "intercompany-disposition"]],
   ["digisense-nemhandel", "DigiSense and NemHandel", "Onboard, send once, read status and receive electronic invoices.", "efaktura", ["send e-invoice", "NemHandel onboarding", "receive e-invoice"], ["Digisense", "Peppol", "OIOUBL"], "company", ["digisense-nemhandel"]],
   ["imports", "Imports including Dinero", "Validate and apply supported cut-over imports.", "imports", ["import from Dinero", "migrate accounting data", "import contacts"], ["archive", "cut-over", "source hash"], "company", ["imports-dinero"]],
   ["privacy", "Privacy governance", "Perform audited GDPR discovery and export.", "privacy", ["GDPR export", "data subject discovery"], ["privacy", "erasure"], "company", ["privacy-governance"]],
@@ -409,7 +416,7 @@ export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // #577 adds the six live inbox operations. The workflow above remains the
   // canonical explanation; this identity snapshot prevents silent drift.
   mcp: { count: 170, hash: "9b874caf4541d574f5195b2c37c16a92d98f9af94a9cfd2b653dd32768b5c3f0" },
-  cli: { count: 229, hash: "841ae59ba233fd7be98a309d8e9a570cc6359b43b0d422fa88ab40306f7e4d84" },
+  cli: { count: 233, hash: "3ba4a58444e1f1f61a5699e17551ed768b1b3bbf7977d5013993d5b2e2935f39" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
   http: { count: 172, hash: "961e9e72c506f1286426a72f06b72b201033325e357b1de1d41cc70855b9f131" },

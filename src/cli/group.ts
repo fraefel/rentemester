@@ -5,6 +5,7 @@ import { applyGroupManifest, getGroupStructureOverview, GROUP_CONSOLIDATION_BLOC
 import { approveIntercompanyMapping, buildIntercompanyReconciliation, parseIntercompanyMapping, proposeIntercompanyMapping, readIntercompanyMappingState, revokeIntercompanyMapping, type IntercompanyMapping } from "../core/intercompany-reconciliation";
 import { applyBalanceElimination, approveBalanceElimination, proposeBalanceElimination, readAppliedBalanceEliminations, readBalanceEliminationState, rejectBalanceElimination, reverseBalanceElimination } from "../core/consolidation-eliminations";
 import { approveConsolidationProfile, buildConsolidatedReport, parseConsolidationProfile, proposeConsolidationProfile, readConsolidationProfileState, revokeConsolidationProfile, type ConsolidationProfile } from "../core/consolidated-reports";
+import { approveIntercompanyDisposition, inspectIntercompanyDisposition, linkIntercompanyDispositionJournal, proposeIntercompanyDisposition } from "../core/intercompany-dispositions";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 import { loadActorAllowlist } from "../cli-actor";
 
@@ -63,6 +64,21 @@ function profileCompanySlugs(profile: ConsolidationProfile, manifest: GroupManif
 }
 
 export function register(dispatch: CommandDispatch): void {
+  // Dispositions are workspace evidence only.  These commands deliberately do
+  // not call a company posting command or accept an elimination amount.
+  dispatch.on("group", "propose-disposition", (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim().toLowerCase() !== "yes") { ctx.emitResult({ ok: false, errors: ["--confirm yes required to propose intercompany disposition"] }); return; }
+    try { const workspace=resolveWorkspaceRoot(required(ctx,"--workspace")), audit=actorInput(ctx), db=openWorkspaceControlDb(workspace); try { const result=proposeIntercompanyDisposition(db,readManifest(required(ctx,"--disposition")),{actor:audit.createdBy,principal:{kind:"user",id:audit.createdBy}}); assertCompanySlugsAuthorize(workspace,[result.disposition.left.companySlug,result.disposition.right.companySlug],audit.createdBy,"group propose-disposition"); ctx.emitResult({ok:true,...result}); } finally {db.close();} } catch(error) {ctx.emitResult({ok:false,errors:[error instanceof Error?error.message:"disposition proposal failed"]});}
+  });
+  dispatch.on("group", "approve-disposition", (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim().toLowerCase() !== "yes") { ctx.emitResult({ ok: false, errors: ["--confirm yes required to approve intercompany disposition"] }); return; }
+    try { const workspace=resolveWorkspaceRoot(required(ctx,"--workspace")), audit=actorInput(ctx), id=required(ctx,"--disposition-id"), hash=required(ctx,"--payload-hash"); const reader=openWorkspaceControlReadOnlyDb(workspace); const before=inspectIntercompanyDisposition(reader,id); reader.close(); if(!before)throw new Error("disposition not found"); assertCompanySlugsAuthorize(workspace,[before.disposition.left.companySlug,before.disposition.right.companySlug],audit.createdBy,"group approve-disposition"); const db=openWorkspaceControlDb(workspace);try{ctx.emitResult({ok:true,...approveIntercompanyDisposition(db,id,hash,{actor:audit.createdBy,principal:{kind:"user",id:audit.createdBy}})});}finally{db.close();} }catch(error){ctx.emitResult({ok:false,errors:[error instanceof Error?error.message:"disposition approval failed"]});}
+  });
+  dispatch.on("group", "link-disposition", (ctx) => {
+    if ((ctx.arg("--confirm") ?? "").trim().toLowerCase() !== "yes") { ctx.emitResult({ ok: false, errors: ["--confirm yes required to link intercompany disposition journal"] }); return; }
+    try {const workspace=resolveWorkspaceRoot(required(ctx,"--workspace")),audit=actorInput(ctx),id=required(ctx,"--disposition-id"),side=required(ctx,"--side");if(side!=="left"&&side!=="right")throw new Error("--side must be left or right");const reader=openWorkspaceControlReadOnlyDb(workspace),before=inspectIntercompanyDisposition(reader,id);reader.close();if(!before)throw new Error("disposition not found");assertCompanySlugsAuthorize(workspace,[before.disposition[side].companySlug],audit.createdBy,"group link-disposition");const db=openWorkspaceControlDb(workspace);try{ctx.emitResult({ok:true,...linkIntercompanyDispositionJournal(db,workspace,{dispositionId:id,payloadHash:required(ctx,"--payload-hash"),side,journalEntryId:Number(required(ctx,"--journal-entry-id")),expectedLedgerHeadHash:ctx.arg("--ledger-head-hash")??null,actor:audit.createdBy,principal:{kind:"user",id:audit.createdBy}})});}finally{db.close();}}catch(error){ctx.emitResult({ok:false,errors:[error instanceof Error?error.message:"journal link failed"]});}
+  });
+  dispatch.on("group", "disposition-status", (ctx) => {try{const db=openWorkspaceControlReadOnlyDb(resolveWorkspaceRoot(required(ctx,"--workspace")));try{const disposition=inspectIntercompanyDisposition(db,required(ctx,"--disposition-id"));ctx.emitResult(disposition?{ok:true,...disposition}:{ok:false,errors:["disposition not found"]});}finally{db.close();}}catch(error){ctx.emitResult({ok:false,errors:[error instanceof Error?error.message:"disposition status unavailable"]});}});
   dispatch.on("group", "validate-manifest", (ctx) => {
     try {
       const workspace = resolveWorkspaceRoot(required(ctx, "--workspace"));

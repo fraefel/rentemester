@@ -408,6 +408,7 @@ if (!cmd || cmd === "help") {
           commandKey === "group propose-mapping" || commandKey === "group approve-mapping" || commandKey === "group revoke-mapping"
           || commandKey === "group propose-elimination" || commandKey === "group approve-elimination" || commandKey === "group reject-elimination" || commandKey === "group apply-elimination" || commandKey === "group reverse-elimination"
           || commandKey === "group propose-profile" || commandKey === "group approve-profile" || commandKey === "group revoke-profile"
+          || commandKey === "group propose-disposition" || commandKey === "group approve-disposition" || commandKey === "group link-disposition"
         ? null
         : ctx.companyRoot();
     if (mutationRoot) {

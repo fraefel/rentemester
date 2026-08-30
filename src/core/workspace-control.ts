@@ -66,6 +66,8 @@ export const WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_ID = 25;
 export const WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_NAME = "rentemester-workspace-document-inbox-v25";
 export const WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_ID = 26;
 export const WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_NAME = "rentemester-workspace-inbox-handoff-claims-v26";
+export const WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_ID = 27;
+export const WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_NAME = "rentemester-intercompany-dispositions-v27";
 
 const baselineArtifact = readFileSync(
   join(import.meta.dir, "workspace-migrations", "0001-workspace-control-baseline.json"),
@@ -103,6 +105,7 @@ const workspaceCorporateRecordScopeIntegrityArtifact = readFileSync(join(import.
 const workspaceOwnershipFactLifecycleArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0024-ownership-fact-lifecycle-v24.json"));
 const workspaceDocumentInboxArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0025-workspace-document-inbox-v25.json"));
 const workspaceDocumentInboxHandoffClaimsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0026-workspace-inbox-handoff-claims-v26.json"));
+const workspaceIntercompanyDispositionsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0027-intercompany-dispositions-v27.json"));
 
 export const WORKSPACE_CONTROL_BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(baselineArtifact)
@@ -140,6 +143,7 @@ export const WORKSPACE_CONTROL_CORPORATE_RECORD_SCOPE_INTEGRITY_MIGRATION_CHECKS
 export const WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceOwnershipFactLifecycleArtifact).digest("hex");
 export const WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceDocumentInboxArtifact).digest("hex");
 export const WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceDocumentInboxHandoffClaimsArtifact).digest("hex");
+export const WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceIntercompanyDispositionsArtifact).digest("hex");
 
 export type WorkspaceControlPaths = {
   root: string;
@@ -217,6 +221,7 @@ const migrations: readonly WorkspaceMigration[] = [
   { id: WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_ID, name: WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_CHECKSUM, artifact: workspaceOwnershipFactLifecycleArtifact },
   { id: WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_ID, name: WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_CHECKSUM, artifact: workspaceDocumentInboxArtifact },
   { id: WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_ID, name: WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_DOCUMENT_INBOX_HANDOFF_CLAIMS_MIGRATION_CHECKSUM, artifact: workspaceDocumentInboxHandoffClaimsArtifact },
+  { id: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_ID, name: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_INTERCOMPANY_DISPOSITIONS_MIGRATION_CHECKSUM, artifact: workspaceIntercompanyDispositionsArtifact },
 ];
 
 /** Latest immutable control-schema migration this runtime can safely serve. */

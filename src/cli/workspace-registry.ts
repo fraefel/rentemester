@@ -9,6 +9,7 @@ import { resolveWorkspaceRoot } from "../core/workspace";
 import { openWorkspaceControlDb, openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
 import { approvePartyMerge, createParty, inspectParty, linkPartyRole, proposePartyMerge, searchParties } from "../core/party-registry";
 import { enrichCorporateRecord, ingestCorporateRecord, inspectCorporateRecord, linkCorporateRecord, listCorporateRecords, readCorporateRecordBytes, supersedeCorporateRecord } from "../core/corporate-records";
+import { companyKnowledgeHistory, proposeCompanyKnowledge, queryCompanyKnowledge, reviewCompanyKnowledge, supersedeCompanyKnowledge } from "../core/company-knowledge";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 
 const need = (ctx: CommandContext, flag: string) => { const v = ctx.trimToNull(ctx.arg(flag)); if (!v) ctx.fatal(`${flag} is required`); return v!; };
@@ -16,6 +17,7 @@ const actor = (ctx: CommandContext) => ctx.cliActor ?? process.env.RENTEMESTER_A
 const confirm = (ctx: CommandContext) => { if (ctx.arg("--confirm") !== "yes") ctx.fatal("--confirm must be exactly yes"); };
 const json = (ctx: CommandContext, flag: string): Record<string, unknown> => { try { const v = JSON.parse(readFileSync(need(ctx, flag), "utf8")); if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("must be an object"); return v as Record<string, unknown>; } catch (e) { ctx.fatal(`${flag} must be a readable JSON object: ${e instanceof Error ? e.message : String(e)}`); } };
 const workspace = (ctx: CommandContext) => resolveWorkspaceRoot(need(ctx, "--workspace"));
+const principal=(ctx:CommandContext)=>({kind:"local_operator" as const,id:need(ctx,"--principal-id")});
 
 export function register(dispatch: CommandDispatch): void {
   dispatch.on("party", "create", (ctx) => { confirm(ctx); const db=openWorkspaceControlDb(workspace(ctx)); try { const input=json(ctx,"--input"); ctx.emitResult({ok:true,party:createParty(db,{...input, actor:actor(ctx) } as any)}); } finally { db.close(); } });
@@ -32,4 +34,8 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("corporate-record", "link", (ctx) => { confirm(ctx); const db=openWorkspaceControlDb(workspace(ctx)); try { ctx.emitResult({ok:true,record:linkCorporateRecord(db,{recordId:need(ctx,"--record-id"),type:need(ctx,"--link-type") as any,id:need(ctx,"--link-id"),actor:actor(ctx)})}); } finally {db.close();} });
   dispatch.on("corporate-record", "enrich", (ctx) => { confirm(ctx); const db=openWorkspaceControlDb(workspace(ctx)); try { ctx.emitResult({ok:true,payloadHash:enrichCorporateRecord(db,{recordId:need(ctx,"--record-id"),assertion:need(ctx,"--assertion"),actor:actor(ctx)})}); } finally {db.close();} });
   dispatch.on("corporate-record", "supersede", (ctx) => { confirm(ctx); const db=openWorkspaceControlDb(workspace(ctx)); try { ctx.emitResult({ok:true,payloadHash:supersedeCorporateRecord(db,{recordId:need(ctx,"--record-id"),replacementRecordId:need(ctx,"--replacement-record-id"),reason:need(ctx,"--reason"),actor:actor(ctx)})}); } finally {db.close();} });
+  dispatch.on("company-knowledge", "context", (ctx) => { const db=openWorkspaceControlReadOnlyDb(workspace(ctx));try{const company=need(ctx,"--company");ctx.emitResult({ok:true,context:queryCompanyKnowledge(db,{companySlug:company,asOf:need(ctx,"--as-of"),includeProposed:ctx.arg("--include-proposed")==="yes"}),history:companyKnowledgeHistory(db,company)});}finally{db.close();} });
+  dispatch.on("company-knowledge", "propose", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,assertion:proposeCompanyKnowledge(db,{...json(ctx,"--input"),companySlug:need(ctx,"--company"),actor:actor(ctx),principal:principal(ctx)}as any)});}finally{db.close();} });
+  dispatch.on("company-knowledge", "review", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,assertion:reviewCompanyKnowledge(db,{assertionId:need(ctx,"--assertion-id"),decision:need(ctx,"--decision") as any,reason:ctx.arg("--reason")??undefined,actor:actor(ctx),principal:principal(ctx)})});}finally{db.close();} });
+  dispatch.on("company-knowledge", "supersede", (ctx) => { confirm(ctx);const db=openWorkspaceControlDb(workspace(ctx));try{ctx.emitResult({ok:true,...supersedeCompanyKnowledge(db,{assertionId:need(ctx,"--assertion-id"),replacement:json(ctx,"--replacement") as any,actor:actor(ctx),principal:principal(ctx)})});}finally{db.close();} });
 }

@@ -243,11 +243,18 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("inspect", mcp("corporate_record_inspect"), "Read visible metadata/history."),
     read("download", mcp("corporate_record_download"), "Read verified original bytes only after scope authorization.", { dependsOn:["inspect"] }),
   ], unsupportedBoundaries:["Corporate records are governance evidence, never accounting vouchers or filing actions.", "Original bytes and hashes are never overwritten or deleted."] }),
+  workflow({ id:"company-knowledge-lifecycle", capabilityId:"company-knowledge", title:"Company operating knowledge", intendedOutcome:"Retrieve or maintain source-backed, effective-dated operating context without changing canonical accounting settings.", steps:[
+    read("context",mcp("company_knowledge_context"),"Read compact machine-readable context as of a declared date."),
+    write("propose",mcp("company_knowledge_propose"),"Propose one typed, sourced assertion without a ledger effect.",{canonicalRecords:["company knowledge assertion"]}),
+    write("review",mcp("company_knowledge_review"),"Approve or reject exactly one assertion append-only.",{dependsOn:["propose"],boundary:"approval",canonicalRecords:["company knowledge review event"]}),
+    write("supersede",mcp("company_knowledge_supersede"),"Replace approved context through a new assertion and supersession link.",{dependsOn:["review"],canonicalRecords:["company knowledge supersession"]}),
+  ],unsupportedBoundaries:["Knowledge never changes ledger, VAT, legal classification or group membership automatically.","Conflicting approved singleton facts remain conflicts; no latest-write selection occurs."]}),
 ];
 
 type CapabilityTuple = [string, string, string, string, string[], string[], AgentScope, string[]];
 const capabilityTuples: CapabilityTuple[] = [
   ["company-workspace", "Company and workspace setup", "Set up and discover companies without leaking inaccessible state.", "company", ["create company", "switch company", "discover workspace"], ["setup", "workspace", "company profile"], "workspace", ["company-workspace-setup"]],
+  ["company-knowledge", "Company operating knowledge", "Retrieve and review source-backed, dated company operating facts.", "company", ["company context", "operating profile", "company knowledge"], ["knowledge", "products", "revenue model", "market"], "company", ["company-knowledge-lifecycle"]],
   ["document-intake", "Document and mail intake", "Store source documents and mail attachments for review.", "documents", ["ingest document", "mail intake", "review invoice extraction"], ["bilag", "imap", "attachment"], "company", ["document-mail-intake"]],
   ["bank-bookkeeping", "Bank reconciliation and bookkeeping batch", "Import activity, review matches and apply a hash-bound batch.", "bank", ["reconcile bank", "match bank transactions", "bookkeeping batch"], ["bank import", "dry run", "plan hash"], "company", ["bank-reconciliation-batch"]],
   ["supplier-purchases", "Supplier expenses and payables", "Book supplier invoices directly or through payable handling.", "purchases", ["book supplier invoice", "pay supplier invoice", "book expense"], ["vendor", "payable", "purchase VAT"], "company", ["supplier-expense-booking", "supplier-payable-handling"]],
@@ -382,11 +389,11 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 155, hash: "078b8f8c742482d9007b12778a1d70509089581e13b2b9135e67bcefaf9e8ede" },
-  cli: { count: 219, hash: "a63a4f63b83736f9644773dd37cefd98d1c7d4ff954d361412662d2694a454a6" },
+  mcp: { count: 159, hash: "03bda4d888ff66b29ec293fc3ca0c3f17c08e0f71fcf401166cf6b595bad2224" },
+  cli: { count: 223, hash: "e4a0b0652021c07a524e62f15d47ca3bbd9658bbb6f43b3daf4f25b0846b82d0" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 158, hash: "b0c3b65a32184dc9dd12fd863b2c8609807db5360e6535bab50c47cdd71962c9" },
+  http: { count: 162, hash: "e9083e55745805351acfd3d2cafa396e1ba4947f6a56e0a9ae6408ebd62945e6" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
@@ -409,6 +416,7 @@ const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }>
   { capabilityId: "planning-reporting", pattern: /(?:report|dashboard|budget|cashflow|tax_return|tax\b|annual|accrual|compliance|obligations|multi-year)/ },
   { capabilityId: "operations-assurance", pattern: /(?:system|audit|health|ready|retention|integrity|backup|meta_about|agent[_-]capabilit|agent[_-]workflow|agent run|reg coverage|reg citations|serve|local start)/ },
   { capabilityId: "company-workspace", pattern: /(?:company|companies|workspace|accounts?|cvr|contacts|members|invitations|^cli:init$|^http:get \/api$|^http:get \/api\/health$|^http:get \/api\/rules$|^http:get \/api\/me$)/ },
+  { capabilityId: "company-knowledge", pattern: /(?:company[_-]knowledge|\/knowledge)/ },
 ];
 
 export const AGENT_DISCOVERY_COVERAGE_RULES_HASH = createHash("sha256")

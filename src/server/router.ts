@@ -91,7 +91,7 @@ import {
 } from "./router/portfolio";
 import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
 import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
-import { handleRegistryParties, handleRegistryParty, handleRegistryPartyCreate, handleRegistryPartyMerge, handleRegistryPartyRole, handleRegistryRecord, handleRegistryRecordAction, handleRegistryRecordDownload, handleRegistryRecordIngest, handleRegistryRecords } from "./router/workspace-registry";
+import { handleCompanyKnowledge, handleCompanyKnowledgeAction, handleRegistryParties, handleRegistryParty, handleRegistryPartyCreate, handleRegistryPartyMerge, handleRegistryPartyRole, handleRegistryRecord, handleRegistryRecordAction, handleRegistryRecordDownload, handleRegistryRecordIngest, handleRegistryRecords } from "./router/workspace-registry";
 import {
   handleCompanyBalance,
   handleCompanyIncomeStatement,
@@ -292,6 +292,10 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/corporate-records/:recordId/link", summary: "Knytter corporate record scope (#575)." },
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/corporate-records/:recordId/enrich", summary: "Beriger corporate record append-only (#575)." },
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/corporate-records/:recordId/supersede", summary: "Supersederer corporate record append-only (#575)." },
+  { scope: "company", effect: "read", permission: "company.knowledge.read", method: "GET", pattern: "/api/companies/:slug/knowledge", summary: "Kompakt, kildeunderbygget virksomheds-kontekst (#574)." },
+  { scope: "company", effect: "write", permission: "company.knowledge.manage", method: "POST", pattern: "/api/companies/:slug/knowledge/propose", summary: "Foreslår en dateret knowledge assertion (#574)." },
+  { scope: "company", effect: "write", permission: "company.knowledge.manage", method: "POST", pattern: "/api/companies/:slug/knowledge/review", summary: "Godkender eller afviser en præcis knowledge assertion (#574)." },
+  { scope: "company", effect: "write", permission: "company.knowledge.manage", method: "POST", pattern: "/api/companies/:slug/knowledge/supersede", summary: "Supersederer godkendt knowledge append-only (#574)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dashboard", summary: "Virksomhedens dashboard." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/fiscal-years", summary: "Kendte regnskabsår." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/overview", summary: "Nøgletalsoverblik." },
@@ -742,6 +746,10 @@ export async function handleRequest(
     if (recordFile) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryRecordDownload(config,decodeURIComponent(recordFile[1]!),decodeURIComponent(recordFile[2]!)); }
     const recordOne = /^\/api\/companies\/([^/]+)\/corporate-records\/([^/]+)$/.exec(path);
     if (recordOne) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryRecord(config,decodeURIComponent(recordOne[1]!),decodeURIComponent(recordOne[2]!)); }
+    const knowledge = /^\/api\/companies\/([^/]+)\/knowledge$/.exec(path);
+    if (knowledge) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleCompanyKnowledge(config,decodeURIComponent(knowledge[1]!),request); }
+    const knowledgeAction = /^\/api\/companies\/([^/]+)\/knowledge\/(propose|review|supersede)$/.exec(path);
+    if (knowledgeAction) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleCompanyKnowledgeAction(config,decodeURIComponent(knowledgeAction[1]!),request,knowledgeAction[2]! as "propose"|"review"|"supersede"); }
 
     if (path === "/api/group-overview") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");

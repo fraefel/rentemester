@@ -54,6 +54,8 @@ export const WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_ID = 19;
 export const WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_NAME = "rentemester-party-assertions-v19";
 export const WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_ID = 20;
 export const WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_NAME = "rentemester-corporate-record-governance-v20";
+export const WORKSPACE_CONTROL_COMPANY_KNOWLEDGE_MIGRATION_ID = 21;
+export const WORKSPACE_CONTROL_COMPANY_KNOWLEDGE_MIGRATION_NAME = "rentemester-company-knowledge-v21";
 
 const baselineArtifact = readFileSync(
   join(import.meta.dir, "workspace-migrations", "0001-workspace-control-baseline.json"),
@@ -85,6 +87,7 @@ const workspaceServicePrincipalsArtifact = readFileSync(join(import.meta.dir, "w
 const workspaceServicePrincipalSagaArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0018-service-principal-saga-v18.json"));
 const workspacePartyAssertionsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0019-party-assertions-v19.json"));
 const workspaceCorporateRecordGovernanceArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0020-corporate-record-governance-v20.json"));
+const workspaceCompanyKnowledgeArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0021-company-knowledge-v21.json"));
 
 export const WORKSPACE_CONTROL_BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(baselineArtifact)
@@ -116,6 +119,7 @@ export const WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_CHECKSUM = createHas
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceServicePrincipalSagaArtifact).digest("hex");
 export const WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_CHECKSUM = createHash("sha256").update(workspacePartyAssertionsArtifact).digest("hex");
 export const WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceCorporateRecordGovernanceArtifact).digest("hex");
+export const WORKSPACE_CONTROL_COMPANY_KNOWLEDGE_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceCompanyKnowledgeArtifact).digest("hex");
 
 export type WorkspaceControlPaths = {
   root: string;
@@ -187,6 +191,7 @@ const migrations: readonly WorkspaceMigration[] = [
   { id: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_ID, name: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM, artifact: workspaceServicePrincipalSagaArtifact },
   { id: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_ID, name: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_CHECKSUM, artifact: workspacePartyAssertionsArtifact },
   { id: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_ID, name: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_CHECKSUM, artifact: workspaceCorporateRecordGovernanceArtifact },
+  { id: WORKSPACE_CONTROL_COMPANY_KNOWLEDGE_MIGRATION_ID, name: WORKSPACE_CONTROL_COMPANY_KNOWLEDGE_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_COMPANY_KNOWLEDGE_MIGRATION_CHECKSUM, artifact: workspaceCompanyKnowledgeArtifact },
 ];
 
 /** Latest immutable control-schema migration this runtime can safely serve. */
@@ -467,6 +472,8 @@ export function assertWorkspaceControlPrimitives(db: Database): void {
     "rm_party_legacy_links",
     "rm_corporate_record_events",
     "rm_corporate_record_scope_assertions",
+    "rm_company_knowledge_assertions",
+    "rm_company_knowledge_events",
   ]) {
     if (!tableExists(db, table)) {
       throw new Error(`workspace control access table '${table}' is missing`);

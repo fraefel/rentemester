@@ -28,9 +28,11 @@ const COMPANY_PERMISSIONS: Readonly<Record<CompanyRole, readonly RoutePermission
     "company.ledger.post",
     "company.export",
     "company.external-lookup",
+    "company.knowledge.read",
+    "company.knowledge.manage",
   ],
-  reviewer: ["company.read", "company.documents.read", "company.review", "company.export"],
-  reader: ["company.read", "company.documents.read", "company.export"],
+  reviewer: ["company.read", "company.documents.read", "company.review", "company.export", "company.knowledge.read", "company.knowledge.manage"],
+  reader: ["company.read", "company.documents.read", "company.export", "company.knowledge.read"],
 };
 
 export const ROUTE_PERMISSION_POLICY: Readonly<Record<CompanyRole | WorkspaceRole, readonly RoutePermission[]>> = {

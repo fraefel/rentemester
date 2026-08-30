@@ -23,6 +23,8 @@ export const ROUTE_PERMISSIONS = [
   "company.external-lookup",
   "company.external-send",
   "company.admin",
+  "company.knowledge.read",
+  "company.knowledge.manage",
 ] as const;
 
 export type RoutePermission = typeof ROUTE_PERMISSIONS[number];

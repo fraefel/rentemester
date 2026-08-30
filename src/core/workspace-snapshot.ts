@@ -60,6 +60,8 @@ export type WorkspaceSnapshotManifestV1 = {
   ownershipGraph?: ManifestFile;
   /** Canonical party provenance and immutable corporate evidence; no auth data. */
   workspaceRegistry?: ManifestFile;
+  /** Append-only, workspace-only intercompany evidence lifecycle; no credentials. */
+  intercompanyDispositions?: ManifestFile;
   workspaceInbox?: ManifestFile;
   companies: Array<{
     slug: string;
@@ -151,6 +153,7 @@ export function createWorkspaceSnapshot(
     let companyKnowledge: ManifestFile | undefined;
     let ownershipGraph: ManifestFile | undefined;
     let workspaceRegistry: ManifestFile | undefined;
+    let intercompanyDispositions: ManifestFile | undefined;
     let workspaceInbox: ManifestFile | undefined;
     if (existsSync(controlDbPath)) {
       const controlDb = openWorkspaceControlDb(workspaceRoot);
@@ -161,6 +164,20 @@ export function createWorkspaceSnapshot(
           const path = join(staging, "company-knowledge.json");
           writeFileAtomic(path, `${JSON.stringify({ version: 1, assertions, events })}\n`);
           companyKnowledge = fileEvidence(staging, path);
+        }
+      } finally { controlDb.close(); }
+    }
+    if (existsSync(controlDbPath)) {
+      const controlDb = openWorkspaceControlDb(workspaceRoot);
+      try {
+        const dispositions = controlDb.query("SELECT disposition_id,canonical_payload,payload_hash,created_at FROM rm_intercompany_dispositions ORDER BY disposition_id").all();
+        const events = controlDb.query("SELECT disposition_id,event_type,payload_hash,canonical_payload,actor,principal_kind,principal_id,previous_hash,event_hash,created_at FROM rm_intercompany_disposition_events ORDER BY id").all();
+        const links = controlDb.query("SELECT disposition_id,side,company_slug,journal_entry_id,journal_entry_no,journal_entry_hash,ledger_head_hash,linked_at,actor,principal_kind,principal_id FROM rm_intercompany_disposition_journal_links ORDER BY disposition_id,side").all();
+        const lifecycleEvents = controlDb.query("SELECT disposition_id,event_type,payload_hash,canonical_payload,actor,principal_kind,principal_id,previous_hash,event_hash,created_at FROM rm_intercompany_disposition_lifecycle_events ORDER BY id").all();
+        if ([dispositions, events, links, lifecycleEvents].some((rows) => rows.length > 0)) {
+          const path = join(staging, "intercompany-dispositions.json");
+          writeFileAtomic(path, `${JSON.stringify({ version: 1, dispositions, events, links, lifecycleEvents })}\n`);
+          intercompanyDispositions = fileEvidence(staging, path);
         }
       } finally { controlDb.close(); }
     }
@@ -243,6 +260,7 @@ export function createWorkspaceSnapshot(
       ...(companyKnowledge ? { companyKnowledge } : {}),
       ...(ownershipGraph ? { ownershipGraph } : {}),
       ...(workspaceRegistry ? { workspaceRegistry } : {}),
+      ...(intercompanyDispositions ? { intercompanyDispositions } : {}),
       ...(workspaceInbox ? { workspaceInbox } : {}),
       companies: companyEntries.sort((a, b) => a.slug.localeCompare(b.slug)),
     };
@@ -286,6 +304,7 @@ function parseManifest(raw: string): WorkspaceSnapshotManifestV1 | null {
       (value.companyKnowledge !== undefined && !isManifestFile(value.companyKnowledge)) ||
       (value.ownershipGraph !== undefined && !isManifestFile(value.ownershipGraph)) ||
       (value.workspaceRegistry !== undefined && !isManifestFile(value.workspaceRegistry)) ||
+      (value.intercompanyDispositions !== undefined && !isManifestFile(value.intercompanyDispositions)) ||
       (value.workspaceInbox !== undefined && !isManifestFile(value.workspaceInbox)) ||
       !Array.isArray(value.companies) || value.companies.length === 0) return null;
     const slugs = new Set<string>();
@@ -354,10 +373,10 @@ export function restoreWorkspaceSnapshot(input: {
     const manifestPath = join(extracted, "manifest.json");
     const manifest = existsSync(manifestPath) ? parseManifest(readFileSync(manifestPath, "utf8")) : null;
     if (!manifest) throw new Error("workspace snapshot manifest is invalid");
-    const expected = ["manifest.json", manifest.workspaceManifest.path, manifest.accessPlan.path, ...(manifest.companyKnowledge ? [manifest.companyKnowledge.path] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph.path] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry.path] : []), ...(manifest.workspaceInbox ? [manifest.workspaceInbox.path] : []),
+    const expected = ["manifest.json", manifest.workspaceManifest.path, manifest.accessPlan.path, ...(manifest.companyKnowledge ? [manifest.companyKnowledge.path] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph.path] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry.path] : []), ...(manifest.intercompanyDispositions ? [manifest.intercompanyDispositions.path] : []), ...(manifest.workspaceInbox ? [manifest.workspaceInbox.path] : []),
       ...manifest.companies.map((company) => company.backup.path)].sort();
     if (JSON.stringify(written) !== JSON.stringify(expected)) throw new Error("workspace snapshot contains unlisted files");
-    for (const file of [manifest.workspaceManifest, manifest.accessPlan, ...(manifest.companyKnowledge ? [manifest.companyKnowledge] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry] : []), ...(manifest.workspaceInbox ? [manifest.workspaceInbox] : []), ...manifest.companies.map((company) => company.backup)]) {
+    for (const file of [manifest.workspaceManifest, manifest.accessPlan, ...(manifest.companyKnowledge ? [manifest.companyKnowledge] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry] : []), ...(manifest.intercompanyDispositions ? [manifest.intercompanyDispositions] : []), ...(manifest.workspaceInbox ? [manifest.workspaceInbox] : []), ...manifest.companies.map((company) => company.backup)]) {
       const error = verifyFile(extracted, file);
       if (error) throw new Error(error);
     }
@@ -390,6 +409,17 @@ export function restoreWorkspaceSnapshot(input: {
         for (const row of raw.corporate.events) controlDb.query("INSERT INTO rm_corporate_record_events(record_id,event_type,record_type,payload_hash,canonical_payload,actor,created_at) VALUES(?,?,?,?,?,?,?)").run(row.record_id,row.event_type,row.record_type,row.payload_hash,row.canonical_payload,row.actor,row.created_at);
         for (const row of raw.corporate.links) controlDb.query("INSERT INTO rm_corporate_record_links(record_id,link_type,link_id) VALUES(?,?,?)").run(row.record_id,row.link_type,row.link_id);
         for (const row of raw.corporate.scopes) controlDb.query("INSERT INTO rm_corporate_record_scope_assertions(record_id,scope_kind,scope_id,actor,created_at) VALUES(?,?,?,?,?)").run(row.record_id,row.scope_kind,row.scope_id,row.actor,row.created_at);
+      })(); } finally { controlDb.close(); }
+    }
+    if (manifest.intercompanyDispositions) {
+      const raw = JSON.parse(readFileSync(join(extracted, ...manifest.intercompanyDispositions.path.split("/")), "utf8")) as any;
+      if (raw.version !== 1 || ![raw.dispositions, raw.events, raw.links, raw.lifecycleEvents].every(Array.isArray)) throw new Error("intercompany disposition snapshot is invalid");
+      const controlDb = openWorkspaceControlDb(staging);
+      try { controlDb.transaction(() => {
+        for (const row of raw.dispositions) controlDb.query("INSERT INTO rm_intercompany_dispositions(disposition_id,canonical_payload,payload_hash,created_at) VALUES(?,?,?,?)").run(row.disposition_id,row.canonical_payload,row.payload_hash,row.created_at);
+        for (const row of raw.events) controlDb.query("INSERT INTO rm_intercompany_disposition_events(disposition_id,event_type,payload_hash,canonical_payload,actor,principal_kind,principal_id,previous_hash,event_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)").run(row.disposition_id,row.event_type,row.payload_hash,row.canonical_payload,row.actor,row.principal_kind,row.principal_id,row.previous_hash,row.event_hash,row.created_at);
+        for (const row of raw.links) controlDb.query("INSERT INTO rm_intercompany_disposition_journal_links(disposition_id,side,company_slug,journal_entry_id,journal_entry_no,journal_entry_hash,ledger_head_hash,linked_at,actor,principal_kind,principal_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(row.disposition_id,row.side,row.company_slug,row.journal_entry_id,row.journal_entry_no,row.journal_entry_hash,row.ledger_head_hash,row.linked_at,row.actor,row.principal_kind,row.principal_id);
+        for (const row of raw.lifecycleEvents) controlDb.query("INSERT INTO rm_intercompany_disposition_lifecycle_events(disposition_id,event_type,payload_hash,canonical_payload,actor,principal_kind,principal_id,previous_hash,event_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)").run(row.disposition_id,row.event_type,row.payload_hash,row.canonical_payload,row.actor,row.principal_kind,row.principal_id,row.previous_hash,row.event_hash,row.created_at);
       })(); } finally { controlDb.close(); }
     }
     if (manifest.workspaceInbox) { const raw=JSON.parse(readFileSync(join(extracted,...manifest.workspaceInbox.path.split("/")),"utf8")) as any;if(raw.version!==1||![raw.sources,raw.events,raw.assignments,raw.exceptions,raw.claims].every(Array.isArray))throw new Error("workspace inbox snapshot is invalid");const db=openWorkspaceControlDb(staging);try{db.transaction(()=>{for(const row of raw.sources){const body=Buffer.from(String(row.original_bytes_base64),"base64");if(sha256(body)!==row.sha256)throw new Error("workspace inbox snapshot hash mismatch");db.query("INSERT INTO rm_workspace_inbox_sources(source_id,visibility_anchor_slug,idempotency_key,original_bytes,sha256,filename,mime_type,transport,transport_identity,received_at,metadata_json,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(row.source_id,row.visibility_anchor_slug,row.idempotency_key,body,row.sha256,row.filename,row.mime_type,row.transport,row.transport_identity,row.received_at,row.metadata_json,row.created_by,row.created_at);}for(const row of raw.events)db.query("INSERT INTO rm_workspace_inbox_events(source_id,event_type,payload_hash,canonical_payload,actor,created_at) VALUES(?,?,?,?,?,?)").run(row.source_id,row.event_type,row.payload_hash,row.canonical_payload,row.actor,row.created_at);for(const row of raw.assignments)db.query("INSERT INTO rm_workspace_inbox_assignments(source_id,company_slug,state,document_id,document_no,assigned_by,assigned_at,completed_at) VALUES(?,?,?,?,?,?,?,?)").run(row.source_id,row.company_slug,row.state,row.document_id,row.document_no,row.assigned_by,row.assigned_at,row.completed_at);for(const row of raw.exceptions)db.query("INSERT INTO rm_workspace_inbox_exceptions(source_id,code,required_action,opened_at,resolved_at) VALUES(?,?,?,?,?)").run(row.source_id,row.code,row.required_action,row.opened_at,row.resolved_at);for(const row of raw.claims)db.query("INSERT INTO rm_workspace_inbox_handoff_claims(source_id,company_slug,source_hash,state,claim_id,lease_expires_at,document_id,document_no,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)").run(row.source_id,row.company_slug,row.source_hash,row.state,row.claim_id,row.lease_expires_at,row.document_id,row.document_no,row.created_at,row.updated_at);})()}finally{db.close();}}

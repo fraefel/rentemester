@@ -6,9 +6,10 @@ const groupReconciliation = vi.fn();
 const groupEliminations = vi.fn();
 const groupReportProfiles = vi.fn();
 const groupConsolidatedReport = vi.fn();
+const intercompanyDispositionStatus = vi.fn();
 vi.mock("../lib/api", () => ({ api: {
   groupOverview, groupReconciliation, groupEliminations,
-  groupReportProfiles, groupConsolidatedReport,
+  groupReportProfiles, groupConsolidatedReport, intercompanyDispositionStatus,
 } }));
 
 import { GroupOverviewView } from "./GroupOverviewView";
@@ -55,6 +56,19 @@ describe("GroupOverviewView", () => {
     await waitFor(() => expect(groupOverview).toHaveBeenLastCalledWith("2026-01-31"));
     await waitFor(() => expect(groupReconciliation).toHaveBeenLastCalledWith("2026-01-31"));
     await waitFor(() => expect(groupEliminations).toHaveBeenLastCalledWith("2026-01-31"));
+  });
+
+  test("shows a disposition lifecycle response and fails closed on a server denial", async () => {
+    intercompanyDispositionStatus.mockResolvedValue({ status: "partly_posted", exceptions: [{ kind: "one_sided_posting" }] });
+    render(<GroupOverviewView />);
+    await screen.findByRole("heading", { name: "Intercompany dispositioner" });
+    fireEvent.change(screen.getByLabelText("Disposition-ID"), { target: { value: "synthetic-disposition" } });
+    fireEvent.click(screen.getByRole("button", { name: "Vis status" }));
+    expect(await screen.findByText("one_sided_posting")).toBeInTheDocument();
+    expect(intercompanyDispositionStatus).toHaveBeenCalledWith("synthetic-disposition", expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    intercompanyDispositionStatus.mockRejectedValueOnce(new Error("unauthorized"));
+    fireEvent.click(screen.getByRole("button", { name: "Vis status" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Dispositionen kan ikke vises med din aktuelle adgang.");
   });
 
   test("fails closed on a partial/unsafe group contract", async () => {

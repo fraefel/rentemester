@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { activateWorkspaceUser, authorizeWorkspaceRoute, grantCompanyMembership } from "../../src/core/workspace-access";
+import { activateWorkspaceUser, authorizeWorkspaceRoute, grantCompanyMembership, revokeCompanyMembership } from "../../src/core/workspace-access";
 import { openWorkspaceControlDb } from "../../src/core/workspace-control";
 import { createWorkspaceServicePrincipal, recoverWorkspaceServicePrincipalOperation, revokeWorkspaceServiceCredential, rotateWorkspaceServiceCredential } from "../../src/core/workspace-service-principals";
 import { createBetterAuthRequestProvider, openWorkspaceBetterAuth, WORKSPACE_SERVICE_PRINCIPAL_HEADER } from "../../src/server/better-auth";
+import { createParty } from "../../src/core/party-registry";
+import { ingestCorporateRecord } from "../../src/core/corporate-records";
+import { approveIntercompanyDisposition, proposeIntercompanyDisposition } from "../../src/core/intercompany-dispositions";
 import { ROUTE_CATALOG } from "../../src/server/router";
 import { config, get, handleRequest, makeWorkspace } from "./server-api/_shared";
 
@@ -138,6 +141,16 @@ describe("workspace service principals", () => {
     } finally {
       db.close(); runtime.close(); rmSync(workspace, { recursive: true, force: true });
     }
+  });
+
+  test("hosted intercompany status requires both current endpoint memberships and never treats actor as authority", async () => {
+    const workspace=makeWorkspace("service-principal-intercompany-http",["Alpha ApS","Beta ApS"]);const runtime=openWorkspaceBetterAuth(workspace,{secret:SECRET,trustedOrigins:[ORIGIN],baseURL:ORIGIN});const db=openWorkspaceControlDb(workspace);
+    try { const party=createParty(db,{partyId:"party-http",kind:"organization",name:"Synthetic party",source:"synthetic",observedAt:"2026-01-01T00:00:00Z",reviewAssertion:"synthetic",actor:"user:maker"});const record=ingestCorporateRecord(db,{recordId:"record-http",type:"intercompany_agreement",bytes:new TextEncoder().encode("synthetic"),filename:"synthetic.txt",source:"synthetic",receivedAt:"2026-01-01T00:00:00Z",uploader:"user:maker",actor:"user:maker"});const input={dispositionId:"disposition-http",type:"loan" as const,economicDate:"2026-02-01",amount:125.5,currency:"DKK",partyIds:[party.partyId],evidenceRecordIds:[record.recordId],left:{companySlug:"alpha-aps",role:"lender",expectedSide:"receivable" as const},right:{companySlug:"beta-aps",role:"borrower",expectedSide:"payable" as const}};const proposal=proposeIntercompanyDisposition(db,input,{actor:"user:maker",principal:{kind:"user",id:"maker"}});approveIntercompanyDisposition(db,input.dispositionId,proposal.payloadHash,{actor:"user:review",principal:{kind:"user",id:"review"}});
+      const issued=await createWorkspaceServicePrincipal(db,runtime.auth,{displayName:"intercompany reader",actor:"user:owner"});activateWorkspaceUser(db,{userId:issued.serviceAccountId,workspaceRole:"workspace_owner",actor:"user:owner"});grantCompanyMembership(db,workspace,{userId:issued.serviceAccountId,companySlug:"alpha-aps",role:"reader",actor:"user:owner"});const hosted=config({workspaceRoot:workspace,deploymentProfile:"hosted",betterAuthProvider:createBetterAuthRequestProvider(runtime.auth)});const path="/api/group-dispositions/disposition-http";const header=(secret:string)=>({[WORKSPACE_SERVICE_PRINCIPAL_HEADER]:secret});
+      const partial=await get(hosted,path,{headers:{...header(issued.secret),actor:"user:attacker"}});expect(partial.status).toBe(401);expect(JSON.stringify(partial.body)).not.toContain("beta-aps");expect(JSON.stringify(partial.body)).not.toContain("links");expect((await get(hosted,path,{headers:{actor:"user:attacker"}})).status).toBe(401);
+      grantCompanyMembership(db,workspace,{userId:issued.serviceAccountId,companySlug:"beta-aps",role:"reader",actor:"user:owner"});const allowed=await get(hosted,path,{headers:header(issued.secret)});expect(allowed.status).toBe(200);expect(allowed.body.status).toBe("approved");
+      const rotated=await rotateWorkspaceServiceCredential(db,runtime.auth,{serviceAccountId:issued.serviceAccountId,credentialId:issued.credentialId,actor:"user:owner"});expect((await get(hosted,path,{headers:header(issued.secret)})).status).toBe(401);expect((await get(hosted,path,{headers:header(rotated.secret)})).status).toBe(200);revokeCompanyMembership(db,workspace,{userId:issued.serviceAccountId,companySlug:"beta-aps",actor:"user:owner"});expect((await get(hosted,path,{headers:header(rotated.secret)})).status).toBe(401);
+    } finally {db.close();runtime.close();rmSync(workspace,{recursive:true,force:true});}
   });
 
   test("hosted owner lifecycle is confirm-gated, no-store, secret-once and live-revocable", async () => {

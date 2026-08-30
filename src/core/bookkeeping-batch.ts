@@ -67,6 +67,14 @@ function loadPurchaseEvidence(db: Database, companyId: number, documentId: numbe
   return { document, bank, context: { company: companyId, documentId, supplierIdentity: document.sender_name ?? undefined, supplierCountry: document.supplier_country_code ?? undefined, supplierVat: document.sender_vat_cvr ?? undefined, documentType: document.document_type, currency: document.currency, amount: Number(document.amount_inc_vat ?? 0), vatAmount: Number(document.vat_amount ?? 0) } };
 }
 function evidenceHash(evidence: PurchaseEvidence) { return hash({ document: evidence.document, bank: evidence.bank }); }
+/** Party defaults are review hints only: a posting rule and VAT preflight stay
+ * the exclusive gates for a batch becoming executable. The snapshot was bound
+ * to the document link, so this read never reaches across into workspace DB. */
+function partyDefaultSuggestion(db: Database, documentId: number) {
+  const row=db.query("SELECT party_id,party_role,party_snapshot_json FROM current_document_party_links WHERE document_id=? ORDER BY CASE party_role WHEN 'supplier' THEN 0 WHEN 'vendor' THEN 1 ELSE 2 END,id DESC LIMIT 1").get(documentId) as {party_id:string;party_role:string;party_snapshot_json:string}|null;
+  if(!row)return null;
+  try { const snapshot=JSON.parse(row.party_snapshot_json) as {roles?:Array<{role?:string;defaults?:unknown}>}; const role=snapshot.roles?.find(item=>item.role===row.party_role); const defaults=role?.defaults; if(!defaults||typeof defaults!=="object"||Array.isArray(defaults))return null; const d=defaults as Record<string,unknown>; return {partyId:row.party_id,role:row.party_role,account:typeof d.account==="string"?d.account:null,vat:typeof d.vat==="string"?d.vat:null,currency:typeof d.currency==="string"?d.currency:null}; } catch { return null; }
+}
 function sourceIdentities(db: Database, plan: Omit<BookkeepingBatchPlan, "sourceIdentities" | "candidateSetHash" | "planHash">, ignoreRunId?: number) {
   const ready = plan.items.filter((item) => item.partition === "ready").map((item) => {
     // A receipt is the immutable effect of this exact reviewed revision. Its
@@ -131,7 +139,8 @@ export function planBookkeepingBatch(db: Database, input: BookkeepingBatchScope)
     const unambiguous = perDocument.get(pair.documentId) === 1;
     const vat = inspectPurchaseVatPreflight(db, pair.documentId);
     const ready = unambiguous && rule.decision === "proposed" && typeof rule.outcome.account === "string" && vat?.ok === true;
-    items.push({ actionKey: `purchase:${pair.documentId}:bank:${pair.bankId}`, evidenceHash: evidenceHash(evidence), partition: ready ? "ready" : "humanDecision", documentId: pair.documentId, bankTransactionId: pair.bankId, ruleApplication: rule.decision === "proposed" ? { ruleVersionId: rule.ruleVersionId, payloadHash: rule.payloadHash } : undefined, detail: { suggestion: pair.suggestion, unambiguous, vatReady: vat?.ok === true, rule: rule.decision === "proposed" ? { ruleVersionId: rule.ruleVersionId, payloadHash: rule.payloadHash, outcome: rule.outcome } : { reasons: rule.reasons } } });
+    const partyDefaults=partyDefaultSuggestion(db,pair.documentId);
+    items.push({ actionKey: `purchase:${pair.documentId}:bank:${pair.bankId}`, evidenceHash: evidenceHash(evidence), partition: ready ? "ready" : "humanDecision", documentId: pair.documentId, bankTransactionId: pair.bankId, ruleApplication: rule.decision === "proposed" ? { ruleVersionId: rule.ruleVersionId, payloadHash: rule.payloadHash } : undefined, detail: { suggestion: pair.suggestion, unambiguous, vatReady: vat?.ok === true, partyDefaults: partyDefaults ? { ...partyDefaults, advisoryOnly:true, neverOverrides:{postingRule:true,vatEvidence:true} } : null, rule: rule.decision === "proposed" ? { ruleVersionId: rule.ruleVersionId, payloadHash: rule.payloadHash, outcome: rule.outcome } : { reasons: rule.reasons } } });
   }
   for (const bank of banks) if (!pairs.some(pair => pair.bankId === bank.id)) items.push({ actionKey: `bank:${bank.id}`, evidenceHash: hash({ bankId: bank.id }), partition: "missingDocument", bankTransactionId: bank.id, detail: {} });
   items.sort((a, b) => a.actionKey.localeCompare(b.actionKey));

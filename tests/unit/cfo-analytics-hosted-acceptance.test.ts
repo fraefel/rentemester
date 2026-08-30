@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Database } from "bun:sqlite";
 import { companyPaths } from "../../src/core/paths";
 import { companyRootForSlug } from "../../src/core/workspace";
 import { queryCfoAnalytics } from "../../src/core/cfo-analytics";
@@ -40,6 +41,11 @@ describe("#581 hosted CFO analytics acceptance",()=>{
       postPnlEntry(workspace,"hidden-aps","2026-02-10",0,900);
       const allowedDb=companyPaths(companyRootForSlug(workspace,"allowed-aps")).db;
       const hiddenDb=companyPaths(companyRootForSlug(workspace,"hidden-aps")).db;
+      // Stabilise fixture bytes before measuring the read-only contract. Under
+      // parallel load SQLite may otherwise checkpoint already-committed WAL
+      // frames after the first digest, which changes container bytes without
+      // any logical write from the analytics request.
+      for (const path of [allowedDb,hiddenDb]) { const db=new Database(path); db.run("PRAGMA wal_checkpoint(TRUNCATE)"); db.close(); }
       const before=[digest(allowedDb),digest(hiddenDb)];
       const service=await createWorkspaceServicePrincipal(control,runtime.auth,{displayName:"CFO read-only",actor:"user:owner"});
       activateWorkspaceUser(control,{userId:service.serviceAccountId,workspaceRole:"member",actor:"user:owner"});

@@ -97,6 +97,10 @@ describe("#581 source-linked CFO analytics",()=>{
       const rows=(queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31"}) as any).rows.filter((row:any)=>row.sourceType==="ledger");
       expect(rows).not.toHaveLength(0);
       expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({partyId:"party-canonical",partyName:"Canonical supplier name",documentPartyName:"Leverandør ApS",partyLinkProvenance:expect.objectContaining({role:"vendor",evidenceKind:"exact_identifier"})})]));
+      const exact=(queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",party:"party-canonical"}) as any).rows;
+      expect(exact).not.toHaveLength(0);
+      expect(exact.every((row:any)=>row.partyId==="party-canonical")).toBeTrue();
+      expect((queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",party:"Leverandør ApS"}) as any).rows).toEqual([]);
     } finally { rmSync(ws,{recursive:true,force:true}); }
   });
   test("ignores superseded links and selects one current link without duplicate journal rows",()=>{

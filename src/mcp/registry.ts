@@ -152,8 +152,15 @@ function lockGuardServer(server: McpServer): McpServer {
   return new Proxy(server, {
     get(target, prop, receiver) {
       if (prop === "registerTool") {
-        return (name: string, config: { annotations?: { readOnlyHint?: boolean }; inputSchema?: Record<string, unknown> }, callback: (...a: unknown[]) => unknown) => {
+        return (name: string, config: { annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }; inputSchema?: Record<string, unknown>; description?: string }, callback: (...a: unknown[]) => unknown) => {
           const readOnly = config?.annotations?.readOnlyHint === true;
+          // Workspace-control mutations do not alter a company ledger. Give
+          // their runtime-published metadata the central reversible class if
+          // an adapter omitted it, rather than maintaining a second list of
+          // tool names next to the discovery/retry registry.
+          if (!readOnly && config?.annotations?.destructiveHint !== true && !/\bwrite-(?:reversible|irreversible)\b/i.test(config.description ?? "")) {
+            config = { ...config, description: `${config.description?.trim() ?? "Mutation."} Requires actor attribution and confirm:true; retry reads canonical state. write-reversible.` };
+          }
           // A retry key is a domain contract, never a registry-wide affordance.
           // Tools expose it only when their mutation and durable receipt are
           // committed in the same transaction (currently the five #583 tools).

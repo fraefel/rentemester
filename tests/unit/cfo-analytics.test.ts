@@ -8,6 +8,24 @@ import { makeWorkspace, openDb, postPnlEntry, seedArchiveYear } from "./server-a
 
 const digest=(file:string)=>createHash("sha256").update(readFileSync(file)).digest("hex");
 
+/** The link event is intentionally inserted as immutable fixture evidence.
+ * Analytics must consume the *current* ledger projection; it must never look
+ * up party names in the mutable workspace registry. */
+function appendPartyLink(db:any, documentId:number, input:{partyId:string;name:string;role?:string;plan?:string;event?:"linked"|"superseded"}) {
+  const document=db.query("SELECT sha256_hash,payload_json FROM documents WHERE id=?").get(documentId) as {sha256_hash:string;payload_json:string};
+  const payloadHash=createHash("sha256").update(document.payload_json).digest("hex");
+  const plan=input.plan??createHash("sha256").update(`${input.partyId}:${input.name}:${input.role??"vendor"}`).digest("hex");
+  db.query("INSERT INTO document_party_link_events(document_id,party_id,party_role,event_type,evidence_kind,evidence_json,document_sha256,document_payload_sha256,party_snapshot_json,plan_hash,reason,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+    documentId,input.partyId,input.role??"vendor",input.event??"linked","exact_identifier",JSON.stringify({kind:"synthetic_test_evidence"}),document.sha256_hash,payloadHash,JSON.stringify({partyId:input.partyId,kind:"organization",name:input.name}),plan,input.event==="superseded"?"Synthetic replacement":null,"user:test","user:test","2026-08-30T00:00:00.000Z",
+  );
+  return plan;
+}
+
+function firstDocumentId(ws:string, slug:string) {
+  const db=openDb(companyPaths(companyRootForSlug(ws,slug)).db);
+  try { return (db.query("SELECT id FROM documents ORDER BY id LIMIT 1").get() as {id:number}).id; } finally { db.close(); }
+}
+
 describe("#581 source-linked CFO analytics",()=>{
   test("combines live history and archive rows deterministically without mutating a ledger",()=>{
     const ws=makeWorkspace("cfo-analytics",["Alpha ApS"]);
@@ -59,7 +77,7 @@ describe("#581 source-linked CFO analytics",()=>{
       expect(first.reconciliation).toMatchObject({rowCount:2,amountByCurrency:{DKK:245}});
       expect(first.rows).toEqual(expect.arrayContaining([
         expect.objectContaining({sourceType:"archive",sourceId:expect.stringMatching(/^archive:/),journalEntryId:null,documentId:null}),
-        expect.objectContaining({sourceType:"ledger",sourceId:expect.stringMatching(/^journal:/),journalEntryId:expect.any(Number),documentId:expect.any(Number),documentHash:expect.stringMatching(/^[a-f0-9]{64}$/),partyName:"Leverandør ApS"}),
+        expect.objectContaining({sourceType:"ledger",sourceId:expect.stringMatching(/^journal:/),journalEntryId:expect.any(Number),documentId:expect.any(Number),documentHash:expect.stringMatching(/^[a-f0-9]{64}$/),partyId:null,partyName:null,documentPartyName:"Leverandør ApS"}),
       ]));
       // All double-entry ledger rows reconcile to zero when no account filter
       // is applied. Archive and live identities remain distinct and are never
@@ -68,6 +86,47 @@ describe("#581 source-linked CFO analytics",()=>{
       expect(trial.reconciliation.amountByCurrency).toEqual({DKK:0});
       expect(new Set(trial.rows.map((row:any)=>row.sourceId)).size).toBe(trial.rows.length);
       expect(digest(db)).toBe(before);
+    } finally { rmSync(ws,{recursive:true,force:true}); }
+  });
+  test("uses the current immutable document-party snapshot without name inference",()=>{
+    const ws=makeWorkspace("cfo-party-current",["Alpha ApS"]);
+    try {
+      postPnlEntry(ws,"alpha-aps","2026-02-10",0,125);
+      const db=openDb(companyPaths(companyRootForSlug(ws,"alpha-aps")).db);
+      try { appendPartyLink(db,firstDocumentId(ws,"alpha-aps"),{partyId:"party-canonical",name:"Canonical supplier name"}); } finally { db.close(); }
+      const rows=(queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31"}) as any).rows.filter((row:any)=>row.sourceType==="ledger");
+      expect(rows).not.toHaveLength(0);
+      expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({partyId:"party-canonical",partyName:"Canonical supplier name",documentPartyName:"Leverandør ApS",partyLinkProvenance:expect.objectContaining({role:"vendor",evidenceKind:"exact_identifier"})})]));
+    } finally { rmSync(ws,{recursive:true,force:true}); }
+  });
+  test("ignores superseded links and selects one current link without duplicate journal rows",()=>{
+    const ws=makeWorkspace("cfo-party-superseded",["Alpha ApS"]);
+    try {
+      postPnlEntry(ws,"alpha-aps","2026-02-10",0,125);
+      const db=openDb(companyPaths(companyRootForSlug(ws,"alpha-aps")).db);
+      try {
+        const documentId=firstDocumentId(ws,"alpha-aps");
+        const retired=appendPartyLink(db,documentId,{partyId:"party-retired",name:"Retired supplier",plan:"a".repeat(64)});
+        appendPartyLink(db,documentId,{partyId:"party-retired",name:"Retired supplier",plan:retired,event:"superseded"});
+        appendPartyLink(db,documentId,{partyId:"party-current",name:"Current supplier",role:"supplier",plan:"b".repeat(64)});
+      } finally { db.close(); }
+      const rows=(queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31"}) as any).rows.filter((row:any)=>row.sourceType==="ledger");
+      expect(rows).toHaveLength(3);
+      expect(rows.every((row:any)=>row.partyId==="party-current"&&row.partyName==="Current supplier")).toBeTrue();
+      expect(new Set(rows.map((row:any)=>row.sourceId)).size).toBe(rows.length);
+    } finally { rmSync(ws,{recursive:true,force:true}); }
+  });
+  test("does not leak a linked party from another legal company",()=>{
+    const ws=makeWorkspace("cfo-party-isolation",["Alpha ApS","Hidden ApS"]);
+    try {
+      postPnlEntry(ws,"alpha-aps","2026-02-10",0,125); postPnlEntry(ws,"hidden-aps","2026-02-10",0,125);
+      for (const [slug,partyId,name] of [["alpha-aps","party-alpha","Alpha canonical"],["hidden-aps","party-hidden","Hidden canonical"]] as const) {
+        const db=openDb(companyPaths(companyRootForSlug(ws,slug)).db); try { appendPartyLink(db,firstDocumentId(ws,slug),{partyId,name}); } finally { db.close(); }
+      }
+      const result=queryCfoAnalytics(ws,{scope:"portfolio",companySlugs:["alpha-aps","hidden-aps"],from:"2026-01-01",to:"2026-12-31"},["alpha-aps"]);
+      expect(JSON.stringify(result)).toContain("party-alpha");
+      expect(JSON.stringify(result)).not.toContain("party-hidden");
+      expect(JSON.stringify(result)).not.toContain("Hidden canonical");
     } finally { rmSync(ws,{recursive:true,force:true}); }
   });
 });

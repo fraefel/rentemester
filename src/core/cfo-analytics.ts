@@ -40,7 +40,13 @@ type Row = {
   companySlug: string; sourceType: "ledger" | "archive"; sourceHash: string;
   sourceId: string; journalEntryId: number | null; journalEntryNo: string | null;
   documentId: number | null; documentHash: string | null; partyId: string | null;
-  partyName: string | null; accountNo: string; accountName: string | null;
+  /** Canonical name from the immutable snapshot captured with the current link. */
+  partyName: string | null;
+  /** Original document extraction, retained separately from party identity. */
+  documentPartyName: string | null;
+  /** Hash-bound, immutable link evidence for the reported canonical party. */
+  partyLinkProvenance: {linkId:number;role:string;evidenceKind:string;planHash:string;linkedAt:string} | null;
+  accountNo: string; accountName: string | null;
   transactionDate: string; currency: string; amount: number; text: string | null;
   /** Approved classifications are a sidecar: never part of journal bytes. */
   dimensions: Array<{dimensionId:string;memberId:string;amountMinor:number;currency:string}>;
@@ -53,29 +59,41 @@ function canonicalCursor(row: Row): string { return [row.transactionDate,row.sou
 function decodeCursor(cursor: string | undefined): string | undefined { if (!cursor) return undefined; try { const result=Buffer.from(cursor,"base64url").toString("utf8"); if (result.split("|").length !== 5) throw new Error(); return result; } catch { throw new Error("cursor is invalid"); } }
 function encodeCursor(row: Row): string { return Buffer.from(canonicalCursor(row)).toString("base64url"); }
 
+function canonicalPartyLink(row: any): Pick<Row,"partyId"|"partyName"|"partyLinkProvenance"> {
+  if (row.partyLinkId == null) return {partyId:null,partyName:null,partyLinkProvenance:null};
+  try {
+    const snapshot=JSON.parse(String(row.partySnapshotJson));
+    // The snapshot is the legal, immutable statement at link time. Do not
+    // resolve a name through the mutable workspace registry, and fail closed
+    // if the event's identity and its captured snapshot disagree.
+    if (!snapshot || snapshot.partyId !== String(row.partyId) || typeof snapshot.name !== "string" || !snapshot.name.trim()) throw new Error("invalid party snapshot");
+    return {partyId:String(row.partyId),partyName:snapshot.name,partyLinkProvenance:{linkId:Number(row.partyLinkId),role:String(row.partyRole),evidenceKind:String(row.partyEvidenceKind),planHash:String(row.partyPlanHash),linkedAt:String(row.partyLinkedAt)}};
+  } catch { return {partyId:null,partyName:null,partyLinkProvenance:null}; }
+}
+
 function sourceRows(companySlug: string, companyRoot: string, input: Required<Pick<CfoAnalyticsInput,"from"|"to">> & Pick<CfoAnalyticsInput,"account"|"party"|"currency"|"dimension">): Row[] {
   const dbPath=companyPaths(companyRoot).db;
   if (!existsSync(dbPath)) return [];
   const db=openLedgerReadOnly(dbPath);
   try {
     db.exec("PRAGMA query_only=ON");
-    const ledger=db.query(`SELECT je.id AS journalEntryId,je.entry_no AS journalEntryNo,je.entry_hash AS sourceHash,je.transaction_date AS transactionDate,je.currency AS currency,je.text AS entryText,je.document_id AS documentId,d.sha256_hash AS documentHash,d.supplier_name AS partyName,jl.id AS lineId,jl.debit_amount-jl.credit_amount AS amount,jl.text AS lineText,a.account_no AS accountNo,a.name AS accountName,(SELECT allocations_json FROM current_accounting_dimension_assignments da WHERE da.journal_line_id=jl.id ORDER BY da.id DESC LIMIT 1) AS dimensionsJson FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id LEFT JOIN documents d ON d.id=je.document_id WHERE je.status='posted' AND je.reversal_of_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM journal_entries r WHERE r.reversal_of_entry_id=je.id) AND je.transaction_date BETWEEN ? AND ? ORDER BY je.transaction_date,je.id,jl.id`).all(input.from,input.to) as any[];
+    const ledger=db.query(`SELECT je.id AS journalEntryId,je.entry_no AS journalEntryNo,je.entry_hash AS sourceHash,je.transaction_date AS transactionDate,je.currency AS currency,je.text AS entryText,je.document_id AS documentId,d.sha256_hash AS documentHash,d.supplier_name AS documentPartyName,jl.id AS lineId,jl.debit_amount-jl.credit_amount AS amount,jl.text AS lineText,a.account_no AS accountNo,a.name AS accountName,(SELECT allocations_json FROM current_accounting_dimension_assignments da WHERE da.journal_line_id=jl.id ORDER BY da.id DESC LIMIT 1) AS dimensionsJson,pl.id AS partyLinkId,pl.party_id AS partyId,pl.party_role AS partyRole,pl.evidence_kind AS partyEvidenceKind,pl.party_snapshot_json AS partySnapshotJson,pl.plan_hash AS partyPlanHash,pl.created_at AS partyLinkedAt FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id LEFT JOIN documents d ON d.id=je.document_id LEFT JOIN current_document_party_links pl ON pl.id=(SELECT candidate.id FROM current_document_party_links candidate WHERE candidate.document_id=je.document_id ORDER BY CASE candidate.party_role WHEN 'supplier' THEN 0 WHEN 'issuer' THEN 1 WHEN 'vendor' THEN 2 WHEN 'customer' THEN 3 WHEN 'recipient' THEN 4 ELSE 99 END,candidate.id DESC LIMIT 1) WHERE je.status='posted' AND je.reversal_of_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM journal_entries r WHERE r.reversal_of_entry_id=je.id) AND je.transaction_date BETWEEN ? AND ? ORDER BY je.transaction_date,je.id,jl.id`).all(input.from,input.to) as any[];
     const archive=db.query(`SELECT y.id AS archiveId,y.source_system AS sourceSystem,y.fiscal_year AS fiscalYear,p.id AS postingId,p.line_no AS lineNo,p.account_no AS accountNo,p.account_name AS accountName,p.transaction_date AS transactionDate,p.voucher AS voucher,p.text AS text,p.amount AS amount,(SELECT archive_sha256 FROM dinero_import_archive_evidence e WHERE e.fiscal_year=y.fiscal_year ORDER BY e.id DESC LIMIT 1) AS sourceHash FROM import_archive_years y JOIN import_archive_postings p ON p.archive_year_id=y.id WHERE p.transaction_date BETWEEN ? AND ? ORDER BY p.transaction_date,y.id,p.line_no`).all(input.from,input.to) as any[];
     const account=normal(input.account), party=normal(input.party)?.toLocaleLowerCase(), currency=normal(input.currency)?.toUpperCase();
     // Journal lines are the legal ledger's DKK base amounts.  `je.currency`
     // describes the original posting context, not this line's unit, and must
     // never be used to label or aggregate base amounts as foreign currency.
     const dimensions=(raw:unknown):Row["dimensions"]=>{try{return Array.isArray(JSON.parse(String(raw??"[]")))?JSON.parse(String(raw??"[]")):[];}catch{return [];}};
-    const live:Row[]=ledger.map(row=>({companySlug,sourceType:"ledger",sourceHash:String(row.sourceHash),sourceId:`journal:${row.journalEntryId}:line:${row.lineId}`,journalEntryId:Number(row.journalEntryId),journalEntryNo:String(row.journalEntryNo),documentId:row.documentId==null?null:Number(row.documentId),documentHash:row.documentHash??null,partyId:null,partyName:row.partyName??null,accountNo:String(row.accountNo),accountName:row.accountName??null,transactionDate:String(row.transactionDate),currency:"DKK",amount:Number(row.amount),text:row.lineText??row.entryText??null,dimensions:dimensions(row.dimensionsJson)}));
+    const live:Row[]=ledger.map(row=>({companySlug,sourceType:"ledger",sourceHash:String(row.sourceHash),sourceId:`journal:${row.journalEntryId}:line:${row.lineId}`,journalEntryId:Number(row.journalEntryId),journalEntryNo:String(row.journalEntryNo),documentId:row.documentId==null?null:Number(row.documentId),documentHash:row.documentHash??null,...canonicalPartyLink(row),documentPartyName:row.documentPartyName??null,accountNo:String(row.accountNo),accountName:row.accountName??null,transactionDate:String(row.transactionDate),currency:"DKK",amount:Number(row.amount),text:row.lineText??row.entryText??null,dimensions:dimensions(row.dimensionsJson)}));
     const archived:Row[]=archive.map(row=>{
       // Older imported years may predate retained archive evidence. In that
       // case expose a canonical hash of the immutable archive row content,
       // never an identity-only synthetic digest.
       const sourceHash=row.sourceHash && /^[a-f0-9]{64}$/i.test(String(row.sourceHash)) ? String(row.sourceHash) : sha(JSON.stringify([row.sourceSystem,row.fiscalYear,row.archiveId,row.postingId,row.lineNo,row.accountNo,row.accountName,row.transactionDate,row.voucher,row.text,row.amount]));
-      return {companySlug,sourceType:"archive" as const,sourceHash,sourceId:`archive:${row.archiveId}:posting:${row.postingId}`,journalEntryId:null,journalEntryNo:row.voucher??null,documentId:null,documentHash:null,partyId:null,partyName:null,accountNo:String(row.accountNo),accountName:row.accountName??null,transactionDate:String(row.transactionDate),currency:"DKK",amount:Number(row.amount),text:row.text??null,dimensions:[]};
+      return {companySlug,sourceType:"archive" as const,sourceHash,sourceId:`archive:${row.archiveId}:posting:${row.postingId}`,journalEntryId:null,journalEntryNo:row.voucher??null,documentId:null,documentHash:null,partyId:null,partyName:null,documentPartyName:null,partyLinkProvenance:null,accountNo:String(row.accountNo),accountName:row.accountName??null,transactionDate:String(row.transactionDate),currency:"DKK",amount:Number(row.amount),text:row.text??null,dimensions:[]};
     });
     const dimension=normal(input.dimension);
-    return [...live,...archived].filter(row => (!account || row.accountNo===account) && (!currency || row.currency===currency) && (!party || `${row.partyName??""} ${row.text??""}`.toLocaleLowerCase().includes(party)) && (!dimension || row.dimensions.some(item=>dimension===item.dimensionId || dimension===`${item.dimensionId}:${item.memberId}`)));
+    return [...live,...archived].filter(row => (!account || row.accountNo===account) && (!currency || row.currency===currency) && (!party || `${row.partyName??""} ${row.documentPartyName??""} ${row.text??""}`.toLocaleLowerCase().includes(party)) && (!dimension || row.dimensions.some(item=>dimension===item.dimensionId || dimension===`${item.dimensionId}:${item.memberId}`)));
   } finally { db.close(); }
 }
 

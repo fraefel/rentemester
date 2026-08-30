@@ -26,6 +26,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { fromOre, toOre } from "./money";
 import { insertAuditLog } from "./actor";
 
@@ -103,15 +104,86 @@ export type BudgetVsActualReport = {
  * clients cannot mistake a classified subset for the legal account actual. */
 export function buildDimensionActuals(db: Database, from: BudgetPeriod, to: BudgetPeriod, dimension?: string) {
   if (!isValidBudgetPeriod(from) || !isValidBudgetPeriod(to) || from > to) return { ok:false, errors:["from and to must be ordered YYYY-MM periods"], rows:[] as any[] };
-  const rows=db.query(`SELECT jl.id AS journal_line_id,a.account_no AS account_no,substr(je.transaction_date,1,7) AS period,jl.debit_amount-jl.credit_amount AS line_amount,da.allocations_json
+  const rows=db.query(`SELECT jl.id AS journal_line_id,a.account_no AS account_no,a.type AS account_type,substr(je.transaction_date,1,7) AS period,jl.debit_amount-jl.credit_amount AS line_amount,da.allocations_json
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
     JOIN current_accounting_dimension_assignments da ON da.journal_line_id=jl.id
     WHERE je.status='posted' AND substr(je.transaction_date,1,7) BETWEEN ? AND ? ORDER BY jl.id`).all(from,to) as any[];
-  const accountTotals=db.query(`SELECT a.account_no AS account_no,substr(je.transaction_date,1,7) AS period,SUM(jl.debit_amount-jl.credit_amount) AS actual
+  const accountTotals=db.query(`SELECT a.account_no AS account_no,a.type AS account_type,substr(je.transaction_date,1,7) AS period,SUM(jl.debit_amount-jl.credit_amount) AS actual
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
-    WHERE je.status='posted' AND substr(je.transaction_date,1,7) BETWEEN ? AND ? GROUP BY a.account_no,substr(je.transaction_date,1,7)`).all(from,to) as any[];
-  const out:any[]=[]; for(const row of rows){let allocations:any[]=[];try{allocations=JSON.parse(row.allocations_json);}catch{continue;}for(const item of allocations){const key=`${item.dimensionId}:${item.memberId}`;if(dimension&&dimension!==item.dimensionId&&dimension!==key)continue;out.push({dimensionId:item.dimensionId,memberId:item.memberId,accountNo:row.account_no,period:row.period,actual:Number(item.amountMinor)/100*Math.sign(Number(row.line_amount)||1),journalLineId:row.journal_line_id});}}
-  return {ok:true,from,to,rows:out,accountTotals:accountTotals.map(row=>({accountNo:row.account_no,period:row.period,actual:Number(row.actual)})),errors:[]};
+    WHERE je.status='posted' AND substr(je.transaction_date,1,7) BETWEEN ? AND ? GROUP BY a.account_no,a.type,substr(je.transaction_date,1,7)`).all(from,to) as any[];
+  const natural=(amount:number,type:string)=>type === "expense" ? amount : -amount;
+  const out:any[]=[]; for(const row of rows){let allocations:any[]=[];try{allocations=JSON.parse(row.allocations_json);}catch{continue;}for(const item of allocations){const key=`${item.dimensionId}:${item.memberId}`;if(dimension&&dimension!==item.dimensionId&&dimension!==key)continue;out.push({dimensionId:item.dimensionId,memberId:item.memberId,accountNo:row.account_no,period:row.period,actual:natural(Number(item.amountMinor)/100*Math.sign(Number(row.line_amount)||1),row.account_type),journalLineId:row.journal_line_id});}}
+  return {ok:true,from,to,rows:out,accountTotals:accountTotals.map(row=>({accountNo:row.account_no,period:row.period,actual:natural(Number(row.actual),row.account_type)})),errors:[]};
+}
+
+/** A reviewed allocation of an existing account budget.  This deliberately
+ * cannot create money: for an account/month the active dimension allocations
+ * must reconcile exactly to the effective account budget. */
+export function setDimensionBudget(db: Database, input: { dimensionId:string; memberId:string; accountNo:string; period:BudgetPeriod; amount:number; sourceRef:string; planHash:string; actor?:string; principal?:string; confirm:boolean; idempotencyKey?:string }) {
+  const clean=(value:unknown,max:number)=>typeof value === "string" && value.trim().length>0 && value.trim().length<=max ? value.trim() : null;
+  if(!input.confirm)return {ok:false as const,errors:["CONFIRMATION_REQUIRED"]};
+  const dimensionId=clean(input.dimensionId,64),memberId=clean(input.memberId,64),accountNo=clean(input.accountNo,64),sourceRef=clean(input.sourceRef,500),planHash=clean(input.planHash,64),actor=clean(input.actor,160),principal=clean(input.principal,160);
+  const amount=Number(input.amount);
+  if(!dimensionId||!memberId||!accountNo||!sourceRef||!planHash||!/^[a-f0-9]{64}$/i.test(planHash)||!actor||!principal||!isValidBudgetPeriod(input.period)||!Number.isFinite(amount)||amount<0)return {ok:false as const,errors:["INVALID_DIMENSION_BUDGET"]};
+  if(!db.query("SELECT 1 FROM current_accounting_dimension_members WHERE dimension_id=? AND member_id=? AND status='active'").get(dimensionId,memberId))return {ok:false as const,errors:["DIMENSION_MEMBER_NOT_ACTIVE"]};
+  const effective=listBudget(db).rows.find(row=>row.accountNo===accountNo&&row.period===input.period);
+  if(!effective)return {ok:false as const,errors:["ACCOUNT_BUDGET_NOT_FOUND"]};
+  const result=db.transaction(()=>{
+    const old=input.idempotencyKey ? db.query("SELECT id,plan_hash FROM accounting_dimension_budget_events WHERE idempotency_key=?").get(input.idempotencyKey) as any : null;
+    if(old)return old.plan_hash===planHash?{ok:true as const,id:old.id,idempotent:true,errors:[]}:{ok:false as const,errors:["IDEMPOTENCY_CONFLICT"]};
+    const current=db.query("SELECT * FROM current_accounting_dimension_budgets WHERE dimension_id=? AND member_id=? AND account_no=? AND period=?").get(dimensionId,memberId,accountNo,input.period) as any;
+    if(current&&Number(current.amount)===amount&&current.source_ref===sourceRef)return {ok:true as const,id:current.id,idempotent:true,errors:[]};
+    if(current) db.query("INSERT INTO accounting_dimension_budget_events(dimension_id,member_id,account_no,period,amount,source_ref,plan_hash,event_type,supersedes_budget_id,reason,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,'superseded',?,?,?, ?,?)").run(current.dimension_id,current.member_id,current.account_no,current.period,current.amount,current.source_ref,current.plan_hash,current.id,"reviewed allocation replaced",actor,principal,new Date().toISOString());
+    const row=db.query("INSERT INTO accounting_dimension_budget_events(dimension_id,member_id,account_no,period,amount,source_ref,plan_hash,event_type,idempotency_key,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,'allocated',?,?,?,?) RETURNING id").get(dimensionId,memberId,accountNo,input.period,amount,sourceRef,planHash,input.idempotencyKey??null,actor,principal,new Date().toISOString()) as any;
+    const total=db.query("SELECT COALESCE(SUM(amount),0) AS amount FROM current_accounting_dimension_budgets WHERE account_no=? AND period=?").get(accountNo,input.period) as any;
+    if(Math.abs(Number(total.amount)-effective.amount)>0.000001)throw new Error("DIMENSION_BUDGET_DOES_NOT_RECONCILE");
+    return {ok:true as const,id:row.id,idempotent:false,errors:[]};
+  }).immediate();
+  try{return result;}catch(error){return {ok:false as const,errors:[error instanceof Error ? error.message : "DIMENSION_BUDGET_REJECTED"]};}
+}
+
+type DimensionBudgetAllocation = { dimensionId: string; memberId: string; amount: number };
+const stableJson=(value:unknown):string=>value===null||typeof value!=="object"?JSON.stringify(value):Array.isArray(value)?`[${value.map(stableJson).join(",")}]`:`{${Object.keys(value as object).sort().map(key=>`${JSON.stringify(key)}:${stableJson((value as any)[key])}`).join(",")}}`;
+const stableHash=(value:unknown)=>createHash("sha256").update(stableJson(value)).digest("hex");
+
+/** Read-only exact plan for one account/month's dimension budget. */
+export function planDimensionBudget(db: Database, input:{ accountNo:string; period:BudgetPeriod; allocations:DimensionBudgetAllocation[]; sourceRef:string }) {
+  const accountNo=typeof input.accountNo === "string" ? input.accountNo.trim() : "";
+  const sourceRef=typeof input.sourceRef === "string" ? input.sourceRef.trim() : "";
+  if(!accountNo||!isValidBudgetPeriod(input.period)||!sourceRef||sourceRef.length>500||!Array.isArray(input.allocations)||input.allocations.length===0)return {ok:false as const,errors:["INVALID_DIMENSION_BUDGET"]};
+  const accountBudget=listBudget(db).rows.find(row=>row.accountNo===accountNo&&row.period===input.period);
+  if(!accountBudget)return {ok:false as const,errors:["ACCOUNT_BUDGET_NOT_FOUND"]};
+  const allocations=input.allocations.map(item=>({dimensionId:typeof item.dimensionId==="string"?item.dimensionId.trim():"",memberId:typeof item.memberId==="string"?item.memberId.trim():"",amount:Number(item.amount)})).sort((a,b)=>stableJson(a).localeCompare(stableJson(b)));
+  if(allocations.some(item=>!item.dimensionId||!item.memberId||!Number.isFinite(item.amount)||item.amount<0))return {ok:false as const,errors:["INVALID_DIMENSION_BUDGET"]};
+  if(new Set(allocations.map(item=>`${item.dimensionId}\0${item.memberId}`)).size!==allocations.length)return {ok:false as const,errors:["DUPLICATE_DIMENSION_BUDGET_ALLOCATION"]};
+  for(const item of allocations)if(!db.query("SELECT 1 FROM current_accounting_dimension_members WHERE dimension_id=? AND member_id=? AND status='active'").get(item.dimensionId,item.memberId))return {ok:false as const,errors:["DIMENSION_MEMBER_NOT_ACTIVE"]};
+  if(Math.abs(allocations.reduce((total,item)=>total+item.amount,0)-accountBudget.amount)>0.000001)return {ok:false as const,errors:["DIMENSION_BUDGET_DOES_NOT_RECONCILE"]};
+  const plan={schemaVersion:"rentemester-dimension-budget-v1",accountNo,period:input.period,accountBudget:accountBudget.amount,allocations,sourceRef};
+  return {ok:true as const,plan:{...plan,planHash:stableHash(plan)}};
+}
+
+/** Atomically replaces the complete reviewed allocation set for an existing
+ * account budget. It is intentionally all-or-nothing: partial allocations
+ * cannot be presented as dimension budgets. */
+export function applyDimensionBudget(db: Database, input:{ accountNo:string; period:BudgetPeriod; allocations:DimensionBudgetAllocation[]; sourceRef:string; planHash:string; actor?:string; principal?:string; confirm:boolean; idempotencyKey?:string }) {
+  if(!input.confirm)return {ok:false as const,errors:["CONFIRMATION_REQUIRED"]};
+  const actor=typeof input.actor==="string"?input.actor.trim():"",principal=typeof input.principal==="string"?input.principal.trim():"";
+  if(!actor||!principal)return {ok:false as const,errors:["ACTOR_AND_PRINCIPAL_REQUIRED"]};
+  const proposal=planDimensionBudget(db,input); if(!proposal.ok)return proposal;
+  if(proposal.plan.planHash!==input.planHash)return {ok:false as const,errors:["PLAN_HASH_MISMATCH"]};
+  try { return db.transaction(()=>{
+    const prefix=input.idempotencyKey ? `${input.idempotencyKey}:` : null;
+    if(prefix){const prior=db.query("SELECT id,plan_hash FROM accounting_dimension_budget_events WHERE idempotency_key=? LIMIT 1").get(`${prefix}0`) as any;if(prior)return prior.plan_hash===input.planHash?{ok:true as const,ids:db.query("SELECT id FROM accounting_dimension_budget_events WHERE idempotency_key LIKE ? ORDER BY id").all(`${prefix}%`).map((row:any)=>row.id),idempotent:true,errors:[]}:{ok:false as const,errors:["IDEMPOTENCY_CONFLICT"]};}
+    const current=db.query("SELECT * FROM current_accounting_dimension_budgets WHERE account_no=? AND period=?").all(proposal.plan.accountNo,proposal.plan.period) as any[];
+    for(const row of current)db.query("INSERT INTO accounting_dimension_budget_events(dimension_id,member_id,account_no,period,amount,source_ref,plan_hash,event_type,supersedes_budget_id,reason,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,'superseded',?,?,?, ?,?)").run(row.dimension_id,row.member_id,row.account_no,row.period,row.amount,row.source_ref,row.plan_hash,row.id,"reviewed allocation replaced",actor,principal,new Date().toISOString());
+    const ids:number[]=[]; for(const [index,item] of proposal.plan.allocations.entries()){const row=db.query("INSERT INTO accounting_dimension_budget_events(dimension_id,member_id,account_no,period,amount,source_ref,plan_hash,event_type,idempotency_key,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,'allocated',?,?,?,?) RETURNING id").get(item.dimensionId,item.memberId,proposal.plan.accountNo,proposal.plan.period,item.amount,proposal.plan.sourceRef,input.planHash,prefix?`${prefix}${index}`:null,actor,principal,new Date().toISOString()) as any;ids.push(row.id);}
+    return {ok:true as const,ids,idempotent:false,errors:[]};
+  }).immediate(); } catch(error) { return {ok:false as const,errors:[error instanceof Error?error.message:"DIMENSION_BUDGET_REJECTED"]}; }
+}
+
+export function listDimensionBudgets(db: Database, from?:BudgetPeriod,to?:BudgetPeriod) {
+  if (from && to) return db.query("SELECT * FROM current_accounting_dimension_budgets WHERE period BETWEEN ? AND ? ORDER BY period,account_no,dimension_id,member_id").all(from,to);
+  return db.query("SELECT * FROM current_accounting_dimension_budgets ORDER BY period,account_no,dimension_id,member_id").all();
 }
 
 /** A `YYYY-MM` calendar-month string with a real month 01-12. */

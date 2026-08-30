@@ -186,6 +186,16 @@ export const MUTATING_COMMANDS = new Set([
   // ===== END ACCRUALS / PERIODEAFGRÆNSNINGSPOSTER =====
   // ===== BUDGET =====
   "budget set",
+  // Accounting dimensions are append-only ledger/master-data writes.  Keep
+  // every mutating subcommand here so the central actor gate, help and agent
+  // discovery cannot accidentally describe one as read-only.
+  "dimensions define",
+  "dimensions member",
+  "dimensions definition-lifecycle",
+  "dimensions member-lifecycle",
+  "dimensions apply",
+  "dimensions replace",
+  "dimensions supersede",
   // ===== END BUDGET =====
   // ===== PAYABLES / KREDITORSTYRING =====
   "payable register",

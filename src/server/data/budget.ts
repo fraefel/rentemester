@@ -19,6 +19,7 @@
 
 import {
   buildDimensionActuals,
+  listDimensionBudgets,
   buildBudgetVsActual,
   listBudget,
   periodsInRange,
@@ -106,6 +107,8 @@ export type CompanyBudgetDimensionActuals = {
     actual: number;
     journalLineId: number;
   }>;
+  /** Present only after an explicitly reviewed, exactly reconciled allocation. */
+  dimensionBudgets: Array<{ dimensionId:string; memberId:string; accountNo:string; period:string; budget:number; sourceRef:string; id:number }>;
   /** Legal whole-account actuals, included to make partial classification visible. */
   accountTotals: Array<{ accountNo: string; period: string; actual: number }>;
   /** Deterministic selector values based solely on current approved assignments. */
@@ -278,6 +281,7 @@ export function buildCompanyBudgetDimensionActuals(
     const { periodStart, periodEnd } = fiscalYearPeriodRange(selectedYear, ctx.selectedLabel);
     let rows: CompanyBudgetDimensionActuals["rows"] = [];
     let accountTotals: CompanyBudgetDimensionActuals["accountTotals"] = [];
+    let dimensionBudgets: CompanyBudgetDimensionActuals["dimensionBudgets"] = [];
     if (!ctx.isArchivedOnly) {
       const raw = buildDimensionActuals(ctx.db, periodStart, periodEnd);
       if (!raw.ok) {
@@ -291,6 +295,10 @@ export function buildCompanyBudgetDimensionActuals(
       accountTotals = (raw.accountTotals ?? []).filter((row) =>
         comparedCells.has(`${row.accountNo}\u001f${row.period}`),
       );
+      dimensionBudgets = listDimensionBudgets(ctx.db, periodStart, periodEnd).map((row: any) => ({
+        id: row.id, dimensionId: row.dimension_id, memberId: row.member_id,
+        accountNo: row.account_no, period: row.period, budget: Number(row.amount), sourceRef: row.source_ref,
+      }));
     }
     const options = new Map<string, string>();
     for (const row of rows) {
@@ -307,6 +315,7 @@ export function buildCompanyBudgetDimensionActuals(
       periodEnd,
       rows,
       accountTotals,
+      dimensionBudgets,
       dimensionOptions: [...options.entries()]
         .map(([value, label]) => ({ value, label }))
         .sort((a, b) => a.value.localeCompare(b.value)),

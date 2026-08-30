@@ -363,7 +363,7 @@ function EntryRow({
 
 type Allocation = { dimensionId: string; memberId: string; amountMinor: number; currency: string };
 type AssignmentEvent = {
-  id: number; allocations_json: string; source: string; plan_hash: string;
+  id: number; allocations_json: string; source: string; source_ref: string | null; plan_hash: string;
   event_type: "assigned" | "superseded"; supersedes_assignment_id: number | null;
   actor: string; principal: string; created_at: string;
 };
@@ -396,6 +396,7 @@ function DimensionAssignments({ slug, journalLineId }: { slug: string; journalLi
     <summary>{allocations.map((item) => `${item.dimensionId}: ${item.memberId}`).join(", ") || "Godkendt dimension"}</summary>
     <p className="muted">
       Kilde: {current.source} · plan-hash <code>{current.plan_hash}</code><br />
+      {current.source_ref && <>Kildereference: {current.source_ref}<br /></>}
       Godkendt af {current.actor} via {current.principal} · {current.created_at}
     </p>
     <DimensionReview slug={slug} journalLineId={journalLineId} current={current} onChanged={state.reload} />

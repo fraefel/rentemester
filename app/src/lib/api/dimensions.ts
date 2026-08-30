@@ -3,7 +3,7 @@ const path=(slug:string,suffix="")=>`/api/companies/${encodeURIComponent(slug)}/
 export type DimensionEvent={id:number;dimension_id:string;member_id?:string;name:string;status:string;event_type:string;created_at:string};
 /** An append-only assignment event. `allocations_json` is the exact, hashed
  * allocation evidence stored by the ledger; it is never a mutable UI model. */
-export type DimensionAssignmentEvent={id:number;journal_line_id:number;journal_entry_id:number;journal_entry_hash:string;line_currency:string;line_amount_minor:number;allocations_json:string;source:string;plan_hash:string;event_type:"assigned"|"superseded";supersedes_assignment_id:number|null;reason:string|null;actor:string;principal:string;created_at:string};
+export type DimensionAssignmentEvent={id:number;journal_line_id:number;journal_entry_id:number;journal_entry_hash:string;line_currency:string;line_amount_minor:number;allocations_json:string;source:string;source_ref:string|null;plan_hash:string;event_type:"assigned"|"superseded";supersedes_assignment_id:number|null;reason:string|null;actor:string;principal:string;created_at:string};
 export type DimensionAllocation={dimensionId:string;memberId:string;amountMinor:number;currency:string};
 export type DimensionPlan={planHash:string;journalLineId:number;journalEntryId:number;journalEntryHash:string;lineCurrency:string;lineAmountMinor:number;allocations:DimensionAllocation[];source:"reviewed"|"imported";sourceRef:string|null};
 type DefinitionInput={dimensionId:string;kind:string;name:string};

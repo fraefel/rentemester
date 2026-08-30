@@ -50,6 +50,7 @@ export function budgetDimensionActuals(over: Partial<CompanyBudgetDimensionActua
     fiscalYears: STATEMENT_FISCAL_YEARS, periodStart: "2026-01", periodEnd: "2026-12",
     rows: [{ dimensionId: "project", memberId: "alpha", accountNo: "2200", period: "2026-06", actual: 2400, journalLineId: 101 }],
     accountTotals: [{ accountNo: "2200", period: "2026-06", actual: 4000 }],
+    dimensionBudgets: [],
     dimensionOptions: [{ value: "project", label: "project" }, { value: "project:alpha", label: "project: alpha" }],
     budgetScope: "account",
     ...over,

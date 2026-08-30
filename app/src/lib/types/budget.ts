@@ -94,6 +94,7 @@ export type CompanyBudgetDimensionActuals = {
     journalLineId: number;
   }>;
   accountTotals: Array<{ accountNo: string; period: string; actual: number }>;
+  dimensionBudgets: Array<{ dimensionId: string; memberId: string; accountNo: string; period: string; budget: number; sourceRef: string; id: number }>;
   dimensionOptions: Array<{ value: string; label: string }>;
   /** Explicitly prevents the UI from pretending this is a dimension budget. */
   budgetScope: "account";

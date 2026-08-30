@@ -137,7 +137,6 @@ export function BudgetView() {
           <DimensionBudgetComparison
             slug={slug}
             data={dimensionActuals.data ?? null}
-            compare={compare.data!}
             currency={currency}
           />
         </>
@@ -151,8 +150,8 @@ export function BudgetView() {
  * legal account budget. A dimension can cover only part of an account, so a
  * variance against the whole account budget would be misleading.
  */
-function DimensionBudgetComparison({ slug, data, compare, currency }: {
-  slug: string; data: CompanyBudgetDimensionActuals | null; compare: CompanyBudgetVsActual; currency: string;
+function DimensionBudgetComparison({ slug, data, currency }: {
+  slug: string; data: CompanyBudgetDimensionActuals | null; currency: string;
 }) {
   const [selection, setSelection] = useState("");
   if (!data || data.archived) return null;
@@ -169,13 +168,13 @@ function DimensionBudgetComparison({ slug, data, compare, currency }: {
   }
   const rows = [...grouped.values()].sort((a, b) => a.accountNo.localeCompare(b.accountNo) || a.period.localeCompare(b.period));
   const accountActual = new Map(data.accountTotals.map((row) => [`${row.accountNo}\u001f${row.period}`, row.actual]));
-  const accountBudget = new Map(compare.lines.map((row) => [`${row.accountNo}\u001f${row.period}`, row.budget]));
+  const dimensionBudget = new Map(data.dimensionBudgets.filter((row) => selection.includes(":") ? `${row.dimensionId}:${row.memberId}` === selection : row.dimensionId === selection).map((row) => [`${row.accountNo}\u001f${row.period}`, row]));
   return <section className="card statement-card" aria-label="Dimensionssammenligning">
     <h3>Dimensioner mod konto-budget</h3>
-    <p className="muted">Budgettet er kun pr. konto. Derfor vises den godkendte dimensionsaktual ved siden af kontoens fulde budget og faktiske beløb — aldrig som et opdigtet dimensionsbudget.</p>
+    <p className="muted">En dimensionsvariance vises kun, når der findes en eksplicit reviewet fordeling, som stemmer præcist med konto-budgettet. Ellers er budgettet konto-niveau og kan ikke sammenlignes som dimensionsbudget.</p>
     {data.dimensionOptions.length === 0 ? <p className="muted">Ingen godkendte dimensionsklassifikationer i perioden.</p> : <>
       <label>Filter dimension<select aria-label="Filter dimension" value={selection} onChange={(event) => setSelection(event.target.value)}><option value="">Vælg dimension eller medlem</option>{data.dimensionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      {selection !== "" && <div className="table-scroll"><table className="data statement-table"><thead><tr><th>Konto</th><th>Måned</th><th className="num">Dimensionsaktual</th><th className="num">Kontoaktual</th><th className="num">Konto-budget</th><th>Kilde</th></tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={6} className="muted">Ingen godkendte tildelinger for dette filter.</td></tr> : rows.map((row) => { const key = `${row.accountNo}\u001f${row.period}`; return <tr key={key}><td className="account-no">{row.accountNo}</td><td>{periodLabel(row.period)}</td><td className="num">{formatKroner(row.actual, currency)}</td><td className="num">{formatKroner(accountActual.get(key) ?? 0, currency)}</td><td className="num">{formatKroner(accountBudget.get(key) ?? 0, currency)}</td><td><Link to={`/companies/${slug}/posteringer?journalLineId=${row.journalLineIds[0]}`}>Journal-linje {row.journalLineIds[0]}</Link></td></tr>; })}</tbody></table></div>}
+      {selection !== "" && <div className="table-scroll"><table className="data statement-table"><thead><tr><th>Konto</th><th>Måned</th><th className="num">Dimensionsaktual</th><th className="num">Dimensionsbudget</th><th className="num">Variance</th><th className="num">Kontoaktual</th><th>Kilde</th></tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={7} className="muted">Ingen godkendte tildelinger for dette filter.</td></tr> : rows.map((row) => { const key = `${row.accountNo}\u001f${row.period}`; const reviewedBudget=dimensionBudget.get(key); return <tr key={key}><td className="account-no">{row.accountNo}</td><td>{periodLabel(row.period)}</td><td className="num">{formatKroner(row.actual, currency)}</td>{reviewedBudget ? <><td className="num">{formatKroner(reviewedBudget.budget, currency)}</td><td className="num">{formatKroner(reviewedBudget.budget-row.actual, currency)}</td></> : <><td className="num muted">Ikke understøttet</td><td className="num muted">—</td></>}<td className="num">{formatKroner(accountActual.get(key) ?? 0, currency)}</td><td><Link to={`/companies/${slug}/posteringer?journalLineId=${row.journalLineIds[0]}`}>Journal-linje {row.journalLineIds[0]}</Link>{reviewedBudget && <><br /><span className="muted">{reviewedBudget.sourceRef}</span></>}</td></tr>; })}</tbody></table></div>}
     </>}
   </section>;
 }

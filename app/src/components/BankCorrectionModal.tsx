@@ -30,7 +30,7 @@ export function BankCorrectionModal({ slug, transaction, onApplied, onClose }: {
     catch (cause) { setError(cause instanceof Error ? cause.message.slice(0, 500) : "Korrektionen blev afvist."); }
     finally { setBusy(false); }
   }
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="bank-correction-title">
+  return <div className="modal-overlay" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="bank-correction-title">
     <h3 id="bank-correction-title">Ret afstemt bankpost</h3>
     <p className="muted">Bankpost #{transaction.id}: {transaction.text}. Den historiske afstemning ændres ikke; en ny, hash-bundet korrektion supersederer den.</p>
     <label>Erstatningsjournal-id<input aria-label="Erstatningsjournal-id" inputMode="numeric" value={replacementJournalEntryId} onChange={(event) => setReplacementJournalEntryId(event.target.value)} disabled={busy || !!plan} /></label>

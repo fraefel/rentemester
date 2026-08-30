@@ -60,6 +60,7 @@ export type WorkspaceSnapshotManifestV1 = {
   ownershipGraph?: ManifestFile;
   /** Canonical party provenance and immutable corporate evidence; no auth data. */
   workspaceRegistry?: ManifestFile;
+  workspaceInbox?: ManifestFile;
   companies: Array<{
     slug: string;
     name: string;
@@ -150,6 +151,7 @@ export function createWorkspaceSnapshot(
     let companyKnowledge: ManifestFile | undefined;
     let ownershipGraph: ManifestFile | undefined;
     let workspaceRegistry: ManifestFile | undefined;
+    let workspaceInbox: ManifestFile | undefined;
     if (existsSync(controlDbPath)) {
       const controlDb = openWorkspaceControlDb(workspaceRoot);
       try {
@@ -162,6 +164,7 @@ export function createWorkspaceSnapshot(
         }
       } finally { controlDb.close(); }
     }
+    if (existsSync(controlDbPath)) { const controlDb=openWorkspaceControlDb(workspaceRoot);try{const sources=(controlDb.query("SELECT source_id,visibility_anchor_slug,idempotency_key,original_bytes,sha256,filename,mime_type,transport,transport_identity,received_at,metadata_json,created_by,created_at FROM rm_workspace_inbox_sources ORDER BY source_id").all() as any[]).map(row=>({...row,original_bytes_base64:Buffer.from(row.original_bytes).toString("base64"),original_bytes:undefined})),events=controlDb.query("SELECT source_id,event_type,payload_hash,canonical_payload,actor,created_at FROM rm_workspace_inbox_events ORDER BY id").all(),assignments=controlDb.query("SELECT source_id,company_slug,state,document_id,document_no,assigned_by,assigned_at,completed_at FROM rm_workspace_inbox_assignments ORDER BY source_id,company_slug").all(),exceptions=controlDb.query("SELECT source_id,code,required_action,opened_at,resolved_at FROM rm_workspace_inbox_exceptions ORDER BY source_id").all(),claims=controlDb.query("SELECT source_id,company_slug,source_hash,state,claim_id,lease_expires_at,document_id,document_no,created_at,updated_at FROM rm_workspace_inbox_handoff_claims ORDER BY source_id,company_slug").all();if([sources,events,assignments,exceptions,claims].some(x=>x.length)){const path=join(staging,"workspace-inbox.json");writeFileAtomic(path,`${JSON.stringify({version:1,sources,events,assignments,exceptions,claims})}\n`);workspaceInbox=fileEvidence(staging,path);}}finally{controlDb.close();}}
     if (existsSync(controlDbPath)) {
       const controlDb = openWorkspaceControlDb(workspaceRoot);
       try {
@@ -240,6 +243,7 @@ export function createWorkspaceSnapshot(
       ...(companyKnowledge ? { companyKnowledge } : {}),
       ...(ownershipGraph ? { ownershipGraph } : {}),
       ...(workspaceRegistry ? { workspaceRegistry } : {}),
+      ...(workspaceInbox ? { workspaceInbox } : {}),
       companies: companyEntries.sort((a, b) => a.slug.localeCompare(b.slug)),
     };
     writeFileAtomic(join(staging, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -282,6 +286,7 @@ function parseManifest(raw: string): WorkspaceSnapshotManifestV1 | null {
       (value.companyKnowledge !== undefined && !isManifestFile(value.companyKnowledge)) ||
       (value.ownershipGraph !== undefined && !isManifestFile(value.ownershipGraph)) ||
       (value.workspaceRegistry !== undefined && !isManifestFile(value.workspaceRegistry)) ||
+      (value.workspaceInbox !== undefined && !isManifestFile(value.workspaceInbox)) ||
       !Array.isArray(value.companies) || value.companies.length === 0) return null;
     const slugs = new Set<string>();
     for (const company of value.companies) {
@@ -349,10 +354,10 @@ export function restoreWorkspaceSnapshot(input: {
     const manifestPath = join(extracted, "manifest.json");
     const manifest = existsSync(manifestPath) ? parseManifest(readFileSync(manifestPath, "utf8")) : null;
     if (!manifest) throw new Error("workspace snapshot manifest is invalid");
-    const expected = ["manifest.json", manifest.workspaceManifest.path, manifest.accessPlan.path, ...(manifest.companyKnowledge ? [manifest.companyKnowledge.path] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph.path] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry.path] : []),
+    const expected = ["manifest.json", manifest.workspaceManifest.path, manifest.accessPlan.path, ...(manifest.companyKnowledge ? [manifest.companyKnowledge.path] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph.path] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry.path] : []), ...(manifest.workspaceInbox ? [manifest.workspaceInbox.path] : []),
       ...manifest.companies.map((company) => company.backup.path)].sort();
     if (JSON.stringify(written) !== JSON.stringify(expected)) throw new Error("workspace snapshot contains unlisted files");
-    for (const file of [manifest.workspaceManifest, manifest.accessPlan, ...(manifest.companyKnowledge ? [manifest.companyKnowledge] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry] : []), ...manifest.companies.map((company) => company.backup)]) {
+    for (const file of [manifest.workspaceManifest, manifest.accessPlan, ...(manifest.companyKnowledge ? [manifest.companyKnowledge] : []), ...(manifest.ownershipGraph ? [manifest.ownershipGraph] : []), ...(manifest.workspaceRegistry ? [manifest.workspaceRegistry] : []), ...(manifest.workspaceInbox ? [manifest.workspaceInbox] : []), ...manifest.companies.map((company) => company.backup)]) {
       const error = verifyFile(extracted, file);
       if (error) throw new Error(error);
     }
@@ -387,6 +392,7 @@ export function restoreWorkspaceSnapshot(input: {
         for (const row of raw.corporate.scopes) controlDb.query("INSERT INTO rm_corporate_record_scope_assertions(record_id,scope_kind,scope_id,actor,created_at) VALUES(?,?,?,?,?)").run(row.record_id,row.scope_kind,row.scope_id,row.actor,row.created_at);
       })(); } finally { controlDb.close(); }
     }
+    if (manifest.workspaceInbox) { const raw=JSON.parse(readFileSync(join(extracted,...manifest.workspaceInbox.path.split("/")),"utf8")) as any;if(raw.version!==1||![raw.sources,raw.events,raw.assignments,raw.exceptions,raw.claims].every(Array.isArray))throw new Error("workspace inbox snapshot is invalid");const db=openWorkspaceControlDb(staging);try{db.transaction(()=>{for(const row of raw.sources){const body=Buffer.from(String(row.original_bytes_base64),"base64");if(sha256(body)!==row.sha256)throw new Error("workspace inbox snapshot hash mismatch");db.query("INSERT INTO rm_workspace_inbox_sources(source_id,visibility_anchor_slug,idempotency_key,original_bytes,sha256,filename,mime_type,transport,transport_identity,received_at,metadata_json,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(row.source_id,row.visibility_anchor_slug,row.idempotency_key,body,row.sha256,row.filename,row.mime_type,row.transport,row.transport_identity,row.received_at,row.metadata_json,row.created_by,row.created_at);}for(const row of raw.events)db.query("INSERT INTO rm_workspace_inbox_events(source_id,event_type,payload_hash,canonical_payload,actor,created_at) VALUES(?,?,?,?,?,?)").run(row.source_id,row.event_type,row.payload_hash,row.canonical_payload,row.actor,row.created_at);for(const row of raw.assignments)db.query("INSERT INTO rm_workspace_inbox_assignments(source_id,company_slug,state,document_id,document_no,assigned_by,assigned_at,completed_at) VALUES(?,?,?,?,?,?,?,?)").run(row.source_id,row.company_slug,row.state,row.document_id,row.document_no,row.assigned_by,row.assigned_at,row.completed_at);for(const row of raw.exceptions)db.query("INSERT INTO rm_workspace_inbox_exceptions(source_id,code,required_action,opened_at,resolved_at) VALUES(?,?,?,?,?)").run(row.source_id,row.code,row.required_action,row.opened_at,row.resolved_at);for(const row of raw.claims)db.query("INSERT INTO rm_workspace_inbox_handoff_claims(source_id,company_slug,source_hash,state,claim_id,lease_expires_at,document_id,document_no,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)").run(row.source_id,row.company_slug,row.source_hash,row.state,row.claim_id,row.lease_expires_at,row.document_id,row.document_no,row.created_at,row.updated_at);})()}finally{db.close();}}
     if (manifest.companyKnowledge) {
       const raw = JSON.parse(readFileSync(join(extracted, ...manifest.companyKnowledge.path.split("/")), "utf8")) as { version:number; assertions: any[]; events:any[] };
       if (raw.version !== 1 || !Array.isArray(raw.assertions) || !Array.isArray(raw.events)) throw new Error("workspace knowledge snapshot is invalid");

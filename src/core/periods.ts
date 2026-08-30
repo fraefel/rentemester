@@ -675,17 +675,25 @@ function closeAccountingPeriodInImmediateTransaction(db: Database, input: CloseA
   const currentPacket = computePeriodCloseReadiness(db, { periodStart, periodEnd });
   if (!review || review.packet.periodStart !== periodStart || review.packet.periodEnd !== periodEnd || input.readinessPacketHash !== review.packet.hash || currentPacket.hash !== review.packet.hash) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"], readinessPacket: currentPacket };
   const packet = review.packet;
-  // `unavailable` is retained as explicit, non-waivable assurance debt. It
-  // is not silently claimed as a successful reconciliation, but it also does
-  // not turn a ledger with an intentionally unsupported optional subledger
-  // into an uncloseable product. Concrete blocked controls do block normal
-  // close; force can never waive either blocked or unavailable non-waivable
-  // controls below.
+  // A control which could not be run is not a successful control. In
+  // particular, a close must never turn an absent receivables/control-account
+  // assurance into an implicit waiver. Report an actual blocker first on a
+  // normal close, then the unavailable assurance; force may waive only an
+  // explicit waivable blocker and can never alter an unavailable result.
+  const unavailableControls = packet.items.filter(item => item.status === "unavailable");
   const blockedControls = packet.items.filter(item => item.status === "blocked");
   if (!input.force && blockedControls.length > 0) return { ok: false, appliedRules, errors: [`PERIOD_CLOSE_BLOCKED:${blockedControls.length}`], readinessPacket: packet };
+  if (!input.force && unavailableControls.length > 0) {
+    return {
+      ok: false,
+      appliedRules,
+      errors: [`PERIOD_CLOSE_ASSURANCE_UNAVAILABLE:${unavailableControls.length}`],
+      readinessPacket: packet,
+    };
+  }
   const forceAuthorized = input.forceAuthorization?.permissions.includes("company.period.force-close") === true;
   if (input.force && (!input.forceReason?.trim() || !input.createdBy?.trim() || !forceAuthorized || input.forceConfirmed !== true)) return { ok: false, appliedRules, errors: ["FORCED_CLOSE_REQUIRES_COMPANY_PERIOD_FORCE_CLOSE_PERMISSION_CONFIRM_ACTOR_AND_REASON"], readinessPacket: packet };
-  if (input.force && packet.items.some(item => !item.waivable && (item.status === "blocked" || item.status === "unavailable"))) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_HAS_NONWAIVABLE_BLOCKERS"], readinessPacket: packet };
+  if (input.force && (unavailableControls.length > 0 || packet.items.some(item => !item.waivable && item.status === "blocked"))) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_HAS_NONWAIVABLE_BLOCKERS"], readinessPacket: packet };
 
   if (kind === "vat_period") {
     const vatPeriodType = registeredVatPeriodType(db);

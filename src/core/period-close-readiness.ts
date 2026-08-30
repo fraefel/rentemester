@@ -75,11 +75,17 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
     const evidence=rows(db,`SELECT p.id,p.due_date,p.gross_amount,COALESCE(SUM(pp.amount),0) AS paid_amount FROM payables p LEFT JOIN payable_payments pp ON pp.payable_id=p.id AND pp.payment_date<=? WHERE p.due_date<=? GROUP BY p.id HAVING COALESCE(SUM(pp.amount),0)<p.gross_amount ORDER BY p.id`,cutoff,cutoff); return control("PAYABLE_OUTSTANDING",evidence.length?"warning":"passed",true,evidence,evidence.reduce((n,r)=>n+Math.abs(Number(r.gross_amount??0)-Number(r.paid_amount??0)),0));
   }));
   items.push(protect("RECEIVABLE_OUTSTANDING",()=>{
-    // This ledger has no canonical issued-invoice balance model. Record that
-    // explicit product boundary rather than inventing receivables from uploads.
-    if (!exists(db,"invoices")) return unavailable("RECEIVABLE_OUTSTANDING","canonical receivable subledger is not available");
-    if (!has(db,"documents","due_date") || !has(db,"documents","total_amount") || !has(db,"documents","document_type")) return unavailable("RECEIVABLE_OUTSTANDING","receivable document schema unavailable");
-    const evidence=rows(db,"SELECT id,due_date,total_amount FROM documents WHERE document_type='invoice' AND due_date<=? ORDER BY id",cutoff); return control("RECEIVABLE_OUTSTANDING",evidence.length?"warning":"passed",true,evidence,evidence.reduce((n,r)=>n+Math.abs(Number(r.total_amount??0)),0));
+    // Issued invoices and their append-only payment applications are the
+    // canonical receivables model. Never infer a debtor balance from an
+    // uploaded purchase document.
+    if (!has(db,"documents","document_type") || !has(db,"documents","invoice_date") || !has(db,"documents","amount_inc_vat") || !has(db,"invoice_payments","invoice_document_id") || !has(db,"invoice_payments","payment_date") || !has(db,"invoice_payments","amount")) return unavailable("RECEIVABLE_OUTSTANDING","canonical receivable schema unavailable");
+    const evidence=rows(db,`SELECT d.id,d.invoice_date,d.amount_inc_vat,
+      COALESCE(SUM(CASE WHEN p.payment_date<=? THEN p.amount ELSE 0 END),0) AS paid_amount
+      FROM documents d LEFT JOIN invoice_payments p ON p.invoice_document_id=d.id
+      WHERE d.document_type='issued_invoice' AND d.invoice_date<=?
+      GROUP BY d.id HAVING COALESCE(SUM(CASE WHEN p.payment_date<=? THEN p.amount ELSE 0 END),0)<COALESCE(d.amount_inc_vat,0)
+      ORDER BY d.id`,cutoff,cutoff,cutoff);
+    return control("RECEIVABLE_OUTSTANDING",evidence.length?"warning":"passed",true,evidence,evidence.reduce((n,r)=>n+Math.abs(Number(r.amount_inc_vat??0)-Number(r.paid_amount??0)),0));
   }));
   items.push(protect("DKK_CONTROL_ACCOUNTS",()=>{
     // A control-account assertion is meaningful only for explicitly confirmed
@@ -92,7 +98,17 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
       WHERE a.account_no IN (?,?,?) AND je.transaction_date<=?
       GROUP BY a.account_no ORDER BY a.account_no`,accounts[0],accounts[1],accounts[2],cutoff);
-    // Ledger balances alone are not a reconciliation.  Do not turn a missing
+    // A ledger with no control-account balance and no related source activity
+    // has a provable zero reconciliation. Any non-zero/active case still
+    // requires a dedicated independent reconciliation model; do not infer it
+    // merely from journal balances.
+    const sourceActivity=rows(db,`SELECT 'bank' AS source,COUNT(*) AS n FROM bank_transactions WHERE transaction_date<=?
+      UNION ALL SELECT 'receivable',COUNT(*) FROM documents WHERE document_type='issued_invoice' AND invoice_date<=?
+      UNION ALL SELECT 'payable',COUNT(*) FROM payables WHERE due_date<=?`,cutoff,cutoff,cutoff);
+    const allBalancesZero=evidence.every(row=>Number(row.balance_dkk??0)===0);
+    const noSourceActivity=sourceActivity.every(row=>Number(row.n??0)===0);
+    if(allBalancesZero&&noSourceActivity) return control("DKK_CONTROL_ACCOUNTS","passed",false,[...evidence,...sourceActivity]);
+    // Ledger balances alone are not a reconciliation. Do not turn a missing
     // debtor/creditor subledger comparison into a green control.
     return unavailable("DKK_CONTROL_ACCOUNTS",`ledger-only balances available for ${evidence.length} control account(s); independent DKK reconciliation is unavailable`);
   }));

@@ -38,6 +38,30 @@ describe("#580 period-close readiness", () => {
     expect(() => db.run("UPDATE period_close_readiness_packets SET cutoff='x'")).toThrow(); db.close();
   });
 
+  test("fails closed when DKK control-account assurance is unavailable, while a supported zero-activity ledger closes", () => {
+    const clean = fixture();
+    const cleanPacket = createPeriodCloseReadinessPacket(clean, { periodStart: "2025-06-01", periodEnd: "2025-06-30" });
+    expect(cleanPacket.items.find((item) => item.code === "RECEIVABLE_OUTSTANDING")?.status).toBe("passed");
+    expect(cleanPacket.items.find((item) => item.code === "DKK_CONTROL_ACCOUNTS")?.status).toBe("passed");
+    const cleanReview = reviewPeriodCloseReadiness(clean, { packet: cleanPacket, reviewerActor: "user:test", reviewerPrincipal: { kind: "local-trusted", subjectId: "test" } });
+    expect(closeAccountingPeriod(clean, { periodStart: "2025-06-01", periodEnd: "2025-06-30", kind: "custom", readinessPacketHash: cleanPacket.hash, readinessReviewId: cleanReview.id, createdBy: "user:test" }).ok).toBe(true);
+    clean.close();
+
+    const db = fixture();
+    // A pre-period bank movement is outside the bank-item control's scope,
+    // but its balance remains part of the DKK control-account assurance as of
+    // cutoff. Without an independent reconciliation it must fail closed.
+    db.run("INSERT INTO bank_transactions(transaction_date,text,amount,currency) VALUES('2025-05-31','synthetic opening movement',100,'DKK')");
+    const packet = createPeriodCloseReadinessPacket(db, { periodStart: "2025-06-01", periodEnd: "2025-06-30" });
+    expect(packet.items.find((item) => item.code === "DKK_CONTROL_ACCOUNTS")?.status).toBe("unavailable");
+    const review = reviewPeriodCloseReadiness(db, { packet, reviewerActor: "user:test", reviewerPrincipal: { kind: "local-trusted", subjectId: "test" } });
+    const rejected = closeAccountingPeriod(db, { periodStart: "2025-06-01", periodEnd: "2025-06-30", kind: "custom", readinessPacketHash: packet.hash, readinessReviewId: review.id, createdBy: "user:test" });
+    expect(rejected.ok).toBe(false);
+    expect(rejected.errors).toEqual(["PERIOD_CLOSE_ASSURANCE_UNAVAILABLE:1"]);
+    expect(db.query("SELECT COUNT(*) AS n FROM accounting_periods").get()).toEqual({ n: 0 });
+    db.close();
+  });
+
   test("does not let force waive unavailable independent control reconciliation", () => {
     const db = fixture(); db.run("INSERT INTO bank_transactions(transaction_date,text,amount,currency) VALUES('2025-01-02','synthetic',100,'DKK')");
     const packet = createPeriodCloseReadinessPacket(db, { periodStart: "2025-01-01", periodEnd: "2025-01-31" }); expect(packet.items.map(x => x.code)).toContain("BANK_UNRECONCILED");

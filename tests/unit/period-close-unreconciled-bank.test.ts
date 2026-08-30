@@ -134,7 +134,7 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
     teardown(ctx);
   });
 
-  test("a reconciled (booked) bank transaction and out-of-period transactions do not block close", () => {
+  test("a reconciled in-period bank transaction is not BANK_UNRECONCILED, but does not fake missing independent DKK assurance", () => {
     const ctx = setup("rentemester-close-unrec-ok-");
     const { db } = ctx;
 
@@ -180,8 +180,10 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
       createdBy: "user:ejer",
       ...reviewed(db, readiness),
     });
-    expect(close.errors).toEqual([]);
-    expect(close.ok).toBe(true);
+    expect(readiness.items.find((item) => item.code === "BANK_UNRECONCILED")?.status).toBe("passed");
+    expect(readiness.items.find((item) => item.code === "DKK_CONTROL_ACCOUNTS")?.status).toBe("unavailable");
+    expect(close.ok).toBe(false);
+    expect(close.errors).toEqual(["PERIOD_CLOSE_ASSURANCE_UNAVAILABLE:1"]);
 
     teardown(ctx);
   });

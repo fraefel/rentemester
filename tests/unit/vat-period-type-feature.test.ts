@@ -22,6 +22,9 @@ import { createCompany } from "../../src/core/company";
 import { companyPaths } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { postJournalEntry } from "../../src/core/ledger";
+import { postIssuedInvoiceToLedger } from "../../src/core/invoice-booking";
+import { issueInvoice } from "../../src/core/issued-invoices";
+import { seedHistoricalClosedPeriod } from "../helpers/close-period";
 import {
   buildCompanyVat,
   buildCompanyObligations,
@@ -66,31 +69,19 @@ function postVatSale(ws: string, slug: string, date: string, vatAmount = 250) {
     migrate(db);
     const netAmount = vatAmount * 4;
     const grossAmount = netAmount + vatAmount;
-    const document = db.query(
-      `INSERT INTO documents (
-         source, sha256_hash, invoice_no, invoice_date, amount_inc_vat,
-         currency, vat_amount, document_type, retain_until
-       ) VALUES (?, ?, ?, ?, ?, 'DKK', ?, 'issued_invoice', '2031-12-31')
-       RETURNING id`,
-    ).get(
-      "test-fixture",
-      `vat-period-type-${date}-${vatAmount}`,
-      `VAT-${date}-${vatAmount}`,
-      date,
-      grossAmount,
-      vatAmount,
-    ) as { id: number };
-    const res = postJournalEntry(db, {
-      transactionDate: date,
-      text: "Salg med moms",
-      documentId: document.id,
-      lines: [
-        { accountNo: "2000", debitAmount: grossAmount },
-        { accountNo: "1000", creditAmount: netAmount, vatCode: "DK_SALE_25" },
-        { accountNo: "1200", creditAmount: vatAmount },
-      ],
+    const issued = issueInvoice(db, companyRootForSlug(ws, slug), {
+      invoiceType: "full",
+      vatTreatment: "standard",
+      issueDate: date,
+      seller: { name: "Acme ApS", address: "Testvej 1", vatOrCvr: "DK12345678" },
+      buyer: { name: "Customer A/S", address: "Købervej 9" },
+      lines: [{ description: "Canonical VAT sale", quantity: 1, unitPriceExVat: netAmount, lineTotalExVat: netAmount }],
+      totals: { netAmount, vatRate: 0.25, vatAmount, grossAmount },
+      currency: "DKK",
     });
-    if (!res.ok) throw new Error(res.errors.join("; "));
+    if (!issued.ok) throw new Error(issued.errors.join("; "));
+    const posted = postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! });
+    if (!posted.ok) throw new Error(posted.errors.join("; "));
   } finally {
     db.close();
   }
@@ -149,6 +140,19 @@ async function post(cfg: ServerConfig, path: string, body?: unknown) {
   const init: RequestInit = { method: "POST", headers: { host: "127.0.0.1" } };
   if (body !== undefined) init.body = JSON.stringify(body);
   return call(cfg, path, init);
+}
+
+/** Uses the public #580 workflow; the fixture above is a valid issued/posting record. */
+async function closeQuarter(cfg: ServerConfig, slug: string) {
+  const periodStart = "2026-01-01";
+  const periodEnd = "2026-03-31";
+  const review = await post(cfg, `/api/companies/${slug}/periods/close-review`, { periodStart, periodEnd, confirm: true });
+  if (review.status !== 200) throw new Error(`review failed: ${JSON.stringify(review.body)}`);
+  return post(cfg, `/api/companies/${slug}/periods/close`, {
+    periodStart, periodEnd, confirm: true,
+    reviewId: review.body.review.id,
+    packetHash: review.body.review.packet.hash,
+  });
 }
 
 // --------------------------------------------------------------------------
@@ -346,15 +350,14 @@ describe("dashboard VAT attention period (#555)", () => {
       const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
       try {
         migrate(db);
-        const reported = closeAccountingPeriod(db, {
+        const reported = seedHistoricalClosedPeriod(db, {
           periodStart: "2026-01-01",
           periodEnd: "2026-06-30",
+          kind: "vat_period",
           status: "reported",
           reference: "SKAT-TEST-555",
-          createdBy: "agent:test",
-          createdByProgram: "bun:test",
         });
-        expect(reported.ok).toBe(true);
+        expect(reported.periodId).toBeGreaterThan(0);
       } finally {
         db.close();
       }
@@ -480,11 +483,7 @@ describe("cockpit VAT card — open period is provisional (#303)", () => {
     try {
       postVatSale(ws, slug, "2026-02-15");
       // Close Q1 via the cockpit endpoint.
-      const closed = await post(
-        config(ws),
-        `/api/companies/${slug}/periods/close`,
-        { periodStart: "2026-01-01", periodEnd: "2026-03-31", confirm: true },
-      );
+      const closed = await closeQuarter(config(ws), slug);
       expect(closed.status).toBe(200);
       const vat = buildCompanyVat(ws, slug, 2026);
       expect(vat.periodStatus).toBe("closed");
@@ -600,11 +599,7 @@ describe("cockpit reopen period (#301)", () => {
     const { root: ws, slug } = makeWorkspace("reopen-ok", "quarter");
     try {
       postVatSale(ws, slug, "2026-02-15");
-      const closed = await post(
-        config(ws),
-        `/api/companies/${slug}/periods/close`,
-        { periodStart: "2026-01-01", periodEnd: "2026-03-31", confirm: true },
-      );
+      const closed = await closeQuarter(config(ws), slug);
       expect(closed.status).toBe(200);
 
       const reopened = await post(
@@ -904,11 +899,7 @@ describe("setCompanyVatPeriodType — deregistration guard vs open VAT periods",
     const { root: ws, slug } = makeWorkspace("dereg-closed", "quarter");
     try {
       postVatSale(ws, slug, "2026-02-15");
-      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-03-31",
-        confirm: true,
-      });
+      const closed = await closeQuarter(config(ws), slug);
       expect(closed.status).toBe(200);
       const res = deregister(ws, slug);
       expect(res).toEqual({ ok: true, changed: true, errors: [] });
@@ -921,11 +912,7 @@ describe("setCompanyVatPeriodType — deregistration guard vs open VAT periods",
     const { root: ws, slug } = makeWorkspace("dereg-reopened", "quarter");
     try {
       postVatSale(ws, slug, "2026-02-15");
-      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-03-31",
-        confirm: true,
-      });
+      const closed = await closeQuarter(config(ws), slug);
       expect(closed.status).toBe(200);
       const reopened = await post(config(ws), `/api/companies/${slug}/periods/reopen`, {
         periodStart: "2026-01-01",
@@ -950,11 +937,7 @@ describe("setCompanyVatPeriodType — deregistration guard vs open VAT periods",
     const { root: ws, slug } = makeWorkspace("dereg-recover", "quarter");
     try {
       postVatSale(ws, slug, "2026-02-15");
-      const closed = await post(config(ws), `/api/companies/${slug}/periods/close`, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-03-31",
-        confirm: true,
-      });
+      const closed = await closeQuarter(config(ws), slug);
       expect(closed.status).toBe(200);
       const db = openDb(companyPaths(companyRootForSlug(ws, slug)).db);
       migrate(db);

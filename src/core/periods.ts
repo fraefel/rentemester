@@ -690,6 +690,15 @@ function closeAccountingPeriodInImmediateTransaction(db: Database, input: CloseA
       const original = db.query("SELECT p.packet_json,d.packet_hash FROM period_close_decisions d JOIN period_close_readiness_packets p ON p.packet_hash=d.packet_hash WHERE d.period_id=? AND d.decision IN ('closed','forced_closed') ORDER BY d.id DESC LIMIT 1").get(existing.id) as {packet_json:string;packet_hash:string}|null;
       if (!original || input.readinessPacketHash !== original.packet_hash) return { ok:false, appliedRules, errors:["PERIOD_REPORT_CLOSE_PACKET_MISMATCH"] };
       const packet = JSON.parse(original.packet_json) as CloseReadinessPacket;
+      // Some legacy ledgers carry a terminal `period_report` only in the
+      // append-only lifecycle, while the immutable row still says `closed`.
+      // A single attributable receipt backfill remains legal, but it must be
+      // bound to the original close packet — never to a freshly computed one.
+      if (effectivePeriodState(db, existing.id, "closed") === "reported" && existing.reference === null) {
+        db.query("UPDATE accounting_periods SET status='reported',reported_at=COALESCE(reported_at,CURRENT_TIMESTAMP),reference=? WHERE id=? AND status='closed'").run(reference, existing.id);
+        insertAuditLog(db,{eventType:"period_report_reference_backfill",entityType:"accounting_period",entityId:existing.id,message:`Backfilled filing reference for reported ${kind} period ${periodStart}..${periodEnd} (${reference})`,createdBy:input.createdBy,createdByProgram:input.createdByProgram});
+        return {ok:true,periodId:existing.id,periodStart,periodEnd,kind,status,reference,appliedRules,errors,readinessPacket:packet};
+      }
       db.query("UPDATE accounting_periods SET status='reported',reported_at=CURRENT_TIMESTAMP,reference=? WHERE id=? AND status='closed'").run(reference,existing.id);
       insertAuditLog(db,{eventType:"period_report",entityType:"accounting_period",entityId:existing.id,message:`Marked ${kind} period ${periodStart}..${periodEnd} reported (${reference})`,createdBy:input.createdBy,createdByProgram:input.createdByProgram});
       // The v25 decision table predates a distinct `reported` enum value;

@@ -43,6 +43,19 @@ export function closeAccountingPeriod(
     if (!linked.ok) throw new Error(linked.errors.join("; "));
   }
   const actor = input.createdBy?.trim() || "agent:test";
+  // A legacy report-receipt backfill is deliberately bound to the original
+  // close decision.  Do not create a fresh review for that historical
+  // lifecycle transition: production rejects any hash other than the close
+  // packet it originally approved.
+  if (input.status === "reported") {
+    const original = db.query(`SELECT d.packet_hash FROM accounting_periods p
+      JOIN period_close_decisions d ON d.period_id=p.id
+      WHERE p.period_start=? AND p.period_end=? AND p.kind IN ('vat_period','vat_quarter')
+      ORDER BY d.id DESC LIMIT 1`).get(periodStart, periodEnd) as { packet_hash: string } | null;
+    if (original) {
+      return closeCore(db, { ...input, createdBy: actor, readinessPacketHash: original.packet_hash });
+    }
+  }
   const packet = computePeriodCloseReadiness(db, {
     periodStart,
     periodEnd,

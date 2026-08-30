@@ -1,0 +1,9 @@
+import type { CommandSpec } from "./_shared";
+export const dimensionsSpecs:CommandSpec[]=[
+ {key:"dimensions define",usage:"dimensions define --company <path> --dimension-id <id> --kind <kind> --name <name> --principal <id> --confirm yes",description:"Opretter en append-only dimensionsdefinition.",allowedFlags:["--company","--dimension-id","--kind","--name","--principal","--confirm"]},
+ {key:"dimensions member",usage:"dimensions member --company <path> --dimension-id <id> --member-id <id> --name <name> --principal <id> --confirm yes",description:"Opretter et dimensionsmedlem.",allowedFlags:["--company","--dimension-id","--member-id","--name","--status","--principal","--confirm"]},
+ {key:"dimensions plan",usage:"dimensions plan --company <path> --journal-line-id <n> --allocations <json>",description:"Laver en read-only hash-bundet dimensionsplan.",allowedFlags:["--company","--journal-line-id","--allocations","--source","--reviewed-import"]},
+ {key:"dimensions apply",usage:"dimensions apply --company <path> --journal-line-id <n> --allocations <json> --plan-hash <hash> --principal <id> --confirm yes",description:"Anvender en eksakt reviewet dimensionsplan append-only.",allowedFlags:["--company","--journal-line-id","--allocations","--source","--reviewed-import","--plan-hash","--idempotency-key","--principal","--confirm"]},
+ {key:"dimensions supersede",usage:"dimensions supersede --company <path> --assignment-id <n> --reason <text> --principal <id> --confirm yes",description:"Superseder en dimensionsklassifikation uden at ændre journalen.",allowedFlags:["--company","--assignment-id","--reason","--principal","--confirm"]},
+ {key:"dimensions list",usage:"dimensions list --company <path> --journal-line-id <n>",description:"Lister dimensionshistorik for en journal linje.",allowedFlags:["--company","--journal-line-id"]},
+];

@@ -104,7 +104,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 190 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 196 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -229,7 +229,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 73
 - **Ordinary write-tools**: 105
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **190** (read and write tool counts are verified from the live registry in CI)
+- **Total**: **196** (read and write tool counts are verified from the live registry in CI)
 
 ## Read-tools
 
@@ -680,6 +680,9 @@ ord-for-ord, CLI/MCP-pendanter og er derfor hverken CLI-only eller MCP-only:
   planlægning, godkendelse og anvendelse af en hash-bundet batch.
 - `src/cli/supplier-commitments.ts` ↔ `src/mcp/tools/supplier-commitments.ts` —
   reviewede leverandørforpligtelser og deres deterministiske occurrence-flow.
+- `src/cli/dimensions.ts` ↔ `src/mcp/tools/dimensions.ts` — company-scoped,
+  append-only dimension definitions, members and hash-bound journal-line
+  allocations. Assignments never alter journal bytes, VAT or legal totals.
 - `src/cli/posting-rules.ts` ↔ `src/mcp/tools/posting-rules.ts` —
   forslag, lifecycle og dry-run forklaring af virksomheds-lokale
   konteringsregler.

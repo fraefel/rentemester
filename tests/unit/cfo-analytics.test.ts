@@ -32,12 +32,12 @@ describe("#581 source-linked CFO analytics",()=>{
     try { expect(()=>queryCfoAnalytics(ws,{scope:"company",companySlug:"hidden-aps",from:"2026-01-01",to:"2026-12-31"},["alpha-aps"])).toThrow("not accessible"); expect(()=>queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",cursor:"bad"})).toThrow("cursor"); }
     finally { rmSync(ws,{recursive:true,force:true}); }
   });
-  test("filters deterministically, keeps currencies separate, and fails closed for unsupported dimensions",()=>{
+  test("filters deterministically, keeps currencies separate, and returns no rows for an unassigned dimension",()=>{
     const ws=makeWorkspace("cfo-filters",["Alpha ApS"]);
     try { postPnlEntry(ws,"alpha-aps","2026-02-10",500,125);
       const result=queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",account:"1000",currency:"DKK"});
       expect((result as any).rows).toHaveLength(1); expect((result as any).reconciliation.amountByCurrency).toEqual({DKK:-500});
-      expect(()=>queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",dimension:"region"})).toThrow("dimension filtering is unsupported");
+      expect((queryCfoAnalytics(ws,{scope:"company",companySlug:"alpha-aps",from:"2026-01-01",to:"2026-12-31",dimension:"region"}) as any).rows).toEqual([]);
     } finally { rmSync(ws,{recursive:true,force:true}); }
   });
   test("reconciles multi-year supplier spend to immutable journal, document and archive sources without duplication",()=>{

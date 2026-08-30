@@ -63,6 +63,12 @@ import {
   BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME,
   PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM,
   PERIOD_CLOSE_REVIEWS_MIGRATION_NAME,
+  DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM,
+  DOCUMENT_PARTY_LINKS_MIGRATION_NAME,
+  SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM,
+  SUPPLIER_COMMITMENTS_MIGRATION_NAME,
+  ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM,
+  ACCOUNTING_DIMENSIONS_MIGRATION_NAME,
   CURRENT_SCHEMA_VERSION,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
@@ -228,6 +234,9 @@ describe("system restore", () => {
       expect.objectContaining({ id: 23, name: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME, checksum: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
       expect.objectContaining({ id: 24, name: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
       expect.objectContaining({ id: 25, name: PERIOD_CLOSE_REVIEWS_MIGRATION_NAME, checksum: PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
+      expect.objectContaining({ id: 26, name: DOCUMENT_PARTY_LINKS_MIGRATION_NAME, checksum: DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
+      expect.objectContaining({ id: 27, name: SUPPLIER_COMMITMENTS_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
+      expect.objectContaining({ id: 28, name: ACCOUNTING_DIMENSIONS_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
     ]);
     expect(manifest.provenance).toEqual(expect.objectContaining({
       product: expect.objectContaining({ version: expect.any(String) }),

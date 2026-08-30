@@ -1,7 +1,7 @@
 /**
  * Central tools-registrering for Rentemester-MCP-serveren.
  *
- * `registerAllTools` registrerer hele tool-surface'en — 190 tools fordelt
+ * `registerAllTools` registrerer hele tool-surface'en — 196 tools fordelt
  * på de domæne-funktioner der kaldes herunder. Den autoritative liste
  * (klassifikation, inputs, CLI-mapping) står i docs/mcp-tool-surface.md;
  * driv en kørende server med `tools/list` for den faktiske, aktuelle liste.
@@ -43,6 +43,7 @@ import { registerBankTools } from "./tools/bank";
 import { registerCustomerTools } from "./tools/customer";
 import { registerCvrTools } from "./tools/cvr";
 import { registerDocumentTools } from "./tools/documents";
+import { registerDimensionTools } from "./tools/dimensions";
 import { registerExceptionTools } from "./tools/exceptions";
 import { registerExpenseTools } from "./tools/expense";
 import { registerInvoiceTools } from "./tools/invoice";
@@ -208,6 +209,7 @@ export function registerAllTools(server: McpServer, security?: McpSecurityContex
   registerCustomerTools(server);
   registerCvrTools(server);
   registerDocumentTools(server);
+  registerDimensionTools(server);
   registerExceptionTools(server);
   registerExpenseTools(server);
   registerInvoiceTools(server);

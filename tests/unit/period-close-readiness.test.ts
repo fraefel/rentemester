@@ -149,7 +149,7 @@ describe("#580 period-close readiness", () => {
       // Model the exact v24 state: v22 packet/decision/open-item evidence is
       // present, the v25 review table and its migration identity are absent.
       db.exec("DROP TABLE period_close_reviews");
-      db.run("DELETE FROM schema_migrations WHERE id=25");
+      db.run("DELETE FROM schema_migrations WHERE id>24");
       db.run("INSERT INTO period_close_readiness_packets(packet_hash,period_start,period_end,cutoff,packet_json) VALUES(?,?,?,?,?)", packet.hash, packet.periodStart, packet.periodEnd, packet.cutoff, JSON.stringify(packet));
       db.run("INSERT INTO accounting_periods(period_start,period_end,kind,status,closed_at) VALUES('2025-03-01','2025-03-31','custom','closed',CURRENT_TIMESTAMP)");
       db.run("INSERT INTO period_close_decisions(period_id,packet_hash,decision,actor) VALUES(1,?,'forced_closed','user:synthetic')", packet.hash);

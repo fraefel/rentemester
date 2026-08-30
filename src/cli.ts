@@ -103,6 +103,7 @@ import { register as registerPayable } from "./cli/payable";
 import { register as registerPostingRules } from "./cli/posting-rules";
 import { register as registerBookkeepingBatch } from "./cli/bookkeeping-batch";
 import { register as registerWorkspaceRegistry } from "./cli/workspace-registry";
+import { register as registerDimensions } from "./cli/dimensions";
 // ===== END PAYABLES / KREDITORSTYRING =====
 import {
   findWorkspaceCompany,
@@ -278,6 +279,7 @@ for (const registerFn of [
   registerExceptions,
   registerInvoice,
   registerDocuments,
+  registerDimensions,
   registerBank,
   // ===== BANK CLUSTER (#187) =====
   registerBankAccount,

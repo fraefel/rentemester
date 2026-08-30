@@ -98,6 +98,22 @@ export type BudgetVsActualReport = {
   errors: string[];
 };
 
+/** Read-only dimension drilldown.  Budget remains account-level until a
+ * reviewed dimension budget exists; the account total is always returned so
+ * clients cannot mistake a classified subset for the legal account actual. */
+export function buildDimensionActuals(db: Database, from: BudgetPeriod, to: BudgetPeriod, dimension?: string) {
+  if (!isValidBudgetPeriod(from) || !isValidBudgetPeriod(to) || from > to) return { ok:false, errors:["from and to must be ordered YYYY-MM periods"], rows:[] as any[] };
+  const rows=db.query(`SELECT jl.id AS journal_line_id,a.account_no AS account_no,substr(je.transaction_date,1,7) AS period,jl.debit_amount-jl.credit_amount AS line_amount,da.allocations_json
+    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
+    JOIN current_accounting_dimension_assignments da ON da.journal_line_id=jl.id
+    WHERE je.status='posted' AND substr(je.transaction_date,1,7) BETWEEN ? AND ? ORDER BY jl.id`).all(from,to) as any[];
+  const accountTotals=db.query(`SELECT a.account_no AS account_no,substr(je.transaction_date,1,7) AS period,SUM(jl.debit_amount-jl.credit_amount) AS actual
+    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
+    WHERE je.status='posted' AND substr(je.transaction_date,1,7) BETWEEN ? AND ? GROUP BY a.account_no,substr(je.transaction_date,1,7)`).all(from,to) as any[];
+  const out:any[]=[]; for(const row of rows){let allocations:any[]=[];try{allocations=JSON.parse(row.allocations_json);}catch{continue;}for(const item of allocations){const key=`${item.dimensionId}:${item.memberId}`;if(dimension&&dimension!==item.dimensionId&&dimension!==key)continue;out.push({dimensionId:item.dimensionId,memberId:item.memberId,accountNo:row.account_no,period:row.period,actual:Number(item.amountMinor)/100*Math.sign(Number(row.line_amount)||1),journalLineId:row.journal_line_id});}}
+  return {ok:true,from,to,rows:out,accountTotals:accountTotals.map(row=>({accountNo:row.account_no,period:row.period,actual:Number(row.actual)})),errors:[]};
+}
+
 /** A `YYYY-MM` calendar-month string with a real month 01-12. */
 export function isValidBudgetPeriod(value: unknown): value is BudgetPeriod {
   if (typeof value !== "string") return false;

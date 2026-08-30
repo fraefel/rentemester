@@ -257,6 +257,14 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     write("register-accrual", mcp("accrual_register"), "Register an accrual schedule.", { canonicalRecords: ["accrual schedules"] }),
     read("tax-prepare", mcp("tax_return_prepare"), "Prepare tax-return material.", { dependsOn: ["budget-report", "register-accrual"], boundary: "review" }),
   ], unsupportedBoundaries: ["Tax/report material is not filed and is not tax advice."] }),
+  workflow({ id: "accounting-dimensions", capabilityId: "accounting-dimensions", title: "Reviewed accounting dimensions", intendedOutcome: "Classify immutable journal lines by approved company dimensions without changing legal amounts, VAT or journal hashes.", steps: [
+    write("define", mcp("dimension_definition_create"), "Define a company-scoped dimension.", { canonicalRecords:["dimension definition events"] }),
+    write("member", mcp("dimension_member_create"), "Define an active or historical member.", { dependsOn:["define"], canonicalRecords:["dimension member events"] }),
+    read("plan", mcp("dimension_assignment_plan"), "Produce the exact read-only allocation plan and hash.", { dependsOn:["member"], boundary:"dry-run", canonicalRecords:["dimension assignment plan"] }),
+    write("apply", mcp("dimension_assignment_apply"), "Append the reviewed hash-bound allocation.", { dependsOn:["plan"], canonicalRecords:["dimension assignment events"] }),
+    read("inspect", mcp("dimension_assignment_list"), "Read source-linked assignment history and drilldown ids.", { dependsOn:["apply"] }),
+    write("supersede", mcp("dimension_assignment_supersede"), "Correct by append-only supersession.", { dependsOn:["apply"], boundary:"review", canonicalRecords:["dimension assignment supersession"] }),
+  ], unsupportedBoundaries:["Dimensions never change account, VAT, currency, legal entity, legal totals or journal hashes.","Imported dimensions remain provenance until explicitly reviewed."] }),
   workflow({ id: "posting-rule-review", capabilityId: "posting-rules", title: "Company-specific posting rule review", intendedOutcome: "Propose, independently approve and explain a reusable audited posting rule.", steps: [
     write("propose", mcp("posting_rule_propose"), "Propose an inert rule.", { expectedIdempotent: true, retryClass: "natural-idempotent", canonicalRecords: ["posting rule proposal"] }),
     write("approve", mcp("posting_rule_approve"), "Approve with reviewer separation.", { dependsOn: ["propose"], boundary: "approval", canonicalRecords: ["approved posting rule"] }),
@@ -315,6 +323,7 @@ const capabilityTuples: CapabilityTuple[] = [
   ["fixed-assets", "Fixed assets", "Register assets and post depreciation.", "assets", ["register asset", "depreciate asset"], ["anlæg", "write-off"], "company", ["asset-register-depreciate"]],
   ["mileage", "Mileage", "Register and report documented business mileage.", "mileage", ["log mileage", "mileage report"], ["trip", "kilometres"], "company", ["mileage-register-report"]],
   ["planning-reporting", "Planning and reporting", "Maintain budgets/accruals and prepare tax/reporting material.", "reporting", ["budget versus actual", "register accrual", "prepare tax return", "annual report"], ["forecast", "report", "tax"], "company", ["planning-accrual-reporting"]],
+  ["accounting-dimensions", "Accounting dimensions", "Classify source-linked journal lines by reviewed projects, products, departments or cost centres without changing legal accounting.", "reporting", ["classify project cost", "assign cost centre", "dimension actuals"], ["dimension", "project", "cost centre", "department", "allocation"], "company", ["accounting-dimensions"]],
   ["posting-rules", "Posting rules", "Propose, approve and explain reusable posting rules.", "rules", ["create posting rule", "approve bookkeeping rule"], ["automation", "review separation"], "company", ["posting-rule-review"]],
   ["workspace-parties", "Workspace parties", "Maintain canonical counterparties with isolated company roles and reviewed supersession.", "master data", ["create canonical party", "link company party role", "review duplicate party"], ["party", "counterparty", "identity", "vendor role"], "workspace", ["workspace-party-lifecycle"]],
   ["corporate-records", "Corporate records", "Store immutable corporate and governance evidence with typed, access-controlled links.", "governance", ["ingest corporate record", "link governance evidence", "supersede corporate record"], ["corporate record", "governance", "articles", "ownership evidence"], "workspace", ["corporate-record-lifecycle"]],
@@ -435,16 +444,14 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  // #577 adds the six live inbox operations. The workflow above remains the
-  // canonical explanation; this identity snapshot prevents silent drift.
-  mcp: { count: 190, hash: "5ecac97c09763ccd4acfde9921998f8dbf027481d7b656e00d9c4bb2b78c391e" },
-  cli: { count: 243, hash: "1b67fabcaa4e94346505cd7f6541d30bede9381a03e2f6d2a28ce6ec7dde49e4" },
-  // #573 service-principal lifecycle routes are public runtime operations and
-  // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 185, hash: "c51156c5149d6451524d403a406b9fd3bf2fd75e8230c7650605fd08b9f620b4" },
+  // Public surface changes require an explicit discovery review.
+  mcp: { count: 196, hash: "8bcb80bf8300e9cc6f2a065ddc35e6a96c4e7d1878d8e8c9b7e9bf72a0f4fffc" },
+  cli: { count: 249, hash: "018aef5f299278f60d73eabb81284174d28c96888b278014fae6ac036a598957" },
+  http: { count: 191, hash: "ea8c4bcba9a9f6653358bc3db665050d6a8139edbf5f6a567e2132076ca5791d" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
+  { capabilityId: "accounting-dimensions", pattern: /dimensions?|dimension[_-]/ },
   { capabilityId: "cfo-analytics", pattern: /(?:cfo[_-]analytics|report analytics|cfo-analytics)/ },
   { capabilityId: "workspace-document-inbox", pattern: /workspace[_-]inbox/ },
   { capabilityId: "corporate-records", pattern: /(?:corporate[_-]record|corporate-record)/ },

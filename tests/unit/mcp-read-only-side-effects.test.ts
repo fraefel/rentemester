@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Database } from "bun:sqlite";
 import { createCompany } from "../../src/core/company";
 import { openDb } from "../../src/core/db";
 import { getCachedCvrLookup } from "../../src/core/cvr";
@@ -30,6 +31,8 @@ function treeDigest(root: string): string {
 
 const server = new McpServer({ name: "readonly-contract", version: "0" });
 
+function checkpointFixture(path:string) { const db=new Database(path); db.run("PRAGMA wal_checkpoint(TRUNCATE)"); db.close(); }
+
 describe("MCP company read-only opening contract (#586)", () => {
   test("default shared runtime is snapshot-only for missing, uninitialised and pending ledgers", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "rentemester-readonly-"));
@@ -43,6 +46,7 @@ describe("MCP company read-only opening contract (#586)", () => {
       const writable = openDb(dbPath);
       try { writable.exec("DELETE FROM schema_migrations WHERE id = (SELECT MAX(id) FROM schema_migrations)"); }
       finally { writable.close(); }
+      checkpointFixture(dbPath);
 
       const call = withCompanyDb<{ company: string }>(server, ({ db }) => successEnvelope({ tables: Number((db.query("SELECT COUNT(*) AS count FROM sqlite_master").get() as { count: number }).count) }));
       const companiesBefore = listWorkspaceCompanies(workspace);
@@ -76,6 +80,7 @@ describe("MCP company read-only opening contract (#586)", () => {
     const workspace = mkdtempSync(join(tmpdir(), "rentemester-readonly-current-"));
     try {
       const created = createCompany(workspace, { name: "Current ApS", slug: "current" });
+      checkpointFixture(companyPaths(created.companyRoot).db);
       const before = treeDigest(created.companyRoot);
       const call = withCompanyReadOnlyDb<{ company: string }>(({ db }) => successEnvelope({ companyCount: (db.query("SELECT COUNT(*) AS count FROM companies").get() as { count: number }).count }));
       const result = await call({ company: created.companyRoot });
@@ -87,7 +92,8 @@ describe("MCP company read-only opening contract (#586)", () => {
   test("portfolio overview is a snapshot-only fan-out", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "rentemester-portfolio-readonly-"));
     try {
-      createCompany(workspace, { name: "Portfolio ApS", slug: "portfolio" });
+      const created=createCompany(workspace, { name: "Portfolio ApS", slug: "portfolio" });
+      checkpointFixture(companyPaths(created.companyRoot).db);
       const portfolio = new McpServer({ name: "portfolio-readonly", version: "0" });
       registerPortfolioTools(portfolio);
       const handler = ((portfolio as any)._registeredTools as Record<string, { handler: Function }>).portfolio_overview.handler;

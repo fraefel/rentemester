@@ -1,0 +1,5 @@
+{
+  "id": 23,
+  "name": "rentemester-corporate-record-scope-integrity-v23",
+  "sql": "CREATE TRIGGER rm_corporate_record_links_no_update BEFORE UPDATE ON rm_corporate_record_links BEGIN SELECT RAISE(ABORT, 'corporate record links are append-only'); END;\nCREATE TRIGGER rm_corporate_record_links_no_delete BEFORE DELETE ON rm_corporate_record_links BEGIN SELECT RAISE(ABORT, 'corporate record links are append-only'); END;\n"
+}

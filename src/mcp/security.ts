@@ -126,6 +126,14 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
         authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission: endpointPermission, companySlug: slug }).allowed,
       )) return null;
     }
+    if (name.startsWith("corporate_record_")) {
+      const recordIds=[args.recordId,args.replacementRecordId].filter((value):value is string=>typeof value==="string");
+      const scopes=new Set<string>(); let sensitivity="normal";
+      for(const recordId of recordIds){const row=db.query("SELECT sensitivity FROM rm_corporate_record_bytes WHERE record_id=?").get(recordId)as {sensitivity?:string}|null;if(!row)return null;sensitivity=row.sensitivity??"normal";for(const scope of db.query("SELECT scope_id FROM rm_corporate_record_scope_assertions WHERE record_id=? AND scope_kind='company'").all(recordId)as Array<{scope_id:string}>)scopes.add(scope.scope_id);}
+      if(Array.isArray(args.links))for(const link of args.links as Array<any>)if(link?.type==="company"&&typeof link.id==="string")scopes.add(link.id);
+      if(args.type==="company"&&typeof args.id==="string")scopes.add(args.id);
+      if(scopes.size>0){const needed=(sensitivity==="normal"&&name!=="corporate_record_ingest"&&name!=="corporate_record_link"&&name!=="corporate_record_supersede")?permission:"company.master-data";if(![...scopes].every(slug=>authorizeWorkspaceRoute(db,context.workspaceRoot,{userId:principal.serviceAccountId,permission:needed,companySlug:slug}).allowed))return null;}
+    }
     return { root: company.root, principal: authenticated };
   } finally { db.close(); }
 }

@@ -1,0 +1,5 @@
+{
+  "id": 24,
+  "name": "rentemester-ownership-fact-lifecycle-v24",
+  "sql": "CREATE TABLE rm_ownership_fact_events (\n id INTEGER PRIMARY KEY,\n fact_hash TEXT NOT NULL REFERENCES rm_ownership_facts(fact_hash),\n event_type TEXT NOT NULL CHECK(event_type='ended'),\n effective_to_exclusive TEXT NOT NULL,\n successor_fact_hash TEXT NOT NULL REFERENCES rm_ownership_facts(fact_hash),\n snapshot_id TEXT NOT NULL REFERENCES rm_ownership_source_snapshots(snapshot_id),\n actor TEXT NOT NULL,\n principal_kind TEXT NOT NULL CHECK(principal_kind IN ('user','service_account','local_operator')),\n principal_id TEXT NOT NULL,\n created_at TEXT NOT NULL,\n UNIQUE(fact_hash,event_type,effective_to_exclusive,successor_fact_hash)\n);\nCREATE TRIGGER rm_ownership_fact_events_no_update BEFORE UPDATE ON rm_ownership_fact_events BEGIN SELECT RAISE(ABORT, 'ownership fact events are append-only'); END;\nCREATE TRIGGER rm_ownership_fact_events_no_delete BEFORE DELETE ON rm_ownership_fact_events BEGIN SELECT RAISE(ABORT, 'ownership fact events are append-only'); END;\n"
+}

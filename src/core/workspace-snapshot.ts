@@ -188,9 +188,10 @@ export function createWorkspaceSnapshot(
         const snapshots = controlDb.query("SELECT snapshot_id,source,observed_at,snapshot_hash,diff_hash,canonical_facts,diff_json,actor,principal_kind,principal_id,created_at FROM rm_ownership_source_snapshots ORDER BY id").all();
         const events = controlDb.query("SELECT snapshot_id,event_type,actor,principal_kind,principal_id,created_at FROM rm_ownership_snapshot_events ORDER BY id").all();
         const facts = controlDb.query("SELECT fact_id,snapshot_id,fact_hash,canonical_fact,owner_kind,owner_id,owned_company_slug,valid_from,valid_to_exclusive,economic_exact_bp,economic_min_bp,economic_max_bp,voting_bp,control_type,share_class,jurisdiction,review_state,created_at FROM rm_ownership_facts ORDER BY id").all();
-        if (snapshots.length > 0 || events.length > 0 || facts.length > 0) {
+        const factEvents = controlDb.query("SELECT fact_hash,event_type,effective_to_exclusive,successor_fact_hash,snapshot_id,actor,principal_kind,principal_id,created_at FROM rm_ownership_fact_events ORDER BY id").all();
+        if (snapshots.length > 0 || events.length > 0 || facts.length > 0 || factEvents.length > 0) {
           const path = join(staging, "ownership-graph.json");
-          writeFileAtomic(path, `${JSON.stringify({ version: 1, snapshots, events, facts })}\n`);
+          writeFileAtomic(path, `${JSON.stringify({ version: 2, snapshots, events, facts, factEvents })}\n`);
           ownershipGraph = fileEvidence(staging, path);
         }
       } finally { controlDb.close(); }
@@ -396,13 +397,14 @@ export function restoreWorkspaceSnapshot(input: {
       })(); } finally { controlDb.close(); }
     }
     if (manifest.ownershipGraph) {
-      const raw = JSON.parse(readFileSync(join(extracted, ...manifest.ownershipGraph.path.split("/")), "utf8")) as { version:number; snapshots:any[]; events:any[]; facts:any[] };
-      if (raw.version !== 1 || !Array.isArray(raw.snapshots) || !Array.isArray(raw.events) || !Array.isArray(raw.facts)) throw new Error("workspace ownership snapshot is invalid");
+      const raw = JSON.parse(readFileSync(join(extracted, ...manifest.ownershipGraph.path.split("/")), "utf8")) as { version:number; snapshots:any[]; events:any[]; facts:any[]; factEvents?:any[] };
+      if ((raw.version !== 1 && raw.version !== 2) || !Array.isArray(raw.snapshots) || !Array.isArray(raw.events) || !Array.isArray(raw.facts) || (raw.version===2&&!Array.isArray(raw.factEvents))) throw new Error("workspace ownership snapshot is invalid");
       const controlDb = openWorkspaceControlDb(staging);
       try { controlDb.transaction(() => {
         for (const row of raw.snapshots) controlDb.query("INSERT INTO rm_ownership_source_snapshots(snapshot_id,source,observed_at,snapshot_hash,diff_hash,canonical_facts,diff_json,actor,principal_kind,principal_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(row.snapshot_id,row.source,row.observed_at,row.snapshot_hash,row.diff_hash,row.canonical_facts,row.diff_json,row.actor,row.principal_kind,row.principal_id,row.created_at);
         for (const row of raw.events) controlDb.query("INSERT INTO rm_ownership_snapshot_events(snapshot_id,event_type,actor,principal_kind,principal_id,created_at) VALUES(?,?,?,?,?,?)").run(row.snapshot_id,row.event_type,row.actor,row.principal_kind,row.principal_id,row.created_at);
         for (const row of raw.facts) controlDb.query("INSERT INTO rm_ownership_facts(fact_id,snapshot_id,fact_hash,canonical_fact,owner_kind,owner_id,owned_company_slug,valid_from,valid_to_exclusive,economic_exact_bp,economic_min_bp,economic_max_bp,voting_bp,control_type,share_class,jurisdiction,review_state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(row.fact_id,row.snapshot_id,row.fact_hash,row.canonical_fact,row.owner_kind,row.owner_id,row.owned_company_slug,row.valid_from,row.valid_to_exclusive,row.economic_exact_bp,row.economic_min_bp,row.economic_max_bp,row.voting_bp,row.control_type,row.share_class,row.jurisdiction,row.review_state,row.created_at);
+        for (const row of raw.factEvents??[]) controlDb.query("INSERT INTO rm_ownership_fact_events(fact_hash,event_type,effective_to_exclusive,successor_fact_hash,snapshot_id,actor,principal_kind,principal_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)").run(row.fact_hash,row.event_type,row.effective_to_exclusive,row.successor_fact_hash,row.snapshot_id,row.actor,row.principal_kind,row.principal_id,row.created_at);
       })(); } finally { controlDb.close(); }
     }
     for (const company of manifest.companies) {

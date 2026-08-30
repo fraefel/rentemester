@@ -32,7 +32,7 @@ describe("workspace registry HTTP access projection", () => {
     try {
       const owner = { kind: "local_operator" as const, id: "synthetic-owner" };
       const initial = proposeOwnershipSnapshot(db, { snapshotId: "edge-existing", source: "synthetic", observedAt: at, facts: [{ owner: { kind: "company", companySlug: "allowed-aps" }, ownedCompanySlug: "hidden-aps", validFrom: "2026-01-01", validToExclusive: "2027-01-01", economicBasisPoints: 10000, controlType: "equity", jurisdiction: "DK", evidenceRefs: ["synthetic"] }], actor: "user:owner", principal: owner });
-      reviewOwnershipSnapshot(db, { snapshotId: initial.snapshotId, decision: "approved", actor: "user:review", principal: owner });
+      reviewOwnershipSnapshot(db, { snapshotId: initial.snapshotId, decision: "approved", actor: "user:review", principal: { kind: "local_operator", id: "synthetic-reviewer" } });
       applyOwnershipSnapshot(db, { snapshotId: initial.snapshotId, snapshotHash: initial.snapshotHash, diffHash: initial.diffHash, actor: "user:review", principal: owner, authorized: true });
       const service = await createWorkspaceServicePrincipal(db, runtime.auth, { displayName: "ownership test", actor: "user:owner" });
       activateWorkspaceUser(db, { userId: service.serviceAccountId, workspaceRole: "member", actor: "user:owner" });

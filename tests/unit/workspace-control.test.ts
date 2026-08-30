@@ -45,6 +45,10 @@ import {
   WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_NAME,
   WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM,
   WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_NAME,
+  WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_CHECKSUM,
+  WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_NAME,
+  WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_CHECKSUM,
+  WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_NAME,
   insertWorkspaceAuthorizationAudit,
   insertWorkspaceDocumentAccessAudit,
   workspaceControlPaths,
@@ -107,6 +111,8 @@ describe("workspace control database", () => {
         { id: 16, name: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_CHECKSUM },
         { id: 17, name: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_CHECKSUM },
         { id: 18, name: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM },
+        { id: 19, name: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_CHECKSUM },
+        { id: 20, name: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_CHECKSUM },
       ]);
       expect(
         db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_audit'").get(),
@@ -140,7 +146,7 @@ describe("workspace control database", () => {
       first.close();
 
       const second = openWorkspaceControlDb(workspace);
-      expect(readWorkspaceControlMigrations(second)).toHaveLength(18);
+      expect(readWorkspaceControlMigrations(second)).toHaveLength(20);
       expect(second.query("SELECT event_type, actor FROM workspace_audit").get()).toEqual({
         event_type: "workspace_control_opened",
         actor: "agent:test via unit-test",
@@ -296,7 +302,7 @@ describe("workspace control database", () => {
           applied_by_commit TEXT
         );
         INSERT INTO workspace_schema_migrations (id, name, checksum, applied_by_version)
-        VALUES (19, 'future', 'future-checksum', '0.2.0');
+        VALUES (21, 'future', 'future-checksum', '0.2.0');
       `);
       future.close();
       expect(() => openWorkspaceControlDb(workspace)).toThrow("newer than supported");
@@ -528,7 +534,7 @@ describe("workspace control database", () => {
       v1.close();
 
       const upgraded = openWorkspaceControlDb(workspace);
-      expect(readWorkspaceControlMigrations(upgraded)).toHaveLength(18);
+      expect(readWorkspaceControlMigrations(upgraded)).toHaveLength(20);
       const expectedColumns: Record<string, string[]> = {
         user: ["id", "name", "email", "emailVerified", "image", "createdAt", "updatedAt", "twoFactorEnabled"],
         session: ["id", "expiresAt", "token", "createdAt", "updatedAt", "ipAddress", "userAgent", "userId"],
@@ -576,7 +582,7 @@ describe("workspace control database", () => {
       v2.close();
 
       const upgraded = openWorkspaceControlDb(workspace);
-      expect(readWorkspaceControlMigrations(upgraded)).toHaveLength(18);
+      expect(readWorkspaceControlMigrations(upgraded)).toHaveLength(20);
       for (const table of [
         "rm_workspace_user_access_events",
         "rm_company_membership_events",
@@ -629,7 +635,7 @@ describe("workspace control database", () => {
       v4.close();
 
       const upgraded = openWorkspaceControlDb(workspace);
-      expect(readWorkspaceControlMigrations(upgraded)).toHaveLength(18);
+      expect(readWorkspaceControlMigrations(upgraded)).toHaveLength(20);
       expect(upgraded.query('SELECT COUNT(*) AS count FROM "session"').get()).toEqual({ count: 0 });
       expect(upgraded.query(
         "SELECT user_id, event_type, actor FROM rm_workspace_mfa_events",

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initWorkspace } from "../../src/core/workspace";
 import { openWorkspaceControlDb } from "../../src/core/workspace-control";
-import { approvePartyMerge, createParty, linkPartyRole, proposePartyMerge, searchParties } from "../../src/core/party-registry";
+import { addPartyAlias, approvePartyMerge, assertPartyField, createParty, linkLegacyPartyReference, linkPartyRole, proposePartyMerge, searchParties } from "../../src/core/party-registry";
 
 const roots: string[] = [];
 function db() { const root = mkdtempSync(join(tmpdir(), "rm-party-")); roots.push(root); initWorkspace(root); return openWorkspaceControlDb(root); }
@@ -27,6 +27,18 @@ describe("#573 workspace party registry", () => {
     const two = createParty(control,{kind:"person",name:"Two",source:"synthetic",observedAt:"2026-01-01T00:00:00.000Z",reviewAssertion:"checked",actor:"user:maker"});
     const proposal = proposePartyMerge(control,{fromPartyId:two.partyId,intoPartyId:one.partyId,reviewAssertion:"human reviewed",actor:"user:reviewer"});
     expect(approvePartyMerge(control,{fromPartyId:two.partyId,proposalHash:proposal,actor:"user:approver"}).history.map((e:any)=>e.event_type)).toEqual(["created","proposed_merge","approved_merge","superseded"]);
+    control.close();
+  });
+  test("keeps source-backed aliases/assertions and legacy ids append-only and idempotent", () => {
+    const control = db();
+    const party=createParty(control,{partyId:"party-synthetic",kind:"organization",name:"Synthetic",source:"import",observedAt:"2026-01-01T00:00:00.000Z",reviewAssertion:"checked",actor:"user:maker"});
+    addPartyAlias(control,{partyId:party.partyId,alias:"Synthetic Trading",source:"document",observedAt:"2026-01-02T00:00:00.000Z",reviewState:"proposed",actor:"user:maker"});
+    assertPartyField(control,{partyId:party.partyId,field:"name",value:"Synthetic Holdings",source:"registry",observedAt:"2026-01-03T00:00:00.000Z",reviewState:"approved",actor:"user:reviewer"});
+    linkLegacyPartyReference(control,{partyId:party.partyId,companySlug:"alpha",legacyKind:"vendor",legacyId:"legacy-7",actor:"user:maker"});
+    linkLegacyPartyReference(control,{partyId:party.partyId,companySlug:"alpha",legacyKind:"vendor",legacyId:"legacy-7",actor:"user:maker"});
+    expect(searchParties(control,{query:"trading",companySlugs:new Set(["alpha"])}).rows).toEqual([]);
+    expect(control.query("SELECT count(*) AS n FROM rm_party_legacy_links").get()).toEqual({n:1});
+    expect(()=>control.run("UPDATE rm_party_field_assertions SET value='changed'")).toThrow("append-only");
     control.close();
   });
 });

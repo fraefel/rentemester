@@ -1,0 +1,5 @@
+{
+  "id": 20,
+  "name": "rentemester-corporate-record-governance-v20",
+  "sql": "CREATE TABLE rm_corporate_record_scope_assertions (\n id INTEGER PRIMARY KEY, record_id TEXT NOT NULL, scope_kind TEXT NOT NULL CHECK(scope_kind IN ('company','party','ownership','disposition','legacy_evidence_ref')), scope_id TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(record_id,scope_kind,scope_id)\n);\nCREATE TRIGGER rm_corporate_record_scope_assertions_no_update BEFORE UPDATE ON rm_corporate_record_scope_assertions BEGIN SELECT RAISE(ABORT, 'corporate record scope assertions are append-only'); END;\nCREATE TRIGGER rm_corporate_record_scope_assertions_no_delete BEFORE DELETE ON rm_corporate_record_scope_assertions BEGIN SELECT RAISE(ABORT, 'corporate record scope assertions are append-only'); END;\n"
+}

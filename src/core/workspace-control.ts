@@ -50,6 +50,10 @@ export const WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_ID = 17;
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_NAME = "rentemester-workspace-service-principals-v17";
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_ID = 18;
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_NAME = "rentemester-workspace-service-principal-saga-v18";
+export const WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_ID = 19;
+export const WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_NAME = "rentemester-party-assertions-v19";
+export const WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_ID = 20;
+export const WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_NAME = "rentemester-corporate-record-governance-v20";
 
 const baselineArtifact = readFileSync(
   join(import.meta.dir, "workspace-migrations", "0001-workspace-control-baseline.json"),
@@ -79,6 +83,8 @@ const workspacePartyRegistryArtifact = readFileSync(join(import.meta.dir, "works
 const workspaceCorporateRecordsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0016-corporate-records-v16.json"));
 const workspaceServicePrincipalsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0017-service-principals-v17.json"));
 const workspaceServicePrincipalSagaArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0018-service-principal-saga-v18.json"));
+const workspacePartyAssertionsArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0019-party-assertions-v19.json"));
+const workspaceCorporateRecordGovernanceArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0020-corporate-record-governance-v20.json"));
 
 export const WORKSPACE_CONTROL_BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(baselineArtifact)
@@ -108,6 +114,8 @@ export const WORKSPACE_CONTROL_PARTY_REGISTRY_MIGRATION_CHECKSUM = createHash("s
 export const WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceCorporateRecordsArtifact).digest("hex");
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceServicePrincipalsArtifact).digest("hex");
 export const WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceServicePrincipalSagaArtifact).digest("hex");
+export const WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_CHECKSUM = createHash("sha256").update(workspacePartyAssertionsArtifact).digest("hex");
+export const WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceCorporateRecordGovernanceArtifact).digest("hex");
 
 export type WorkspaceControlPaths = {
   root: string;
@@ -177,6 +185,8 @@ const migrations: readonly WorkspaceMigration[] = [
   { id: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_ID, name: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_CORPORATE_RECORDS_MIGRATION_CHECKSUM, artifact: workspaceCorporateRecordsArtifact },
   { id: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_ID, name: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_SERVICE_PRINCIPALS_MIGRATION_CHECKSUM, artifact: workspaceServicePrincipalsArtifact },
   { id: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_ID, name: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_SERVICE_PRINCIPAL_SAGA_MIGRATION_CHECKSUM, artifact: workspaceServicePrincipalSagaArtifact },
+  { id: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_ID, name: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_PARTY_ASSERTIONS_MIGRATION_CHECKSUM, artifact: workspacePartyAssertionsArtifact },
+  { id: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_ID, name: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_CORPORATE_RECORD_GOVERNANCE_MIGRATION_CHECKSUM, artifact: workspaceCorporateRecordGovernanceArtifact },
 ];
 
 /** Latest immutable control-schema migration this runtime can safely serve. */
@@ -452,7 +462,11 @@ export function assertWorkspaceControlPrimitives(db: Database): void {
     "rm_consolidation_elimination_events",
     "rm_consolidation_profile_events",
     "rm_party_events",
+    "rm_party_alias_assertions",
+    "rm_party_field_assertions",
+    "rm_party_legacy_links",
     "rm_corporate_record_events",
+    "rm_corporate_record_scope_assertions",
   ]) {
     if (!tableExists(db, table)) {
       throw new Error(`workspace control access table '${table}' is missing`);

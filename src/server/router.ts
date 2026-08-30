@@ -89,6 +89,7 @@ import {
 } from "./router/documents";
 import { handleGroupConsolidatedReport, handleGroupDispositionAction, handleGroupDispositionStatus, handleGroupEliminations, handleGroupOverview, handleGroupReconciliation, handleGroupReportProfiles } from "./router/group";
 import {
+  handleCompanyImportedReceivables,
   handleCompanyInvoicePdf,
   handleCompanyInvoices,
   handleCompanyRecurringInvoices,
@@ -178,6 +179,8 @@ import {
   handleMileageCreate,
   handlePayablePay,
   handlePayableRegister,
+  handleDirectBankPurchasePayablePlan,
+  handleDirectBankPurchasePayableApply,
   handlePeriodCloseReadiness,
   handlePeriodCloseReview,
   handlePeriodCloseStatus,
@@ -392,6 +395,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/archive/:year", summary: "Arkiveret regnskabsår." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/multi-year", summary: "Flerårsoversigt." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/invoices", summary: "Udstedte fakturaer." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/imported-receivables", summary: "Kildebeviste importerede tilgodehavender; holdes adskilt fra udstedte fakturaer." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/invoices/:id/pdf", summary: "Henter en faktura-PDF." },
   { scope: "company", effect: "read", permission: "company.master-data", method: "GET", pattern: "/api/companies/:slug/contacts", summary: "Kunder + leverandører." },
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/customers", summary: "Opretter kunde." },
@@ -466,6 +470,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/supplier-commitments/matches", summary: "Læser canonical occurrence-matches, varians og alerts (#590)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/payables", summary: "Registrerer et bilag som leverandørfaktura (#340)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/payables/:id/pay", summary: "Markerer leverandørfaktura betalt fra bankpost (#340)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "POST", pattern: "/api/companies/:slug/payables/direct-bank-correction/plan", summary: "Planlægger hash-bundet direct-bank→payable-korrektion (#594)." },
+  { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/payables/direct-bank-correction/apply", summary: "Anvender reviewet direct-bank→payable-korrektion append-only (#594)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/agent-suggestions", summary: "Agent-forslag i kø — afventer ejerens godkendelse (#346)." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/agent-suggestions/:id/approve", summary: "Ejer godkender agent-forslag — løser undtagelsen med 'Godkendt'-note (#346)." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/agent-suggestions/:id/reject", summary: "Ejer afviser agent-forslag — løser undtagelsen med 'Afvist'-note (#346)." },
@@ -1214,6 +1220,12 @@ export async function handleRequest(
       return handleCompanyMultiYear(config, slug);
     }
 
+    const importedReceivablesMatch = /^\/api\/companies\/([^/]+)\/imported-receivables$/.exec(path);
+    if (importedReceivablesMatch) {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handleCompanyImportedReceivables(config, decodeURIComponent(importedReceivablesMatch[1]!), url);
+    }
+
     const invoicesMatch = /^\/api\/companies\/([^/]+)\/invoices$/.exec(path);
     if (invoicesMatch) {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
@@ -1669,6 +1681,14 @@ export async function handleRequest(
 
     // Leverandørfaktura-arbejdsbordet (#340) — match the per-id /pay route
     // first because the bare /payables routes would otherwise consume it.
+    const directPayableCorrectionMatch = /^\/api\/companies\/([^/]+)\/payables\/direct-bank-correction\/(plan|apply)$/.exec(path);
+    if (directPayableCorrectionMatch) {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      const slug = decodeURIComponent(directPayableCorrectionMatch[1]!);
+      return directPayableCorrectionMatch[2] === "plan"
+        ? await handleDirectBankPurchasePayablePlan(config, request, slug)
+        : await handleDirectBankPurchasePayableApply(config, request, slug);
+    }
     const payablePayMatch =
       /^\/api\/companies\/([^/]+)\/payables\/(\d+)\/pay$/.exec(path);
     if (payablePayMatch) {

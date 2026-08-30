@@ -62,6 +62,12 @@ export function InvoicesView() {
     () => api.invoices(slug, year),
     [slug, year],
   );
+  // The archive schedule is deliberately a second read: it has its own
+  // source hashes and must never be silently mixed into issued-invoice totals.
+  const imported = useAsync(
+    () => api.importedReceivables(slug, `${year ?? new Date().getFullYear()}-12-31`),
+    [slug, year],
+  );
   // True while the invoice-issue modal (#213, slice 4) is open.
   const [issuing, setIssuing] = useState(false);
   // The invoice row whose "Afstem" ConfirmDialog is open, if any.
@@ -122,6 +128,22 @@ export function InvoicesView() {
         selectedYear={inv.selectedYear}
         onYearChange={setYear}
       />
+
+      <section className="card statement-card" aria-label="Importerede tilgodehavender">
+        <div className="row-between">
+          <div>
+            <h3>Importerede tilgodehavender</h3>
+            <p className="muted">Kildearkiv pr. {year ?? new Date().getFullYear()}-12-31 — ikke Rentemester-udstedte fakturaer.</p>
+          </div>
+          <strong>{imported.data ? formatKroner(imported.data.totalOpen, currency) : "—"}</strong>
+        </div>
+        {imported.error ? <p className="muted">Kunne ikke hente importarkivet.</p> : imported.data?.rows.length ? (
+          <div className="table-scroll"><table className="data"><thead><tr><th>Kilde-faktura</th><th>Kunde</th><th>Dato</th><th className="num">Åben saldo</th></tr></thead><tbody>
+            {imported.data.rows.map((row) => <tr key={row.externalInvoiceId}><td>{row.externalInvoiceId}</td><td>{row.customerName ?? "—"}</td><td>{formatDateDa(row.invoiceDate)}</td><td className="num">{formatKroner(row.openBalance, currency)}</td></tr>)}
+          </tbody></table></div>
+        ) : <p className="muted">Ingen importerede tilgodehavender i arkivet.</p>}
+        <p className="muted">{imported.data?.boundary ?? "Importarkivet holdes adskilt fra nye fakturaer for at undgå dobbelttælling."}</p>
+      </section>
 
       {issuing && (
         <InvoiceIssueModal

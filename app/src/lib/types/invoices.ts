@@ -100,6 +100,37 @@ export type InvoicesResponse = {
   invoices: CompanyInvoices;
 };
 
+/** Source-evidenced opening debtors.  Kept separate from `CompanyInvoices`: a
+ * native issued invoice is never an import continuation or a duplicate row. */
+export type ImportedReceivableRow = {
+  source: "imported";
+  externalInvoiceId: string;
+  customerExternalId: string | null;
+  customerName: string | null;
+  invoiceDate: string;
+  dueDate: string | null;
+  grossAmount: number;
+  paidAmount: number;
+  openBalance: number;
+  controlAccountNo: string;
+  sourceRecognitionRef: string;
+  sourceDocumentHash: string;
+  scheduleHash: string;
+  archiveBoundary: string;
+};
+
+export type ImportedReceivables = {
+  ok: true;
+  asOfDate: string;
+  boundary: string;
+  count: number;
+  totalOpen: number;
+  rows: ImportedReceivableRow[];
+  errors: string[];
+};
+
+export type ImportedReceivablesResponse = { ok: true; importedReceivables: ImportedReceivables };
+
 /** One previously generated invoice for a recurring-invoice template. */
 export type RecurringInvoiceGenerationRow = {
   id: number;

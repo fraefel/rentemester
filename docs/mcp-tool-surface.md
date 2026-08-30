@@ -104,7 +104,7 @@ selv ændres ikke.
 
 ## Resultat-shapes (`outputSchema`)
 
-**Alle 211 tools deklarerer et `outputSchema`** (#202). Det er det samme
+**Alle 213 tools deklarerer et `outputSchema`** (#202). Det er det samme
 delte schema for hver tool — konvolutten — så en agent kan læse
 resultat-kontrakten fra `tools/list` *uden* at kalde tool'et først.
 Schemaet er defineret én gang i `src/mcp/envelope.ts` (`envelopeShape`).
@@ -178,6 +178,7 @@ sende uændret for at hente næste side. Et svar med `hasMore: true` er
 | `journal_dry_run` | `{ entryId, entryNo, previousHash, entryHash, accountEffects: [{ accountNo, accountName, balanceBefore, balanceAfter, delta }] }` — ikke-bindende forhåndsvisning af `journal_post`: felterne beskriver hvad posteringen *ville* få. `accountEffects` lister saldo før/efter pr. berørt konto (debet-minus-kredit-netto, i kroner). Ved en ugyldig payload er konvolutten `ok=false` med `errors[]`, og `data` mangler. |
 | `bank_list` | `{ rows: [...], total, count, limit, offset, hasMore, nextOffset? }` (pagineret) |
 | `invoice_list` | `{ invoices: [...], count }` |
+| `invoice_imported_receivables` | `{ asOfDate, boundary, count, totalOpen, rows: [{ externalInvoiceId, invoiceDate, grossAmount, paidAmount, openBalance, controlAccountNo, sourceDocumentHash, scheduleHash }] }` — source-evidenced pre-cut-over debtors only. They are intentionally separate from `invoice_list`; never add the two without an explicit reconciliation. |
 | `exceptions_list` | `{ exceptions: [...], count }` |
 | `period_list` | `{ periods: [{ id, periodStart, periodEnd, kind, status, reference, createdAt }], count }` — `kind` er `"vat_period" \| "fiscal_year" \| "custom"`; ældre rækker kan læses som `"vat_quarter"`, der kun er et legacy-alias. `status` er `"open" \| "closed" \| "reported"`; `reference` kan være `null`. |
 | `audit_verify` | `{ entries: <number> }` — kun antallet af verificerede posteringer. Integritets-verdikten læses fra **konvolutten**: `ok=true` (+ tom `errors[]`) ⇒ kæden er intakt; `ok=false` ⇒ `errors[]` lister bruddene. Der er hverken `ok` eller `errors` *inde i* `data`. |
@@ -229,7 +230,7 @@ tabel uenige, er det tabellerne (og i sidste ende `tools/list`) der gælder.
 - **Read-tools**: 88
 - **Ordinary write-tools**: 120
 - **Destructive**: 1 (`system_restore_backup`)
-- **Total**: **211** (read and write tool counts are verified from the live registry in CI)
+- **Total**: **213** (read and write tool counts are verified from the live registry in CI)
 
 ## Read-tools
 
@@ -286,6 +287,7 @@ Document-party resolution uses exactly one visible state per document: `resolved
 | `invoice_interest_calc` | `invoice interest` | `{ company, documentId? \| invoiceNumber?, asOf, referenceRate }` | Beregner morarente (uden at registrere). `accruedInterestAmount` er den **inkrementelle** rente der kan opkræves nu (perioden siden sidste registrerede krav, eller fra forfald hvis ingen). Ekstra felter: `priorClaimedInterest`, `totalInterestToDate`, `claimableDays`, `interestFromDate`. |
 | `invoice_interest_correction_calc` | `invoice interest-correction` | `{ company, documentId? \| invoiceNumber? }` | Foreslår en korrektion af for meget opkrævet morarente (read-only). Opstår når en betaling/kreditnota er registreret med virkningsdato inde i et allerede bogført rentekravs vindue. Felter: `hasProposal`, `overClaimedAmount`, `postedInterest`, `lawfulInterest`, `alreadyCorrected`, `throughDate`. |
 | `invoice_list` | `invoice list` | `{ company, status?, from?, to?, customerCvr?, customer?, invoiceNumber?, minAmount?, maxAmount?, asOf? }` | Lister udstedte fakturaer med filtre. |
+| `invoice_imported_receivables` | `invoice imported-receivables` | `{ company, asOf }` | Lister kildebeviste importerede tilgodehavender pr. cutoff. Listen er et arkiv-read og indeholder aldrig Rentemester-udstedte fakturaer. HTTP-paritet: `GET /api/companies/:slug/imported-receivables?asOf=YYYY-MM-DD`. |
 | `invoice_overdue` | `invoice overdue` | `{ company, asOf?, minDays? }` | Lister forfaldne, ikke fuldt afregnede fakturaer. |
 | `invoice_status` | `invoice status` | `{ company, documentId? \| invoiceNumber?, asOf? }` | Viser åben saldo og status på en faktura. |
 | `invoice_validate` | `invoice validate` | `{ payload: InvoicePayload }` | Validerer faktura-payload uden at gemme. |
@@ -300,6 +302,8 @@ Document-party resolution uses exactly one visible state per document: `resolved
 | `reconcile_bank` | `reconcile bank` | `{ company, from, to, status?, textMatch?, amount?, account? }` | Bygger bank-afstemningsrapport for periode. |
 | `bank_reconciliation_correction_plan` | `bank correction-plan` | `{ company, bankTransactionId, replacementJournalEntryId }` | Read-only, deterministisk plan med den aktuelle afstemningsidentitet og plan-hash. |
 | `bank_reconciliation_correction_apply` | `bank correction-apply` | `{ company, bankTransactionId, replacementJournalEntryId, expectedReconciliationId, planHash, reason, idempotencyKey, confirm }` | Supersederer atomisk kun den reviewede afstemning; journaler og historiske links ændres aldrig. |
+| `direct_bank_purchase_payable_correction_plan` | `bank direct-payable-plan` | `{ company, documentId, bankTransactionId, billDate, dueDate, expenseAccountNo, ... }` | Read-only plan der binder dokument-, konto-, VAT-, periode- og bankevidens til `planHash`. |
+| `direct_bank_purchase_payable_correction_apply` | `bank direct-payable-apply` | `{ ..., planHash, reason, idempotencyKey, confirm }` | Flytter append-only et direkte bankkøb til payable og betaler på den autoritative bankdato; læs status før retry med en ny nøgle. |
 | `recurring_invoice_list` | `recurring-invoice list` | `{ company, includeInactive? }` | Lister gentagende fakturaskabeloner. |
 | `recurring_invoice_run_workspace` | `recurring-invoice run-workspace` | `{ workspace, asOfDate, confirm }` | Eksplicit scheduler-kørsel for aktive manifestvirksomheder. Ingen indbygget cron; arkiverede/uinitialiserede springes over og resultater er secret-frie. |
 | `retention_status` | `retention status` | `{ company, asOf? }` | Viser opbevaringsfrister og udløbet materiale. |

@@ -8,6 +8,8 @@ import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts } from "../../src/core/ledger";
 import { importBankCsv } from "../../src/core/bank";
 import { ingestDocument } from "../../src/core/documents";
+import { postJournalEntry } from "../../src/core/ledger";
+import { planDirectBankPurchasePayableCorrection, applyDirectBankPurchasePayableCorrection } from "../../src/core/direct-bank-purchase-payable-correction";
 import { todayIsoDate } from "../../src/core/dates";
 import {
   registerPayable,
@@ -32,12 +34,13 @@ function ingestPurchase(
   invoiceNo: string,
   amountIncVat: number,
   vatAmount: number,
+  issueDate = "2026-01-10",
 ) {
   const sourceFile = join(inbox, `${invoiceNo}.txt`);
   writeFileSync(sourceFile, `Invoice ${invoiceNo}\n${amountIncVat} DKK\n`);
   const doc = ingestDocument(db, root, sourceFile, {
     source: "email",
-    issueDate: "2026-01-10",
+    issueDate,
     invoiceNo,
     deliveryDescription: "Leverandørydelse",
     amountIncVat,
@@ -52,6 +55,25 @@ function ingestPurchase(
 }
 
 describe("payables (kreditorstyring)", () => {
+  test("#594 corrects a mixed taxable/exempt June direct-bank purchase into a July-settled payable without rewriting evidence", () => {
+    const { root, db } = setup("rentemester-payables-cross-period-");
+    const inbox = mkdtempSync(join(tmpdir(), "rentemester-payables-cross-period-inbox-"));
+    const csv = join(root, "transactions.csv");
+    writeFileSync(csv, "transaction_date,booking_date,text,amount,currency,reference\n2026-07-02,2026-07-02,SYNTHETIC SUPPLIER,-509,DKK,REF-594\n");
+    expect(importBankCsv(db, root, csv).ok).toBe(true);
+    const source = join(inbox, "V-594.txt"); writeFileSync(source, "Synthetic mixed VAT purchase");
+    const ingested = ingestDocument(db, root, source, { source:"email",issueDate:"2026-06-16",invoiceNo:"V-594",deliveryDescription:"Synthetic",amountIncVat:509,currency:"DKK",sender:{name:"Synthetic Supplier",address:"Example 1",vatOrCvr:"DK11223344"},recipient:{name:"Synthetic Company",address:"Example 2",vatOrCvr:"DK12345678"},vatAmount:86,paymentDetails:"Bank",purchaseVatLines:[{classification:"dk_purchase_25",netAmount:344,vatAmount:86},{classification:"exempt",netAmount:79,vatAmount:0}] } as any);
+    expect(ingested.ok).toBe(true);
+    const bankId=(db.query("SELECT id FROM bank_transactions WHERE reference='REF-594'").get() as any).id;
+    db.run("UPDATE bank_accounts SET ledger_account_no='2000'");
+    const direct=postJournalEntry(db,{transactionDate:"2026-06-16",text:"legacy direct bank",documentId:ingested.documentId!,sourceBankTransactionId:bankId,lines:[{accountNo:"3000",debitAmount:344,vatCode:"DK_PURCHASE_25"},{accountNo:"3000",debitAmount:79},{accountNo:"4000",debitAmount:86},{accountNo:"2000",creditAmount:509}]});
+    expect(direct.ok).toBe(true);
+    const input={documentId:ingested.documentId!,bankTransactionId:bankId,billDate:"2026-06-16",dueDate:"2026-06-30",expenseAccountNo:"3000",vatTreatment:"standard" as const};
+    expect(planDirectBankPurchasePayableCorrection(db,{...input,billDate:"2026-06-17"}).errors).toContain("BILL_DATE_MUST_EQUAL_DOCUMENT_INVOICE_DATE");
+    const plan=planDirectBankPurchasePayableCorrection(db,input); expect(plan.ok).toBe(true); if(!plan.ok) throw new Error();
+    expect(applyDirectBankPurchasePayableCorrection(db,{...input,planHash:"0".repeat(64),reason:"Synthetic timing correction",actor:"agent:test",principal:{kind:"user",subjectId:"synthetic-reviewer"},confirm:true}).errors).toContain("PLAN_HASH_MISMATCH");
+    db.close(); rmSync(root,{recursive:true,force:true}); rmSync(inbox,{recursive:true,force:true});
+  });
   test("registers a supplier bill as an open item and posts to Leverandørgæld", () => {
     const { root, db } = setup("rentemester-payables-register-");
     const inbox = mkdtempSync(join(tmpdir(), "rentemester-payables-register-inbox-"));
@@ -194,7 +216,7 @@ describe("payables (kreditorstyring)", () => {
     registerPayable(db, { documentId: overdueDoc, billDate: "2026-01-10", dueDate: "2026-02-09", expenseAccountNo: "3000" });
 
     // Not-yet-due bill: due 2026-04-01, as-of 2026-03-15 => not overdue.
-    const futureDoc = ingestPurchase(db, root, inbox, "Hosting ApS", "V-1002", 500, 100);
+    const futureDoc = ingestPurchase(db, root, inbox, "Hosting ApS", "V-1002", 500, 100, "2026-03-02");
     registerPayable(db, { documentId: futureDoc, billDate: "2026-03-02", dueDate: "2026-04-01", expenseAccountNo: "3000" });
 
     const list = buildPayablesList(db, { asOfDate: "2026-03-15" });
@@ -229,7 +251,7 @@ describe("payables (kreditorstyring)", () => {
     const inbox = mkdtempSync(join(tmpdir(), "rentemester-payables-default-asof-inbox-"));
 
     // Bill due far in the past — should be overdue against today's date.
-    const overdueDoc = ingestPurchase(db, root, inbox, "Software ApS", "V-2001", 1250, 250);
+    const overdueDoc = ingestPurchase(db, root, inbox, "Software ApS", "V-2001", 1250, 250, "2024-01-10");
     registerPayable(db, { documentId: overdueDoc, billDate: "2024-01-10", dueDate: "2024-02-09", expenseAccountNo: "3000" });
 
     // Must match how buildPayablesList computes its default — todayIsoDate()

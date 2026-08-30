@@ -1,5 +1,6 @@
 import type {
   InvoicesResponse,
+  ImportedReceivablesResponse,
   RecurringInvoiceGenerationResult,
   RecurringInvoiceTemplateCreatedResult,
   RecurringInvoiceTemplateInput,
@@ -14,6 +15,11 @@ export const invoicesApi = {
         year ? `?year=${encodeURIComponent(year)}` : ""
       }`,
     ).then((r) => r.invoices),
+
+  importedReceivables: (slug: string, asOf: string) =>
+    request<ImportedReceivablesResponse>(
+      `/api/companies/${encodeURIComponent(slug)}/imported-receivables?asOf=${encodeURIComponent(asOf)}`,
+    ).then((r) => r.importedReceivables),
 
   /**
    * URL of an issued invoice's PDF — opened directly in a new browser tab so

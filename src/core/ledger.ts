@@ -1214,7 +1214,7 @@ export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions 
   // v33 correction evidence is append-only but deliberately richer than an
   // audit-log message: verify the complete same-bank chain and the exact
   // replacement bytes so every consumer sees one deterministic current row.
-  const correctionEvents = db.query(`SELECT event.*, bt.amount,bt.amount_dkk,bt.currency,ba.ledger_account_no,je.entry_hash,je.status,je.reversal_of_entry_id,je.source_bank_transaction_id,EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=je.id) AS has_reversal,EXISTS(SELECT 1 FROM bank_reconciliation_correction_events child WHERE child.supersedes_kind='correction' AND child.supersedes_id=event.id AND child.bank_transaction_id=event.bank_transaction_id) AS is_superseded,COALESCE(SUM(CASE WHEN a.account_no=event.bank_account_no THEN jl.debit_amount-jl.credit_amount ELSE 0 END),0) AS bank_movement,EXISTS(SELECT 1 FROM audit_log audit WHERE audit.event_type='bank_reconciliation_corrected' AND audit.entity_type='bank_transaction' AND audit.entity_id=CAST(event.bank_transaction_id AS TEXT) AND audit.actor LIKE event.actor || ' via %') AS has_audit FROM bank_reconciliation_correction_events event JOIN bank_transactions bt ON bt.id=event.bank_transaction_id JOIN bank_accounts ba ON ba.id=bt.bank_account_id JOIN journal_entries je ON je.id=event.replacement_journal_entry_id LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id LEFT JOIN accounts a ON a.id=jl.account_id GROUP BY event.id ORDER BY event.id`).all() as any[];
+  const correctionEvents = db.query(`SELECT event.*, bt.amount,bt.amount_dkk,bt.currency,COALESCE(ba.ledger_account_no,(SELECT m.account_no FROM account_role_mappings m WHERE m.role='bank' AND m.status='confirmed' ORDER BY m.version DESC LIMIT 1)) AS ledger_account_no,je.entry_hash,je.status,je.reversal_of_entry_id,je.source_bank_transaction_id,EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=je.id) AS has_reversal,EXISTS(SELECT 1 FROM bank_reconciliation_correction_events child WHERE child.supersedes_kind='correction' AND child.supersedes_id=event.id AND child.bank_transaction_id=event.bank_transaction_id) AS is_superseded,COALESCE(SUM(CASE WHEN a.account_no=event.bank_account_no THEN jl.debit_amount-jl.credit_amount ELSE 0 END),0) AS bank_movement,EXISTS(SELECT 1 FROM audit_log audit WHERE audit.event_type='bank_reconciliation_corrected' AND audit.entity_type='bank_transaction' AND audit.entity_id=CAST(event.bank_transaction_id AS TEXT) AND (audit.actor=event.actor OR audit.actor LIKE event.actor || ' via %')) AS has_audit FROM bank_reconciliation_correction_events event JOIN bank_transactions bt ON bt.id=event.bank_transaction_id LEFT JOIN bank_accounts ba ON ba.id=bt.bank_account_id JOIN journal_entries je ON je.id=event.replacement_journal_entry_id LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id LEFT JOIN accounts a ON a.id=jl.account_id GROUP BY event.id ORDER BY event.id`).all() as any[];
   for (const event of correctionEvents) {
     const label = `bank reconciliation correction ${event.id}`;
     const amount = String(event.currency).trim().toUpperCase() === "DKK" ? Number(event.amount) : Number(event.amount_dkk);
@@ -1223,6 +1223,38 @@ export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions 
     if (!event.has_audit) errors.push(`${label}: missing bank_reconciliation_corrected audit event`);
     const target = `${event.supersedes_kind}:${event.supersedes_id}`;
     if (event.supersedes_reconciliation_id !== target) errors.push(`${label}: typed supersession target is inconsistent`);
+  }
+  const hasPurchaseCorrections = db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='direct_bank_purchase_payable_corrections'").get();
+  const purchaseCorrections = hasPurchaseCorrections ? db.query(`
+    SELECT correction.*,
+           document.sha256_hash AS current_document_hash,
+           original.entry_hash AS current_original_hash,
+           reversal.reversal_of_entry_id AS reversal_target,
+           payable.document_id AS payable_document_id,
+           payment.payable_id AS payment_payable_id,
+           payment.bank_transaction_id AS payment_bank_id,
+           payment.journal_entry_id AS payment_journal_id,
+           EXISTS(SELECT 1 FROM bank_reconciliation_correction_events event
+                    WHERE event.bank_transaction_id=correction.bank_transaction_id
+                      AND event.replacement_journal_entry_id=correction.settlement_journal_entry_id) AS has_reconciliation_correction,
+           EXISTS(SELECT 1 FROM audit_log audit
+                    WHERE audit.event_type='direct_bank_purchase_payable_corrected'
+                      AND audit.entity_type='bank_transaction'
+                      AND audit.entity_id=CAST(correction.bank_transaction_id AS TEXT)
+                      AND (audit.actor=correction.actor OR audit.actor LIKE correction.actor || ' via %')) AS has_audit
+      FROM direct_bank_purchase_payable_corrections correction
+      JOIN documents document ON document.id=correction.document_id
+      JOIN journal_entries original ON original.id=correction.original_journal_entry_id
+      JOIN journal_entries reversal ON reversal.id=correction.reversal_journal_entry_id
+      JOIN payables payable ON payable.id=correction.payable_id
+      JOIN payable_payments payment ON payment.id=correction.payment_id
+     ORDER BY correction.id`).all() as any[] : [];
+  for (const correction of purchaseCorrections) {
+    const label = `direct-bank purchase payable correction ${correction.id}`;
+    if (correction.current_document_hash !== correction.document_hash || correction.current_original_hash !== correction.original_journal_hash) errors.push(`${label}: immutable source hash mismatch`);
+    if (Number(correction.reversal_target) !== Number(correction.original_journal_entry_id)) errors.push(`${label}: reversal linkage is invalid`);
+    if (Number(correction.payable_document_id) !== Number(correction.document_id) || Number(correction.payment_payable_id) !== Number(correction.payable_id) || Number(correction.payment_bank_id) !== Number(correction.bank_transaction_id) || Number(correction.payment_journal_id) !== Number(correction.settlement_journal_entry_id)) errors.push(`${label}: payable/payment linkage is invalid`);
+    if (!Number(correction.has_reconciliation_correction) || !Number(correction.has_audit)) errors.push(`${label}: reconciliation correction or audit evidence is missing`);
   }
   const badCurrent = db.query(`SELECT bank_transaction_id,COUNT(*) AS count FROM bank_journal_reconciliations GROUP BY bank_transaction_id HAVING COUNT(*)<>1`).all() as Array<{bank_transaction_id:number;count:number}>;
   for (const row of badCurrent) errors.push(`bank transaction ${row.bank_transaction_id}: has ${row.count} effective reconciliations; exactly one is required`);

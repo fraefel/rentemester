@@ -125,6 +125,7 @@ export {
   resolveCompanyDocumentFile,
   resolveCompanyIssuedInvoicePdf,
   buildCompanyInvoices,
+  buildCompanyImportedReceivables,
   buildCompanyContacts,
   buildCompanyObligations,
   buildCompanyCashflow,

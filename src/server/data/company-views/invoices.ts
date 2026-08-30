@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { migrate, openDb } from "../../../core/db";
 import { buildInvoiceList } from "../../../core/invoice-list";
+import { listImportedReceivables } from "../../../core/imported-receivables";
 import { companyPaths } from "../../../core/paths";
 import {
   companyRootForSlug,
@@ -325,5 +326,27 @@ export function buildCompanyInvoices(
     };
   } finally {
     ctx.db.close();
+  }
+}
+
+/** Read-only archive side of the receivables cut-over.  This deliberately
+ * does not join issued invoices: native invoices remain the other canonical
+ * read model and combining them here would make a cut-over double count easy.
+ */
+export function buildCompanyImportedReceivables(
+  workspaceRoot: string,
+  slug: string,
+  asOf: string,
+) {
+  const entry = findWorkspaceCompany(workspaceRoot, slug);
+  if (!entry) throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
+  const dbPath = companyPaths(companyRootForSlug(workspaceRoot, slug)).db;
+  if (!existsSync(dbPath)) throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    db.exec("PRAGMA query_only = ON");
+    return listImportedReceivables(db, asOf);
+  } finally {
+    db.close();
   }
 }

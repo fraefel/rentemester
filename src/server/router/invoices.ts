@@ -5,6 +5,7 @@ import { ApiError } from "../errors";
 import { recordHostedDocumentAccess } from "../document-access-audit";
 import {
   buildCompanyInvoices,
+  buildCompanyImportedReceivables,
   buildCompanyRecurringInvoices,
   resolveCompanyIssuedInvoicePdf,
   resolveYearParam,
@@ -60,4 +61,15 @@ export function handleCompanyInvoices(
   const year = resolveYearParam(url.searchParams.get("year"));
   const data = buildCompanyInvoices(config.workspaceRoot, slug, year);
   return okResponse({ invoices: data });
+}
+
+/** The imported/archive receivable schedule has a separate endpoint from
+ * issued invoices, mirroring CLI and MCP and preventing accidental summing. */
+export function handleCompanyImportedReceivables(
+  config: ServerConfig,
+  slug: string,
+  url: URL,
+): Response {
+  const asOf = url.searchParams.get("asOf") ?? new Date().toISOString().slice(0, 10);
+  return okResponse({ importedReceivables: buildCompanyImportedReceivables(config.workspaceRoot, slug, asOf) });
 }

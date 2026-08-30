@@ -234,6 +234,9 @@ jobs:
           [[ "$address" =~ ^127\.0\.0\.1:[0-9]+$ ]]
           base_url="http://$address"
           BASE_URL="$base_url" bun -e 'for(let i=0;i<100;i++){try{const r=await fetch(`${process.env.BASE_URL}/api/ready`); if(r.ok) process.exit(0)}catch{} await Bun.sleep(100)} process.exit(1)'
+          docker exec "$container" bun run src/cli.ts company add \
+            --workspace /workspace --name "Release Check" --slug release-check \
+            --bank-name Testbank --bank-reg 1234 --bank-account 5678901234
           chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
           test -n "$chrome"
           for route in \
@@ -242,6 +245,7 @@ jobs:
             rendered="cockpit-rendered-$(echo "$route" | tr '/?=&' '-')".html
             "$chrome" --headless --no-sandbox --disable-gpu --virtual-time-budget=5000 --dump-dom "$base_url$route" > "$rendered"
             grep -F '<div id="root"><div class="app-shell"' "$rendered"
+            grep -F 'Release Check' "$rendered"
             if grep -Fq 'Kunne ikke bekræfte Rentemesters sikkerhedsprofil' "$rendered"; then
               echo "local-container cockpit was rejected by the UI security-profile gate" >&2
               exit 1

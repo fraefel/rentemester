@@ -94,20 +94,30 @@ export function ingestWorkspaceInboxSource(db: Database, input: {
   return inspectWorkspaceInboxSource(db, sourceId)!;
 }
 
-export function inspectWorkspaceInboxSource(db: Database, sourceId: string, visibilityAnchorSlug?: string) {
+export function inspectWorkspaceInboxSource(db: Database, sourceId: string, visibilityAnchorSlug?: string, visibleCompanySlugs?: ReadonlySet<string>) {
   const row = db.query("SELECT source_id,visibility_anchor_slug,sha256,filename,mime_type,transport,transport_identity,received_at,metadata_json,created_by,created_at FROM rm_workspace_inbox_sources WHERE source_id=?").get(text(sourceId, "sourceId", 100)) as any;
-  if (!row || (visibilityAnchorSlug && row.visibility_anchor_slug !== visibilityAnchorSlug)) return null;
+  if (!row || (visibilityAnchorSlug && row.visibility_anchor_slug !== visibilityAnchorSlug) || (visibleCompanySlugs && !visibleCompanySlugs.has(row.visibility_anchor_slug))) return null;
   const events = db.query("SELECT event_type,payload_hash,actor,created_at,canonical_payload FROM rm_workspace_inbox_events WHERE source_id=? ORDER BY id").all(sourceId) as any[];
   const assignments = db.query("SELECT company_slug,state,document_id,document_no,assigned_by,assigned_at,completed_at FROM rm_workspace_inbox_assignments WHERE source_id=? ORDER BY company_slug").all(sourceId) as any[];
   const exception = db.query("SELECT code,required_action,opened_at,resolved_at FROM rm_workspace_inbox_exceptions WHERE source_id=?").get(sourceId) as any;
-  return { sourceId: row.source_id, visibilityAnchorSlug: row.visibility_anchor_slug, sha256: row.sha256, filename: row.filename, mimeType: row.mime_type, transport: row.transport, transportIdentity: row.transport_identity, receivedAt: row.received_at, metadata: JSON.parse(row.metadata_json), createdBy: row.created_by, createdAt: row.created_at, exception: exception ? { code: exception.code, requiredAction: exception.required_action, openedAt: exception.opened_at, resolvedAt: exception.resolved_at } : null, assignments: assignments.map(x => ({ companySlug: x.company_slug, state: x.state, documentId: x.document_id, documentNo: x.document_no, assignedBy: x.assigned_by, assignedAt: x.assigned_at, completedAt: x.completed_at })), history: events.map(({ canonical_payload, ...event }) => ({ ...event, payload: JSON.parse(canonical_payload) })) };
+  const allowed = (slug: string) => !visibleCompanySlugs || visibleCompanySlugs.has(slug);
+  const scrubPayload = (payload: any) => {
+    if (!payload || typeof payload !== "object") return payload;
+    const copy = { ...payload };
+    if (Array.isArray(copy.candidates)) copy.candidates = copy.candidates.filter((candidate: any) => allowed(candidate?.companySlug));
+    if (typeof copy.companySlug === "string" && !allowed(copy.companySlug)) return null;
+    if (typeof copy.requestedCompanySlug === "string" && !allowed(copy.requestedCompanySlug)) return null;
+    if (typeof copy.existingCompanySlug === "string" && !allowed(copy.existingCompanySlug)) return null;
+    return copy;
+  };
+  return { sourceId: row.source_id, visibilityAnchorSlug: row.visibility_anchor_slug, sha256: row.sha256, filename: row.filename, mimeType: row.mime_type, transport: row.transport, transportIdentity: row.transport_identity, receivedAt: row.received_at, metadata: JSON.parse(row.metadata_json), createdBy: row.created_by, createdAt: row.created_at, exception: exception ? { code: exception.code, requiredAction: exception.required_action, openedAt: exception.opened_at, resolvedAt: exception.resolved_at } : null, assignments: assignments.filter(x => allowed(x.company_slug)).map(x => ({ companySlug: x.company_slug, state: x.state, documentId: x.document_id, documentNo: x.document_no, assignedBy: x.assigned_by, assignedAt: x.assigned_at, completedAt: x.completed_at })), history: events.map(({ canonical_payload, ...event }) => ({ ...event, payload: scrubPayload(JSON.parse(canonical_payload)) })).filter(event => event.payload !== null) };
 }
 
 /** Lists anchor-scoped sources in stable source-id order; filtering is before pagination. */
-export function listWorkspaceInboxSources(db: Database, input: { visibilityAnchorSlug: string; cursor?: number; limit?: number }) {
+export function listWorkspaceInboxSources(db: Database, input: { visibilityAnchorSlug: string; cursor?: number; limit?: number; visibleCompanySlugs?: ReadonlySet<string> }) {
   const limit = Math.min(Math.max(input.limit ?? 25, 1), 100), cursor = Math.max(input.cursor ?? 0, 0);
   const rows = db.query("SELECT source_id FROM rm_workspace_inbox_sources WHERE visibility_anchor_slug=? ORDER BY source_id").all(text(input.visibilityAnchorSlug, "visibilityAnchorSlug", 100)) as Array<{ source_id: string }>;
-  const sources = rows.map(row => inspectWorkspaceInboxSource(db, row.source_id)!).filter(Boolean);
+  const sources = rows.map(row => inspectWorkspaceInboxSource(db, row.source_id, input.visibilityAnchorSlug, input.visibleCompanySlugs)!).filter(Boolean);
   return { rows: sources.slice(cursor, cursor + limit), count: sources.length, nextCursor: cursor + limit < sources.length ? cursor + limit : null };
 }
 
@@ -124,6 +134,8 @@ export function approveWorkspaceInboxAssignment(db: Database, input: { sourceId:
   const same = source.assignments.find((x: any) => x.companySlug === companySlug);
   if (same) return source;
   db.transaction(() => {
+    const other = db.query("SELECT company_slug FROM rm_workspace_inbox_assignments WHERE source_id=? AND state IN ('approved','completed') AND company_slug<>? LIMIT 1").get(input.sourceId, companySlug) as { company_slug: string } | null;
+    if (other) throw new Error("workspace inbox source already has an approved legal destination");
     db.query("INSERT INTO rm_workspace_inbox_assignments(source_id,company_slug,state,assigned_by,assigned_at) VALUES(?,?, 'approved',?,?)").run(input.sourceId, companySlug, text(input.actor, "actor", 160), at);
     db.query("UPDATE rm_workspace_inbox_exceptions SET resolved_at=? WHERE source_id=? AND resolved_at IS NULL").run(at, input.sourceId);
     append(db, input.sourceId, "assigned", { companySlug }, input.actor, at);
@@ -177,8 +189,8 @@ export function completeWorkspaceInboxAssignment(controlDb: Database, companyDb:
   if (input.faultAt==="after-company-ingest") throw new Error("injected workspace inbox fault after company ingest");
   if (input.faultAt==="before-control-complete") throw new Error("injected workspace inbox fault before control completion");
   controlDb.exec("BEGIN IMMEDIATE"); try {
-    const claim=controlDb.query("SELECT state,claim_id,source_hash FROM rm_workspace_inbox_handoff_claims WHERE source_id=? AND company_slug=?").get(source.sourceId,input.companySlug) as {state:string;claim_id:string;source_hash:string}|null;
-    if (!claim || claim.source_hash!==source.sha256 || (claim.state!=="claimed" && claim.state!=="completed")) throw new Error("workspace inbox handoff claim became stale");
+    const claim=controlDb.query("SELECT state,claim_id,source_hash,lease_expires_at FROM rm_workspace_inbox_handoff_claims WHERE source_id=? AND company_slug=?").get(source.sourceId,input.companySlug) as {state:string;claim_id:string;source_hash:string;lease_expires_at:string}|null;
+    if (!claim || claim.source_hash!==source.sha256 || claim.claim_id!==claimId || claim.state!=="claimed" || claim.lease_expires_at!==leaseExpiresAt) throw new Error("workspace inbox handoff claim became stale");
     const current = controlDb.query("SELECT state,document_id FROM rm_workspace_inbox_assignments WHERE source_id=? AND company_slug=?").get(source.sourceId, input.companySlug) as { state: string; document_id: number | null } | null;
     if (!current) throw new Error("workspace inbox assignment disappeared");
     if (current.state === "completed" && current.document_id !== documentId) throw new Error("workspace inbox assignment completion conflicts");
@@ -186,7 +198,8 @@ export function completeWorkspaceInboxAssignment(controlDb: Database, companyDb:
       controlDb.query("UPDATE rm_workspace_inbox_assignments SET state='completed',document_id=?,document_no=?,completed_at=? WHERE source_id=? AND company_slug=? AND state='approved'").run(documentId, documentNo, at, source.sourceId, input.companySlug);
       append(controlDb, source.sourceId, "handoff_completed", { companySlug: input.companySlug, documentId, documentNo, sourceHash: source.sha256 }, input.actor, at);
     }
-    controlDb.query("UPDATE rm_workspace_inbox_handoff_claims SET state='completed',document_id=?,document_no=?,updated_at=? WHERE source_id=? AND company_slug=?").run(documentId,documentNo,at,source.sourceId,input.companySlug);
+    const finalized=controlDb.query("UPDATE rm_workspace_inbox_handoff_claims SET state='completed',document_id=?,document_no=?,updated_at=? WHERE source_id=? AND company_slug=? AND state='claimed' AND claim_id=? AND lease_expires_at=?").run(documentId,documentNo,at,source.sourceId,input.companySlug,claimId,leaseExpiresAt);
+    if (finalized.changes!==1) throw new Error("workspace inbox handoff claim became stale");
     controlDb.exec("COMMIT");
   } catch(error) { try { controlDb.exec("ROLLBACK"); } catch {} throw error; }
   return inspectWorkspaceInboxSource(controlDb, source.sourceId)!;

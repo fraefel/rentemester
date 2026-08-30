@@ -63,5 +63,6 @@ describe("CfoCockpitView", () => {
     renderAt(<CfoCockpitView />);
     expect(await screen.findByText("Ingen kildeposteringer i den valgte periode.")).toBeInTheDocument();
     expect(screen.queryByText("0,00 kr.")).not.toBeInTheDocument();
+    expect(screen.getByText(/2 bogførte poster uden bilag · 1 åbne undtagelser/)).toBeInTheDocument();
   });
 });

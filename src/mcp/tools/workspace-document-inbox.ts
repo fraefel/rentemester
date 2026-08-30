@@ -43,12 +43,12 @@ function requireConfirm(confirm: boolean | undefined, operation: string) {
 }
 function sourceVisible(anchor:string, sourceId:string) {
   const db=openWorkspaceControlReadOnlyDb(workspace());
-  try { return inspectWorkspaceInboxSource(db, sourceId, anchor); } finally { db.close(); }
+  try { return inspectWorkspaceInboxSource(db, sourceId, anchor, visibleCompanySlugs()); } finally { db.close(); }
 }
 
 export function registerWorkspaceDocumentInboxTools(server: McpServer): void {
   server.registerTool("workspace_inbox_list", { title:"List workspace inbox", description:"Lists immutable inbox sources visible through the explicitly authorised company anchor. Filtering is before count, sort and pagination.", inputSchema:{company,cursor:z.number().int().nonnegative().optional(),limit:z.number().int().min(1).max(100).optional()}, outputSchema:envelopeShape, annotations:read }, direct(async ({ company:anchor, cursor, limit }) => {
-    const db=openWorkspaceControlReadOnlyDb(workspace()); try { return successEnvelope(listWorkspaceInboxSources(db,{visibilityAnchorSlug:anchor,cursor,limit})); } finally { db.close(); }
+    const db=openWorkspaceControlReadOnlyDb(workspace()); try { return successEnvelope(listWorkspaceInboxSources(db,{visibilityAnchorSlug:anchor,cursor,limit,visibleCompanySlugs:visibleCompanySlugs()})); } finally { db.close(); }
   }));
   server.registerTool("workspace_inbox_inspect", { title:"Inspect workspace inbox source", description:"Reads one source, filtered by the authorized anchor. Hidden sources and candidates are indistinguishable from absent sources.", inputSchema:{company,sourceId:z.string().min(1)}, outputSchema:envelopeShape, annotations:read }, direct(async ({ company:anchor, sourceId }) => {
     const source=sourceVisible(anchor,sourceId); return source ? successEnvelope({source}) : errorEnvelope("workspace inbox source not found",{code:"WORKSPACE_INBOX_NOT_FOUND"});

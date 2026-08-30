@@ -1,0 +1,5 @@
+{
+  "id": 29,
+  "name": "rentemester-workspace-inbox-single-assignment-v29",
+  "sql": "CREATE UNIQUE INDEX rm_workspace_inbox_one_active_assignment ON rm_workspace_inbox_assignments(source_id) WHERE state IN ('approved','completed');\n"
+}

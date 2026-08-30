@@ -58,9 +58,9 @@ function CfoResult({ result, companyNames }: { result: CfoAnalyticsResponse; com
   const title = portfolio ? "Portefølje — ikke konsolideret" : `Virksomhed: ${companyNames.get(result.companies[0] ?? "") ?? result.companies[0]}`;
   return <>
     <section className="card" aria-label="Analyseafgrænsning"><h3>{title}</h3><p className="muted">Pr. {result.asOf} · periode {result.from} – {result.to} · schema <code>{result.schemaVersion}</code></p>{portfolio && <div className="banner warning" role="status">Porteføljen er en sideordnet, ikke-konsolideret visning. Der vises ingen implicitte elimineringer eller valutaomregning.</div>}{result.status === "incomplete" && <div className="banner warning" role="status">Ufuldstændigt udsnit: skjulte virksomheder og deres tal er ikke medtaget.</div>}<Freshness entries={result.freshness} /></section>
+    <Evidence result={result} />
     {result.rows.length === 0 ? <p className="muted">Ingen kildeposteringer i den valgte periode.</p> : <>
       {!result.partial && result.reconciliation.amountByCurrency && <section className="status-grid" aria-label="Kildebaserede beløb">{Object.entries(result.reconciliation.amountByCurrency).map(([currency, amount]) => <article className="card" key={currency}><h3>Analyseret bevægelse</h3><p className="amount">{formatKroner(amount, currency)}</p><p className="muted">{result.reconciliation.rowCount} kildeposter · {currency}</p></article>)}</section>}
-      <Evidence result={result} />
       <SourceRows rows={result.rows} />
     </>}
   </>;

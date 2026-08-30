@@ -19,10 +19,10 @@ function allowedCompanies(config: ServerConfig): Set<string> {
   if (!config.betterAuthProvider || !principal?.userId) return new Set(listWorkspaceCompanies(config.workspaceRoot).map(c => c.slug));
   const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot); try { return new Set(listWorkspaceCompanies(config.workspaceRoot).filter(company => authorizeWorkspaceRoute(db, config.workspaceRoot, { userId: principal.userId!, companySlug: company.slug, permission: "company.documents.upload" }).allowed).map(company => company.slug)); } finally { db.close(); }
 }
-function sourceForAnchor(config: ServerConfig, anchor: string, sourceId: string) { const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot); try { return inspectWorkspaceInboxSource(db, sourceId, anchor); } finally { db.close(); } }
+function sourceForAnchor(config: ServerConfig, anchor: string, sourceId: string) { const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot); try { return inspectWorkspaceInboxSource(db, sourceId, anchor, allowedCompanies(config)); } finally { db.close(); } }
 
 export function handleWorkspaceInboxList(config: ServerConfig, anchor: string, url: URL): Response {
-  const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot); try { return okResponse(listWorkspaceInboxSources(db, { visibilityAnchorSlug: anchor, cursor: Number(url.searchParams.get("cursor") ?? 0), limit: Number(url.searchParams.get("limit") ?? 25) })); } finally { db.close(); }
+  const db = openWorkspaceControlReadOnlyDb(config.workspaceRoot); try { return okResponse(listWorkspaceInboxSources(db, { visibilityAnchorSlug: anchor, cursor: Number(url.searchParams.get("cursor") ?? 0), limit: Number(url.searchParams.get("limit") ?? 25), visibleCompanySlugs: allowedCompanies(config) })); } finally { db.close(); }
 }
 export function handleWorkspaceInboxInspect(config: ServerConfig, anchor: string, sourceId: string): Response { const source = sourceForAnchor(config, anchor, sourceId); if (!source) throw ApiError.notFound("workspace inbox source not found"); return okResponse({ source }); }
 export async function handleWorkspaceInboxIngest(config: ServerConfig, request: Request, anchor: string): Promise<Response> {

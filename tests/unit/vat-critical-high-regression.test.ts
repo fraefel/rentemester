@@ -11,6 +11,7 @@ import { buildVatReport } from "../../src/core/vat";
 import { buildVatFiling } from "../../src/core/vat-filing";
 import { effectivePeriodState, reopenAccountingPeriod, setCompanyVatPeriodType } from "../../src/core/periods";
 import { closeAccountingPeriod, seedHistoricalClosedPeriod } from "../helpers/close-period";
+import { closeAccountingPeriod as closeAccountingPeriodCore } from "../../src/core/periods";
 import { vatRubrikkerForPeriod } from "../../src/server/data/vat";
 import { vatPositionForPeriod } from "../../src/server/data/vat";
 import { resolveAccountRole } from "../../src/core/account-roles";
@@ -909,12 +910,14 @@ test("a closed VAT period can be marked reported once and remains terminal", () 
     status: "closed",
   });
   expect(closed.ok).toBe(true);
-  const reported = closeAccountingPeriod(db, {
+  const reported = closeAccountingPeriodCore(db, {
     periodStart: "2026-01-01",
     periodEnd: "2026-03-31",
     kind: "vat_period",
     status: "reported",
     reference: "SKAT-RECEIPT-42",
+    readinessPacketHash: closed.readinessPacket!.hash,
+    createdBy: "user:test",
   });
   expect(reported.ok).toBe(true);
   expect(reported.reference).toBe("SKAT-RECEIPT-42");
@@ -928,12 +931,13 @@ test("a closed VAT period can be marked reported once and remains terminal", () 
     periodStatus: "reported",
     periodReference: "SKAT-RECEIPT-42",
   });
-  expect(closeAccountingPeriod(db, {
+  expect(closeAccountingPeriodCore(db, {
     periodStart: "2026-01-01",
     periodEnd: "2026-03-31",
     kind: "vat_period",
     status: "reported",
     reference: "SKAT-RECEIPT-42",
+    readinessPacketHash: closed.readinessPacket!.hash,
   }).ok).toBe(true);
   expect(reopenAccountingPeriod(db, {
     periodStart: "2026-01-01",

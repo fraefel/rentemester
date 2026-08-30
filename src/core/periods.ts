@@ -673,6 +673,32 @@ function closeAccountingPeriodInImmediateTransaction(db: Database, input: CloseA
 
   if (errors.length > 0) return { ok: false, appliedRules, errors };
   const kind = canonicalPeriodKind(requestedKind);
+  // Reporting is a distinct terminal lifecycle transition. It must bind to
+  // the original durable close packet, never recompute readiness after the
+  // period is locked (which would make its own close evidence appear stale).
+  if (status === "reported") {
+    const existing = db.query("SELECT id,status,reference FROM accounting_periods WHERE period_start=? AND period_end=? AND kind=? ORDER BY id DESC LIMIT 1").get(periodStart, periodEnd, kind) as {id:number;status:AccountingPeriodStatus;reference:string|null}|null;
+    if (existing?.status === "reported") {
+      const latest = db.query("SELECT packet_hash FROM period_close_decisions WHERE period_id=? ORDER BY id DESC LIMIT 1").get(existing.id) as {packet_hash:string}|null;
+      if (input.readinessPacketHash !== latest?.packet_hash) return {ok:false,appliedRules,errors:["PERIOD_REPORT_CLOSE_PACKET_MISMATCH"]};
+      if (reference !== existing.reference) return {ok:false,appliedRules,errors:["PERIOD_REPORT_REFERENCE_CONFLICT"]};
+      return {ok:true,periodId:existing.id,periodStart,periodEnd,kind,status,reference,appliedRules,errors};
+    }
+    if (existing?.status === "closed") {
+      if (!reference) return { ok:false, appliedRules, errors:["PERIOD_REPORT_REFERENCE_REQUIRED"] };
+      if (input.force) return { ok:false, appliedRules, errors:["PERIOD_REPORT_DOES_NOT_ALLOW_FORCE"] };
+      const original = db.query("SELECT p.packet_json,d.packet_hash FROM period_close_decisions d JOIN period_close_readiness_packets p ON p.packet_hash=d.packet_hash WHERE d.period_id=? AND d.decision IN ('closed','forced_closed') ORDER BY d.id DESC LIMIT 1").get(existing.id) as {packet_json:string;packet_hash:string}|null;
+      if (!original || input.readinessPacketHash !== original.packet_hash) return { ok:false, appliedRules, errors:["PERIOD_REPORT_CLOSE_PACKET_MISMATCH"] };
+      const packet = JSON.parse(original.packet_json) as CloseReadinessPacket;
+      db.query("UPDATE accounting_periods SET status='reported',reported_at=CURRENT_TIMESTAMP,reference=? WHERE id=? AND status='closed'").run(reference,existing.id);
+      insertAuditLog(db,{eventType:"period_report",entityType:"accounting_period",entityId:existing.id,message:`Marked ${kind} period ${periodStart}..${periodEnd} reported (${reference})`,createdBy:input.createdBy,createdByProgram:input.createdByProgram});
+      // The v25 decision table predates a distinct `reported` enum value;
+      // retain the original close decision identity and record the terminal
+      // reporting transition in the append-only audit lifecycle.
+      recordPeriodCloseDecision(db,{periodId:existing.id,packet,decision:"closed",actor:input.createdBy??"system",reason:`reported:${reference}`,supersedesDecisionId:latestPeriodCloseDecision(db,existing.id)});
+      return {ok:true,periodId:existing.id,periodStart,periodEnd,kind,status,reference,appliedRules,errors,readinessPacket:packet};
+    }
+  }
   const review = typeof input.readinessReviewId === "number" ? loadPeriodCloseReview(db, input.readinessReviewId) : null;
   const currentPacket = computePeriodCloseReadiness(db, { periodStart, periodEnd, companyRoot: input.companyRoot });
   if (!review || review.packet.periodStart !== periodStart || review.packet.periodEnd !== periodEnd || input.readinessPacketHash !== review.packet.hash || currentPacket.hash !== review.packet.hash) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"], readinessPacket: currentPacket };

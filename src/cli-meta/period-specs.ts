@@ -6,14 +6,14 @@ export const periodSpecs: CommandSpec[] = [
     usage: "period readiness --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD>",
     description: "Genererer et deterministisk, read-only og hash-bundet periodelukningspacket.",
     allowedFlags: ["--company", "--from", "--to"],
-    inputNotes: ["Kør derefter 'period review --confirm yes' for at gemme det eksakte packet. Lukning kræver både --packet-hash og --review-id.", "Packeten navngiver alle kontroller, inklusive passed kontroller med nul observationer."],
+    inputNotes: ["Kør derefter 'period review --packet-hash <hash> --confirm yes' for at gemme det eksakte packet. Lukning kræver både --packet-hash og --review-id.", "Packeten navngiver alle kontroller, inklusive passed kontroller med nul observationer."],
   },
   {
     key: "period review",
-    usage: "period review --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --confirm yes",
+    usage: "period review --company <path> --from <YYYY-MM-DD> --to <YYYY-MM-DD> --packet-hash <sha256> --confirm yes",
     description: "Gemmer den netop beregnede periodelukningspacket som append-only review-evidens. Lukker ikke perioden.",
-    allowedFlags: ["--company", "--from", "--to", "--confirm"],
-    inputNotes: ["Kræver actor og --confirm yes.", "Returnerer --review-id, som sammen med packet-hash kræves ved 'period close'."],
+    allowedFlags: ["--company", "--from", "--to", "--packet-hash", "--confirm"],
+    inputNotes: ["Kræver actor, den eksakte hash fra 'period readiness' og --confirm yes.", "Returnerer --review-id, som sammen med packet-hash kræves ved 'period close'."],
   },
   {
     key: "period status",

@@ -24,7 +24,7 @@ function protect(code: string, run: () => CloseReadinessItem): CloseReadinessIte
 export function periodCloseReviewSchemaAvailable(db: Database): boolean { return exists(db,"period_close_readiness_packets") && exists(db,"period_close_reviews"); }
 
 /** Read-only: no `migrate`, DDL, packet persistence, audit write or WAL write. */
-export function computePeriodCloseReadiness(db: Database, input: { periodStart: string; periodEnd: string; cutoff?: string }): CloseReadinessPacket {
+export function computePeriodCloseReadiness(db: Database, input: { periodStart: string; periodEnd: string; cutoff?: string; companyRoot?: string }): CloseReadinessPacket {
   const cutoff=input.cutoff ?? input.periodEnd;
   const items: CloseReadinessItem[]=[];
   // A readiness packet can be inspected against an older ledger, but it can
@@ -112,7 +112,11 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
     // debtor/creditor subledger comparison into a green control.
     return unavailable("DKK_CONTROL_ACCOUNTS",`ledger-only balances available for ${evidence.length} control account(s); independent DKK reconciliation is unavailable`);
   }));
-  items.push(protect("LEDGER_AUDIT_CHAIN",()=>{const r=verifyAuditChain(db);return control("LEDGER_AUDIT_CHAIN",r.ok?"passed":"blocked",false,r.errors.map(error=>({error})));}));
+  // A read-only snapshot has a temporary SQLite filename, so it cannot infer
+  // the original company directory for document-evidence verification. The
+  // caller supplies that stable root; the exact same root is used at review
+  // and close, keeping the reviewed packet hash meaningful.
+  items.push(protect("LEDGER_AUDIT_CHAIN",()=>{const r=verifyAuditChain(db,{companyRoot:input.companyRoot});return control("LEDGER_AUDIT_CHAIN",r.ok?"passed":"blocked",false,r.errors.map(error=>({error})));}));
   items.push(protect("AUDIT_LOG_INTEGRITY",()=>{const r=verifyAuditLogIntegrity(db,{journalCrossCheck:false});return control("AUDIT_LOG_INTEGRITY",r.ok?"passed":"blocked",false,r.errors.map(error=>({error})));}));
   items.push(protect("TRIAL_BALANCE",()=>{const r=buildTrialBalance(db,input.periodStart,cutoff);return control("TRIAL_BALANCE",r.ok&&r.balanced?"passed":"blocked",false,r.ok&&r.balanced?[]:[{ok:r.ok,balanced:r.balanced}]);}));
   items.push(protect("VAT_PREFLIGHT",()=>{const r=buildVatReport(db,input.periodStart,cutoff);return control("VAT_PREFLIGHT",r.ok?"passed":"blocked",false,[...r.errors.map(error=>({error})),{filingReceipt:"not-modelled; this is a calculation/preflight, not evidence of submission"}]);}));

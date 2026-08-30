@@ -446,6 +446,8 @@ export type CloseAccountingPeriodInput = {
   reference?: string;
   createdBy?: string;
   createdByProgram?: string;
+  /** Stable evidence root used to verify the same reviewed packet at close. */
+  companyRoot?: string;
   /**
    * Per round-2 review: closing a period with open high/medium exceptions
    * silently hides them — the default `exceptions list` filter no longer
@@ -672,7 +674,7 @@ function closeAccountingPeriodInImmediateTransaction(db: Database, input: CloseA
   if (errors.length > 0) return { ok: false, appliedRules, errors };
   const kind = canonicalPeriodKind(requestedKind);
   const review = typeof input.readinessReviewId === "number" ? loadPeriodCloseReview(db, input.readinessReviewId) : null;
-  const currentPacket = computePeriodCloseReadiness(db, { periodStart, periodEnd });
+  const currentPacket = computePeriodCloseReadiness(db, { periodStart, periodEnd, companyRoot: input.companyRoot });
   if (!review || review.packet.periodStart !== periodStart || review.packet.periodEnd !== periodEnd || input.readinessPacketHash !== review.packet.hash || currentPacket.hash !== review.packet.hash) return { ok: false, appliedRules, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"], readinessPacket: currentPacket };
   const packet = review.packet;
   // A control which could not be run is not a successful control. In

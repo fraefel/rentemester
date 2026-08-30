@@ -64,16 +64,25 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("period", "readiness", (ctx) => {
     const from = ctx.arg("--from"); const to = ctx.arg("--to");
     if (!from || !to) { console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>"); process.exit(2); }
-    withReadOnlyCurrentLedger(ctx,db=>ctx.emitResult({ok:true,packet:computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to })}));
+    withReadOnlyCurrentLedger(ctx,db=>ctx.emitResult({ok:true,packet:computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to, companyRoot: ctx.companyRoot() })}));
   });
   dispatch.on("period", "review", (ctx) => {
     const from = ctx.arg("--from"); const to = ctx.arg("--to");
     if (!from || !to) { console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>"); process.exit(2); }
+    const expectedPacketHash = ctx.arg("--packet-hash");
+    if (!expectedPacketHash || !/^[a-f0-9]{64}$/i.test(expectedPacketHash)) {
+      console.error("Missing required --packet-hash <sha256>"); process.exit(2);
+    }
     confirmed(ctx);
     const actor = ctx.cliActor ?? process.env.RENTEMESTER_ACTOR;
     if (!actor) { console.error("actor required for mutations"); process.exit(2); }
     const db = openCommandDb(ctx); migrate(db);
-    const packet = computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to });
+    const packet = computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to, companyRoot: ctx.companyRoot() });
+    if (packet.hash !== expectedPacketHash) {
+      ctx.emitResult({ ok: false, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"], packetHash: packet.hash });
+      db.close();
+      process.exit(1);
+    }
     ctx.emitResult(reviewPeriodCloseReadiness(db, { packet, reviewerActor: actor, reviewerPrincipal: { kind: "local-trusted", subjectId: actor } }) as unknown as Record<string, unknown>);
     db.close();
   });
@@ -106,6 +115,7 @@ export function register(dispatch: CommandDispatch): void {
       readinessReviewId: Number(ctx.arg("--review-id")) || undefined,
       forceReason: ctx.arg("--reason") ?? undefined,
       createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR,
+      companyRoot: ctx.companyRoot(),
       // Local actor attribution is deliberately not an authorization grant.
       // CLI force therefore fails closed unless a future trusted local
       // authorization provider is introduced; hosted requests use live RBAC.

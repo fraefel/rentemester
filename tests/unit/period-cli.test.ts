@@ -4,14 +4,36 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+async function reviewReadiness(company: string, from: string, to: string) {
+  const readiness = JSON.parse(await Bun.$`bun run src/cli.ts period readiness --company ${company} --from ${from} --to ${to} --format json`.text());
+  const review = JSON.parse(await Bun.$`bun run src/cli.ts period review --company ${company} --from ${from} --to ${to} --packet-hash ${readiness.packet.hash} --confirm yes --actor user:ejer --format json`.text());
+  return { readiness: readiness.packet, review };
+}
+
 describe("period close CLI", () => {
+  test("review binds the exact read-only packet hash before it persists evidence", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rentemester-periodreview-cli-"));
+    const company = join(root, "company");
+    await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
+    const proc = Bun.spawn([
+      "bun", "run", "src/cli.ts", "period", "review", "--company", company,
+      "--from", "2026-05-01", "--to", "2026-05-31", "--packet-hash", "0".repeat(64),
+      "--confirm", "yes", "--actor", "user:ejer", "--format", "json",
+    ], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    rmSync(root, { recursive: true, force: true });
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false, errors: ["PERIOD_CLOSE_PACKET_STALE_OR_MISSING"] });
+  });
+
   test("closes a period and blocks later journal posting inside that period", async () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-periodcli-"));
     const company = join(root, "company");
 
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
 
-    const readiness = JSON.parse(await Bun.$`bun run src/cli.ts period readiness --company ${company} --from 2026-05-01 --to 2026-05-31 --format json`.text());
+    const { readiness, review } = await reviewReadiness(company, "2026-05-01", "2026-05-31");
 
     const closeProc = Bun.spawn([
       "bun", "run", "src/cli.ts", "period", "close",
@@ -19,7 +41,8 @@ describe("period close CLI", () => {
       "--from", "2026-05-01",
       "--to", "2026-05-31",
       "--kind", "vat_quarter",
-      "--reference", "SKAT-Q2-2026", "--packet-hash", readiness.hash
+      "--reference", "SKAT-Q2-2026", "--packet-hash", readiness.hash,
+      "--review-id", String(review.id), "--confirm", "yes", "--actor", "user:ejer"
     ], {
       cwd: process.cwd(),
       stdout: "pipe",
@@ -65,8 +88,8 @@ describe("period reopen CLI (#247)", () => {
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
 
     // Close 2026-05.
-    const readiness = JSON.parse(await Bun.$`bun run src/cli.ts period readiness --company ${company} --from 2026-05-01 --to 2026-05-31 --format json`.text());
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer --packet-hash ${readiness.hash}`.quiet();
+    const { readiness, review } = await reviewReadiness(company, "2026-05-01", "2026-05-31");
+    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer --packet-hash ${readiness.hash} --review-id ${review.id} --confirm yes`.quiet();
 
     // Reopen with no actor at all — must be refused (clearly attributable).
     const noActor = Bun.spawn(
@@ -125,8 +148,8 @@ describe("period reopen CLI (#247)", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-periodreopen-noreason-"));
     const company = join(root, "company");
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
-    const readiness = JSON.parse(await Bun.$`bun run src/cli.ts period readiness --company ${company} --from 2026-05-01 --to 2026-05-31 --format json`.text());
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer --packet-hash ${readiness.hash}`.quiet();
+    const { readiness, review } = await reviewReadiness(company, "2026-05-01", "2026-05-31");
+    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_quarter --actor user:ejer --packet-hash ${readiness.hash} --review-id ${review.id} --confirm yes`.quiet();
 
     const proc = Bun.spawn(
       ["bun", "run", "src/cli.ts", "period", "reopen", "--company", company,

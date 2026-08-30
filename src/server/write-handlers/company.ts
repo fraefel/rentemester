@@ -294,6 +294,7 @@ export async function handleClosePeriod(
         forceReason,
         forceAuthorization,
         forceConfirmed: true,
+        companyRoot: companyRootForSlug(config.workspaceRoot, slug),
         createdBy: ctx.actor.createdBy,
         createdByProgram: ctx.actor.createdByProgram,
       });
@@ -328,8 +329,9 @@ export function handlePeriodCloseReadiness(config: ServerConfig, slug: string, r
   const periodStart = url.searchParams.get("from")?.trim();
   const periodEnd = url.searchParams.get("to")?.trim();
   if (!periodStart || !periodEnd) throw ApiError.badRequest("query parameters 'from' and 'to' are required");
-  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
-  try { migrate(db); return okResponse({ packet: computePeriodCloseReadiness(db, { periodStart, periodEnd }) }); }
+  const companyRoot = companyRootForSlug(config.workspaceRoot, slug);
+  const db = openDb(companyPaths(companyRoot).db);
+  try { migrate(db); return okResponse({ packet: computePeriodCloseReadiness(db, { periodStart, periodEnd, companyRoot }) }); }
   finally { db.close(); }
 }
 
@@ -337,7 +339,7 @@ export function handlePeriodCloseReadiness(config: ServerConfig, slug: string, r
 export async function handlePeriodCloseReview(config: ServerConfig, request: Request, slug: string): Promise<Response> {
   const result = await withCompanyMutation(request, config, slug, (ctx, body) => {
     const periodStart = requireBodyString(body, "periodStart"); const periodEnd = requireBodyString(body, "periodEnd");
-    const packet = computePeriodCloseReadiness(ctx.db, { periodStart, periodEnd });
+    const packet = computePeriodCloseReadiness(ctx.db, { periodStart, periodEnd, companyRoot: companyRootForSlug(config.workspaceRoot, slug) });
     const principal = ctx.principal.serviceAccountId ? { kind: "service-account" as const, subjectId: ctx.principal.serviceAccountId } : ctx.principal.userId ? { kind: "user" as const, subjectId: ctx.principal.userId } : { kind: "local-trusted" as const, subjectId: ctx.principal.id };
     return { ok: true, review: reviewPeriodCloseReadiness(ctx.db, { packet, reviewerActor: ctx.actor.createdBy, reviewerPrincipal: principal }) };
   }, { requireConfirm: true });

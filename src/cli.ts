@@ -101,6 +101,7 @@ import { register as registerBudget } from "./cli/budget";
 import { register as registerPayable } from "./cli/payable";
 import { register as registerPostingRules } from "./cli/posting-rules";
 import { register as registerBookkeepingBatch } from "./cli/bookkeeping-batch";
+import { register as registerWorkspaceRegistry } from "./cli/workspace-registry";
 // ===== END PAYABLES / KREDITORSTYRING =====
 import {
   findWorkspaceCompany,
@@ -350,6 +351,7 @@ for (const registerFn of [
   registerPayable,
   registerPostingRules,
   registerBookkeepingBatch,
+  registerWorkspaceRegistry,
   // ===== END PAYABLES / KREDITORSTYRING =====
 ]) {
   registerFn(dispatch);
@@ -398,6 +400,7 @@ if (!cmd || cmd === "help") {
       : commandKey === "workspace-access bootstrap-first"
         ? resolveWorkspaceAccessPolicyRoot()
         : commandKey === "workspace snapshot" || commandKey === "workspace restore"
+          || commandKey.startsWith("party ") || commandKey.startsWith("corporate-record ")
           ? null
         : commandKey === "group apply-manifest"
           ? resolveGroupPolicyRoot()

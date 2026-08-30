@@ -31,6 +31,7 @@ import { groupSpecs } from "./cli-meta/group-specs";
 import { workspaceSnapshotSpecs } from "./cli-meta/workspace-snapshot-specs";
 import { postingRulesSpecs } from "./cli-meta/posting-rules-specs";
 import { bookkeepingBatchSpecs } from "./cli-meta/bookkeeping-batch-specs";
+import { workspaceRegistrySpecs } from "./cli-meta/workspace-registry-specs";
 
 export type { CommandSpec } from "./cli-meta/_shared";
 export {
@@ -95,6 +96,7 @@ export const COMMAND_SPECS: CommandSpec[] = [
   ...groupSpecs,
   ...postingRulesSpecs,
   ...bookkeepingBatchSpecs,
+  ...workspaceRegistrySpecs,
 ];
 
 registerCommandSpecs(COMMAND_SPECS);

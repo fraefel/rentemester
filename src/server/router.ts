@@ -91,6 +91,7 @@ import {
 } from "./router/portfolio";
 import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
 import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
+import { handleRegistryParties, handleRegistryParty, handleRegistryPartyCreate, handleRegistryPartyMerge, handleRegistryPartyRole, handleRegistryRecord, handleRegistryRecordAction, handleRegistryRecordDownload, handleRegistryRecordIngest, handleRegistryRecords } from "./router/workspace-registry";
 import {
   handleCompanyBalance,
   handleCompanyIncomeStatement,
@@ -278,6 +279,19 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "workspace", effect: "read", permission: "workspace.read", method: "GET", pattern: "/api/companies", summary: "Lister virksomheder i workspacet." },
   { scope: "workspace", effect: "write", permission: "workspace.manage", method: "POST", pattern: "/api/companies", summary: "Opretter virksomhed i workspacet." },
   { scope: "company", effect: "write", permission: "company.admin", method: "PATCH", pattern: "/api/companies/:slug", summary: "Omdøber/arkiverer en virksomhed." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/workspace-parties", summary: "Synlige canonical workspace parties (#573)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/workspace-parties/:partyId", summary: "Synlig party-provenance (#573)." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/workspace-parties", summary: "Opretter party + lokal rolle (#573)." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/workspace-parties/:partyId/role", summary: "Knytter company-scoped party role (#573)." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/workspace-parties/merge/propose", summary: "Foreslår party merge (#573)." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/workspace-parties/merge/approve", summary: "Godkender party merge (#573)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/corporate-records", summary: "Synlige immutable corporate records (#575)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/corporate-records/:recordId", summary: "Corporate record metadata (#575)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/corporate-records/:recordId/file", summary: "Verificerede corporate record bytes (#575)." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/corporate-records", summary: "Indlæser immutable corporate record (#575)." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/corporate-records/:recordId/link", summary: "Knytter corporate record scope (#575)." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/corporate-records/:recordId/enrich", summary: "Beriger corporate record append-only (#575)." },
+  { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/corporate-records/:recordId/supersede", summary: "Supersederer corporate record append-only (#575)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dashboard", summary: "Virksomhedens dashboard." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/fiscal-years", summary: "Kendte regnskabsår." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/overview", summary: "Nøgletalsoverblik." },
@@ -706,6 +720,28 @@ export async function handleRequest(
       if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
       return await handleWorkspaceInvitationClaim(config, request);
     }
+
+    const partyCollection = /^\/api\/companies\/([^/]+)\/workspace-parties$/.exec(path);
+    if (partyCollection) {
+      const slug=decodeURIComponent(partyCollection[1]!);
+      if (method === "GET") return handleRegistryParties(config,slug,request);
+      if (method === "POST") return await handleRegistryPartyCreate(config,slug,request);
+      throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
+    }
+    const partyRole = /^\/api\/companies\/([^/]+)\/workspace-parties\/([^/]+)\/role$/.exec(path);
+    if (partyRole) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleRegistryPartyRole(config,decodeURIComponent(partyRole[1]!),decodeURIComponent(partyRole[2]!),request); }
+    const partyMerge = /^\/api\/companies\/([^/]+)\/workspace-parties\/merge\/(propose|approve)$/.exec(path);
+    if (partyMerge) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleRegistryPartyMerge(config,decodeURIComponent(partyMerge[1]!),request,partyMerge[2]==="approve"); }
+    const partyOne = /^\/api\/companies\/([^/]+)\/workspace-parties\/([^/]+)$/.exec(path);
+    if (partyOne) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryParty(config,decodeURIComponent(partyOne[1]!),decodeURIComponent(partyOne[2]!)); }
+    const recordCollection = /^\/api\/companies\/([^/]+)\/corporate-records$/.exec(path);
+    if (recordCollection) { const slug=decodeURIComponent(recordCollection[1]!); if(method==="GET")return handleRegistryRecords(config,slug,request); if(method==="POST")return await handleRegistryRecordIngest(config,slug,request); throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute"); }
+    const recordAction = /^\/api\/companies\/([^/]+)\/corporate-records\/([^/]+)\/(link|enrich|supersede)$/.exec(path);
+    if (recordAction) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleRegistryRecordAction(config,decodeURIComponent(recordAction[1]!),decodeURIComponent(recordAction[2]!),request,recordAction[3]! as "link"|"enrich"|"supersede"); }
+    const recordFile = /^\/api\/companies\/([^/]+)\/corporate-records\/([^/]+)\/file$/.exec(path);
+    if (recordFile) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryRecordDownload(config,decodeURIComponent(recordFile[1]!),decodeURIComponent(recordFile[2]!)); }
+    const recordOne = /^\/api\/companies\/([^/]+)\/corporate-records\/([^/]+)$/.exec(path);
+    if (recordOne) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryRecord(config,decodeURIComponent(recordOne[1]!),decodeURIComponent(recordOne[2]!)); }
 
     if (path === "/api/group-overview") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");

@@ -227,6 +227,22 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     write("approve", mcp("posting_rule_approve"), "Approve with reviewer separation.", { dependsOn: ["propose"], boundary: "approval", canonicalRecords: ["approved posting rule"] }),
     read("explain", mcp("posting_rule_explain"), "Explain the active rule and evidence.", { dependsOn: ["approve"] }),
   ] }),
+  workflow({ id: "workspace-party-lifecycle", capabilityId: "workspace-parties", title: "Workspace party lifecycle", intendedOutcome: "Create a canonical party, attach only company-scoped roles, and review an explicit duplicate proposal without automatic identity merging.", steps: [
+    read("search", mcp("workspace_party_search"), "Search only parties visible through the selected company."),
+    write("create", mcp("workspace_party_create"), "Create source-backed identity evidence without a ledger effect.", { dependsOn:["search"], canonicalRecords:["workspace party events", "party identifier assertions"] }),
+    write("link-role", mcp("workspace_party_link_role"), "Attach a role and defaults only for the selected company.", { dependsOn:["create"], canonicalRecords:["company party role"] }),
+    write("propose-merge", mcp("workspace_party_propose_merge"), "Record an explicit human-reviewed duplicate proposal.", { dependsOn:["link-role"], boundary:"review", canonicalRecords:["party merge proposal"] }),
+    write("approve-merge", mcp("workspace_party_approve_merge"), "Approve the exact proposal and append a supersession event.", { dependsOn:["propose-merge"], boundary:"approval", canonicalRecords:["party merge approval", "party supersession"] }),
+    read("inspect", mcp("workspace_party_inspect"), "Read the visible canonical history and local roles.", { dependsOn:["link-role|approve-merge"] }),
+  ], unsupportedBoundaries:["Name, amount or alias similarity never auto-merges a legal identity.", "Company-local defaults never become workspace posting rules."] }),
+  workflow({ id: "corporate-record-lifecycle", capabilityId: "corporate-records", title: "Corporate record lifecycle", intendedOutcome: "Store immutable governance evidence, link it to permitted scope, enrich it append-only and supersede rather than overwrite it.", steps: [
+    write("ingest", mcp("corporate_record_ingest"), "Ingest bytes and immutable SHA-256 evidence without ledger, group or filing side effects.", { canonicalRecords:["corporate record original bytes", "corporate record ingest event"] }),
+    write("link", mcp("corporate_record_link"), "Attach a typed scope link without changing bytes.", { dependsOn:["ingest"], canonicalRecords:["corporate record scope assertion"] }),
+    write("enrich", mcp("corporate_record_enrich"), "Append reviewed metadata/provenance.", { dependsOn:["link"], canonicalRecords:["corporate record enrichment event"] }),
+    write("supersede", mcp("corporate_record_supersede"), "Append a correction chain to a replacement record.", { dependsOn:["enrich"], canonicalRecords:["corporate record supersession"] }),
+    read("inspect", mcp("corporate_record_inspect"), "Read visible metadata/history."),
+    read("download", mcp("corporate_record_download"), "Read verified original bytes only after scope authorization.", { dependsOn:["inspect"] }),
+  ], unsupportedBoundaries:["Corporate records are governance evidence, never accounting vouchers or filing actions.", "Original bytes and hashes are never overwritten or deleted."] }),
 ];
 
 type CapabilityTuple = [string, string, string, string, string[], string[], AgentScope, string[]];
@@ -248,6 +264,8 @@ const capabilityTuples: CapabilityTuple[] = [
   ["mileage", "Mileage", "Register and report documented business mileage.", "mileage", ["log mileage", "mileage report"], ["trip", "kilometres"], "company", ["mileage-register-report"]],
   ["planning-reporting", "Planning and reporting", "Maintain budgets/accruals and prepare tax/reporting material.", "reporting", ["budget versus actual", "register accrual", "prepare tax return", "annual report"], ["forecast", "report", "tax"], "company", ["planning-accrual-reporting"]],
   ["posting-rules", "Posting rules", "Propose, approve and explain reusable posting rules.", "rules", ["create posting rule", "approve bookkeeping rule"], ["automation", "review separation"], "company", ["posting-rule-review"]],
+  ["workspace-parties", "Workspace parties", "Maintain canonical counterparties with isolated company roles and reviewed supersession.", "master data", ["create canonical party", "link company party role", "review duplicate party"], ["party", "counterparty", "identity", "vendor role"], "workspace", ["workspace-party-lifecycle"]],
+  ["corporate-records", "Corporate records", "Store immutable corporate and governance evidence with typed, access-controlled links.", "governance", ["ingest corporate record", "link governance evidence", "supersede corporate record"], ["corporate record", "governance", "articles", "ownership evidence"], "workspace", ["corporate-record-lifecycle"]],
 ];
 
 export const AGENT_CAPABILITIES: readonly AgentCapability[] = capabilityTuples.map(([id, title, purpose, domain, outcomes, keywords, scope, workflowIds]) => ({
@@ -364,14 +382,16 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 142, hash: "ee29dc2f9b237afa5a9117903acddf71232d2f2550dc7bec4120bb1ede3c0f01" },
-  cli: { count: 206, hash: "a6df6d506ce12b50e6c3d38f526bc191f9e8cee2dfe9c15414132c3cab9f834b" },
+  mcp: { count: 155, hash: "078b8f8c742482d9007b12778a1d70509089581e13b2b9135e67bcefaf9e8ede" },
+  cli: { count: 219, hash: "a63a4f63b83736f9644773dd37cefd98d1c7d4ff954d361412662d2694a454a6" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 145, hash: "ce145395d4e51d0dc673594a8203d85b2d7346503ad0dcecd9f4360da8ca0a1f" },
+  http: { count: 158, hash: "b0c3b65a32184dc9dd12fd863b2c8609807db5360e6535bab50c47cdd71962c9" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
+  { capabilityId: "corporate-records", pattern: /(?:corporate[_-]record|corporate-record)/ },
+  { capabilityId: "workspace-parties", pattern: /(?:workspace[_-]party|^cli:party )/ },
   { capabilityId: "digisense-nemhandel", pattern: /(?:efaktura|digisense|peppol|send-public)/ },
   { capabilityId: "group-intercompany", pattern: /(?:group|portfolio)/ },
   { capabilityId: "posting-rules", pattern: /(?:posting[_-]rules?|posting_rule|agent-suggestions)/ },

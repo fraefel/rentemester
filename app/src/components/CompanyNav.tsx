@@ -111,6 +111,7 @@ const TAB_GROUPS: { name: string; tabs: NavTab[] }[] = [
       { to: "fakturaer", label: "Fakturaer" },
       { to: "faktura-skabeloner", label: "Skabeloner" },
       { to: "kontakter", label: "Kontakter" },
+      { to: "workspace-register", label: "Workspace-register" },
     ],
   },
   {

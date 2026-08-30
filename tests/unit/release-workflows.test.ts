@@ -143,8 +143,10 @@ describe("release workflow security contract", () => {
     expect(candidate).toContain("cockpit asset missing");
     expect(candidate).toContain("fetch(new URL(asset,base))");
     expect(candidate).toContain("name: Render the published local-container cockpit");
-    expect(candidate).toContain("--virtual-time-budget=5000 --dump-dom \"$base_url/\"");
-    expect(candidate).toContain("Opret første virksomhed");
+    expect(candidate).toContain('"/companies/release-check?year=2026"');
+    expect(candidate).toContain('"/companies/release-check/manage?source=release-candidate"');
+    expect(candidate).toContain("--virtual-time-budget=5000 --dump-dom \"$base_url$route\"");
+    expect(candidate).toContain("<div id=\"root\"><div class=\"app-shell\"");
     expect(candidate).toContain("local-container cockpit was rejected by the UI security-profile gate");
     expect(candidate).toContain("sbom: true");
     expect(candidate).toContain("outputs: type=registry,rewrite-timestamp=true");

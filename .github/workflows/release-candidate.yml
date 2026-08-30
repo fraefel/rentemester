@@ -236,13 +236,17 @@ jobs:
           BASE_URL="$base_url" bun -e 'for(let i=0;i<100;i++){try{const r=await fetch(`${process.env.BASE_URL}/api/ready`); if(r.ok) process.exit(0)}catch{} await Bun.sleep(100)} process.exit(1)'
           chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
           test -n "$chrome"
-          "$chrome" --headless --no-sandbox --disable-gpu --virtual-time-budget=5000 --dump-dom "$base_url/" > cockpit-rendered.html
-          grep -F 'class="app-shell"' cockpit-rendered.html
-          grep -F 'Opret første virksomhed' cockpit-rendered.html
-          if grep -Fq 'Kunne ikke bekræfte Rentemesters sikkerhedsprofil' cockpit-rendered.html; then
-            echo "local-container cockpit was rejected by the UI security-profile gate" >&2
-            exit 1
-          fi
+          for route in \
+            "/companies/release-check?year=2026" \
+            "/companies/release-check/manage?source=release-candidate"; do
+            rendered="cockpit-rendered-$(echo "$route" | tr '/?=&' '-')".html
+            "$chrome" --headless --no-sandbox --disable-gpu --virtual-time-budget=5000 --dump-dom "$base_url$route" > "$rendered"
+            grep -F '<div id="root"><div class="app-shell"' "$rendered"
+            if grep -Fq 'Kunne ikke bekræfte Rentemesters sikkerhedsprofil' "$rendered"; then
+              echo "local-container cockpit was rejected by the UI security-profile gate" >&2
+              exit 1
+            fi
+          done
 
       - name: Extract digest-bound SPDX SBOM evidence
         id: sbom

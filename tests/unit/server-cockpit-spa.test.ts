@@ -2,13 +2,13 @@
 //   - PATCH /api/companies/:slug — rename + archive (non-destructive)
 //   - static serving of the built React app (with the index.html fallback)
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { handleRequest } from "../../src/server/router";
-import type { ServerConfig } from "../../src/server/config";
+import { join } from "node:path";
 import { createCompany } from "../../src/core/company";
 import { initWorkspace, listWorkspaceCompanies } from "../../src/core/workspace";
+import type { ServerConfig } from "../../src/server/config";
+import { handleRequest } from "../../src/server/router";
 
 function tmpRoot(label: string) {
   return mkdtempSync(join(tmpdir(), `rentemester-${label}-`));
@@ -122,6 +122,54 @@ describe("cockpit — company management (PATCH /api/companies/:slug)", () => {
 });
 
 describe("cockpit — static SPA serving", () => {
+  test("builds root-relative assets that work on direct company deep links", async () => {
+    const root = join(import.meta.dir, "..", "..");
+    const build = Bun.spawnSync({
+      cmd: ["bun", "run", "build"],
+      cwd: join(root, "app"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(build.exitCode).toBe(0);
+
+    const ws = makeWorkspace("spa-real-build");
+    const dist = join(root, "app", "dist");
+    try {
+      const index = await call(config({ workspaceRoot: ws, staticRoot: dist }), "/");
+      expect(index.status).toBe(200);
+      const html = await index.text();
+      const assets = [...html.matchAll(/(?:src|href)="([^"?]+\.(?:js|css))"/g)].map(
+        (match) => match[1],
+      );
+
+      expect(assets.some((asset) => asset.endsWith(".js"))).toBe(true);
+      expect(assets.some((asset) => asset.endsWith(".css"))).toBe(true);
+      expect(assets.every((asset) => asset.startsWith("/"))).toBe(true);
+
+      for (const route of [
+        "/",
+        "/companies/synthetic-company",
+        "/companies/synthetic-company/manage?source=deep-link",
+      ]) {
+        const response = await call(config({ workspaceRoot: ws, staticRoot: dist }), route);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toContain("text/html");
+        expect(await response.text()).toBe(html);
+      }
+
+      for (const asset of assets) {
+        const response = await call(config({ workspaceRoot: ws, staticRoot: dist }), asset);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toContain(
+          asset.endsWith(".js") ? "javascript" : "text/css",
+        );
+        expect(await response.text()).not.toBe(html);
+      }
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   function makeStaticRoot(label: string) {
     const root = tmpRoot(label);
     const dist = join(root, "dist");

@@ -9,6 +9,7 @@ const result = await Bun.build({
   entrypoints: [resolve(appRoot, "index.html")],
   outdir,
   minify: true,
+  publicPath: "/",
   sourcemap: "linked",
   target: "browser",
 });

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { openDb, migrate } from "../../src/core/db";
-import { seedAccounts } from "../../src/core/ledger";
+import { postJournalEntry, seedAccounts } from "../../src/core/ledger";
 import { seedNativeAccountRoles } from "../../src/core/account-roles";
 import { createPeriodCloseReadinessPacket, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 import { closeAccountingPeriod, reopenAccountingPeriod } from "../../src/core/periods";
@@ -15,6 +15,25 @@ import { CURRENT_SCHEMA_VERSION, readSchemaMigrations } from "../../src/core/sch
 const roots: string[] = [];
 function fixture() { const root = mkdtempSync(join(tmpdir(), "rm-period-close-")); roots.push(root); const db = openDb(join(root, "ledger.sqlite")); migrate(db); seedAccounts(db); seedNativeAccountRoles(db); return db; }
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+
+/** Canonical synthetic bank evidence: statement row plus its matching posted
+ * bank journal. This deliberately exercises the public ledger write, rather
+ * than smuggling a balance into a close fixture. */
+function bookStatementBankMovement(db: ReturnType<typeof openDb>, date: string, amount: number, balanceAfter: number | null) {
+  db.run("INSERT INTO bank_transactions(transaction_date,text,amount,currency,balance_after) VALUES(?,?,?,?,?)", date, `synthetic bank ${date} ${amount}`, amount, "DKK", balanceAfter);
+  const bank = db.query("SELECT id FROM bank_transactions ORDER BY id DESC LIMIT 1").get() as { id: number };
+  const result = postJournalEntry(db, {
+    transactionDate: date, text: `Synthetic bank evidence ${bank.id}`, sourceBankTransactionId: bank.id,
+    lines: amount >= 0
+      ? [{ accountNo: "2000", debitAmount: amount }, { accountNo: "5000", creditAmount: amount }]
+      : [{ accountNo: "2000", creditAmount: -amount }, { accountNo: "5000", debitAmount: -amount }],
+  });
+  expect(result.ok, result.ok ? "" : result.errors.join("; ")).toBe(true);
+}
+
+function dkkControl(db: ReturnType<typeof openDb>, start = "2025-01-01", end = "2025-01-31") {
+  return createPeriodCloseReadinessPacket(db, { periodStart: start, periodEnd: end }).items.find((item) => item.code === "DKK_CONTROL_ACCOUNTS")!;
+}
 
 describe("#580 period-close readiness", () => {
   test("readiness is deterministic and does not persist a packet or audit event", () => {
@@ -69,6 +88,50 @@ describe("#580 period-close readiness", () => {
     const review = reviewPeriodCloseReadiness(db, { packet, reviewerActor: "user:test", reviewerPrincipal: { kind: "local-trusted", subjectId: "test" } });
     const forced = closeAccountingPeriod(db, { periodStart: "2025-01-01", periodEnd: "2025-01-31", kind: "custom", readinessPacketHash: packet.hash, readinessReviewId: review.id, force: true, forceAuthorization: { principal: { kind: "local-trusted", subjectId: "test" }, permissions: ["company.period.force-close"] }, forceConfirmed: true, forceReason: "synthetic waiver", createdBy: "user:test" });
     expect(forced.ok).toBe(false); expect(forced.errors).toContain("PERIOD_CLOSE_HAS_NONWAIVABLE_BLOCKERS"); db.close();
+  });
+
+  test("reconciles mapped bank ledger balance to an unambiguous DKK statement endpoint with source IDs", () => {
+    const db = fixture();
+    bookStatementBankMovement(db, "2025-01-15", 125.55, 125.55);
+    const item = dkkControl(db);
+    expect(item.status).toBe("passed");
+    expect(item.waivable).toBe(false);
+    expect(item.evidence).toContainEqual(expect.objectContaining({ role: "bank", ledgerBalanceDkk: 125.55, sourceBalanceDkk: 125.55, differenceDkk: 0, sourceCount: 1 }));
+    db.close();
+  });
+
+  test("blocks an exact-cent DKK bank control mismatch", () => {
+    const db = fixture();
+    bookStatementBankMovement(db, "2025-01-15", 125.55, 125.54);
+    const item = dkkControl(db);
+    expect(item.status).toBe("blocked");
+    expect(item.amount).toBe(0.01);
+    expect(item.evidence).toContainEqual(expect.objectContaining({ role: "bank", differenceDkk: 0.01 }));
+    db.close();
+  });
+
+  test("fails closed for missing or ambiguous latest DKK statement balances", () => {
+    const missing = fixture();
+    bookStatementBankMovement(missing, "2025-01-15", 100, null);
+    expect(dkkControl(missing).status).toBe("unavailable");
+    missing.close();
+
+    const ambiguous = fixture();
+    bookStatementBankMovement(ambiguous, "2025-01-15", 100, 100);
+    bookStatementBankMovement(ambiguous, "2025-01-15", 100, 100);
+    const item = dkkControl(ambiguous);
+    expect(item.status).toBe("unavailable");
+    expect(item.evidence[0]).toEqual(expect.objectContaining({ detail: expect.stringContaining("ambiguous") }));
+    ambiguous.close();
+  });
+
+  test("uses opening statement and ledger balances as of the cutoff, not only in-period activity", () => {
+    const db = fixture();
+    bookStatementBankMovement(db, "2024-12-31", 80, 80);
+    const item = dkkControl(db, "2025-01-01", "2025-01-31");
+    expect(item.status).toBe("passed");
+    expect(item.evidence).toContainEqual(expect.objectContaining({ role: "bank", ledgerBalanceDkk: 80, sourceBalanceDkk: 80 }));
+    db.close();
   });
 
   test("reopen appends and supersedes history", () => {

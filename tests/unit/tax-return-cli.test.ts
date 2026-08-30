@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { closeReviewedFixturePeriod } from "../helpers/period-close";
 
 describe("report tax CLI", () => {
   test("emits an oplysningsskema preparation for a locked fiscal year", async () => {
@@ -16,9 +17,7 @@ describe("report tax CLI", () => {
     // to the harness clock, so closing it would hit the new future-period guard.
     // This test is about the tax report over an already-locked year, not the
     // guard — pin the close's "today" past the year end via RENTEMESTER_TODAY.
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-01-01 --to 2026-12-31 --kind fiscal_year --status closed`
-      .env({ ...process.env, RENTEMESTER_TODAY: "2027-01-02" })
-      .quiet();
+    await closeReviewedFixturePeriod({ company, from: "2026-01-01", to: "2026-12-31", kind: "fiscal_year", status: "closed", env: { RENTEMESTER_TODAY: "2027-01-02" } });
 
     const proc = Bun.spawn(
       ["bun", "run", "src/cli.ts", "report", "tax", "--company", company, "--from", "2026-01-01", "--to", "2026-12-31"],

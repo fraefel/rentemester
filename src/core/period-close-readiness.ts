@@ -6,6 +6,7 @@ import { verifyAuditLogIntegrity } from "./audit-log";
 import { buildTrialBalance } from "./financial-statements";
 import { buildVatReport } from "./vat";
 import { resolveAccountRole } from "./account-roles";
+import { fromOre, toOre } from "./money";
 
 export type CloseControlStatus = "passed" | "warning" | "blocked" | "unavailable";
 export type CloseReadinessItem = { code: string; status: CloseControlStatus; waivable: boolean; count: number; amount: number; evidence: readonly Record<string, unknown>[]; sourceHash: string };
@@ -22,6 +23,112 @@ function control(code: string, status: CloseControlStatus, waivable: boolean, ev
 function unavailable(code: string, detail: string): CloseReadinessItem { return control(code,"unavailable",false,[{detail}]); }
 function protect(code: string, run: () => CloseReadinessItem): CloseReadinessItem { try { return run(); } catch { return unavailable(code,"control execution failed"); } }
 export function periodCloseReviewSchemaAvailable(db: Database): boolean { return exists(db,"period_close_readiness_packets") && exists(db,"period_close_reviews"); }
+
+type DkkControlSource = { role: "bank" | "debtors" | "creditors"; accountNo: string; ledgerOre: bigint; sourceOre: bigint; evidence: Record<string, unknown>[] };
+
+function dkkControlSchemaAvailable(db: Database): boolean {
+  return [
+    ["journal_entries", "transaction_date"], ["journal_entries", "status"], ["journal_lines", "account_id"],
+    ["accounts", "account_no"], ["bank_transactions", "transaction_date"], ["bank_transactions", "balance_after"],
+    ["documents", "document_type"], ["documents", "invoice_date"], ["issued_invoice_postings", "invoice_document_id"],
+    ["issued_invoice_postings", "booked_gross_dkk"], ["invoice_payments", "invoice_document_id"], ["invoice_payments", "payment_date"],
+    ["payables", "bill_date"], ["payables", "gross_amount"], ["payable_payments", "payable_id"], ["payable_payments", "payment_date"],
+  ].every(([table, column]) => has(db, table, column));
+}
+
+function activeLedgerBalanceOre(db: Database, accountNo: string, cutoff: string): bigint {
+  // Reversals are append-only counter-postings. Including both original and
+  // reversal is therefore the canonical balance and avoids treating either as
+  // a second live open item.
+  const row = db.query(`SELECT COALESCE(SUM(jl.debit_amount - jl.credit_amount), 0) AS balance
+    FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id
+    WHERE a.account_no=? AND je.transaction_date<=?`).get(accountNo, cutoff) as { balance: number };
+  return toOre(Number(row.balance));
+}
+
+function uniqueStatementEndpoints(db: Database, cutoff: string, accountNo: string): { ok: true; totalOre: bigint; evidence: Record<string, unknown>[] } | { ok: false; detail: string } {
+  const configured = rows(db, `SELECT id FROM bank_accounts WHERE active=1 AND currency='DKK' AND ledger_account_no=? ORDER BY id`, accountNo) as Array<{ id: number }>;
+  const streams = configured.length
+    ? configured.map(row => ({ key: `bank-account:${row.id}`, id: row.id }))
+    : [{ key: "legacy-unassigned", id: null as number | null }];
+  let total = 0n;
+  const evidence: Record<string, unknown>[] = [];
+  for (const stream of streams) {
+    const candidates = rows(db, `SELECT id,transaction_date,amount,balance_after FROM bank_transactions
+      WHERE transaction_date<=? AND currency='DKK' AND balance_after IS NOT NULL
+      AND bank_account_id IS ?
+      AND transaction_date=(SELECT MAX(transaction_date) FROM bank_transactions b2
+        WHERE b2.transaction_date<=? AND b2.currency='DKK' AND b2.balance_after IS NOT NULL AND b2.bank_account_id IS ?)
+      ORDER BY id`, cutoff, stream.id, cutoff, stream.id) as Array<{ id: number; transaction_date: string; amount: number; balance_after: number }>;
+    const anyImported = db.query(`SELECT 1 FROM bank_transactions WHERE transaction_date<=? AND currency='DKK' AND bank_account_id IS ? LIMIT 1`).get(cutoff, stream.id);
+    if (!anyImported) {
+      // Once a specific bank account has been mapped, a missing statement is
+      // not evidence of a zero balance. The only harmless empty case is a
+      // completely unconfigured, zero-activity legacy ledger.
+      if (configured.length) return { ok: false, detail: `${stream.key} has no imported DKK statement at or before cutoff` };
+      continue;
+    }
+    if (!candidates.length) return { ok: false, detail: `${stream.key} has no DKK balance_after at or before cutoff` };
+    const before = new Set(candidates.map(row => toOre(Number(row.balance_after) - Number(row.amount)).toString()));
+    const endpoints = candidates.filter(row => !before.has(toOre(Number(row.balance_after)).toString()));
+    if (endpoints.length !== 1) return { ok: false, detail: `${stream.key} has ambiguous latest DKK statement balance` };
+    const endpoint = endpoints[0]!;
+    total += toOre(Number(endpoint.balance_after));
+    evidence.push({ role: "bank", stream: stream.key, statementTransactionId: endpoint.id, statementDate: endpoint.transaction_date, statementBalanceDkk: fromOre(toOre(Number(endpoint.balance_after))), sourceCount: candidates.length });
+  }
+  return { ok: true, totalOre: total, evidence };
+}
+
+function dkkControlAccounts(db: Database, cutoff: string): CloseReadinessItem {
+  if (!dkkControlSchemaAvailable(db)) return unavailable("DKK_CONTROL_ACCOUNTS", "independent DKK control-account schema unavailable");
+  const resolved = [resolveAccountRole(db,"bank"), resolveAccountRole(db,"debtors"), resolveAccountRole(db,"creditors")];
+  if (resolved.some(role => !role.ok)) return unavailable("DKK_CONTROL_ACCOUNTS", resolved.filter(role=>!role.ok).map(role=>!role.ok ? role.error : "").join("; "));
+  const roles = resolved as Array<Extract<typeof resolved[number], { ok: true }>>;
+  for (const role of roles) {
+    const count = db.query("SELECT COUNT(DISTINCT account_no) AS n FROM account_role_mappings WHERE role=? AND status='confirmed'").get(role.role) as { n: number };
+    if (count.n !== 1) return unavailable("DKK_CONTROL_ACCOUNTS", `role '${role.role}' has ambiguous confirmed account mappings`);
+  }
+  const bank = roles.find(role => role.role === "bank")!;
+  const debtors = roles.find(role => role.role === "debtors")!;
+  const creditors = roles.find(role => role.role === "creditors")!;
+  const ledger = new Map(roles.map(role => [role.role, activeLedgerBalanceOre(db, role.accountNo, cutoff)]));
+  const bankSource = uniqueStatementEndpoints(db, cutoff, bank.accountNo);
+  const anyBank = db.query("SELECT 1 FROM bank_transactions WHERE transaction_date<=? AND currency='DKK' LIMIT 1").get(cutoff);
+  if (!bankSource.ok && anyBank) return unavailable("DKK_CONTROL_ACCOUNTS", bankSource.detail);
+  const bankOre = bankSource.ok ? bankSource.totalOre : 0n;
+
+  const foreignPayable = db.query("SELECT id,currency FROM payables WHERE bill_date<=? AND UPPER(currency)!='DKK' LIMIT 1").get(cutoff) as { id:number; currency:string } | null;
+  if (foreignPayable) return unavailable("DKK_CONTROL_ACCOUNTS", `payable ${foreignPayable.id} uses ${foreignPayable.currency}; DKK payable control cannot value it independently`);
+  const receivableRows = rows(db, `SELECT d.id AS document_id, p.journal_entry_id, p.booked_gross_dkk,
+      COALESCE(SUM(CASE WHEN ip.payment_date<=? AND ipj.status='posted' AND ipj.reversal_of_entry_id IS NULL
+        AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=ipj.id) THEN ip.amount ELSE 0 END),0) AS paid_amount
+    FROM documents d JOIN issued_invoice_postings p ON p.invoice_document_id=d.id
+    JOIN journal_entries j ON j.id=p.journal_entry_id
+    LEFT JOIN invoice_payments ip ON ip.invoice_document_id=d.id LEFT JOIN journal_entries ipj ON ipj.id=ip.journal_entry_id
+    WHERE d.document_type='issued_invoice' AND d.invoice_date<=? AND j.transaction_date<=? AND j.status='posted' AND j.reversal_of_entry_id IS NULL
+      AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=j.id)
+      AND p.receivable_account_id=(SELECT id FROM accounts WHERE account_no=?)
+    GROUP BY d.id,p.journal_entry_id,p.booked_gross_dkk ORDER BY d.id`, cutoff, cutoff, cutoff, debtors.accountNo);
+  const payableRows = rows(db, `SELECT p.id AS payable_id,p.journal_entry_id,p.gross_amount,
+      COALESCE(SUM(CASE WHEN pp.payment_date<=? AND ppj.status='posted' AND ppj.reversal_of_entry_id IS NULL
+        AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=ppj.id) THEN pp.amount ELSE 0 END),0) AS paid_amount
+    FROM payables p JOIN journal_entries j ON j.id=p.journal_entry_id
+    LEFT JOIN payable_payments pp ON pp.payable_id=p.id LEFT JOIN journal_entries ppj ON ppj.id=pp.journal_entry_id
+    WHERE p.bill_date<=? AND j.transaction_date<=? AND j.status='posted' AND j.reversal_of_entry_id IS NULL
+      AND NOT EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=j.id)
+      AND UPPER(p.currency)='DKK'
+    GROUP BY p.id,p.journal_entry_id,p.gross_amount ORDER BY p.id`, cutoff, cutoff, cutoff);
+  const receivableOre = receivableRows.reduce((sum,row)=>sum + toOre(Number(row.booked_gross_dkk)) - toOre(Number(row.paid_amount)),0n);
+  const payableOpenOre = payableRows.reduce((sum,row)=>sum + toOre(Number(row.gross_amount)) - toOre(Number(row.paid_amount)),0n);
+  const sources: DkkControlSource[] = [
+    { role:"bank", accountNo:bank.accountNo, ledgerOre:ledger.get("bank")!, sourceOre:bankOre, evidence:bankSource.ok ? bankSource.evidence : [{role:"bank",sourceCount:0,statementBalanceDkk:0}] },
+    { role:"debtors", accountNo:debtors.accountNo, ledgerOre:ledger.get("debtors")!, sourceOre:receivableOre, evidence:receivableRows.map(row=>({role:"debtors",documentId:row.document_id,journalEntryId:row.journal_entry_id,grossDkk:row.booked_gross_dkk,paidDkk:row.paid_amount})) },
+    { role:"creditors", accountNo:creditors.accountNo, ledgerOre:ledger.get("creditors")!, sourceOre:-payableOpenOre, evidence:payableRows.map(row=>({role:"creditors",payableId:row.payable_id,journalEntryId:row.journal_entry_id,grossDkk:row.gross_amount,paidDkk:row.paid_amount})) },
+  ];
+  const evidence = sources.map(source => ({ role:source.role, accountNo:source.accountNo, ledgerBalanceDkk:fromOre(source.ledgerOre), sourceBalanceDkk:fromOre(source.sourceOre), differenceDkk:fromOre(source.ledgerOre-source.sourceOre), sourceCount:source.evidence.length, sourceIds:source.evidence }));
+  const mismatches = sources.filter(source => source.ledgerOre !== source.sourceOre);
+  return control("DKK_CONTROL_ACCOUNTS", mismatches.length ? "blocked" : "passed", false, evidence, Number(fromOre(mismatches.reduce((sum, source)=>sum + (source.ledgerOre-source.sourceOre < 0n ? source.sourceOre-source.ledgerOre : source.ledgerOre-source.sourceOre),0n))));
+}
 
 /** Read-only: no `migrate`, DDL, packet persistence, audit write or WAL write. */
 export function computePeriodCloseReadiness(db: Database, input: { periodStart: string; periodEnd: string; cutoff?: string; companyRoot?: string }): CloseReadinessPacket {
@@ -87,31 +194,7 @@ export function computePeriodCloseReadiness(db: Database, input: { periodStart: 
       ORDER BY d.id`,cutoff,cutoff,cutoff);
     return control("RECEIVABLE_OUTSTANDING",evidence.length?"warning":"passed",true,evidence,evidence.reduce((n,r)=>n+Math.abs(Number(r.amount_inc_vat??0)-Number(r.paid_amount??0)),0));
   }));
-  items.push(protect("DKK_CONTROL_ACCOUNTS",()=>{
-    // A control-account assertion is meaningful only for explicitly confirmed
-    // semantic roles.  Never infer an account number from its name.
-    const bank=resolveAccountRole(db,"bank"), debtors=resolveAccountRole(db,"debtors"), creditors=resolveAccountRole(db,"creditors");
-    if(!bank.ok || !debtors.ok || !creditors.ok) return unavailable("DKK_CONTROL_ACCOUNTS",[bank,debtors,creditors].filter(role=>!role.ok).map(role=>!role.ok?role.error:"").join("; "));
-    if(!has(db,"journal_lines","account_id")||!has(db,"journal_entries","transaction_date")||!has(db,"accounts","account_no")) return unavailable("DKK_CONTROL_ACCOUNTS","journal control-account schema unavailable");
-    const accounts=[bank.accountNo,debtors.accountNo,creditors.accountNo];
-    const evidence=rows(db,`SELECT a.account_no, ROUND(SUM(jl.debit_amount-jl.credit_amount),2) AS balance_dkk
-      FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
-      WHERE a.account_no IN (?,?,?) AND je.transaction_date<=?
-      GROUP BY a.account_no ORDER BY a.account_no`,accounts[0],accounts[1],accounts[2],cutoff);
-    // A ledger with no control-account balance and no related source activity
-    // has a provable zero reconciliation. Any non-zero/active case still
-    // requires a dedicated independent reconciliation model; do not infer it
-    // merely from journal balances.
-    const sourceActivity=rows(db,`SELECT 'bank' AS source,COUNT(*) AS n FROM bank_transactions WHERE transaction_date<=?
-      UNION ALL SELECT 'receivable',COUNT(*) FROM documents WHERE document_type='issued_invoice' AND invoice_date<=?
-      UNION ALL SELECT 'payable',COUNT(*) FROM payables WHERE due_date<=?`,cutoff,cutoff,cutoff);
-    const allBalancesZero=evidence.every(row=>Number(row.balance_dkk??0)===0);
-    const noSourceActivity=sourceActivity.every(row=>Number(row.n??0)===0);
-    if(allBalancesZero&&noSourceActivity) return control("DKK_CONTROL_ACCOUNTS","passed",false,[...evidence,...sourceActivity]);
-    // Ledger balances alone are not a reconciliation. Do not turn a missing
-    // debtor/creditor subledger comparison into a green control.
-    return unavailable("DKK_CONTROL_ACCOUNTS",`ledger-only balances available for ${evidence.length} control account(s); independent DKK reconciliation is unavailable`);
-  }));
+  items.push(protect("DKK_CONTROL_ACCOUNTS",()=>dkkControlAccounts(db,cutoff)));
   // A read-only snapshot has a temporary SQLite filename, so it cannot infer
   // the original company directory for document-evidence verification. The
   // caller supplies that stable root; the exact same root is used at review

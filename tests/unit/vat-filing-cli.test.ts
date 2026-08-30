@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { closeReviewedFixturePeriod } from "../helpers/period-close";
 
 describe("vat momsangivelse CLI", () => {
   test("emits a filing-ready momsangivelse for a closed VAT period", async () => {
@@ -12,7 +13,7 @@ describe("vat momsangivelse CLI", () => {
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
     await Bun.$`bun run src/cli.ts documents ingest --company ${company} --file examples/vendor-invoice.txt --metadata examples/vendor-invoice.metadata.json`.quiet();
     await Bun.$`bun run src/cli.ts journal post --company ${company} --input examples/journal-entry.expense.json`.quiet();
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_period --status closed`.quiet();
+    await closeReviewedFixturePeriod({ company, from: "2026-05-01", to: "2026-05-31", kind: "vat_period", status: "closed" });
 
     const proc = Bun.spawn(
       ["bun", "run", "src/cli.ts", "vat", "momsangivelse", "--company", company, "--from", "2026-05-01", "--to", "2026-05-31"],

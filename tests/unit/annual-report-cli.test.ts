@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { closeReviewedFixturePeriod } from "../helpers/period-close";
 
 async function run(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bun", "run", "src/cli.ts", ...args], {
@@ -55,7 +56,7 @@ async function preparedCompany(prefix: string) {
   );
   await Bun.$`bun run src/cli.ts journal post --company ${company} --input ${open}`.quiet();
   await Bun.$`bun run src/cli.ts journal post --company ${company} --input ${sale}`.quiet();
-  await Bun.$`bun run src/cli.ts period close --company ${company} --from 2025-01-01 --to 2025-12-31 --kind fiscal_year`.quiet();
+  await closeReviewedFixturePeriod({ company, from: "2025-01-01", to: "2025-12-31", kind: "fiscal_year" });
   return { root, company };
 }
 

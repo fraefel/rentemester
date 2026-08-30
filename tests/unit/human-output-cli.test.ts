@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { closeReviewedFixturePeriod } from "../helpers/period-close";
 import { formatKroner } from "../../src/cli-format";
 
 async function runCli(args: string[]) {
@@ -152,7 +153,7 @@ describe("vat momsangivelse human output (#235, #236)", () => {
     await Bun.$`bun run src/cli.ts init --company ${company} --vat-period month`.quiet();
     await Bun.$`bun run src/cli.ts documents ingest --company ${company} --file examples/vendor-invoice.txt --metadata examples/vendor-invoice.metadata.json`.quiet();
     await Bun.$`bun run src/cli.ts journal post --company ${company} --input examples/journal-entry.expense.json`.quiet();
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2026-05-01 --to 2026-05-31 --kind vat_period --status closed`.quiet();
+    await closeReviewedFixturePeriod({ company, from: "2026-05-01", to: "2026-05-31", kind: "vat_period", status: "closed" });
 
     const human = await runCli([
       "vat", "momsangivelse", "--company", company,
@@ -247,7 +248,7 @@ describe("report annual human output (#235)", () => {
     }));
     await Bun.$`bun run src/cli.ts journal post --company ${company} --input ${open}`.quiet();
     await Bun.$`bun run src/cli.ts journal post --company ${company} --input ${sale}`.quiet();
-    await Bun.$`bun run src/cli.ts period close --company ${company} --from 2025-01-01 --to 2025-12-31 --kind fiscal_year`.quiet();
+    await closeReviewedFixturePeriod({ company, from: "2025-01-01", to: "2025-12-31", kind: "fiscal_year" });
 
     const human = await runCli([
       "report", "annual", "--company", company,

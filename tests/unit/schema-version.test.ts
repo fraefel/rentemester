@@ -56,6 +56,8 @@ import {
   LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME,
   BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM,
   BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME,
+  PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM,
+  PERIOD_CLOSE_REVIEWS_MIGRATION_NAME,
   readSchemaMigrations,
   validateSchemaMigrationHistory,
 } from "../../src/core/schema-version";
@@ -166,6 +168,7 @@ describe("schema version compatibility", () => {
       expect.objectContaining({ id: 22, name: PERIOD_CLOSE_READINESS_MIGRATION_NAME, checksum: PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 23, name: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME, checksum: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM }),
       expect.objectContaining({ id: 24, name: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM }),
+      expect.objectContaining({ id: 25, name: PERIOD_CLOSE_REVIEWS_MIGRATION_NAME, checksum: PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM }),
     ]);
     db.close();
   });

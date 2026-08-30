@@ -8,6 +8,7 @@
 import type { Database } from "bun:sqlite";
 import { seedNativeAccountRoles } from "../../src/core/account-roles";
 import { linkBankTransactionToJournal } from "../../src/core/bank-journal-reconciliation";
+import { seedAccounts } from "../../src/core/ledger";
 import { insertAuditLog } from "../../src/core/actor";
 import { computePeriodCloseReadiness, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 import {
@@ -23,6 +24,7 @@ export function closeAccountingPeriod(
   // Direct DB fixtures historically called only seedAccounts. The normal
   // company initialization supplies these role mappings; provide that same
   // synthetic prerequisite before evaluating the close controls.
+  seedAccounts(db);
   seedNativeAccountRoles(db);
   const periodStart = input.periodStart ?? "";
   const periodEnd = input.periodEnd ?? "";

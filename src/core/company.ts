@@ -86,7 +86,12 @@ const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   auditWaived: null,
   cvrSyncedAt: null,
   paymentTermsDays: DEFAULT_PAYMENT_TERMS_DAYS,
-  vatPeriodType: DEFAULT_VAT_PERIOD_TYPE,
+  // Keep the module's eager default independent of the close/VAT graph.
+  // `periods.ts` imports the close-readiness graph, which eventually reads
+  // company settings.  The value is the same canonical default exported from
+  // that module; using the literal here prevents an ESM initialization cycle
+  // from observing its export before initialization.
+  vatPeriodType: "quarter",
 };
 
 /**

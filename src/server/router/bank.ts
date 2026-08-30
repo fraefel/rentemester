@@ -6,7 +6,7 @@ import { buildCompanyBank, resolveYearParam } from "../data";
 import { okResponse } from "./_shared";
 import { companyRootForSlug } from "../../core/workspace";
 import { companyPaths } from "../../core/paths";
-import { openDb, migrate } from "../../core/db";
+import { openLedgerReadOnly, inspectOpenLedger } from "../../core/ledger-inspection";
 import { planBankReconciliationCorrection } from "../../core/bank-journal-reconciliation";
 import { ApiError } from "../errors";
 
@@ -36,5 +36,5 @@ export function handleCompanyBankAccounts(
 export function handleBankReconciliationCorrectionPlan(config: ServerConfig, slug: string, url: URL): Response {
   const bankTransactionId=Number(url.searchParams.get("bankTransactionId")), replacementJournalEntryId=Number(url.searchParams.get("replacementJournalEntryId"));
   if(!Number.isInteger(bankTransactionId)||bankTransactionId<=0||!Number.isInteger(replacementJournalEntryId)||replacementJournalEntryId<=0) throw ApiError.badRequest("bankTransactionId and replacementJournalEntryId must be positive integers");
-  const db=openDb(companyPaths(companyRootForSlug(config.workspaceRoot,slug)).db); try { migrate(db); return okResponse({plan:planBankReconciliationCorrection(db,{bankTransactionId,replacementJournalEntryId})}); } finally { db.close(); }
+  const db=openLedgerReadOnly(companyPaths(companyRootForSlug(config.workspaceRoot,slug)).db); try { if(inspectOpenLedger(db).status!=="current") throw ApiError.conflict("ledger migration required before planning a bank reconciliation correction"); return okResponse({plan:planBankReconciliationCorrection(db,{bankTransactionId,replacementJournalEntryId})}); } finally { db.close(); }
 }

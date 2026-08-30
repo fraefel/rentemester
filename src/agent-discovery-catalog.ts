@@ -136,7 +136,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   ], unsupportedBoundaries: ["reconcile_bank is a report, not an apply operation.", "Suggested or human-review items are never auto-approved."] }),
   workflow({ id:"bank-reconciliation-correction", capabilityId:"bank-bookkeeping", title:"Correct a reversed bank reconciliation", intendedOutcome:"Replace exactly one reversed reconciliation without changing historical journals or links.", steps:[
     read("inspect",mcp("bank_reconciliation_correction_plan"),"Build and inspect the deterministic correction plan, including its current reconciliation identity and plan hash.",{boundary:"dry-run",outputIdentities:["expectedReconciliationId","planHash"],canonicalRecords:["bank reconciliation projection","journal reversal"]}),
-    write("apply",mcp("bank_reconciliation_correction_apply"),"Atomically supersede only the exact reviewed reconciliation with the replacement journal; a matching idempotency key replays its durable result.",{dependsOn:["inspect"],boundary:"irreversible",expectedIdempotent:true,retryClass:"key-idempotent",inputIdentities:["expectedReconciliationId","planHash","idempotencyKey"],canonicalRecords:["bank reconciliation correction events","audit log"]}),
+    write("apply",mcp("bank_reconciliation_correction_apply"),"Atomically supersede only the exact reviewed reconciliation with the replacement journal; a matching idempotency key replays its durable result.",{dependsOn:["inspect"],boundary:"irreversible",expectedIdempotent:false,retryClass:"key-idempotent",inputIdentities:["expectedReconciliationId","planHash","idempotencyKey"],canonicalRecords:["bank reconciliation correction events","audit log"]}),
   ], relatedWorkflowIds:["bank-reconciliation-batch"], unsupportedBoundaries:["The correction never edits journals, reversals, hashes or legacy reconciliation links.","A current active old journal must be reversed before a correction can be planned."] }),
   workflow({ id: "bookkeeping-workbench", capabilityId: "bank-bookkeeping", title: "Bookkeeping workbench", intendedOutcome: "Read one canonical queue of unresolved bank work, then use the existing reviewed batch workflow for every write.", steps: [
     read("read-workbench",mcp("bookkeeping_workbench"),"Read the deterministic unresolved bank population, canonical document-party resolution and account/VAT/dimension evidence. Use returned drilldowns to inspect source evidence before the separate batch plan.",{inputIdentities:["company","from","to","bankAccountId","partyId","documentQuality","account","vatTreatment","dimension"],outputIdentities:["bankTransactionId","sourceHash","planHash","population.blockers"],canonicalRecords:["bank transactions","bank journal reconciliations","current document party links","document party resolution events","bookkeeping batch runs","period-close readiness"]}),
@@ -462,9 +462,9 @@ type SurfaceBaseline = { count: number; hash: string };
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // Public surface changes require an explicit discovery review.
-  mcp: { count: 209, hash: "26cb7a2149c7046c13c833520222c3c5db1ee49cf5aea8a1243b930b13071c7f" },
-  cli: { count: 260, hash: "ad0d3e1ba99f7c488e2000895f86d3176eea7b6982b412157892e97ab1fcd899" },
-  http: { count: 204, hash: "1ae1611a38a48776b3fdf96c0ee7dd76be9a9ae9b02793c7c44e3502756cd201" },
+  mcp: { count: 211, hash: "f50114bb5ca29f8a63b2dcd01dd934ece2745cd58be196f598aeadddbefadd94" },
+  cli: { count: 262, hash: "3e02352798e046ceaf82139cf6776f5e6b6457658ab28394af20dd2e52d1af45" },
+  http: { count: 206, hash: "9bccd1c719c7e39a838fe046518b9261816a8ab61fed11728d260e774add9f91" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

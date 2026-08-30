@@ -126,12 +126,13 @@ describe("append-only bank reconciliation for imported journals", () => {
       expect(reverseJournalEntry(db,{entryId:Number(old.entryId),transactionDate:"2026-03-05",reason:"wrong reconciliation",createdBy:"agent:test"}).ok).toBe(true);
       const planned=planBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId)});
       expect(planned.ok).toBe(true); if(!planned.ok) return;
-      const mismatch=applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:"0".repeat(64),reason:"reviewed",actor:"agent:test",principal:"agent:test",idempotencyKey:"synthetic-correction",confirm:true});
+      const principal={kind:"user" as const,subjectId:"synthetic-reviewer"};
+      const mismatch=applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:"0".repeat(64),reason:"reviewed",actor:"agent:test",principal,confirm:true});
       expect(mismatch).toEqual({ok:false,errors:["PLAN_HASH_MISMATCH"]});
-      const applied=applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:planned.plan.planHash,reason:"reviewed",actor:"agent:test",principal:"agent:test",idempotencyKey:"synthetic-correction",confirm:true});
+      const applied=applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:planned.plan.planHash,reason:"reviewed",actor:"agent:test",principal,confirm:true});
       expect(applied).toMatchObject({ok:true,idempotent:false});
       expect(listBankTransactions(db,{status:"matched"}).rows[0]).toMatchObject({id:bank1,journalEntryId:Number(replacement.entryId)});
-      expect(applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:planned.plan.planHash,reason:"reviewed",actor:"agent:test",principal:"agent:test",idempotencyKey:"synthetic-correction",confirm:true})).toMatchObject({ok:true,idempotent:true});
+      expect(applyBankReconciliationCorrection(db,{bankTransactionId:bank1,replacementJournalEntryId:Number(replacement.entryId),expectedReconciliationId:planned.plan.reconciliationId,planHash:planned.plan.planHash,reason:"reviewed",actor:"agent:test",principal,confirm:true})).toEqual({ok:false,errors:["ACTIVE_OLD_JOURNAL_MUST_BE_REVERSED"]});
       expect(verifyAuditChain(db,{companyRoot:root}).ok).toBe(true);
     } finally { db.close(); rmSync(root,{recursive:true,force:true}); }
   });

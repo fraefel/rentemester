@@ -3,6 +3,7 @@ import { insertAuditLog, resolveActor, type ResolveActorInput } from "./actor";
 import { resolveOpenExceptionsForBankTransaction } from "./exceptions";
 import { roundDkk } from "./money";
 import { createHash } from "node:crypto";
+import type { StablePrincipal } from "./idempotency";
 
 export const BANK_JOURNAL_RECONCILIATION_RULE = "DK-BOOKKEEPING-RECONCILIATION-001";
 
@@ -53,7 +54,7 @@ const validText = (value: unknown, max = 1000) => typeof value === "string" && v
 
 export type BankReconciliationCorrectionPlanInput = { bankTransactionId: number; replacementJournalEntryId: number };
 export type ApplyBankReconciliationCorrectionInput = BankReconciliationCorrectionPlanInput & {
-  expectedReconciliationId: string; planHash: string; reason: string; actor?: string; principal?: string; idempotencyKey?: string; confirm: boolean;
+  expectedReconciliationId: string; planHash: string; reason: string; actor?: string; principal?: StablePrincipal; confirm: boolean;
 };
 
 type CorrectionContext = {
@@ -97,16 +98,17 @@ export function planBankReconciliationCorrection(db: Database, input: BankReconc
 /** Atomically supersedes exactly one reviewed reconciliation with a replacement journal. */
 export function applyBankReconciliationCorrection(db: Database, input: ApplyBankReconciliationCorrectionInput) {
   if (!input.confirm) return { ok:false as const, errors:["CONFIRMATION_REQUIRED"] };
-  const actor = validText(input.actor,160), principal=validText(input.principal,160), reason=validText(input.reason,1000), key=input.idempotencyKey === undefined ? null : validText(input.idempotencyKey,200);
-  if (!actor || !principal) return { ok:false as const, errors:["ACTOR_AND_PRINCIPAL_REQUIRED"] };
+  const actor = validText(input.actor,160), reason=validText(input.reason,1000);
+  const principalKind = input.principal?.kind === "user" || input.principal?.kind === "service-account" ? input.principal.kind : null;
+  const principalSubjectId = validText(input.principal?.subjectId,160);
+  if (!actor || !principalKind || !principalSubjectId) return { ok:false as const, errors:["ACTOR_AND_PRINCIPAL_REQUIRED"] };
   if (!reason) return { ok:false as const, errors:["REASON_REQUIRED"] };
-  if (input.idempotencyKey !== undefined && !key) return { ok:false as const, errors:["INVALID_IDEMPOTENCY_KEY"] };
   return db.transaction(() => {
-    if (key) { const prior=db.query("SELECT id,plan_hash,principal FROM bank_reconciliation_correction_events WHERE idempotency_key=?").get(key) as any; if (prior) return prior.plan_hash===input.planHash && prior.principal===principal ? {ok:true as const,id:Number(prior.id),idempotent:true,planHash:input.planHash,errors:[] as string[]} : {ok:false as const,errors:["IDEMPOTENCY_CONFLICT"]}; }
     const planned=planBankReconciliationCorrection(db,input); if(!planned.ok)return planned;
     if(planned.plan.reconciliationId!==input.expectedReconciliationId)return {ok:false as const,errors:["CURRENT_RECONCILIATION_CONFLICT"]};
     if(planned.plan.planHash!==input.planHash)return {ok:false as const,errors:["PLAN_HASH_MISMATCH"]};
-    const inserted=db.query(`INSERT INTO bank_reconciliation_correction_events(bank_transaction_id,supersedes_reconciliation_id,superseded_journal_entry_id,replacement_journal_entry_id,bank_account_no,bank_amount_dkk,replacement_journal_hash,plan_hash,idempotency_key,reason,actor,principal,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`).get(planned.plan.bankTransactionId,planned.plan.reconciliationId,planned.plan.currentJournalEntryId,planned.plan.replacementJournalEntryId,planned.plan.bankAccountNo,planned.plan.bankAmountDkk,planned.plan.replacementJournalHash,input.planHash,key,reason,actor,principal,new Date().toISOString()) as any;
+    const [supersedesKind, supersedesId] = planned.plan.reconciliationId.split(":", 2);
+    const inserted=db.query(`INSERT INTO bank_reconciliation_correction_events(bank_transaction_id,supersedes_kind,supersedes_id,supersedes_reconciliation_id,superseded_journal_entry_id,replacement_journal_entry_id,bank_account_no,bank_amount_dkk,replacement_journal_hash,plan_hash,reason,actor,principal_kind,principal_subject_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`).get(planned.plan.bankTransactionId,supersedesKind,supersedesId,planned.plan.reconciliationId,planned.plan.currentJournalEntryId,planned.plan.replacementJournalEntryId,planned.plan.bankAccountNo,planned.plan.bankAmountDkk,planned.plan.replacementJournalHash,input.planHash,reason,actor,principalKind,principalSubjectId,new Date().toISOString()) as any;
     insertAuditLog(db,{eventType:"bank_reconciliation_corrected",entityType:"bank_transaction",entityId:String(input.bankTransactionId),message:`Superseded reconciliation ${planned.plan.reconciliationId} with journal ${planned.plan.replacementJournalEntryNo}`,createdBy:actor,createdByProgram:"bank-reconciliation-correction"});
     return {ok:true as const,id:Number(inserted.id),idempotent:false,planHash:input.planHash,reconciliationId:`correction:${inserted.id}`,errors:[] as string[]};
   }).immediate();

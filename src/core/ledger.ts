@@ -1207,6 +1207,22 @@ export function verifyAuditChain(db: Database, options: VerifyAuditChainOptions 
     }
   }
 
+  // v33 correction evidence is append-only but deliberately richer than an
+  // audit-log message: verify the complete same-bank chain and the exact
+  // replacement bytes so every consumer sees one deterministic current row.
+  const correctionEvents = db.query(`SELECT event.*, bt.amount,bt.amount_dkk,bt.currency,ba.ledger_account_no,je.entry_hash,je.status,je.reversal_of_entry_id,je.source_bank_transaction_id,EXISTS(SELECT 1 FROM journal_entries reversal WHERE reversal.reversal_of_entry_id=je.id) AS has_reversal,COALESCE(SUM(CASE WHEN a.account_no=event.bank_account_no THEN jl.debit_amount-jl.credit_amount ELSE 0 END),0) AS bank_movement,EXISTS(SELECT 1 FROM audit_log audit WHERE audit.event_type='bank_reconciliation_corrected' AND audit.entity_type='bank_transaction' AND audit.entity_id=CAST(event.bank_transaction_id AS TEXT) AND audit.actor LIKE event.actor || ' via %') AS has_audit FROM bank_reconciliation_correction_events event JOIN bank_transactions bt ON bt.id=event.bank_transaction_id JOIN bank_accounts ba ON ba.id=bt.bank_account_id JOIN journal_entries je ON je.id=event.replacement_journal_entry_id LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id LEFT JOIN accounts a ON a.id=jl.account_id GROUP BY event.id ORDER BY event.id`).all() as any[];
+  for (const event of correctionEvents) {
+    const label = `bank reconciliation correction ${event.id}`;
+    const amount = String(event.currency).trim().toUpperCase() === "DKK" ? Number(event.amount) : Number(event.amount_dkk);
+    if (event.ledger_account_no !== event.bank_account_no || compareDkk(amount, Number(event.bank_amount_dkk)) !== 0 || compareDkk(amount, Number(event.bank_movement)) !== 0) errors.push(`${label}: bank account or amount evidence is inconsistent`);
+    if (event.entry_hash !== event.replacement_journal_hash || event.status !== "posted" || event.reversal_of_entry_id != null || event.source_bank_transaction_id != null || Number(event.has_reversal) !== 0) errors.push(`${label}: replacement journal hash or lifecycle is invalid`);
+    if (!event.has_audit) errors.push(`${label}: missing bank_reconciliation_corrected audit event`);
+    const target = `${event.supersedes_kind}:${event.supersedes_id}`;
+    if (event.supersedes_reconciliation_id !== target) errors.push(`${label}: typed supersession target is inconsistent`);
+  }
+  const badCurrent = db.query(`SELECT bank_transaction_id,COUNT(*) AS count FROM bank_journal_reconciliations GROUP BY bank_transaction_id HAVING COUNT(*)<>1`).all() as Array<{bank_transaction_id:number;count:number}>;
+  for (const row of badCurrent) errors.push(`bank transaction ${row.bank_transaction_id}: has ${row.count} effective reconciliations; exactly one is required`);
+
   const orphanLines = db.query(
     `SELECT jl.id, jl.journal_entry_id
      FROM journal_lines jl

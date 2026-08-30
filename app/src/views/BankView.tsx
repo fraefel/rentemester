@@ -27,6 +27,7 @@ import {
   BankReconcileModal,
   type BankReconcileTransaction,
 } from "../components/BankReconcileModal";
+import { BankCorrectionModal } from "../components/BankCorrectionModal";
 
 // #451 — the URL keys we own; listed once so "Ryd filtre" can clear them all
 // without touching other params (e.g. `?year=`).
@@ -58,6 +59,7 @@ export function BankView() {
   // while no settle-modal is open.
   const [reconciling, setReconciling] =
     useState<BankReconcileTransaction | null>(null);
+  const [correcting, setCorrecting] = useState<{ id: number; text: string; journalEntryNo?: string | null } | null>(null);
 
   // --- #451 filter-bar params (client-side; reflected in URL) ---------------
   const q = params.get("q") ?? "";
@@ -207,6 +209,7 @@ export function BankView() {
           onClose={() => setReconciling(null)}
         />
       )}
+      {correcting && <BankCorrectionModal slug={slug} transaction={correcting} onApplied={state.reload} onClose={() => setCorrecting(null)} />}
 
       {b.archived ? (
         <ArchivedBankView
@@ -344,12 +347,7 @@ export function BankView() {
                       </td>
                       <td>
                         {tx.reconciliationStatus === "matched" ? (
-                          <span className="flag ok">
-                            Afstemt
-                            {tx.journalEntryNo
-                              ? ` · ${tx.journalEntryNo}`
-                              : ""}
-                          </span>
+                          <div className="row-actions"><span className="flag ok">Afstemt{tx.journalEntryNo ? ` · ${tx.journalEntryNo}` : ""}</span><button type="button" className="btn secondary" onClick={() => setCorrecting({ id: tx.id, text: tx.text, journalEntryNo: tx.journalEntryNo })}>Ret</button></div>
                         ) : (
                           <div className="row-actions">
                             <span className="flag warning">Uafstemt</span>

@@ -30,6 +30,7 @@ import { removePathWithRetry } from "../../core/fs-cleanup";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
 import { applyPagination, paginationFields, paginationDescriptionSuffix } from "../pagination";
 import { planBankReconciliationCorrection, applyBankReconciliationCorrection } from "../../core/bank-journal-reconciliation";
+import { currentMcpAuthenticatedPrincipal } from "../security";
 
 const statusSchema = z.enum(["all", "matched", "unmatched"]).optional();
 
@@ -44,8 +45,8 @@ export function registerBankTools(server: McpServer): void {
     title:"Apply reviewed bank reconciliation correction",
     description:"Atomically supersedes exactly the reviewed reconciliation with an eligible replacement journal. Requires confirm:true, actor attribution and a stable idempotency key; retrying the same key replays the durable result.",
     inputSchema:{company:z.string().min(1),bankTransactionId:z.number().int().positive(),replacementJournalEntryId:z.number().int().positive(),expectedReconciliationId:z.string().min(1),planHash:z.string().regex(/^[a-f0-9]{64}$/),reason:z.string().min(1).max(1000),idempotencyKey:z.string().min(1).max(200),confirm:confirmField},outputSchema:envelopeShape,
-    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
-  }, withCompanyDbConfirmed<any>(server,"bank_reconciliation_correction_apply",({db,actor,args})=>wrapCoreResult(applyBankReconciliationCorrection(db,{...args,actor:actor.createdBy,principal:actor.createdBy,confirm:true}))));
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false},
+  }, withCompanyDbConfirmed<any>(server,"bank_reconciliation_correction_apply",({db,actor,args})=>{const principal=currentMcpAuthenticatedPrincipal();return wrapCoreResult(applyBankReconciliationCorrection(db,{...args,actor:actor.createdBy,principal:principal?{kind:principal.kind,subjectId:principal.subjectId}:undefined,confirm:true}));},{keyIdempotent:"bank_reconciliation_correction_apply",requireIdempotencyKey:true,idempotencyPayload:(args)=>({bankTransactionId:args.bankTransactionId,replacementJournalEntryId:args.replacementJournalEntryId,expectedReconciliationId:args.expectedReconciliationId,planHash:args.planHash,reason:args.reason})}));
   server.registerTool(
     "bank_account_update",
     {

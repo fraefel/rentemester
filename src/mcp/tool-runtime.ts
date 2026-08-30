@@ -321,7 +321,7 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
   server: McpServer,
   toolName: string,
   handler: (ctx: { db: Database; actor: McpActor; args: TArgs }) => Envelope | Promise<Envelope>,
-  options: { keyIdempotent?: keyof typeof RETRY_CLASS_BY_OPERATION; idempotencyPayload?: (args: TArgs) => Record<string, unknown> } = {},
+  options: { keyIdempotent?: keyof typeof RETRY_CLASS_BY_OPERATION; requireIdempotencyKey?: boolean; idempotencyPayload?: (args: TArgs) => Record<string, unknown> } = {},
 ): (args: TArgs) => Promise<ReturnType<typeof envelopeToCallResult>> {
   return async (args) => {
     if (args?.confirm !== true) {
@@ -342,7 +342,10 @@ export function withCompanyDbConfirmed<TArgs extends { company: string; confirm?
       if (!options.keyIdempotent) return handler(ctx);
       try {
         const key = validateIdempotencyKey((ctx.args as TArgs & { idempotencyKey?: unknown }).idempotencyKey);
-        if (!key) return handler(ctx);
+        if (!key) {
+          if (options.requireIdempotencyKey) return errorEnvelope("idempotencyKey is required", { code: "IDEMPOTENCY_KEY_REQUIRED" });
+          return handler(ctx);
+        }
         const principal = currentMcpAuthenticatedPrincipal();
         const execution = executeLocalIdempotentMutation(ctx.db, {
           key, operation: options.keyIdempotent, workspaceScope: resolveConfiguredWorkspaceRoot() ?? ctx.args.company,

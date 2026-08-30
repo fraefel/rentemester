@@ -14,6 +14,14 @@ import { ledgerStatusDa } from "../core/messages";
 import type { Database } from "bun:sqlite";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 import { linkBankTransactionToJournal, planBankReconciliationCorrection, applyBankReconciliationCorrection, type BankJournalMatchMethod } from "../core/bank-journal-reconciliation";
+import { executeLocalIdempotentMutation, IdempotencyError, validateIdempotencyKey, type StablePrincipal } from "../core/idempotency";
+import { inspectOpenLedger, openLedgerReadOnly } from "../core/ledger-inspection";
+
+function correctionPrincipal(ctx: CommandContext): StablePrincipal | undefined {
+  const raw = ctx.trimToNull(ctx.arg("--principal"));
+  const match = raw?.match(/^(user|service-account):(.+)$/);
+  return match?.[2].trim() ? { kind: match[1] as StablePrincipal["kind"], subjectId: match[2].trim() } : undefined;
+}
 
 // ===== BANK CLUSTER (#187) =====
 // Resolves an optional `--account <id|slug>` filter to a numeric bank-account
@@ -181,7 +189,8 @@ export function register(dispatch: CommandDispatch): void {
   });
 
   dispatch.on("bank", "correction-plan", (ctx) => {
-    const db = openCommandDb(ctx); migrate(db);
+    const db = openLedgerReadOnly(companyPaths(ctx.companyRoot()).db);
+    if (inspectOpenLedger(db).status !== "current") { db.close(); ctx.fatal("bank correction-plan requires a current ledger schema; run a write migration first"); }
     const result = planBankReconciliationCorrection(db, { bankTransactionId: requiredNumberOrFatal(ctx, "--bank-transaction-id"), replacementJournalEntryId: requiredNumberOrFatal(ctx, "--replacement-journal-entry-id") });
     ctx.emitResult(result as Record<string, unknown>); db.close();
   });
@@ -189,7 +198,14 @@ export function register(dispatch: CommandDispatch): void {
   dispatch.on("bank", "correction-apply", (ctx) => {
     if (ctx.arg("--confirm") !== "yes") ctx.fatal("bank correction-apply requires the exact confirmation --confirm yes");
     const db = openCommandDb(ctx); migrate(db);
-    const result = applyBankReconciliationCorrection(db, { bankTransactionId: requiredNumberOrFatal(ctx, "--bank-transaction-id"), replacementJournalEntryId: requiredNumberOrFatal(ctx, "--replacement-journal-entry-id"), expectedReconciliationId: ctx.trimToNull(ctx.arg("--expected-reconciliation-id")) ?? "", planHash: ctx.trimToNull(ctx.arg("--plan-hash")) ?? "", reason: ctx.trimToNull(ctx.arg("--reason")) ?? "", idempotencyKey: ctx.trimToNull(ctx.arg("--idempotency-key")) ?? undefined, actor: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined, principal: ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined, confirm: true });
+    const principal = correctionPrincipal(ctx);
+    const key = ctx.trimToNull(ctx.arg("--idempotency-key"));
+    if (!key) ctx.fatal("bank correction-apply requires --idempotency-key <key>");
+    if (!principal) ctx.fatal("bank correction-apply requires --principal user:<id>|service-account:<id>");
+    const payload = { bankTransactionId: requiredNumberOrFatal(ctx, "--bank-transaction-id"), replacementJournalEntryId: requiredNumberOrFatal(ctx, "--replacement-journal-entry-id"), expectedReconciliationId: ctx.trimToNull(ctx.arg("--expected-reconciliation-id")) ?? "", planHash: ctx.trimToNull(ctx.arg("--plan-hash")) ?? "", reason: ctx.trimToNull(ctx.arg("--reason")) ?? "" };
+    let result: Record<string, unknown>;
+    try { const run = executeLocalIdempotentMutation(db, { key: validateIdempotencyKey(key), operation:"bank_reconciliation_correction_apply", principal, payload, actor:{createdBy:ctx.cliActor ?? ctx.inferredMutationActor() ?? "",createdByProgram:"rentemester-cli"}, execute:()=>applyBankReconciliationCorrection(db,{...payload,actor:ctx.cliActor ?? ctx.inferredMutationActor() ?? undefined,principal,confirm:true}) }); result = run.receipt ? {...run.result,idempotency:run.receipt} : run.result; }
+    catch (error) { result={ok:false,errors:[error instanceof IdempotencyError ? error.code : String(error)]}; }
     ctx.emitResult(result as Record<string, unknown>); db.close();
   });
 

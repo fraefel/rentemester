@@ -74,6 +74,8 @@ export type WithCompanyMutationOptions = {
    */
   maxBodyBytes?: number;
   keyIdempotent?: keyof typeof RETRY_CLASS_BY_OPERATION;
+  /** Require a receipt key for this operation instead of allowing unkeyed writes. */
+  requireIdempotencyKey?: boolean;
   /** Canonical transport-neutral DTO used for durable retry identity. */
   idempotencyPayload?: (body: Record<string, unknown>) => Record<string, unknown>;
 };
@@ -360,7 +362,9 @@ export async function withCompanyMutation<T extends CoreResult>(
             const stable: StablePrincipal | undefined = principal.via === "service-principal"
               ? (principal.serviceAccountId ? { kind: "service-account", subjectId: principal.serviceAccountId } : undefined)
               : (principal.userId ? { kind: "user", subjectId: principal.userId } : undefined);
-            const run = executeLocalIdempotentMutation(db, { key: validateIdempotencyKey(request.headers.get("idempotency-key") ?? body.idempotencyKey), operation: options.keyIdempotent, principal: stable, payload: options.idempotencyPayload ? options.idempotencyPayload(body) : withoutIdempotencyTransportFields(body), actor, execute: () => {
+            const key = validateIdempotencyKey(request.headers.get("idempotency-key") ?? body.idempotencyKey);
+            if (!key && options.requireIdempotencyKey) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "idempotency key is required");
+            const run = executeLocalIdempotentMutation(db, { key, operation: options.keyIdempotent, principal: stable, payload: options.idempotencyPayload ? options.idempotencyPayload(body) : withoutIdempotencyTransportFields(body), actor, execute: () => {
               const value = handler({ db, actor, companyRoot, principal }, body);
               if (value instanceof Promise) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "key-idempotent HTTP operation must execute synchronously");
               return value;

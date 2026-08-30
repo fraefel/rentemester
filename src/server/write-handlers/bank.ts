@@ -17,14 +17,15 @@ import {
 } from "./_shared";
 import { ApiError } from "../errors";
 
-function correctionPrincipal(principal:{via:string;userId?:string;serviceAccountId?:string}) { if(principal.via==="service-principal"&&principal.serviceAccountId)return `service-account:${principal.serviceAccountId}`; return principal.userId ? `user:${principal.userId}` : "local-trusted:server"; }
+function correctionPrincipal(principal:{via:string;userId?:string;serviceAccountId?:string}) { if(principal.via==="service-principal"&&principal.serviceAccountId)return {kind:"service-account" as const,subjectId:principal.serviceAccountId}; return principal.userId ? {kind:"user" as const,subjectId:principal.userId} : undefined; }
 
 export async function handleBankReconciliationCorrectionApply(config:ServerConfig,request:Request,slug:string):Promise<Response>{
   const result=await withCompanyMutation(request,config,slug,({db,actor,principal},body)=>{
+    if (!correctionPrincipal(principal)) throw ApiError.unauthorized("bank reconciliation correction requires an authenticated user or service principal");
     const int=(key:string)=>{const value=body[key];if(!Number.isInteger(value)||Number(value)<=0)throw ApiError.badRequest(`${key} must be a positive integer`);return Number(value);};
     const text=(key:string)=>typeof body[key]==="string"&&body[key].trim()?body[key].trim():"";
-    return applyBankReconciliationCorrection(db,{bankTransactionId:int("bankTransactionId"),replacementJournalEntryId:int("replacementJournalEntryId"),expectedReconciliationId:text("expectedReconciliationId"),planHash:text("planHash"),reason:text("reason"),idempotencyKey:text("idempotencyKey"),actor:actor.createdBy,principal:correctionPrincipal(principal),confirm:true});
-  },{requireConfirm:true,keyIdempotent:"bank_reconciliation_correction_apply"}); return okResponse({correction:result});
+    return applyBankReconciliationCorrection(db,{bankTransactionId:int("bankTransactionId"),replacementJournalEntryId:int("replacementJournalEntryId"),expectedReconciliationId:text("expectedReconciliationId"),planHash:text("planHash"),reason:text("reason"),actor:actor.createdBy,principal:correctionPrincipal(principal),confirm:true});
+  },{requireConfirm:true,keyIdempotent:"bank_reconciliation_correction_apply",requireIdempotencyKey:true,idempotencyPayload:(body)=>({bankTransactionId:body.bankTransactionId,replacementJournalEntryId:body.replacementJournalEntryId,expectedReconciliationId:body.expectedReconciliationId,planHash:body.planHash,reason:body.reason})}); return okResponse({correction:result});
 }
 
 /**

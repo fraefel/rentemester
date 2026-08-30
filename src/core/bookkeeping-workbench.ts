@@ -27,7 +27,7 @@ const relationExists=(db:Database,name:string)=>Boolean(db.query("SELECT 1 FROM 
 export function buildBookkeepingWorkbench(db:Database,input:WorkbenchFilter){
   if(!iso(input.from)||!iso(input.to)||input.from>input.to)throw new Error("ordered ISO from and to dates are required");
   const limit=Math.max(1,Math.min(100,Math.trunc(input.limit??50))); const cursor=Math.max(0,Math.trunc(input.cursor??0));
-  const required=["companies","opening_balances","bank_transactions","bank_accounts","bank_journal_reconciliations","bookkeeping_batch_runs","bookkeeping_batch_revisions","bookkeeping_batch_item_attempts","current_document_party_links","current_document_party_resolution_events","current_accounting_dimension_members"];
+  const required=["companies","opening_balances","bank_transactions","bank_accounts","bank_journal_reconciliations","bookkeeping_batch_runs","bookkeeping_batch_revisions","bookkeeping_batch_item_attempts","bookkeeping_batch_applied_links","documents","current_document_party_links","current_document_party_resolution_events","current_accounting_dimension_members"];
   const missingRelations=required.filter(name=>!relationExists(db,name));
   if(missingRelations.length){
     const completeness={state:"unavailable" as const,reasonCode:"schema_not_current",nextAction:"Run the required schema migration before using bookkeeping workbench."};
@@ -67,7 +67,7 @@ export function buildBookkeepingWorkbench(db:Database,input:WorkbenchFilter){
   }
   const populationRows=rows;
   const filtered=populationRows.filter(row=>{
-    const text=`${row.text} ${row.document?.party?.name??""} ${row.proposed.account??""}`.toLowerCase();
+    const text=`${row.text} ${row.amount} ${row.currency} ${row.document?.party?.name??""} ${row.proposed.account??""}`.toLowerCase();
     return (!input.status||row.status===input.status)&&(!input.bankAccountId||row.bankAccount.id===input.bankAccountId)&&(!needle||text.includes(needle))&&(!input.partyId||row.document?.party?.id===input.partyId)&&(!input.documentQuality||((row.document?.quality??"missing")===input.documentQuality))&&(!input.account||row.proposed.account===input.account)&&(!input.vatTreatment||row.proposed.vatTreatment===input.vatTreatment)&&(!input.dimension||row.proposed.dimensions.some(dimension=>`${dimension.dimensionId}:${dimension.memberId}`===input.dimension));
   });
   const page=filtered.slice(cursor,cursor+limit);
@@ -75,6 +75,7 @@ export function buildBookkeepingWorkbench(db:Database,input:WorkbenchFilter){
   try { const packet=computePeriodCloseReadiness(db,{periodStart:input.from,periodEnd:input.to,cutoff:input.to});periodClose={status:"available",blockers:packet.blockers,hash:packet.hash}; } catch { periodClose={status:"unavailable",blockers:0}; }
   const counts=Object.fromEntries(workbenchStatuses.map(status=>[status,populationRows.filter(row=>row.status===status).length]));
   const ready=Number(counts.ready??0), blockers=populationRows.length-ready;
+  const selectedReady=filtered.filter(row=>row.status==="ready").length;
   const completeness=!revisionStateReadable?{state:"incomplete" as const,reasonCode:"reviewed_plan_unreadable",nextAction:"Inspect the latest reviewed batch revision before relying on this workbench."}:periodClose?.status==="unavailable"?{state:"incomplete" as const,reasonCode:"period_close_unavailable",nextAction:"Period-close readiness is unavailable; repair its named control before relying on a complete workbench."}:base.length===0?{state:"zero" as const,reasonCode:"no_unresolved_bank_work",nextAction:"No unresolved bank work exists in this scope."}:{state:"available" as const,reasonCode:"complete",nextAction:"Review the bounded next action for each row."};
-  return {scope:{from:input.from,to:input.to,cutOverDate:cut},state:completeness.state,completeness,rows:page,page:{cursor,limit,total:filtered.length,nextCursor:cursor+limit<filtered.length?cursor+limit:null},counts,population:{total:populationRows.length,ready,blockers},sourceHash:digest({scope:{from:input.from,to:input.to,cut},filter:{status:input.status??null,bankAccountId:input.bankAccountId??null,partyId:input.partyId??null,documentQuality:input.documentQuality??null,account:input.account??null,vatTreatment:input.vatTreatment??null,dimension:input.dimension??null,search:needle??null},rows:filtered.map(r=>r.sourceHash)}),periodClose,plan:{planHash:plan.planHash,candidateSetHash:plan.candidateSetHash,readyCount:plan.items.filter(item=>item.partition==="ready").length}};
+  return {scope:{from:input.from,to:input.to,cutOverDate:cut},state:completeness.state,completeness,rows:page,page:{cursor,limit,total:filtered.length,nextCursor:cursor+limit<filtered.length?cursor+limit:null},counts,population:{total:populationRows.length,ready,blockers},selection:{total:filtered.length,ready:selectedReady,blockers:filtered.length-selectedReady},sourceHash:digest({scope:{from:input.from,to:input.to,cut},filter:{status:input.status??null,bankAccountId:input.bankAccountId??null,partyId:input.partyId??null,documentQuality:input.documentQuality??null,account:input.account??null,vatTreatment:input.vatTreatment??null,dimension:input.dimension??null,search:needle??null},rows:filtered.map(r=>r.sourceHash)}),periodClose,plan:{planHash:plan.planHash,candidateSetHash:plan.candidateSetHash,readyCount:plan.items.filter(item=>item.partition==="ready").length}};
 }

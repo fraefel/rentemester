@@ -445,6 +445,7 @@ const HIGH_RISK_WRITE_PERMISSIONS = new Set<RoutePermission>([
   "company.draft.write",
   "company.ledger.post",
   "company.review",
+  "company.ownership.manage",
   "company.export", // Includes GDPR/accountant exports, never read-only CSV downloads.
   "company.external-send",
 ]);

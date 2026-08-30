@@ -121,8 +121,9 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
     // observe, review or apply that relation.  Actors remain audit-only.
     if (name.startsWith("ownership_")) {
       const endpointSlugs = ownershipEndpointSlugs(db, args);
+      const endpointPermission = name === "ownership_snapshot_propose" ? permission : "company.admin";
       if (!endpointSlugs || ![...endpointSlugs].every((slug) =>
-        authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission, companySlug: slug }).allowed,
+        authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission: endpointPermission, companySlug: slug }).allowed,
       )) return null;
     }
     return { root: company.root, principal: authenticated };

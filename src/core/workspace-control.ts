@@ -62,6 +62,8 @@ export const WORKSPACE_CONTROL_CORPORATE_RECORD_SCOPE_INTEGRITY_MIGRATION_ID = 2
 export const WORKSPACE_CONTROL_CORPORATE_RECORD_SCOPE_INTEGRITY_MIGRATION_NAME = "rentemester-corporate-record-scope-integrity-v23";
 export const WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_ID = 24;
 export const WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_NAME = "rentemester-ownership-fact-lifecycle-v24";
+export const WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_ID = 25;
+export const WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_NAME = "rentemester-workspace-document-inbox-v25";
 
 const baselineArtifact = readFileSync(
   join(import.meta.dir, "workspace-migrations", "0001-workspace-control-baseline.json"),
@@ -97,6 +99,7 @@ const workspaceCompanyKnowledgeArtifact = readFileSync(join(import.meta.dir, "wo
 const workspaceOwnershipGraphArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0022-ownership-graph-v22.json"));
 const workspaceCorporateRecordScopeIntegrityArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0023-corporate-record-scope-integrity-v23.json"));
 const workspaceOwnershipFactLifecycleArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0024-ownership-fact-lifecycle-v24.json"));
+const workspaceDocumentInboxArtifact = readFileSync(join(import.meta.dir, "workspace-migrations", "0025-workspace-document-inbox-v25.json"));
 
 export const WORKSPACE_CONTROL_BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
   .update(baselineArtifact)
@@ -132,6 +135,7 @@ export const WORKSPACE_CONTROL_COMPANY_KNOWLEDGE_MIGRATION_CHECKSUM = createHash
 export const WORKSPACE_CONTROL_OWNERSHIP_GRAPH_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceOwnershipGraphArtifact).digest("hex");
 export const WORKSPACE_CONTROL_CORPORATE_RECORD_SCOPE_INTEGRITY_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceCorporateRecordScopeIntegrityArtifact).digest("hex");
 export const WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceOwnershipFactLifecycleArtifact).digest("hex");
+export const WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_CHECKSUM = createHash("sha256").update(workspaceDocumentInboxArtifact).digest("hex");
 
 export type WorkspaceControlPaths = {
   root: string;
@@ -207,6 +211,7 @@ const migrations: readonly WorkspaceMigration[] = [
   { id: WORKSPACE_CONTROL_OWNERSHIP_GRAPH_MIGRATION_ID, name: WORKSPACE_CONTROL_OWNERSHIP_GRAPH_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_OWNERSHIP_GRAPH_MIGRATION_CHECKSUM, artifact: workspaceOwnershipGraphArtifact },
   { id: WORKSPACE_CONTROL_CORPORATE_RECORD_SCOPE_INTEGRITY_MIGRATION_ID, name: WORKSPACE_CONTROL_CORPORATE_RECORD_SCOPE_INTEGRITY_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_CORPORATE_RECORD_SCOPE_INTEGRITY_MIGRATION_CHECKSUM, artifact: workspaceCorporateRecordScopeIntegrityArtifact },
   { id: WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_ID, name: WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_OWNERSHIP_FACT_LIFECYCLE_MIGRATION_CHECKSUM, artifact: workspaceOwnershipFactLifecycleArtifact },
+  { id: WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_ID, name: WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_NAME, checksum: WORKSPACE_CONTROL_DOCUMENT_INBOX_MIGRATION_CHECKSUM, artifact: workspaceDocumentInboxArtifact },
 ];
 
 /** Latest immutable control-schema migration this runtime can safely serve. */

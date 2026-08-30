@@ -74,6 +74,7 @@ type StepInput = Omit<AgentWorkflowStep, "dependsOn" | "prerequisites" | "inputI
 
 const mcp = (name: string): OperationReference => ({ surface: "mcp", name });
 const cli = (key: string): OperationReference => ({ surface: "cli", key });
+const http = (method: string, pattern: string): OperationReference => ({ surface: "http", method, pattern });
 
 function step(input: StepInput): AgentWorkflowStep {
   return { dependsOn: [], prerequisites: [], inputIdentities: [], outputIdentities: [], canonicalRecords: [], ...input };
@@ -116,6 +117,13 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("list-documents", mcp("documents_list"), "Read back canonical document state.", { dependsOn: ["ingest-document|ingest-mail|poll-imap"], outputIdentities: ["documentId"] }),
     read("review-extraction", mcp("documents_invoice_extraction"), "Review cited invoice extraction where available.", { dependsOn: ["list-documents"], inputIdentities: ["documentId"] }),
   ], unsupportedBoundaries: ["Extraction is evidence for review, not approval or automatic posting.", "The catalogue contains no mailbox credentials or company routing."] }),
+  workflow({ id: "workspace-document-inbox", capabilityId: "workspace-document-inbox", title: "Workspace document inbox routing", intendedOutcome: "Store one immutable source outside every ledger, resolve only authorized deterministic candidates, then hand it off once to the selected company pipeline.", steps: [
+    read("list", http("GET", "/api/companies/:slug/workspace-inbox"), "List only sources visible through the chosen company access anchor."),
+    write("ingest", http("POST", "/api/companies/:slug/workspace-inbox"), "Store immutable source bytes and filtered routing evidence without opening a company ledger; on a lost response, inspect before retrying.", { inputIdentities:["idempotencyKey"], canonicalRecords:["workspace inbox source", "workspace inbox routing events"] }),
+    read("inspect", http("GET", "/api/companies/:slug/workspace-inbox/:sourceId"), "Inspect the source, redacted candidates, exception and current assignment.", { dependsOn:["ingest"] }),
+    write("assign", http("POST", "/api/companies/:slug/workspace-inbox/:sourceId/assign"), "Explicitly approve one authorized legal entity; ambiguous content is never silently routed.", { dependsOn:["inspect"], boundary:"approval", canonicalRecords:["workspace inbox assignment"] }),
+    write("complete", http("POST", "/api/companies/:slug/workspace-inbox/:sourceId/complete"), "Hand off exactly once to canonical per-company document ingest and read back the durable assignment.", { dependsOn:["assign"], boundary:"irreversible", uncertainOutcomeReadBack:http("GET", "/api/companies/:slug/workspace-inbox/:sourceId"), canonicalRecords:["company document", "workspace inbox handoff event"] }),
+  ], unsupportedBoundaries:["Workspace inbox never posts, calculates VAT or maintains a workspace ledger.", "Hidden candidate companies and their metadata are filtered before output, ordering and exception rendering.", "A linked or booked document is corrected through its company controls, never silently reassigned."] }),
   workflow({ id: "bank-reconciliation-batch", capabilityId: "bank-bookkeeping", title: "Bank import, matching and bookkeeping batch", intendedOutcome: "Import bank activity, inspect matches and apply only a hash-bound reviewed bookkeeping batch.", steps: [
     write("import-bank", mcp("bank_import"), "Import bank rows with duplicate protection.", { expectedIdempotent: true, retryClass: "natural-idempotent", outputIdentities: ["importBatchId", "bankTransactionIds"], canonicalRecords: ["bank_transactions", "bank import evidence"] }),
     read("suggest-matches", mcp("bank_suggest_matches"), "Generate read-only matching suggestions.", { dependsOn: ["import-bank"] }),
@@ -263,6 +271,7 @@ const capabilityTuples: CapabilityTuple[] = [
   ["company-workspace", "Company and workspace setup", "Set up and discover companies without leaking inaccessible state.", "company", ["create company", "switch company", "discover workspace"], ["setup", "workspace", "company profile"], "workspace", ["company-workspace-setup"]],
   ["company-knowledge", "Company operating knowledge", "Retrieve and review source-backed, dated company operating facts.", "company", ["company context", "operating profile", "company knowledge"], ["knowledge", "products", "revenue model", "market"], "company", ["company-knowledge-lifecycle"]],
   ["document-intake", "Document and mail intake", "Store source documents and mail attachments for review.", "documents", ["ingest document", "mail intake", "review invoice extraction"], ["bilag", "imap", "attachment"], "company", ["document-mail-intake"]],
+  ["workspace-document-inbox", "Workspace document inbox", "Route immutable incoming evidence to one authorized legal entity without a workspace ledger.", "documents", ["route incoming document", "assign workspace inbox", "review ambiguous company"], ["workspace inbox", "routing", "recipient alias", "buyer VAT"], "workspace", ["workspace-document-inbox"]],
   ["bank-bookkeeping", "Bank reconciliation and bookkeeping batch", "Import activity, review matches and apply a hash-bound batch.", "bank", ["reconcile bank", "match bank transactions", "bookkeeping batch"], ["bank import", "dry run", "plan hash"], "company", ["bank-reconciliation-batch"]],
   ["supplier-purchases", "Supplier expenses and payables", "Book supplier invoices directly or through payable handling.", "purchases", ["book supplier invoice", "pay supplier invoice", "book expense"], ["vendor", "payable", "purchase VAT"], "company", ["supplier-expense-booking", "supplier-payable-handling"]],
   ["customer-invoicing", "Customer invoice lifecycle", "Create customers and handle issue, delivery, payment, reminder and correction.", "sales", ["issue customer invoice", "send invoice", "record payment", "send reminder", "credit note"], ["customer", "invoice", "settlement"], "company", ["customer-invoice-lifecycle"]],
@@ -401,10 +410,11 @@ export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   cli: { count: 229, hash: "841ae59ba233fd7be98a309d8e9a570cc6359b43b0d422fa88ab40306f7e4d84" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 167, hash: "5dbe0e23925a8d40a638e5e8d46b769a6ea00ce659b99e582368dfb5a8915064" },
+  http: { count: 172, hash: "961e9e72c506f1286426a72f06b72b201033325e357b1de1d41cc70855b9f131" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [
+  { capabilityId: "workspace-document-inbox", pattern: /workspace-inbox/ },
   { capabilityId: "corporate-records", pattern: /(?:corporate[_-]record|corporate-record)/ },
   { capabilityId: "workspace-parties", pattern: /(?:workspace[_-]party|^cli:party )/ },
   { capabilityId: "digisense-nemhandel", pattern: /(?:efaktura|digisense|peppol|send-public)/ },

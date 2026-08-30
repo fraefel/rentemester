@@ -92,6 +92,7 @@ import {
 import { handleCompanyPostingRuleExplain, handleCompanyPostingRules } from "./router/posting-rules";
 import { handleServicePrincipalCreate, handleServicePrincipalList, handleServicePrincipalRecover, handleServicePrincipalRevoke, handleServicePrincipalRotate } from "./router/service-principals";
 import { handleCompanyKnowledge, handleCompanyKnowledgeAction, handleOwnershipAction, handleOwnershipHistory, handleOwnershipQuery, handleRegistryParties, handleRegistryParty, handleRegistryPartyCreate, handleRegistryPartyMerge, handleRegistryPartyRole, handleRegistryRecord, handleRegistryRecordAction, handleRegistryRecordDownload, handleRegistryRecordIngest, handleRegistryRecords } from "./router/workspace-registry";
+import { handleWorkspaceInboxApprove, handleWorkspaceInboxComplete, handleWorkspaceInboxIngest, handleWorkspaceInboxInspect, handleWorkspaceInboxList } from "./router/workspace-document-inbox";
 import {
   handleCompanyBalance,
   handleCompanyIncomeStatement,
@@ -301,6 +302,11 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.ownership.manage", method: "POST", pattern: "/api/companies/:slug/ownership/propose", summary: "Foreslår kilde-hashet ownership snapshot (#576)." },
   { scope: "company", effect: "write", permission: "company.ownership.manage", method: "POST", pattern: "/api/companies/:slug/ownership/review", summary: "Reviewer ownership snapshot (#576)." },
   { scope: "company", effect: "write", permission: "company.ownership.manage", method: "POST", pattern: "/api/companies/:slug/ownership/apply", summary: "Anvender eksakt approved ownership diff (#576)." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/workspace-inbox", summary: "Workspace-indbakke uden ledger-effekt (#577)." },
+  { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/workspace-inbox", summary: "Indlæser immutable workspace-kilde (#577)." },
+  { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/workspace-inbox/:sourceId", summary: "Inspectorerer en synlig workspace-kilde (#577)." },
+  { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/workspace-inbox/:sourceId/assign", summary: "Godkender en workspace-ruting (#577)." },
+  { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/workspace-inbox/:sourceId/complete", summary: "Overdrager én godkendt kilde til canonical company-ingest (#577)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dashboard", summary: "Virksomhedens dashboard." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/fiscal-years", summary: "Kendte regnskabsår." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/overview", summary: "Nøgletalsoverblik." },
@@ -730,6 +736,15 @@ export async function handleRequest(
       if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
       return await handleWorkspaceInvitationClaim(config, request);
     }
+
+    const workspaceInboxComplete = /^\/api\/companies\/([^/]+)\/workspace-inbox\/([^/]+)\/complete$/.exec(path);
+    if (workspaceInboxComplete) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleWorkspaceInboxComplete(config, request, decodeURIComponent(workspaceInboxComplete[1]!), decodeURIComponent(workspaceInboxComplete[2]!)); }
+    const workspaceInboxAssign = /^\/api\/companies\/([^/]+)\/workspace-inbox\/([^/]+)\/assign$/.exec(path);
+    if (workspaceInboxAssign) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleWorkspaceInboxApprove(config, request, decodeURIComponent(workspaceInboxAssign[1]!), decodeURIComponent(workspaceInboxAssign[2]!)); }
+    const workspaceInboxOne = /^\/api\/companies\/([^/]+)\/workspace-inbox\/([^/]+)$/.exec(path);
+    if (workspaceInboxOne) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleWorkspaceInboxInspect(config, decodeURIComponent(workspaceInboxOne[1]!), decodeURIComponent(workspaceInboxOne[2]!)); }
+    const workspaceInbox = /^\/api\/companies\/([^/]+)\/workspace-inbox$/.exec(path);
+    if (workspaceInbox) { const slug = decodeURIComponent(workspaceInbox[1]!); if (method === "GET") return handleWorkspaceInboxList(config, slug, url); if (method === "POST") return await handleWorkspaceInboxIngest(config, request, slug); throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute"); }
 
     const partyCollection = /^\/api\/companies\/([^/]+)\/workspace-parties$/.exec(path);
     if (partyCollection) {

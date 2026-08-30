@@ -14,7 +14,7 @@ export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = O
   ..."accounts_list accounts_roles_status accrual_register_report asset_register_report audit_log_list audit_verify bank_account_list bank_list bank_suggest_matches bookkeeping_batch_plan bookkeeping_batch_status budget_forecast budget_list budget_vs_actual company_profile_get customer_list efaktura_onboarding_status efaktura_status exceptions_list import_archive_list invoice_compensation_calc invoice_find invoice_interest_calc invoice_interest_correction_calc invoice_list invoice_overdue invoice_status journal_dry_run journal_list mileage_list mileage_report payable_list period_close_readiness period_close_status period_list posting_rule_explain reconcile_bank recurring_invoice_list retention_status system_healthcheck tax_return_prepare vat_oss_report vat_report vendor_list".split(" ").map((n) => [n, "company.read"]),
   ..."workspace_party_search workspace_party_inspect corporate_record_list corporate_record_inspect corporate_record_download".split(" ").map((n) => [n, "company.read"]),
   ..."company_knowledge_context".split(" ").map((n) => [n, "company.knowledge.read"]),
-  ..."ownership_graph_query".split(" ").map((n) => [n, "company.ownership.read"]),
+  ..."ownership_graph_query ownership_snapshot_history".split(" ").map((n) => [n, "company.ownership.read"]),
   ..."documents_invoice_extraction documents_list documents_parsed_text documents_parse_status".split(" ").map((n) => [n, "company.documents.read"]),
   ..."documents_ingest documents_parse documents_parse_pending mail_intake_ingest imap_intake_poll".split(" ").map((n) => [n, "company.documents.upload"]),
   ..."accounts_add accounts_role_confirm bank_account_update company_sync_cvr customer_create documents_enrich documents_extract_invoice documents_set_company_context posting_rule_propose recurring_invoice_create vendor_create".split(" ").map((n) => [n, "company.master-data"]),
@@ -121,7 +121,7 @@ export async function authorizeMcpTool(context: McpSecurityContext, name: string
     // observe, review or apply that relation.  Actors remain audit-only.
     if (name.startsWith("ownership_")) {
       const endpointSlugs = ownershipEndpointSlugs(db, args);
-      const endpointPermission = name === "ownership_snapshot_propose" ? permission : "company.admin";
+      const endpointPermission = name === "ownership_snapshot_propose" ? permission : name === "ownership_snapshot_history" ? permission : "company.admin";
       if (!endpointSlugs || ![...endpointSlugs].every((slug) =>
         authorizeWorkspaceRoute(db, context.workspaceRoot, { userId: principal.serviceAccountId, permission: endpointPermission, companySlug: slug }).allowed,
       )) return null;

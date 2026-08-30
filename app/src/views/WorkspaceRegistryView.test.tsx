@@ -54,4 +54,41 @@ describe("WorkspaceRegistryView", () => {
     expect(screen.getByText("Forslag, review og apply")).toBeInTheDocument();
     expect(screen.queryByText("hidden endpoints")).not.toBeInTheDocument();
   });
+
+  test("requires an explicit confirmation before a canonical party mutation", async () => {
+    mockFetch({
+      "GET /api/companies/synthetic-company/workspace-parties": parties,
+      "GET /api/companies/synthetic-company/corporate-records": records,
+      "GET /api/companies/synthetic-company/knowledge": { context:{assertions:[],conflicts:[]} },
+      "GET /api/companies/synthetic-company/ownership": { asOf:"2026-08-30",facts:[],partial:false,consolidation:{eligible:false,reason:"not supported"} },
+      "GET /api/companies/synthetic-company/ownership/history": { history:[] },
+      "POST /api/companies/synthetic-company/workspace-parties": {},
+    });
+    renderAt(<WorkspaceRegistryView />, { route: "/virksomheder/synthetic-company/workspace-register", path: "/virksomheder/:slug/workspace-register" });
+    await screen.findByText("Visible supplier");
+    await userEvent.click(screen.getByText("Administrér parter"));
+    const create=screen.getByRole("button",{name:"Opret part"});
+    expect(create).toBeDisabled();
+    await userEvent.click(screen.getAllByRole("checkbox")[0]!);
+    expect(create).not.toBeDisabled();
+    await userEvent.click(create);
+    expect(await screen.findByText("Handlingen er registreret i revisionssporet.")).toBeInTheDocument();
+  });
+
+  test("keeps the control visible but reports a server-side role denial", async () => {
+    mockFetch({
+      "GET /api/companies/synthetic-company/workspace-parties": parties,
+      "GET /api/companies/synthetic-company/corporate-records": records,
+      "GET /api/companies/synthetic-company/knowledge": { context:{assertions:[],conflicts:[]} },
+      "GET /api/companies/synthetic-company/ownership": { asOf:"2026-08-30",facts:[],partial:false,consolidation:{eligible:false,reason:"not supported"} },
+      "GET /api/companies/synthetic-company/ownership/history": { history:[] },
+      "POST /api/companies/synthetic-company/workspace-parties": { __error:{code:"forbidden",message:"Din rolle har ikke adgang"} },
+    });
+    renderAt(<WorkspaceRegistryView />, { route: "/virksomheder/synthetic-company/workspace-register", path: "/virksomheder/:slug/workspace-register" });
+    await screen.findByText("Visible supplier");
+    await userEvent.click(screen.getByText("Administrér parter"));
+    await userEvent.click(screen.getAllByRole("checkbox")[0]!);
+    await userEvent.click(screen.getByRole("button",{name:"Opret part"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Din rolle har ikke adgang");
+  });
 });

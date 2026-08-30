@@ -251,6 +251,7 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   ],unsupportedBoundaries:["Knowledge never changes ledger, VAT, legal classification or group membership automatically.","Conflicting approved singleton facts remain conflicts; no latest-write selection occurs."]}),
   workflow({ id:"ownership-graph-review", capabilityId:"ownership-graph", title:"Reviewable ownership and control graph", intendedOutcome:"Discover an as-of legal ownership graph, record a source-hashed registry proposal, review it, then apply only the exact approved diff.", steps:[
     read("query",mcp("ownership_graph_query"),"Read visible approved facts as of a declared date; it is not a consolidation."),
+    read("history",mcp("ownership_snapshot_history"),"Read only snapshot history whose every legal endpoint remains authorized."),
     write("propose",mcp("ownership_snapshot_propose"),"Store a deterministic source snapshot and inert diff.",{canonicalRecords:["ownership source snapshot","ownership proposal diff"]}),
     write("review",mcp("ownership_snapshot_review"),"Approve or reject exactly one source snapshot.",{dependsOn:["propose"],boundary:"approval",canonicalRecords:["ownership snapshot review event"]}),
     write("apply",mcp("ownership_snapshot_apply"),"Apply exact approved hashes append-only with live scoped authority.",{dependsOn:["review"],boundary:"irreversible",canonicalRecords:["approved ownership facts","ownership apply event"]}),
@@ -396,7 +397,7 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 163, hash: "a5ca1a92704723d3df962147a0dba0e76b596e4d389cf902201215eed33876c0" },
+  mcp: { count: 164, hash: "6c89f417feaf461c69976b17e70b04205323c61f0d58ebfb067998a60d66410d" },
   cli: { count: 229, hash: "841ae59ba233fd7be98a309d8e9a570cc6359b43b0d422fa88ab40306f7e4d84" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.

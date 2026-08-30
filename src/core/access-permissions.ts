@@ -18,6 +18,7 @@ export const ROUTE_PERMISSIONS = [
   "company.draft.write",
   "company.ledger.post",
   "company.review",
+  "company.period.force-close",
   "company.export",
   "company.external-lookup",
   "company.external-send",

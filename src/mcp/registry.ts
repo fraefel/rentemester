@@ -266,7 +266,7 @@ function securityGuardServer(server: McpServer, context?: McpSecurityContext | n
             : name === "efaktura_modtag_workspace" || name === "recurring_invoice_run_workspace" || (args && "workspace" in args)
               ? { ...args, workspace: context.workspaceRoot }
               : args;
-          return runWithMcpAuthenticatedPrincipal(access.principal, () => Promise.resolve(callback(securedArgs, ...rest)));
+          return runWithMcpAuthenticatedPrincipal(access.principal, context.workspaceRoot, () => Promise.resolve(callback(securedArgs, ...rest)));
         };
         return (target.registerTool as (...a: unknown[]) => unknown)(name, config, guarded);
       };

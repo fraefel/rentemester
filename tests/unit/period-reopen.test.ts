@@ -9,19 +9,28 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
+import { seedAccounts } from "../../src/core/ledger";
+import { seedNativeAccountRoles } from "../../src/core/account-roles";
 import {
   closeAccountingPeriod,
   reopenAccountingPeriod,
   effectivePeriodState,
   validateJournalTransactionDate,
 } from "../../src/core/periods";
-import { createPeriodCloseReadinessPacket } from "../../src/core/period-close-readiness";
+import { createPeriodCloseReadinessPacket, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 
 function freshDb(prefix: string) {
   const root = mkdtempSync(join(tmpdir(), prefix));
   const db = openDb(ensureCompanyDirs(root).db);
   migrate(db);
+  seedAccounts(db);
+  seedNativeAccountRoles(db);
   return { root, db };
+}
+
+function reviewed(db: ReturnType<typeof openDb>, packet: ReturnType<typeof createPeriodCloseReadinessPacket>) {
+  const review = reviewPeriodCloseReadiness(db, { packet, reviewerActor: "user:ejer", reviewerPrincipal: { kind: "local-trusted", subjectId: "ejer" } });
+  return { readinessPacketHash: packet.hash, readinessReviewId: review.id };
 }
 
 describe("period reopen (#247)", () => {
@@ -38,10 +47,10 @@ describe("period reopen (#247)", () => {
       // requires the explicit force bypass — the test is about reopen, not the
       // future-close guard.
       force: true,
-      forceAuthorized: true,
+      forceAuthorization: { principal: { kind: "local-trusted", subjectId: "ejer" }, permissions: ["company.period.force-close"] },
       forceConfirmed: true,
       forceReason: "synthetic future-period reopen setup",
-      readinessPacketHash: readiness.hash,
+      ...reviewed(db, readiness),
     });
     expect(closed.ok).toBe(true);
 
@@ -91,7 +100,7 @@ describe("period reopen (#247)", () => {
     const { root, db } = freshDb("rentemester-reopen-reclose-");
 
     const initialReadiness = createPeriodCloseReadinessPacket(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30" });
-    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter", force: true, readinessPacketHash: initialReadiness.hash, forceAuthorized: true, forceConfirmed: true, forceReason: "synthetic future-period reclose setup", createdBy: "user:test" });
+    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter", force: true, ...reviewed(db, initialReadiness), forceAuthorization: { principal: { kind: "local-trusted", subjectId: "test" }, permissions: ["company.period.force-close"] }, forceConfirmed: true, forceReason: "synthetic future-period reclose setup", createdBy: "user:test" });
     reopenAccountingPeriod(db, {
       periodStart: "2026-04-01",
       periodEnd: "2026-06-30",
@@ -109,10 +118,10 @@ describe("period reopen (#247)", () => {
       kind: "vat_quarter",
       createdBy: "user:ejer",
       force: true,
-      forceAuthorized: true,
+      forceAuthorization: { principal: { kind: "local-trusted", subjectId: "ejer" }, permissions: ["company.period.force-close"] },
       forceConfirmed: true,
       forceReason: "synthetic reopened-period reclose",
-      readinessPacketHash: rereadiness.hash,
+      ...reviewed(db, rereadiness),
     });
     expect(reclosed.ok).toBe(true);
     expect(validateJournalTransactionDate(db, "2026-05-15")).toEqual([
@@ -142,7 +151,7 @@ describe("period reopen (#247)", () => {
       kind: "vat_quarter",
       status: "reported",
       createdBy: "user:ejer",
-      readinessPacketHash: readiness.hash,
+      ...reviewed(db, readiness),
     });
     const result = reopenAccountingPeriod(db, {
       periodStart: "2026-01-01",
@@ -184,7 +193,7 @@ describe("period reopen (#247)", () => {
 
     // Period exists, closed, then reopened — reopening again is a no-op error.
     const initialReadiness = createPeriodCloseReadinessPacket(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30" });
-    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter", force: true, readinessPacketHash: initialReadiness.hash, forceAuthorized: true, forceConfirmed: true, forceReason: "synthetic reopen guard setup", createdBy: "user:test" });
+    closeAccountingPeriod(db, { periodStart: "2026-04-01", periodEnd: "2026-06-30", kind: "vat_quarter", force: true, ...reviewed(db, initialReadiness), forceAuthorization: { principal: { kind: "local-trusted", subjectId: "test" }, permissions: ["company.period.force-close"] }, forceConfirmed: true, forceReason: "synthetic reopen guard setup", createdBy: "user:test" });
     reopenAccountingPeriod(db, {
       periodStart: "2026-04-01",
       periodEnd: "2026-06-30",

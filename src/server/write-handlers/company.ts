@@ -12,12 +12,12 @@ import {
   setCompanyVatPeriodType,
   normalizeVatPeriodType,
 } from "../../core/periods";
-import { createPeriodCloseReadinessPacket } from "../../core/period-close-readiness";
+import { computePeriodCloseReadiness, loadPeriodCloseReview, reviewPeriodCloseReadiness } from "../../core/period-close-readiness";
 import { companyPaths } from "../../core/paths";
 import { companyRootForSlug } from "../../core/workspace";
 import { openDb, migrate } from "../../core/db";
 import { openWorkspaceControlReadOnlyDb } from "../../core/workspace-control";
-import { getCompanyMembership } from "../../core/workspace-access";
+import { authorizeWorkspaceRoute } from "../../core/workspace-access";
 import type { ServerConfig } from "../config";
 import { ApiError } from "../errors";
 import { withCompanyMutation } from "../mutations";
@@ -269,12 +269,19 @@ export async function handleClosePeriod(
         );
       }
       const force = body.force === true;
-      const forceAuthorized = !force || ctx.principal.via !== "better-auth" || (() => {
+      const forceAuthorization = !force ? undefined : (() => {
         const control = openWorkspaceControlReadOnlyDb(config.workspaceRoot);
-        try { return getCompanyMembership(control, ctx.principal.id.slice("user:".length), slug).role === "owner"; }
+        try {
+          const userId = ctx.principal.userId ?? "";
+          const allowed = authorizeWorkspaceRoute(control, config.workspaceRoot, { userId, companySlug: slug, permission: "company.period.force-close" }).allowed;
+          if (!allowed) return undefined;
+          return { principal: ctx.principal.serviceAccountId ? { kind: "service-account" as const, subjectId: ctx.principal.serviceAccountId } : { kind: "user" as const, subjectId: userId }, permissions: ["company.period.force-close"] };
+        }
         finally { control.close(); }
       })();
       const packetHash = requireBodyString(body, "packetHash");
+      const reviewId = body.reviewId;
+      if (typeof reviewId !== "number" || !Number.isSafeInteger(reviewId) || reviewId < 1) throw ApiError.badRequest("'reviewId' must be a positive integer");
       const forceReason = optionalBodyString(body, "reason");
       const closed = closeAccountingPeriod(ctx.db, {
         periodStart,
@@ -283,8 +290,9 @@ export async function handleClosePeriod(
         ...(reference ? { reference } : {}),
         force,
         readinessPacketHash: packetHash,
+        readinessReviewId: reviewId,
         forceReason,
-        forceAuthorized,
+        forceAuthorization,
         forceConfirmed: true,
         createdBy: ctx.actor.createdBy,
         createdByProgram: ctx.actor.createdByProgram,
@@ -321,8 +329,25 @@ export function handlePeriodCloseReadiness(config: ServerConfig, slug: string, r
   const periodEnd = url.searchParams.get("to")?.trim();
   if (!periodStart || !periodEnd) throw ApiError.badRequest("query parameters 'from' and 'to' are required");
   const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
-  try { migrate(db); return okResponse({ packet: createPeriodCloseReadinessPacket(db, { periodStart, periodEnd }) }); }
+  try { migrate(db); return okResponse({ packet: computePeriodCloseReadiness(db, { periodStart, periodEnd }) }); }
   finally { db.close(); }
+}
+
+/** Explicit review write; status reads this durable record without recomputing. */
+export async function handlePeriodCloseReview(config: ServerConfig, request: Request, slug: string): Promise<Response> {
+  const result = await withCompanyMutation(request, config, slug, (ctx, body) => {
+    const periodStart = requireBodyString(body, "periodStart"); const periodEnd = requireBodyString(body, "periodEnd");
+    const packet = computePeriodCloseReadiness(ctx.db, { periodStart, periodEnd });
+    const principal = ctx.principal.serviceAccountId ? { kind: "service-account" as const, subjectId: ctx.principal.serviceAccountId } : ctx.principal.userId ? { kind: "user" as const, subjectId: ctx.principal.userId } : { kind: "local-trusted" as const, subjectId: ctx.principal.id };
+    return { ok: true, review: reviewPeriodCloseReadiness(ctx.db, { packet, reviewerActor: ctx.actor.createdBy, reviewerPrincipal: principal }) };
+  }, { requireConfirm: true });
+  return okResponse(result);
+}
+export function handlePeriodCloseStatus(config: ServerConfig, slug: string, request: Request): Response {
+  const reviewId = Number(new URL(request.url).searchParams.get("reviewId"));
+  if (!Number.isSafeInteger(reviewId) || reviewId < 1) throw ApiError.badRequest("query parameter 'reviewId' must be a positive integer");
+  const db = openDb(companyPaths(companyRootForSlug(config.workspaceRoot, slug)).db);
+  try { migrate(db); return okResponse({ review: loadPeriodCloseReview(db, reviewId) }); } finally { db.close(); }
 }
 
 // --------------------------------------------------------------------------

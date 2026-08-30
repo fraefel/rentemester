@@ -201,7 +201,9 @@ function ClosePeriodModal({
   const [kind, setKind] = useState<AccountingPeriodKind>("vat_period");
   const [reference, setReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [packet, setPacket] = useState<{ hash: string; blockers: number; warnings: number; items: Array<{code:string;severity:"blocker"|"warning";count:number}> } | null>(null);
+  const [packet, setPacket] = useState<{ hash: string; blockers: number; warnings: number; items: Array<{code:string;status:"passed"|"warning"|"blocked"|"unavailable";waivable:boolean;count:number}> } | null>(null);
+  const [force, setForce] = useState(false);
+  const [forceReason, setForceReason] = useState("");
   // #301 — a period whose end lies in the future is not over yet. Require a
   // second, explicit acknowledgement before such a close can go through, the
   // same guard VatView's close-modal has.
@@ -218,10 +220,15 @@ function ClosePeriodModal({
     }
     setSubmitting(true);
     try {
-      const readiness = await api.closeReadiness(slug, periodStart, periodEnd);
-      setPacket(readiness);
-      if (readiness.blockers > 0) {
-        onError(`Perioden kan ikke lukkes: ${readiness.items.filter((item) => item.severity === "blocker").map((item) => item.code).join(", ")}`);
+      if (!packet) {
+        setPacket(await api.closeReadiness(slug, periodStart, periodEnd));
+        setSubmitting(false);
+        return;
+      }
+      const review = await api.reviewCloseReadiness(slug, periodStart, periodEnd);
+      if (review.packet.hash !== packet.hash) {
+        setPacket(review.packet);
+        onError("Grundlaget ændrede sig. Kontrollér den nye packet før lukning.");
         setSubmitting(false);
         return;
       }
@@ -230,7 +237,9 @@ function ClosePeriodModal({
         periodEnd,
         kind,
         ...(reference ? { reference } : {}),
-        packetHash: readiness.hash,
+        packetHash: review.packet.hash,
+        reviewId: review.id,
+        ...(force ? { force: true, reason: forceReason } : {}),
       });
       onDone();
     } catch (err) {
@@ -255,7 +264,14 @@ function ClosePeriodModal({
               required
             />
           </label>
-          {packet && <p className="muted">Readiness: {packet.blockers} blokeringer, {packet.warnings} advarsler. Hashen er bundet til dette øjebliksbillede.</p>}
+          {packet && <>
+            <p className="muted">Kontrolleret: {packet.blockers} blokeringer, {packet.warnings} advarsler. Gennemgå resultatet og vælg derefter “Gem review og luk”.</p>
+            {packet.blockers > 0 && <>
+              <div className="callout danger">Blokeringer: {packet.items.filter((item) => item.status === "blocked" || item.status === "unavailable").map((item) => item.code).join(", ")}</div>
+              <label className="confirm-ack"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> Anmod om force-lukning af alene fravigelige blokeringer</label>
+              {force && <label>Begrundelse for force-lukning<textarea value={forceReason} onChange={(e) => setForceReason(e.target.value)} required rows={2} /></label>}
+            </>}
+          </>}
           <label>
             Slut (YYYY-MM-DD)
             <input
@@ -312,10 +328,10 @@ function ClosePeriodModal({
               type="submit"
               className="btn primary"
               disabled={
-                submitting || (periodEndsInFuture && !futureEndAcknowledged)
+                submitting || (periodEndsInFuture && !futureEndAcknowledged) || (packet?.blockers !== 0 && (!force || !forceReason.trim()))
               }
             >
-              {submitting ? "Lukker …" : "Luk periode"}
+              {submitting ? "Arbejder …" : packet ? "Gem review og luk" : "Kontrollér"}
             </button>
             <button type="button" className="btn secondary" onClick={onClose}>
               Annullér

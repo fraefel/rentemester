@@ -164,8 +164,10 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
   ], alternatives: ["Use invoice_credit_note for an issued sales invoice."], unsupportedBoundaries: ["Posted entries and original documents are never overwritten or deleted."] }),
   workflow({ id: "period-close-reopen", capabilityId: "period-management", title: "Period readiness, close and reopen", intendedOutcome: "Inspect period readiness, close deliberately and reopen only through the supported correction path.", steps: [
     read("list-periods", mcp("period_list"), "Inspect period state and blockers."),
-    read("close-readiness", mcp("period_close_readiness"), "Create the exact immutable packet and inspect only controls that ran.", { dependsOn: ["list-periods"], canonicalRecords: ["period close readiness packet"] }),
-    write("close-period", mcp("period_close"), "Close using the exact readiness packet hash; never retry after a stale packet.", { dependsOn: ["close-readiness"], boundary: "approval", canonicalRecords: ["period locks", "period close decision"] }),
+    read("close-readiness", mcp("period_close_readiness"), "Compute the exact read-only readiness packet and inspect every control.", { dependsOn: ["list-periods"], canonicalRecords: ["period close readiness packet"] }),
+    write("review-readiness", mcp("period_close_review"), "Persist the reviewed packet before any close attempt.", { dependsOn: ["close-readiness"], boundary: "approval", canonicalRecords: ["period close review"] }),
+    write("close-period", mcp("period_close"), "Close using the exact persisted review ID and packet hash; never retry after a stale packet.", { dependsOn: ["review-readiness"], boundary: "approval", canonicalRecords: ["period locks", "period close decision"] }),
+    read("close-status", mcp("period_close_status"), "Poll the durable reviewed packet without recomputing readiness.", { dependsOn: ["review-readiness"] }),
     write("reopen-period", cli("period reopen"), "Reopen through the CLI-only audited operation.", { dependsOn: ["close-period"], condition: "Correction branch only.", boundary: "approval", requiresConfirmation: false, canonicalRecords: ["period reopen audit"] }),
     read("verify-period", mcp("period_list"), "Read back period state.", { dependsOn: ["close-period|reopen-period"] }),
   ], unsupportedBoundaries: ["Period reopen is CLI-only; no MCP parity is claimed."] }),
@@ -362,11 +364,11 @@ type SurfaceBaseline = { count: number; hash: string };
  * operation names into a second hand-maintained catalogue.
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
-  mcp: { count: 140, hash: "ea67e89a96cdea10def148b7e94609d72d805cb2acd7d529a95906ae96621507" },
+  mcp: { count: 142, hash: "ee29dc2f9b237afa5a9117903acddf71232d2f2550dc7bec4120bb1ede3c0f01" },
   cli: { count: 204, hash: "236b927d326eb29db854666b2dad8a07ae4e96dd7999019acd9ec020c0f712ba" },
   // #573 service-principal lifecycle routes are public runtime operations and
   // therefore deliberately part of the identity-bound discovery surface.
-  http: { count: 143, hash: "cb3d8c5cd532646343d7371d9ebf9cc8af1db5499b17361ab13a0bdba56f5073" },
+  http: { count: 145, hash: "ce145395d4e51d0dc673594a8203d85b2d7346503ad0dcecd9f4360da8ca0a1f" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

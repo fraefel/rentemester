@@ -1,6 +1,6 @@
 import { migrate } from "../core/db";
 import { closeAccountingPeriod, reopenAccountingPeriod } from "../core/periods";
-import { createPeriodCloseReadinessPacket } from "../core/period-close-readiness";
+import { computePeriodCloseReadiness, loadPeriodCloseReview, reviewPeriodCloseReadiness } from "../core/period-close-readiness";
 import { openCommandDb } from "../cli-dispatch";
 import type { CommandContext, CommandDispatch } from "../cli-dispatch";
 import {
@@ -54,8 +54,24 @@ export function register(dispatch: CommandDispatch): void {
     const from = ctx.arg("--from"); const to = ctx.arg("--to");
     if (!from || !to) { console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>"); process.exit(2); }
     const db = openCommandDb(ctx); migrate(db);
-    ctx.emitResult(createPeriodCloseReadinessPacket(db, { periodStart: from, periodEnd: to }) as unknown as Record<string, unknown>);
+    ctx.emitResult(computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to }) as unknown as Record<string, unknown>);
     db.close();
+  });
+  dispatch.on("period", "review", (ctx) => {
+    const from = ctx.arg("--from"); const to = ctx.arg("--to");
+    if (!from || !to) { console.error("Missing required --from <YYYY-MM-DD> or --to <YYYY-MM-DD>"); process.exit(2); }
+    const actor = ctx.cliActor ?? process.env.RENTEMESTER_ACTOR;
+    if (!actor) { console.error("actor required for mutations"); process.exit(2); }
+    const db = openCommandDb(ctx); migrate(db);
+    const packet = computePeriodCloseReadiness(db, { periodStart: from, periodEnd: to });
+    ctx.emitResult(reviewPeriodCloseReadiness(db, { packet, reviewerActor: actor, reviewerPrincipal: { kind: "local-trusted", subjectId: actor } }) as unknown as Record<string, unknown>);
+    db.close();
+  });
+  dispatch.on("period", "status", (ctx) => {
+    const reviewId = Number(ctx.arg("--review-id"));
+    if (!Number.isSafeInteger(reviewId) || reviewId < 1) { console.error("Missing required --review-id <positive integer>"); process.exit(2); }
+    const db = openCommandDb(ctx); migrate(db);
+    ctx.emitResult({ review: loadPeriodCloseReview(db, reviewId) } as unknown as Record<string, unknown>); db.close();
   });
   dispatch.on("period", "close", (ctx) => {
     const from = ctx.arg("--from");
@@ -77,9 +93,10 @@ export function register(dispatch: CommandDispatch): void {
       // The bypass itself is visible in the close result + audit log.
       force,
       readinessPacketHash: ctx.arg("--packet-hash") ?? undefined,
+      readinessReviewId: Number(ctx.arg("--review-id")) || undefined,
       forceReason: ctx.arg("--reason") ?? undefined,
       createdBy: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR,
-      forceAuthorized: force && actorMayForcePeriodClose(ctx.companyRoot(), ctx.cliActor ?? process.env.RENTEMESTER_ACTOR),
+      ...(force && actorMayForcePeriodClose(ctx.companyRoot(), ctx.cliActor ?? process.env.RENTEMESTER_ACTOR) ? { forceAuthorization: { principal: { kind: "local-trusted" as const, subjectId: ctx.cliActor ?? process.env.RENTEMESTER_ACTOR ?? "" }, permissions: ["company.period.force-close"] } } : {}),
       forceConfirmed: !force || ctx.arg("--confirm") === "yes" || ctx.arg("--confirm") === "true",
     });
     ctx.emitResult(result as Record<string, unknown>);

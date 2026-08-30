@@ -1,0 +1,5 @@
+{
+  "id": 25,
+  "name": "rentemester-period-close-reviews-v25",
+  "sql": "CREATE TABLE IF NOT EXISTS period_close_reviews (\n  id INTEGER PRIMARY KEY,\n  packet_id INTEGER NOT NULL REFERENCES period_close_readiness_packets(id),\n  packet_hash TEXT NOT NULL REFERENCES period_close_readiness_packets(packet_hash),\n  reviewer_actor TEXT NOT NULL,\n  reviewer_principal TEXT,\n  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_period_close_reviews_packet ON period_close_reviews(packet_id,id);\nCREATE TRIGGER IF NOT EXISTS period_close_reviews_no_update BEFORE UPDATE ON period_close_reviews BEGIN SELECT RAISE(ABORT, 'period close reviews are append-only'); END;\nCREATE TRIGGER IF NOT EXISTS period_close_reviews_no_delete BEFORE DELETE ON period_close_reviews BEGIN SELECT RAISE(ABORT, 'period close reviews are append-only'); END;"
+}

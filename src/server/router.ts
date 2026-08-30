@@ -165,6 +165,8 @@ import {
   handlePayablePay,
   handlePayableRegister,
   handlePeriodCloseReadiness,
+  handlePeriodCloseReview,
+  handlePeriodCloseStatus,
   handleRejectAccountingDraft,
   handleRejectAgentSuggestion,
   handleReopenPeriod,
@@ -376,6 +378,8 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "external", permission: "company.external-send", method: "POST", pattern: "/api/companies/:slug/invoices/send-reminder", summary: "Registrerer rykker (rentel. § 9b) og sender den på e-mail." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/periods/close", summary: "Lukker regnskabsperiode." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/periods/close-readiness", summary: "Genererer hash-bundet periodelukningspacket." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/periods/close-review", summary: "Gemmer eksplicit reviewet periodelukningspacket." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/periods/close-status", summary: "Læser et gemt periodelukningsreview uden rekalkulering." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/periods/reopen", summary: "Genåbner regnskabsperiode (#247-modstykke til CLI-only)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/mileage", summary: "Kørselsregister for valgt regnskabsår (#335)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/mileage", summary: "Registrerer en kørsel (#335)." },
@@ -1519,6 +1523,16 @@ export async function handleRequest(
     if (periodReadinessMatch) {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
       return handlePeriodCloseReadiness(config, decodeURIComponent(periodReadinessMatch[1]!), request);
+    }
+    const periodReviewMatch = /^\/api\/companies\/([^/]+)\/periods\/close-review$/.exec(path);
+    if (periodReviewMatch) {
+      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
+      return await handlePeriodCloseReview(config, request, decodeURIComponent(periodReviewMatch[1]!));
+    }
+    const periodStatusMatch = /^\/api\/companies\/([^/]+)\/periods\/close-status$/.exec(path);
+    if (periodStatusMatch) {
+      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
+      return handlePeriodCloseStatus(config, decodeURIComponent(periodStatusMatch[1]!), request);
     }
 
     // Bookkeeping write route (#301): reopen a closed accounting period — the

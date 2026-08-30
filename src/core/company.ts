@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ensureCompanyDirs } from "./paths";
 import { openDb, migrate } from "./db";
 import { seedAccounts } from "./ledger";
+import { seedNativeAccountRoles } from "./account-roles";
 import { insertAuditLog } from "./actor";
 import {
   lookupCvrCompany,
@@ -362,6 +363,9 @@ export function initialiseCompanyVolume(
   try {
     migrate(db);
     seedAccounts(db);
+    // `migrate` runs before the chart exists in a freshly-created company, so
+    // seed confirmed native control roles only after the chart is present.
+    seedNativeAccountRoles(db);
     const cvr = normalizeCvr(options.cvr);
     const fiscalYearStartMonth =
       normalizeFiscalYearStartMonth(options.fiscalYearStartMonth) ?? 1;

@@ -15,10 +15,11 @@ import { tmpdir } from "node:os";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
 import { seedAccounts, postJournalEntry } from "../../src/core/ledger";
+import { seedNativeAccountRoles } from "../../src/core/account-roles";
 import { ingestDocument } from "../../src/core/documents";
 import { importBankCsv } from "../../src/core/bank";
 import { closeAccountingPeriod } from "../../src/core/periods";
-import { createPeriodCloseReadinessPacket } from "../../src/core/period-close-readiness";
+import { createPeriodCloseReadinessPacket, reviewPeriodCloseReadiness } from "../../src/core/period-close-readiness";
 import {
   listExceptions,
   resolveException,
@@ -31,6 +32,7 @@ function setup(prefix: string) {
   const db = openDb(ensureCompanyDirs(root).db);
   migrate(db);
   seedAccounts(db);
+  seedNativeAccountRoles(db);
   db.query(
     `INSERT INTO companies (id, name, country, currency, cvr, company_form, fiscal_year_start_month, fiscal_year_label_strategy)
      VALUES (1, 'Rentemester ApS', 'DK', 'DKK', 'DK12345678', 'Anpartsselskab', 1, 'end-year')`,
@@ -63,6 +65,11 @@ function teardown(args: { root: string; inbox: string; db: ReturnType<typeof ope
   rmSync(args.inbox, { recursive: true, force: true });
 }
 
+function reviewed(db: ReturnType<typeof openDb>, packet: ReturnType<typeof createPeriodCloseReadinessPacket>) {
+  const review = reviewPeriodCloseReadiness(db, { packet, reviewerActor: "user:ejer", reviewerPrincipal: { kind: "local-trusted", subjectId: "ejer" } });
+  return { readinessPacketHash: packet.hash, readinessReviewId: review.id };
+}
+
 describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4)", () => {
   test("refuses to close a period containing an unreconciled bank transaction, even when its exception was note-resolved without booking", () => {
     const ctx = setup("rentemester-close-unrec-");
@@ -92,7 +99,7 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
       periodEnd: "2026-03-31",
       kind: "vat_quarter",
       createdBy: "user:ejer",
-      readinessPacketHash: readiness.hash,
+      ...reviewed(db, readiness),
     });
     expect(close.ok).toBe(false);
     const error = close.errors.join(" ");
@@ -115,10 +122,10 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
       kind: "vat_quarter",
       createdBy: "user:ejer",
       force: true,
-      forceAuthorized: true,
+      forceAuthorization: { principal: { kind: "local-trusted", subjectId: "ejer" }, permissions: ["company.period.force-close"] },
       forceConfirmed: true,
       forceReason: "synthetic unreconciled-bank close waiver",
-      readinessPacketHash: readiness.hash,
+      ...reviewed(db, readiness),
     });
     expect(close.ok).toBe(true);
     expect(close.periodId).toBeGreaterThan(0);
@@ -182,7 +189,7 @@ describe("closeAccountingPeriod — unreconciled bank transactions guard (EJER-4
       periodEnd: "2026-03-31",
       kind: "vat_quarter",
       createdBy: "user:ejer",
-      readinessPacketHash: readiness.hash,
+      ...reviewed(db, readiness),
     });
     expect(close.errors).toEqual([]);
     expect(close.ok).toBe(true);

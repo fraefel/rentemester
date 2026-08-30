@@ -8,6 +8,8 @@ import { vat, vatNotRegistered, mockFetch } from "../test/fixtures";
 function route(over = {}) {
   return {
     "GET /api/companies/acme-aps/vat": { vat: vat(over) },
+    "GET /api/companies/acme-aps/periods/close-readiness": { packet: { hash: "a".repeat(64), blockers: 0, warnings: 0, items: [] } },
+    "POST /api/companies/acme-aps/periods/close-review": { review: { id: 1, packet: { hash: "a".repeat(64), blockers: 0, warnings: 0, items: [] } } },
   };
 }
 

@@ -14,12 +14,15 @@ import {
   closeAccountingPeriod,
   type AccountingPeriodKind,
 } from "../../core/periods";
-import { createPeriodCloseReadinessPacket } from "../../core/period-close-readiness";
+import { computePeriodCloseReadiness, loadPeriodCloseReview, reviewPeriodCloseReadiness } from "../../core/period-close-readiness";
 import { envelopeShape, successEnvelope, wrapCoreResult } from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
+import { currentMcpAuthenticatedPrincipal, mcpHasLiveCompanyPermission } from "../security";
 
 export function registerPeriodTools(server: McpServer): void {
-  server.registerTool("period_close_readiness", { title: "Inspect close readiness", description: "Creates a deterministic immutable close-readiness packet. Supply its hash unchanged to period_close.", inputSchema: { company: z.string().min(1), from: z.string().min(1), to: z.string().min(1) }, outputSchema: envelopeShape, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyDb<{company:string;from:string;to:string}>(server, ({db,args}) => successEnvelope({ packet: createPeriodCloseReadinessPacket(db, { periodStart: args.from, periodEnd: args.to }) })));
+  server.registerTool("period_close_readiness", { title: "Inspect close readiness", description: "Computes a deterministic, read-only close-readiness packet. Review it explicitly before close.", inputSchema: { company: z.string().min(1), from: z.string().min(1), to: z.string().min(1) }, outputSchema: envelopeShape, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, withCompanyDb<{company:string;from:string;to:string}>(server, ({db,args}) => successEnvelope({ packet: computePeriodCloseReadiness(db, { periodStart: args.from, periodEnd: args.to }) })));
+  server.registerTool("period_close_status", { title: "Read durable close review", description: "Reads a persisted review packet without recomputing readiness.", inputSchema: { company:z.string().min(1), reviewId:z.number().int().positive() }, outputSchema:envelopeShape, annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false} }, withCompanyDb<{company:string;reviewId:number}>(server,({db,args})=>successEnvelope({review:loadPeriodCloseReview(db,args.reviewId)})));
+  server.registerTool("period_close_review", { title:"Persist period-close review", description:"Persists the exact inspected readiness packet for later close. write-audited; it does not close the period.", inputSchema:{company:z.string().min(1),from:z.string().min(1),to:z.string().min(1),confirm:confirmField},outputSchema:envelopeShape,annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}},withCompanyDbConfirmed<{company:string;from:string;to:string;confirm?:boolean}>(server,"period_close_review",({db,actor,args})=>{const packet=computePeriodCloseReadiness(db,{periodStart:args.from,periodEnd:args.to});const authenticated=currentMcpAuthenticatedPrincipal();return successEnvelope({review:reviewPeriodCloseReadiness(db,{packet,reviewerActor:actor.createdBy,reviewerPrincipal:authenticated?{kind:authenticated.kind,subjectId:authenticated.subjectId}:{kind:"local-trusted",subjectId:actor.createdBy}})});}));
   server.registerTool(
     "period_list",
     {
@@ -111,6 +114,7 @@ export function registerPeriodTools(server: McpServer): void {
               "so the owner cannot silently hide outstanding items by closing.",
           ),
         packetHash: z.string().length(64).describe("Exact hash returned by period_close_readiness.") ,
+        reviewId: z.number().int().positive().describe("Exact persisted review id returned by period_close_review."),
         reason: z.string().min(1).optional().describe("Mandatory non-empty waiver reason when force is true."),
         confirm: confirmField,
       },
@@ -126,9 +130,14 @@ export function registerPeriodTools(server: McpServer): void {
       reference?: string;
       force?: boolean;
       packetHash: string;
+      reviewId: number;
       reason?: string;
       confirm?: boolean;
     }>(server, "period_close", ({ db, actor, args }) => {
+      const authenticated = currentMcpAuthenticatedPrincipal();
+      const forceAuthorization = args.force && authenticated && mcpHasLiveCompanyPermission(args.company, "company.period.force-close")
+        ? { principal: { kind: authenticated.kind, subjectId: authenticated.subjectId }, permissions: ["company.period.force-close"] as const }
+        : undefined;
       const result = closeAccountingPeriod(db, {
         periodStart: args.from,
         periodEnd: args.to,
@@ -137,11 +146,9 @@ export function registerPeriodTools(server: McpServer): void {
         reference: args.reference,
         force: args.force,
         readinessPacketHash: args.packetHash,
+        readinessReviewId: args.reviewId,
         forceReason: args.reason,
-        // MCP actor attribution alone is not elevated authorization. The
-        // forced waiver is deliberately available only where trusted RBAC or
-        // local policy can be evaluated (HTTP owner / CLI policy).
-        forceAuthorized: false,
+        forceAuthorization,
         forceConfirmed: args.confirm === true,
         createdBy: actor.createdBy,
         createdByProgram: actor.createdByProgram,

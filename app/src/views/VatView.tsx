@@ -210,10 +210,20 @@ export function VatView() {
                   "Bekræft først at du vil lukke en periode der ikke er afsluttet endnu — sæt flueben i feltet ovenfor.",
               };
             }
+            const packet = await api.closeReadiness(slug, v.periodStart, v.periodEnd);
+            if (packet.blockers > 0) {
+              throw { code: "bad_request", message: "Momsperioden har blokerende close-kontroller. Åbn Periodelås for at gennemgå dem." };
+            }
+            const review = await api.reviewCloseReadiness(slug, v.periodStart, v.periodEnd);
+            if (review.packet.hash !== packet.hash) {
+              throw { code: "conflict", message: "Grundlaget ændrede sig under review. Kontrollér momsperioden igen før lukning." };
+            }
             await api.closePeriod(slug, {
               periodStart: v.periodStart,
               periodEnd: v.periodEnd,
               kind: "vat_period",
+              packetHash: review.packet.hash,
+              reviewId: review.id,
             });
             setClosedNotice(`Momsperioden er lukket — tallene genindlæses nu.`);
             state.reload();

@@ -10,7 +10,7 @@ const plan = { planHash: "a".repeat(64), items: [{ actionKey: "bank:1", partitio
 describe("BookkeepingBatchView", () => {
   test("keeps plan, persist, approval and apply as four separate requests", async () => {
     mockFetch({
-      "GET /api/companies/acme-aps/bookkeeping-workbench": { workbench: { state: "zero", counts: { ready: 0 }, page: { total: 0, nextCursor: null }, completeness: { nextAction: "Ingen åbne poster." }, rows: [], periodClose: { status: "unavailable" } } },
+      "GET /api/companies/acme-aps/bookkeeping-workbench": { workbench: { state: "zero", counts: { ready: 0 }, population: { total: 0, ready: 0, blockers: 0 }, page: { total: 0, nextCursor: null }, completeness: { nextAction: "Ingen åbne poster." }, rows: [], periodClose: { status: "unavailable" } } },
       "GET /api/companies/acme-aps/bookkeeping-batch": { dryRun: true, plan },
       "POST /api/companies/acme-aps/bookkeeping-batch/persist": { ok: true, runId: 7, plan, state: { revisions: [], attempts: [], receipts: [] } },
       "POST /api/companies/acme-aps/bookkeeping-batch/approve": { ok: true, state: { revisions: [{}], attempts: [], receipts: [] } },

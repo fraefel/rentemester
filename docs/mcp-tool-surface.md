@@ -548,8 +548,13 @@ konkret diff, der vedligeholdes pr. fil.
   `agent_workflow_describe` er read-only runtime-discovery for den versionerede
   outcome-katalog; de har ingen CLI-pendant.
 - `src/mcp/tools/bookkeeping-workbench.ts` — `bookkeeping_workbench` er den
-  read-only, kanoniske bankarbejdskø. Den opretter aldrig en task eller batch;
-  den peger videre til den eksisterende hash-bundne batch-kontrakt.
+  read-only, kanoniske bankarbejdskø. Den viser den eksplicitte
+  dokument-part-resolution og canonical party fra `current_document_party_links`
+  (aldrig `documents.sender_name` som party-identitet), plus konto, moms og
+  dimensioner. Filtre ændrer kun siden; `population.blockers` er altid for hele
+  den kanoniske population. Følg række-drilldowns til bilag, party, bank,
+  reviewet batch, journal og periodeluk, og brug derefter den eksisterende
+  hash-bundne plan → persist → approve → apply-kontrakt for alle writes.
 
 MCP-tools, der ikke findes på CLI'en (`src/mcp/tools/<filename>.ts` ⇒ intet
 modsvar i `src/cli/`). En agent, der CLI-fortrinsstiller, vil aldrig opdage

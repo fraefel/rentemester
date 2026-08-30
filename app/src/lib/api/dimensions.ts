@@ -29,4 +29,7 @@ export const dimensionsApi={
   replaceDimensionAssignment:(slug:string,input:{journalLineId:number;expectedAssignmentId:number;allocations:DimensionAllocation[];planHash:string;reason:string;source?:"reviewed"|"imported";reviewedImport?:boolean;sourceRef?:string;idempotencyKey:string})=>write(slug,"/replace",input),
   /** Retires an existing classification append-only; it never changes the journal line. */
   supersedeDimensionAssignment:(slug:string,input:{assignmentId:number;reason:string})=>write(slug,"/supersede",input),
+  dimensionBudgetPlan:(slug:string,input:{accountNo:string;period:string;allocations:{dimensionId:string;memberId:string;amount:number}[];sourceRef:string})=>request<any>(path(slug,"/budget-plan"),{method:"POST",body:JSON.stringify(input)}),
+  applyDimensionBudget:(slug:string,input:{accountNo:string;period:string;allocations:{dimensionId:string;memberId:string;amount:number}[];sourceRef:string;planHash:string;idempotencyKey:string})=>write(slug,"/budget-apply",input),
+  dimensionBudgets:(slug:string)=>request<{ok:true;budgets:any[]}>(path(slug,"/budgets")).then(x=>x.budgets),
 };

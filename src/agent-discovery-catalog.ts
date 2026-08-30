@@ -266,6 +266,9 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     read("inspect", mcp("dimension_assignment_list"), "Read source-linked assignment history and drilldown ids.", { dependsOn:["apply"] }),
     write("replace", mcp("dimension_assignment_replace"), "Atomically supersede the expected assignment and append the exact reviewed replacement.", { dependsOn:["inspect"], boundary:"review", canonicalRecords:["dimension assignment supersession","dimension assignment events"] }),
     write("supersede", mcp("dimension_assignment_supersede"), "Retire a classification append-only without changing the journal.", { dependsOn:["inspect"], boundary:"review", canonicalRecords:["dimension assignment supersession"] }),
+    read("budget-plan", mcp("dimension_budget_plan"), "Produce an exact allocation plan that reconciles to the reviewed account budget.", { dependsOn:["member"], boundary:"dry-run", canonicalRecords:["dimension budget plan"] }),
+    write("budget-apply", mcp("dimension_budget_apply"), "Append the complete reviewed, hash-bound allocation set.", { dependsOn:["budget-plan"], boundary:"review", canonicalRecords:["dimension budget events"] }),
+    read("budget-inspect", mcp("dimension_budget_list"), "Read the current reviewed allocation set.", { dependsOn:["budget-apply"] }),
   ], unsupportedBoundaries:["Dimensions never change account, VAT, currency, legal entity, legal totals or journal hashes.","Imported dimensions remain provenance until explicitly reviewed."] }),
   workflow({ id: "posting-rule-review", capabilityId: "posting-rules", title: "Company-specific posting rule review", intendedOutcome: "Propose, independently approve and explain a reusable audited posting rule.", steps: [
     write("propose", mcp("posting_rule_propose"), "Propose an inert rule.", { expectedIdempotent: true, retryClass: "natural-idempotent", canonicalRecords: ["posting rule proposal"] }),
@@ -455,9 +458,9 @@ type SurfaceBaseline = { count: number; hash: string };
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // Public surface changes require an explicit discovery review.
-  mcp: { count: 206, hash: "4207a6fa7c12e49f4a3630d0566c559392380d05748950432e119af09bce501b" },
-  cli: { count: 257, hash: "d45f23683e2552acf4ba41b38012cbdaf9e40004f636342e114ac8d87bfdc7b1" },
-  http: { count: 201, hash: "73f853082ac9d885e814ba2154b36cfe418febe6fc4dc05f51a571b8157b132f" },
+  mcp: { count: 209, hash: "26cb7a2149c7046c13c833520222c3c5db1ee49cf5aea8a1243b930b13071c7f" },
+  cli: { count: 260, hash: "pending-combined-surface-review" },
+  http: { count: 204, hash: "1ae1611a38a48776b3fdf96c0ee7dd76be9a9ae9b02793c7c44e3502756cd201" },
 };
 
 const CAPABILITY_RULES: ReadonlyArray<{ capabilityId: string; pattern: RegExp }> = [

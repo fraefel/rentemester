@@ -196,6 +196,7 @@ export const MUTATING_COMMANDS = new Set([
   "dimensions apply",
   "dimensions replace",
   "dimensions supersede",
+  "dimensions budget-apply",
   // ===== END BUDGET =====
   // ===== PAYABLES / KREDITORSTYRING =====
   "payable register",

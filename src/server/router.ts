@@ -43,7 +43,7 @@ import {
 } from "./router/bank";
 import { handleBookkeepingBatchApply, handleBookkeepingBatchApprove, handleBookkeepingBatchDryRun, handleBookkeepingBatchPersistDryRun, handleBookkeepingBatchStatus } from "./router/bookkeeping-batch";
 import { handleBookkeepingWorkbench } from "./router/bookkeeping-workbench";
-import { handleDimensionAction, handleDimensionAssignments, handleDimensionDefinitions, handleDimensionMembers, handleDimensionPlan } from "./router/dimensions";
+import { handleDimensionAction, handleDimensionAssignments, handleDimensionBudgets, handleDimensionBudgetPlan, handleDimensionDefinitions, handleDimensionMembers, handleDimensionPlan } from "./router/dimensions";
 import {
   handleCompanyAccounts,
   handleCompanyAccruals,
@@ -370,6 +370,9 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/dimensions/replace", summary: "Erstatter atomisk en eksakt reviewet dimensionsklassifikation (#589)." },
   { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/dimensions/supersede", summary: "Superseder dimensionsklassifikation append-only (#589)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dimensions", summary: "Append-only dimensionsdefinitioner (#589)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dimensions/budgets", summary: "Reviewede dimensionsbudgetter (#589)." },
+  { scope: "company", effect: "read", permission: "company.read", method: "POST", pattern: "/api/companies/:slug/dimensions/budget-plan", summary: "Read-only hash-bundet dimensionsbudget-plan (#589)." },
+  { scope: "company", effect: "write", permission: "company.review", method: "POST", pattern: "/api/companies/:slug/dimensions/budget-apply", summary: "Anvender en eksakt reviewet dimensionsbudget-fordeling (#589)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/dimensions/members", summary: "Append-only dimensionsmedlemmer (#589)." },
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/dimensions/definition-lifecycle", summary: "Appender lifecycle for definition (#589)." },
   { scope: "company", effect: "write", permission: "company.master-data", method: "POST", pattern: "/api/companies/:slug/dimensions/member-lifecycle", summary: "Appender lifecycle for medlem (#589)." },
@@ -922,7 +925,11 @@ export async function handleRequest(
     if (bookkeepingWorkbenchMatch) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleBookkeepingWorkbench(config, decodeURIComponent(bookkeepingWorkbenchMatch[1]!), url); }
     const dimensionPlanMatch=/^\/api\/companies\/([^/]+)\/dimensions\/plan$/.exec(path);
     if(dimensionPlanMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleDimensionPlan(config,decodeURIComponent(dimensionPlanMatch[1]!),request);}
-    const dimensionActionMatch=/^\/api\/companies\/([^/]+)\/dimensions\/(define|member|apply|replace|supersede|definition-lifecycle|member-lifecycle)$/.exec(path);
+    const dimensionBudgetPlanMatch=/^\/api\/companies\/([^/]+)\/dimensions\/budget-plan$/.exec(path);
+    if(dimensionBudgetPlanMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleDimensionBudgetPlan(config,decodeURIComponent(dimensionBudgetPlanMatch[1]!),request);}
+    const dimensionBudgetsMatch=/^\/api\/companies\/([^/]+)\/dimensions\/budgets$/.exec(path);
+    if(dimensionBudgetsMatch){if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");return handleDimensionBudgets(config,decodeURIComponent(dimensionBudgetsMatch[1]!));}
+    const dimensionActionMatch=/^\/api\/companies\/([^/]+)\/dimensions\/(define|member|apply|replace|supersede|definition-lifecycle|member-lifecycle|budget-apply)$/.exec(path);
     if(dimensionActionMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleDimensionAction(config,decodeURIComponent(dimensionActionMatch[1]!),request,dimensionActionMatch[2]! as any);}
     const dimensionListMatch=/^\/api\/companies\/([^/]+)\/dimensions\/(\d+)$/.exec(path);
     if(dimensionListMatch){if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");return handleDimensionAssignments(config,decodeURIComponent(dimensionListMatch[1]!),Number(dimensionListMatch[2]));}

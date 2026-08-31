@@ -4,6 +4,16 @@
 import { render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactElement } from "react";
+import { CompanyNavigationShell } from "../components/CompanyNav";
+import {
+  COMPANY_ROUTE_REGISTRY,
+  COMPANY_TASK_AREAS,
+} from "../company-route-registry";
+
+const COMPANY_NAVIGATION = {
+  routes: COMPANY_ROUTE_REGISTRY,
+  areas: COMPANY_TASK_AREAS,
+};
 
 export function renderAt(
   ui: ReactElement,
@@ -11,10 +21,12 @@ export function renderAt(
 ) {
   return render(
     <MemoryRouter initialEntries={[route]}>
-      <Routes>
-        <Route path={path} element={ui} />
-        <Route path="*" element={<div />} />
-      </Routes>
+      <CompanyNavigationShell navigation={COMPANY_NAVIGATION}>
+        <Routes>
+          <Route path={path} element={ui} />
+          <Route path="*" element={<div />} />
+        </Routes>
+      </CompanyNavigationShell>
     </MemoryRouter>,
   );
 }

@@ -36,103 +36,26 @@ import { CompanySwitcher } from "./components/CompanySwitcher";
 import packageJson from "../package.json";
 import { PortfolioView } from "./views/PortfolioView";
 import { AddCompanyView } from "./views/AddCompanyView";
-import { DashboardView } from "./views/DashboardView";
-import { IncomeStatementView } from "./views/IncomeStatementView";
-import { BalanceView } from "./views/BalanceView";
-import { TrialBalanceView } from "./views/TrialBalanceView";
-import { ObligationsView } from "./views/ObligationsView";
-import { LiquidityView } from "./views/LiquidityView";
-import { BudgetView } from "./views/BudgetView";
-import { JournalView } from "./views/JournalView";
-import { BankView } from "./views/BankView";
-import { VatView } from "./views/VatView";
-import { DocumentsView } from "./views/DocumentsView";
-import { ArchiveView } from "./views/ArchiveView";
-import { MultiYearView } from "./views/MultiYearView";
-import { InvoicesView } from "./views/InvoicesView";
-import { PayablesView } from "./views/PayablesView";
-import { RecurringInvoicesView } from "./views/RecurringInvoicesView";
-import { ContactsView } from "./views/ContactsView";
-import { MileageView } from "./views/MileageView";
-import { AssetsView } from "./views/AssetsView";
-import { SuggestionsView } from "./views/SuggestionsView";
-import { ManageCompanyView } from "./views/ManageCompanyView";
 import { HelpView } from "./views/HelpView";
 import { RulesView } from "./views/RulesView";
-import { RetentionView } from "./views/RetentionView";
-import { IntegrityView } from "./views/IntegrityView";
-import { AccountsView } from "./views/AccountsView";
-import { ExceptionsView } from "./views/ExceptionsView";
-import { PeriodsView } from "./views/PeriodsView";
-import { BankAccountsView } from "./views/BankAccountsView";
-import { GdprView } from "./views/GdprView";
-import { AccrualsView } from "./views/AccrualsView";
-import { AnnualReportView } from "./views/AnnualReportView";
-import { BilagsmailView } from "./views/BilagsmailView";
 import { GroupOverviewView } from "./views/GroupOverviewView";
-import { AccountingDraftsView } from "./views/AccountingDraftsView";
 import { InvitationView } from "./views/InvitationView";
 import { WorkspaceAccessView } from "./views/WorkspaceAccessView";
-import { PostingRulesView } from "./views/PostingRulesView";
-import { BookkeepingBatchView } from "./views/BookkeepingBatchView";
-import { WorkspaceRegistryView } from "./views/WorkspaceRegistryView";
-import { WorkspaceInboxView } from "./views/WorkspaceInboxView";
 import { CfoCockpitView } from "./views/CfoCockpitView";
-import { DimensionsView } from "./views/DimensionsView";
 import {
   CompanyNavigationShell,
   CompanyTaskNavigation,
 } from "./components/CompanyNav";
-import type { ReactElement } from "react";
 import {
-  COMPANY_ROUTE_DEFINITIONS,
-  assertCompanyRouteCoverage,
+  COMPANY_ROUTE_REGISTRY,
+  COMPANY_TASK_AREAS,
   companyRoutePattern,
-  type CompanyRouteId,
-} from "./company-navigation";
+} from "./company-route-registry";
 
-const COMPANY_ROUTE_ELEMENTS: Record<CompanyRouteId, ReactElement> = {
-  dashboard: <DashboardView />,
-  "income-statement": <IncomeStatementView />,
-  balance: <BalanceView />,
-  "trial-balance": <TrialBalanceView />,
-  obligations: <ObligationsView />,
-  liquidity: <LiquidityView />,
-  budget: <BudgetView />,
-  journal: <JournalView />,
-  drafts: <AccountingDraftsView />,
-  "posting-rules": <PostingRulesView />,
-  "batch-bookkeeping": <BookkeepingBatchView />,
-  bank: <BankView />,
-  vat: <VatView />,
-  documents: <DocumentsView />,
-  payables: <PayablesView />,
-  invoices: <InvoicesView />,
-  "invoice-templates": <RecurringInvoicesView />,
-  contacts: <ContactsView />,
-  "workspace-register": <WorkspaceRegistryView />,
-  "workspace-inbox": <WorkspaceInboxView />,
-  mileage: <MileageView />,
-  assets: <AssetsView />,
-  suggestions: <SuggestionsView />,
-  archive: <ArchiveView />,
-  "multi-year": <MultiYearView />,
-  manage: <ManageCompanyView />,
-  retention: <RetentionView />,
-  integrity: <IntegrityView />,
-  accounts: <AccountsView />,
-  dimensions: <DimensionsView />,
-  exceptions: <ExceptionsView />,
-  "period-lock": <PeriodsView />,
-  "bank-accounts": <BankAccountsView />,
-  gdpr: <GdprView />,
-  accruals: <AccrualsView />,
-  "annual-report": <AnnualReportView />,
-  "receipt-email": <BilagsmailView />,
+const COMPANY_NAVIGATION = {
+  routes: COMPANY_ROUTE_REGISTRY,
+  areas: COMPANY_TASK_AREAS,
 };
-
-// Keep the executable route registration and the navigation catalogue in lockstep.
-assertCompanyRouteCoverage(Object.keys(COMPANY_ROUTE_ELEMENTS));
 
 export function App() {
   const health = useAsync(() => api.health(), []);
@@ -194,7 +117,7 @@ function CockpitApp() {
       </header>
 
       <main>
-        <CompanyNavigationShell>
+        <CompanyNavigationShell navigation={COMPANY_NAVIGATION} rendersNavigation>
           <CompanyTaskNavigation />
           <Routes>
             <Route path="/" element={<PortfolioView />} />
@@ -202,11 +125,11 @@ function CockpitApp() {
             <Route path="/companies/new" element={<AddCompanyView />} />
             {hosted && canManageWorkspace && <Route path="/koncernstruktur" element={<GroupOverviewView />} />}
             {hosted && canManageWorkspace && <Route path="/adgang" element={<WorkspaceAccessView />} />}
-            {COMPANY_ROUTE_DEFINITIONS.map((route) => (
+            {COMPANY_ROUTE_REGISTRY.map((route) => (
               <Route
                 key={route.id}
                 path={companyRoutePattern(route.segment)}
-                element={COMPANY_ROUTE_ELEMENTS[route.id]}
+                element={route.element}
               />
             ))}
             <Route path="/help" element={<HelpView />} />

@@ -173,9 +173,10 @@ export function lockGuardServer(server: McpServer): McpServer {
           if (readOnly && config.inputSchema && "company" in config.inputSchema) {
             assertMcpCompanyReadOnlyHandler(name, callback);
           }
+          const opening = (callback as { companyDbOpening?: string }).companyDbOpening;
           const guarded = readOnly
             ? (...args: unknown[]) => runMcpReadOnlyTool(() => callback(...args))
-            : name.startsWith("system_") ? callback : lockGuardedCallback(name, callback);
+            : name.startsWith("system_") || opening === "write" ? callback : lockGuardedCallback(name, callback);
           return (target.registerTool as (...a: unknown[]) => unknown)(name, config, guarded);
         };
       }

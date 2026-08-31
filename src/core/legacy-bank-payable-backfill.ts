@@ -23,6 +23,28 @@ const ledgerHead=(db:Database)=>(db.query("SELECT entry_hash FROM journal_entrie
 const auditHead=(db:Database)=>digest(db.query("SELECT id,event_type,entity_type,entity_id,message,actor,created_at FROM audit_log ORDER BY id DESC LIMIT 1").get()??{empty:true});
 const activeBalance=(db:Database, accountNo:string, cutoff:string)=>ore((db.query(`SELECT COALESCE(SUM(l.debit_amount-l.credit_amount),0) AS amount FROM journal_entries j JOIN journal_lines l ON l.journal_entry_id=j.id JOIN accounts a ON a.id=l.account_id WHERE a.account_no=? AND j.status='posted' AND j.transaction_date<=?`).get(accountNo,cutoff) as {amount:number}).amount);
 
+/**
+ * Historical Dinero reverse-charge vouchers retain their original liability
+ * classifications for the two VAT controls.  This is deliberately narrower
+ * than accepting a liability as VAT: the exact source-native 64040/64060
+ * pair, an explicit reverse-charge base code, and the 25% control amounts
+ * must all agree in the same already-posted journal.
+ */
+function hasDocumentedLegacyReverseChargeControls(db:Database,journalEntryId:number){
+  const lines=db.query(`SELECT a.account_no,a.type,a.normal_balance,l.debit_amount,l.credit_amount,l.vat_code
+    FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? ORDER BY l.id`).all(journalEntryId) as Array<{account_no:string;type:string;normal_balance:string;debit_amount:number;credit_amount:number;vat_code:string|null}>;
+  const output=lines.filter(line=>line.account_no==="64040"&&line.type==="liability"&&line.normal_balance==="credit");
+  const input=lines.filter(line=>line.account_no==="64060"&&line.type==="liability"&&["debit","credit"].includes(line.normal_balance));
+  const controlLines=lines.filter(line=>["64040","64060"].includes(line.account_no));
+  if(output.length!==1||input.length!==1||controlLines.length!==2)return false;
+  const outputOre=ore(Number(output[0]!.credit_amount)-Number(output[0]!.debit_amount));
+  const inputOre=ore(Number(input[0]!.debit_amount)-Number(input[0]!.credit_amount));
+  const bases=lines.filter(line=>line.type==="expense"&&["EU_SERVICE_REVERSE_CHARGE","NON_EU_SERVICE_REVERSE_CHARGE"].includes(text(line.vat_code)));
+  const codes=new Set(bases.map(line=>text(line.vat_code)));
+  const baseOre=bases.reduce((sum,line)=>sum+ore(Number(line.debit_amount)-Number(line.credit_amount)),0n);
+  return codes.size===1&&bases.length===1&&outputOre>0n&&ore(output[0]!.debit_amount)===0n&&ore(input[0]!.credit_amount)===0n&&outputOre===inputOre&&baseOre>0n&&outputOre*4n===baseOre;
+}
+
 export type LegacyBankBindingInput={bankAccountId:number;ledgerAccountNo:string;cutoff:string};
 export type ApplyLegacyBankBindingInput=LegacyBankBindingInput&{planHash:string;idempotencyKey:string;actor?:string;principal?:StablePrincipal;confirm:boolean};
 export type LegacyPayablePaymentBackfillInput={purchaseJournalEntryId:number;paymentJournalEntryId:number;documentId:number;bankTransactionId:number};
@@ -91,7 +113,7 @@ function payableContext(db:Database,input:LegacyPayablePaymentBackfillInput){
   if(payment&&payment.document_id!==input.documentId)errors.push("PAYMENT_DOCUMENT_MISMATCH");
   const creditor=resolveAccountRole(db,"creditors"), bankRole=resolveAccountRole(db,"bank"); if(!creditor.ok||!bankRole.ok)errors.push("CONFIRMED_CREDITOR_AND_BANK_ROLES_REQUIRED");
   const lineTotals=(id:number,account:string)=>db.query("SELECT COALESCE(SUM(debit_amount),0) debit,COALESCE(SUM(credit_amount),0) credit FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.account_no=?").get(id,account) as {debit:number;credit:number};
-  if(purchase&&creditor.ok){const x=lineTotals(purchase.id,creditor.accountNo);if(ore(x.credit)!==ore(document?.amount_inc_vat)||ore(x.debit)!==0n)errors.push("PURCHASE_CREDITOR_CREDIT_MISMATCH"); const bad=db.query("SELECT 1 FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.account_no<>? AND a.type NOT IN ('expense','vat') LIMIT 1").get(purchase.id,creditor.accountNo);if(bad)errors.push("PURCHASE_LINES_NOT_EXPENSE_OR_VAT");}
+  if(purchase&&creditor.ok){const x=lineTotals(purchase.id,creditor.accountNo);if(ore(x.credit)!==ore(document?.amount_inc_vat)||ore(x.debit)!==0n)errors.push("PURCHASE_CREDITOR_CREDIT_MISMATCH"); const legacyControls=hasDocumentedLegacyReverseChargeControls(db,purchase.id); const bad=db.query("SELECT a.account_no,a.type FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.account_no<>? AND a.type NOT IN ('expense','vat')").all(purchase.id,creditor.accountNo) as Array<{account_no:string;type:string}>;if(bad.some(line=>!legacyControls||!['64040','64060'].includes(line.account_no)))errors.push("PURCHASE_LINES_NOT_EXPENSE_OR_VAT");}
   if(payment&&creditor.ok&&bankRole.ok){const c=lineTotals(payment.id,creditor.accountNo), b=lineTotals(payment.id,bankRole.accountNo), amount=ore(Math.abs(Number(bank?.amount)));if(ore(c.debit)!==amount||ore(c.credit)!==0n||ore(b.credit)!==amount||ore(b.debit)!==0n)errors.push("PAYMENT_CREDITOR_BANK_MISMATCH");}
   if(payment&&bank&&payment.transaction_date!==bank.transaction_date)errors.push("PAYMENT_DATE_MISMATCH"); if(purchase&&payment&&payment.transaction_date<purchase.transaction_date)errors.push("PAYMENT_BEFORE_PURCHASE");
   const reconciliation=db.query("SELECT journal_entry_id FROM bank_journal_reconciliations WHERE bank_transaction_id=?").all(input.bankTransactionId) as Array<{journal_entry_id:number}>;if(reconciliation.length!==1||reconciliation[0]?.journal_entry_id!==input.paymentJournalEntryId)errors.push("EXACT_PAYMENT_RECONCILIATION_REQUIRED");

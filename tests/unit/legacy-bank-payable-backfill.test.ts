@@ -33,4 +33,18 @@ describe("legacy bank/payable adoption (#601)",()=>{
     const before=(db.query("SELECT COUNT(*) n FROM journal_entries").get() as any).n;const applied=applyLegacyPayablePaymentBackfill(db,{...input,planHash:plan.plan.planHash,idempotencyKey:"payable-1",actor:"agent:test",principal:{kind:"service-account",subjectId:"svc-test"},confirm:true});expect(applied).toMatchObject({ok:true,idempotent:false});expect((db.query("SELECT COUNT(*) n FROM journal_entries").get() as any).n).toBe(before);expect(db.query("SELECT document_id,journal_entry_id FROM payables").get()).toEqual({document_id:1,journal_entry_id:purchase.entryId});expect(db.query("SELECT bank_transaction_id,journal_entry_id FROM payable_payments").get()).toEqual({bank_transaction_id:1,journal_entry_id:payment.entryId});
     expect(planLegacyPayablePaymentBackfill(db,{...input,documentId:2})).toMatchObject({ok:false,errors:expect.arrayContaining(["PURCHASE_DOCUMENT_MISMATCH"])});expect(()=>db.run("UPDATE legacy_payable_payment_backfills SET plan_hash=?",hash("e"))).toThrow("append-only");db.close();
   });
+
+  test("accepts the documented legacy reverse-charge control pair, but not an arbitrary liability",()=>{
+    const planFor=(outputAccountNo:"64040"|"7900")=>{
+      const db=fresh();
+      db.query("INSERT INTO bank_accounts(id,slug,name,currency,ledger_account_no) VALUES(1,'bank','Bank','DKK','2000')").run();insertBank(db,1,1,-125,"2026-02-10","e");
+      db.query("INSERT INTO documents(id,source,sha256_hash,supplier_name,invoice_no,invoice_date,amount_inc_vat,vat_amount,currency,document_type) VALUES(1,'synthetic',?,'Synthetic supplier','RC-1','2026-02-01',125,0,'DKK','purchase_sale')").run(hash("s"));
+      db.query("INSERT INTO accounts(account_no,name,type,normal_balance) VALUES('64040','Legacy reverse-charge output VAT','liability','credit'),('64060','Legacy reverse-charge input VAT','liability','debit'),('7900','Arbitrary liability','liability','credit')").run();
+      const purchase=postJournalEntry(db,{transactionDate:"2026-02-01",text:"reverse charge purchase",documentId:1,lines:[{accountNo:"3010",debitAmount:125,vatCode:"EU_SERVICE_REVERSE_CHARGE"},{accountNo:"64060",debitAmount:31.25},{accountNo:outputAccountNo,creditAmount:31.25},{accountNo:"7000",creditAmount:125}]});expect(purchase.ok,purchase.errors.join("; ")).toBe(true);
+      const payment=postJournalEntry(db,{transactionDate:"2026-02-10",text:"payment",documentId:1,sourceBankTransactionId:1,lines:[{accountNo:"7000",debitAmount:125},{accountNo:"2000",creditAmount:125}]});expect(payment.ok).toBe(true);
+      const plan=planLegacyPayablePaymentBackfill(db,{purchaseJournalEntryId:purchase.entryId!,paymentJournalEntryId:payment.entryId!,documentId:1,bankTransactionId:1});db.close();return plan;
+    };
+    expect(planFor("64040")).toMatchObject({ok:true});
+    expect(planFor("7900")).toMatchObject({ok:false,errors:expect.arrayContaining(["PURCHASE_LINES_NOT_EXPENSE_OR_VAT"])});
+  });
 });

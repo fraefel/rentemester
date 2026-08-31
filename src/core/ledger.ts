@@ -57,20 +57,25 @@ type JournalPostingPolicy = {
   historicalImport: boolean;
   /** A reversal may faithfully copy an older uncoded VAT correction. */
   allowUncodedVatControl: boolean;
+  /** Exact reversals retain the original document without creating another correction link. */
+  skipNonCashBalanceCorrectionContract: boolean;
 };
 
 const MANUAL_POSTING_POLICY: JournalPostingPolicy = {
   historicalImport: false,
   allowUncodedVatControl: false,
+  skipNonCashBalanceCorrectionContract: false,
 };
 
 const HISTORICAL_IMPORT_POSTING_POLICY: JournalPostingPolicy = {
   historicalImport: true,
   allowUncodedVatControl: true,
+  skipNonCashBalanceCorrectionContract: false,
 };
 
 export type JournalPostResult = {
   ok: boolean;
+  idempotent?: boolean;
   entryId?: JournalEntryId;
   entryNo?: string;
   entryHash?: string;
@@ -322,6 +327,15 @@ function existingCreditNoteJournal(db: Database, documentId: number | undefined)
   ).get(documentId) as { id: number; entry_no: string } | null;
 }
 
+type NonCashBalanceEvidence = { document_id:number; document_sha256:string; issue_date:string; amount:number; currency:string };
+function nonCashBalanceEvidence(db:Database,documentId:number|undefined):NonCashBalanceEvidence|null {
+  if(documentId==null)return null;
+  return db.query("SELECT document_id,document_sha256,issue_date,amount,currency FROM non_cash_balance_correction_evidence WHERE document_id=?").get(documentId) as NonCashBalanceEvidence|null;
+}
+function nonCashBalancePayloadHash(payload:JournalEntryInput):string {
+  return createHash("sha256").update(JSON.stringify({transactionDate:payload.transactionDate,text:payload.text.trim(),documentId:payload.documentId??null,sourceBankTransactionId:payload.sourceBankTransactionId??null,currency:(payload.currency??"DKK").trim().toUpperCase(),amountForeign:payload.amountForeign??null,amountDkk:payload.amountDkk??null,fxRateToDkk:payload.fxRateToDkk??null,lines:payload.lines.map(line=>({accountNo:line.accountNo,debitAmount:normalizeAmount(line.debitAmount),creditAmount:normalizeAmount(line.creditAmount),vatCode:line.vatCode?.trim()||null,text:line.text??null}))})).digest("hex");
+}
+
 function validateJournalEntryWithPolicy(
   db: Database,
   payload: JournalEntryInput,
@@ -398,6 +412,23 @@ function validateJournalEntryWithPolicy(
 
   if (debitSum !== creditSum) {
     errors.push(`journal entry must balance: debit ${fromOre(debitSum)} != credit ${fromOre(creditSum)}`);
+  }
+
+  const nonCashEvidence=policy.skipNonCashBalanceCorrectionContract?null:nonCashBalanceEvidence(db,payload.documentId);
+  if(nonCashEvidence){
+    appliedRules.push("DK-BOOKKEEPING-NON-CASH-BALANCE-CORRECTION-001");
+    if(payload.sourceBankTransactionId!=null)errors.push("non-cash balance correction must not reference a bank transaction");
+    if(payload.transactionDate!==nonCashEvidence.issue_date)errors.push(`non-cash balance correction date must match document date ${nonCashEvidence.issue_date}`);
+    if(currency!==nonCashEvidence.currency.toUpperCase())errors.push(`non-cash balance correction currency must match document currency ${nonCashEvidence.currency}`);
+    if(debitSum!==toOre(Number(nonCashEvidence.amount))||creditSum!==toOre(Number(nonCashEvidence.amount)))errors.push(`non-cash balance correction journal amount must match document amount ${roundDkk(Number(nonCashEvidence.amount))}`);
+    const forbiddenRoles=new Set((db.query("SELECT account_no FROM account_role_mappings WHERE status='confirmed' AND role IN ('bank','debtors','creditors','output_vat','input_vat','reverse_charge_vat','vat_settlement')").all() as Array<{account_no:string}>).map(row=>row.account_no));
+    for(const [idx,line] of lines.entries()){
+      const account=accounts.get(line.accountNo);
+      if(account&&(!['asset','liability','equity'].includes(account.type)||forbiddenRoles.has(line.accountNo)))errors.push(`lines[${idx}] account ${line.accountNo} is not an eligible non-cash balance account`);
+      if(typeof line.vatCode==='string'&&line.vatCode.trim())errors.push(`lines[${idx}] vatCode is forbidden for non-cash balance corrections`);
+    }
+    const prior=db.query("SELECT journal_entry_id,payload_hash FROM non_cash_balance_correction_postings WHERE document_id=?").get(nonCashEvidence.document_id) as {journal_entry_id:number;payload_hash:string}|null;
+    if(prior&&prior.payload_hash!==nonCashBalancePayloadHash(payload))errors.push(`non-cash balance correction document ${nonCashEvidence.document_id} is already linked to a conflicting journal`);
   }
 
   // #533: a new manual entry that changes a VAT control account without any
@@ -630,6 +661,13 @@ function postJournalEntryInCurrentTransactionWithPolicy(
   const validation = validateJournalEntryWithPolicy(db, payload, policy);
   if (!validation.ok) return { ok: false, appliedRules: validation.appliedRules, errors: validation.errors };
 
+  const correctionEvidence=policy.skipNonCashBalanceCorrectionContract?null:nonCashBalanceEvidence(db,payload.documentId);
+  const correctionPayloadHash=correctionEvidence?nonCashBalancePayloadHash(payload):null;
+  if(correctionEvidence&&correctionPayloadHash){
+    const prior=db.query(`SELECT p.journal_entry_id,j.entry_no,j.entry_hash FROM non_cash_balance_correction_postings p JOIN journal_entries j ON j.id=p.journal_entry_id WHERE p.document_id=? AND p.payload_hash=?`).get(correctionEvidence.document_id,correctionPayloadHash) as {journal_entry_id:number;entry_no:string;entry_hash:string}|null;
+    if(prior)return {ok:true,idempotent:true,entryId:asJournalEntryId(prior.journal_entry_id),entryNo:prior.entry_no,entryHash:prior.entry_hash,appliedRules:validation.appliedRules,errors:[]};
+  }
+
   const accounts = accountMap(db);
 
   let applied: ReturnType<typeof applyJournalEntry>;
@@ -649,7 +687,12 @@ function postJournalEntryInCurrentTransactionWithPolicy(
   }
 
   const { previousHash: _previousHash, ...result } = applied;
-  return { ok: true, appliedRules: validation.appliedRules, errors: [], ...result };
+  if(correctionEvidence&&correctionPayloadHash){
+    const actor=resolveActor({createdBy:payload.createdBy,createdByProgram:payload.createdByProgram});
+    db.query(`INSERT INTO non_cash_balance_correction_postings(document_id,journal_entry_id,document_sha256,journal_entry_hash,payload_hash,actor,program) VALUES(?,?,?,?,?,?,?)`).run(correctionEvidence.document_id,applied.entryId,correctionEvidence.document_sha256,applied.entryHash,correctionPayloadHash,actor.createdBy,actor.createdByProgram);
+    insertAuditLog(db,{eventType:"non_cash_balance_correction_posted",entityType:"document",entityId:correctionEvidence.document_id,message:`Bound non-cash balance correction document ${correctionEvidence.document_id} to journal ${applied.entryNo}`,createdBy:actor.createdBy,createdByProgram:actor.createdByProgram});
+  }
+  return { ok: true, ...(correctionEvidence?{idempotent:false}:{}), appliedRules: validation.appliedRules, errors: [], ...result };
 }
 
 /** Public/manual journal posting. Import privileges cannot be supplied in data. */
@@ -913,6 +956,7 @@ function reverseJournalEntryInternal(
   const reversalPolicy: JournalPostingPolicy = {
     historicalImport: fromImport,
     allowUncodedVatControl: true,
+    skipNonCashBalanceCorrectionContract: true,
   };
   const validation = validateJournalEntryWithPolicy(db, reversalPayload, reversalPolicy);
   if (!validation.ok) return { ok: false, appliedRules: [...new Set([...appliedRules, ...validation.appliedRules])], errors: validation.errors };

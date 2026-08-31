@@ -30,6 +30,7 @@ export type DocumentRow = {
   source: string;
   filename: string | null;
   documentType: string;
+  internalVoucherKind: "bank_evidenced" | "non_cash_balance_correction" | null;
   sourceBankTransactionId: number | null;
   accountingRationale: string | null;
   preparedBy: string | null;
@@ -106,6 +107,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
                 d.currency        AS currency,
                 d.status          AS status,
                 ive.bank_transaction_id AS sourceBankTransactionId,
+                CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internalVoucherKind,
                 ive.accounting_rationale AS accountingRationale,
                 ive.prepared_by AS preparedBy,
                 ive.prepared_by_program AS preparedByProgram,
@@ -128,6 +130,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
            LEFT JOIN journal_entries je_link   ON je_link.id = idl.journal_entry_id
            LEFT JOIN journal_entries je_direct ON je_direct.document_id = d.id
            LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
+           LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
           -- EJER-15: the 'issued_invoice_pdf' row is the invoice's OWN rendered
           -- PDF — an internal artifact Rentemester writes when it issues a sales
           -- invoice, NOT an inbound voucher the owner must process. Including it
@@ -145,6 +148,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       source: string;
       filename: string | null;
       documentType: string;
+      internalVoucherKind: "bank_evidenced" | "non_cash_balance_correction" | null;
       sourceBankTransactionId: number | null;
       accountingRationale: string | null;
       preparedBy: string | null;
@@ -174,6 +178,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       source: r.source,
       filename: r.filename,
       documentType: r.documentType,
+      internalVoucherKind: r.internalVoucherKind,
       sourceBankTransactionId: r.sourceBankTransactionId,
       accountingRationale: r.accountingRationale,
       preparedBy: r.preparedBy,

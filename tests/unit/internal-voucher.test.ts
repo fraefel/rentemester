@@ -6,9 +6,12 @@ import { importBankCsv } from "../../src/core/bank";
 import { migrate, openDb } from "../../src/core/db";
 import { ingestDocument } from "../../src/core/documents";
 import { bookExpenseFromBank } from "../../src/core/expense-booking";
-import { seedAccounts } from "../../src/core/ledger";
+import { dryRunJournalEntry, postJournalEntry, seedAccounts, verifyAuditChain } from "../../src/core/ledger";
 import { ensureCompanyDirs } from "../../src/core/paths";
 import { buildVatReport } from "../../src/core/vat";
+import { buildProfitAndLoss } from "../../src/core/financial-statements";
+import { createSystemBackup } from "../../src/core/system-backups";
+import { restoreSystemBackup } from "../../src/core/system-restore";
 
 describe("internal vouchers backed by imported bank evidence (#554)", () => {
   test("books a 417 DKK bank fee without VAT and preserves immutable evidence", () => {
@@ -190,5 +193,58 @@ describe("internal vouchers backed by imported bank evidence (#554)", () => {
       rmSync(root, { recursive: true, force: true });
       rmSync(inbox, { recursive: true, force: true });
     }
+  });
+});
+
+describe("non-cash balance correction vouchers (#599)",()=>{
+  test("hash-binds one exact 9,630 DKK balance-only journal without changing P&L or VAT",()=>{
+    const root=mkdtempSync(join(tmpdir(),"rentemester-non-cash-voucher-"));
+    const inbox=mkdtempSync(join(tmpdir(),"rentemester-non-cash-voucher-inbox-"));
+    try{
+      const file=join(inbox,"balance-correction.txt");
+      writeFileSync(file,"# Internt balancekorrektionsbilag\nBeløb: 9.630,00 DKK\nMoms: 0\n");
+      const db=openDb(ensureCompanyDirs(root).db);migrate(db);seedAccounts(db);
+      const ingested=ingestDocument(db,root,file,{source:"internal-preparation",documentType:"internal_voucher",internalVoucherKind:"non_cash_balance_correction",issueDate:"2026-08-15",deliveryDescription:"Dokumenteret balancekorrektion",amountIncVat:9630,vatAmount:0,currency:"DKK",accountingRationale:"Retter en historisk klassifikation mellem to balancekonti; ingen bankbevægelse eller moms."},{createdBy:"agent:test",createdByProgram:"bun:test"});
+      expect(ingested.ok).toBe(true);
+      expect(ingested.documentId).toEqual(expect.any(Number));
+      expect(ingested.sha256).toMatch(/^[a-f0-9]{64}$/);
+      const documentId=ingested.documentId!;
+      const payload={transactionDate:"2026-08-15",text:"Dokumenteret ikke-kontant balancekorrektion",documentId,currency:"DKK",createdBy:"agent:test",createdByProgram:"bun:test",lines:[{accountNo:"5800",debitAmount:9630},{accountNo:"5000",creditAmount:9630}]};
+      const beforeCounts=db.query("SELECT (SELECT COUNT(*) FROM journal_entries) journals,(SELECT COUNT(*) FROM audit_log) audit").get();
+      const pnlBefore=buildProfitAndLoss(db,"2026-01-01","2026-12-31");const vatBefore=buildVatReport(db,"2026-07-01","2026-09-30");
+      expect(dryRunJournalEntry(db,payload)).toMatchObject({ok:true,accountEffects:[expect.objectContaining({accountNo:"5000",delta:-9630}),expect.objectContaining({accountNo:"5800",delta:9630})]});
+      expect(db.query("SELECT document_id FROM non_cash_balance_correction_evidence WHERE document_id=?").get(documentId)).toEqual({document_id:documentId});
+      expect(db.query("SELECT (SELECT COUNT(*) FROM journal_entries) journals,(SELECT COUNT(*) FROM audit_log) audit").get()).toEqual(beforeCounts);
+      const posted=postJournalEntry(db,payload);expect(posted.ok).toBe(true);expect(posted.idempotent).toBe(false);expect(posted.entryId).toEqual(expect.any(Number));
+      expect(postJournalEntry(db,payload)).toMatchObject({ok:true,idempotent:true,entryId:posted.entryId});
+      expect(buildProfitAndLoss(db,"2026-01-01","2026-12-31")).toEqual(pnlBefore);
+      // The report's operational row counters may grow, but every VAT field and every filing rubrik is unchanged.
+      const vatAfter=buildVatReport(db,"2026-07-01","2026-09-30");
+      expect({outputVat:vatAfter.outputVat,inputVat:vatAfter.inputVat,netVatPayable:vatAfter.netVatPayable,rubrikker:vatAfter.rubrikker}).toEqual({outputVat:vatBefore.outputVat,inputVat:vatBefore.inputVat,netVatPayable:vatBefore.netVatPayable,rubrikker:vatBefore.rubrikker});
+      expect(db.query("SELECT document_id,journal_entry_id,document_sha256,journal_entry_hash FROM non_cash_balance_correction_postings").get()).toMatchObject({document_id:ingested.documentId,journal_entry_id:posted.entryId,document_sha256:ingested.sha256,journal_entry_hash:posted.entryHash});
+      expect(verifyAuditChain(db,{companyRoot:root})).toMatchObject({ok:true,errors:[]});
+      expect(()=>db.run("UPDATE non_cash_balance_correction_evidence SET amount=1")).toThrow("append-only");expect(()=>db.run("DELETE FROM non_cash_balance_correction_postings")).toThrow("append-only");
+      const backup=createSystemBackup(db,root,{createdAt:"2026-08-16T12:00:00.000Z"});
+      expect(backup.ok).toBe(true);
+      db.close();
+      const restoredRoot=join(root,"restored");
+      const restored=restoreSystemBackup({backupDir:backup.backupDir!,targetCompanyRoot:restoredRoot});
+      expect(restored.ok).toBe(true);
+      const restoredDb=openDb(ensureCompanyDirs(restoredRoot).db);
+      expect(restoredDb.query("SELECT document_id,journal_entry_id FROM non_cash_balance_correction_postings").get()).toEqual({document_id:documentId,journal_entry_id:posted.entryId});
+      expect(verifyAuditChain(restoredDb,{companyRoot:restoredRoot})).toMatchObject({ok:true,errors:[]});
+      restoredDb.close();
+    }finally{rmSync(root,{recursive:true,force:true});rmSync(inbox,{recursive:true,force:true});}
+  });
+
+  test("fails closed on bank, VAT, P&L, mismatched and incomplete evidence",()=>{
+    const root=mkdtempSync(join(tmpdir(),"rentemester-non-cash-reject-"));const inbox=mkdtempSync(join(tmpdir(),"rentemester-non-cash-reject-inbox-"));
+    try{const db=openDb(ensureCompanyDirs(root).db);migrate(db);seedAccounts(db);let seq=0;
+      const ingest=(overrides:Record<string,unknown>={})=>{const file=join(inbox,`v-${seq++}.txt`);writeFileSync(file,`synthetic ${seq}`);return ingestDocument(db,root,file,{source:"internal",documentType:"internal_voucher",internalVoucherKind:"non_cash_balance_correction",issueDate:"2026-08-15",deliveryDescription:"Balance correction",amountIncVat:100,vatAmount:0,currency:"DKK",accountingRationale:"Synthetic documented correction",...overrides});};
+      expect(ingest({sourceBankTransactionId:1}).errors?.join(" ")).toContain("must not reference a bank");expect(ingest({accountingRationale:""}).ok).toBe(false);expect(ingest({vatAmount:1}).ok).toBe(false);
+      const doc=ingest();expect(doc.ok).toBe(true);const base={transactionDate:"2026-08-15",text:"correction",documentId:doc.documentId!,lines:[{accountNo:"5800",debitAmount:100},{accountNo:"5000",creditAmount:100}]};
+      expect(dryRunJournalEntry(db,{...base,transactionDate:"2026-08-16"}).ok).toBe(false);expect(dryRunJournalEntry(db,{...base,lines:[{accountNo:"3000",debitAmount:100},{accountNo:"5000",creditAmount:100}]}).ok).toBe(false);expect(dryRunJournalEntry(db,{...base,lines:[{accountNo:"2000",debitAmount:100},{accountNo:"5000",creditAmount:100}]}).ok).toBe(false);expect(dryRunJournalEntry(db,{...base,lines:[{accountNo:"4000",debitAmount:100},{accountNo:"5000",creditAmount:100}]}).ok).toBe(false);expect(dryRunJournalEntry(db,{...base,lines:[{accountNo:"5800",debitAmount:99},{accountNo:"5000",creditAmount:99}]}).ok).toBe(false);
+      expect(postJournalEntry(db,base).ok).toBe(true);expect(postJournalEntry(db,{...base,text:"conflict"}).errors.join(" ")).toContain("conflicting journal");db.close();
+    }finally{rmSync(root,{recursive:true,force:true});rmSync(inbox,{recursive:true,force:true});}
   });
 });

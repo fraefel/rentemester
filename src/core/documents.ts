@@ -27,6 +27,7 @@ export type DocumentType =
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
 export type PurchaseVatClassification = "dk_purchase_25" | "exempt";
 export type PurchaseVatLine = { classification: PurchaseVatClassification; netAmount: number; vatAmount?: number };
+export type InternalVoucherKind = "bank_evidenced" | "non_cash_balance_correction";
 
 export type DocumentMetadata = {
   source: string;
@@ -50,6 +51,8 @@ export type DocumentMetadata = {
   exemptionCode?: DocumentExemptionCode;
   /** Imported bank row that is the immutable primary evidence for an internal voucher. */
   sourceBankTransactionId?: number;
+  /** Explicit evidence contract. Omitted legacy vouchers remain bank_evidenced. */
+  internalVoucherKind?: InternalVoucherKind;
   /** Human accounting explanation for why the internal voucher is booked. */
   accountingRationale?: string;
 };
@@ -394,6 +397,7 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
   errors.push(...validatePurchaseVatLines(metadata));
 
   if (documentType === "internal_voucher") {
+    const internalVoucherKind = metadata.internalVoucherKind ?? "bank_evidenced";
     if (!looksLikeIsoDate(metadata.issueDate)) {
       errors.push("internal voucher issueDate must be present in YYYY-MM-DD format");
     }
@@ -406,11 +410,14 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
     if (metadata.vatAmount !== 0) {
       errors.push("internal voucher vatAmount must be exactly 0");
     }
-    if (
-      !Number.isInteger(metadata.sourceBankTransactionId) ||
-      Number(metadata.sourceBankTransactionId) <= 0
-    ) {
+    if (!['bank_evidenced', 'non_cash_balance_correction'].includes(internalVoucherKind)) {
+      errors.push("internal voucher internalVoucherKind must be bank_evidenced or non_cash_balance_correction");
+    } else if (internalVoucherKind === "bank_evidenced" && (
+      !Number.isInteger(metadata.sourceBankTransactionId) || Number(metadata.sourceBankTransactionId) <= 0
+    )) {
       errors.push("internal voucher sourceBankTransactionId must be a positive integer");
+    } else if (internalVoucherKind === "non_cash_balance_correction" && metadata.sourceBankTransactionId !== undefined) {
+      errors.push("non-cash balance correction must not reference a bank transaction");
     }
     if (!hasText(metadata.accountingRationale)) {
       errors.push("internal voucher accountingRationale is required");
@@ -667,7 +674,7 @@ function validateInternalVoucherBankEvidence(
   db: Database,
   metadata: DocumentMetadata,
 ): string[] {
-  if (metadata.documentType !== "internal_voucher") return [];
+  if (metadata.documentType !== "internal_voucher" || (metadata.internalVoucherKind ?? "bank_evidenced") !== "bank_evidenced") return [];
   const bankTransactionId = Number(metadata.sourceBankTransactionId);
   const bank = db.query(
     `SELECT id, transaction_date, amount, currency, transaction_hash,
@@ -894,18 +901,21 @@ function ingestDocumentSnapshot(
           createdBy: options.createdBy,
           createdByProgram: options.createdByProgram,
         });
-        db.query(
-          `INSERT INTO internal_voucher_evidence
-             (document_id, bank_transaction_id, accounting_rationale,
-              prepared_by, prepared_by_program)
-           VALUES (?, ?, ?, ?, ?)`,
-        ).run(
-          inserted.id,
-          metadata.sourceBankTransactionId!,
-          metadata.accountingRationale!.trim(),
-          actor.createdBy,
-          actor.createdByProgram,
-        );
+        if ((metadata.internalVoucherKind ?? "bank_evidenced") === "bank_evidenced") {
+          db.query(
+            `INSERT INTO internal_voucher_evidence
+               (document_id, bank_transaction_id, accounting_rationale,
+                prepared_by, prepared_by_program)
+             VALUES (?, ?, ?, ?, ?)`,
+          ).run(inserted.id, metadata.sourceBankTransactionId!, metadata.accountingRationale!.trim(), actor.createdBy, actor.createdByProgram);
+        } else {
+          db.query(
+            `INSERT INTO non_cash_balance_correction_evidence
+               (document_id, document_sha256, issue_date, amount, currency,
+                accounting_rationale, prepared_by, prepared_by_program)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).run(inserted.id, sha256, metadata.issueDate!, metadata.amountIncVat!, currency, metadata.accountingRationale!.trim(), actor.createdBy, actor.createdByProgram);
+        }
       }
 
       strengthenGdprErasureAliasesForIdentity(db, {

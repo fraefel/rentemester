@@ -8,6 +8,7 @@ export type DocumentRow = {
   source: string;
   filename: string | null;
   documentType: string;
+  internalVoucherKind?: "bank_evidenced" | "non_cash_balance_correction" | null;
   sourceBankTransactionId: number | null;
   accountingRationale: string | null;
   preparedBy: string | null;

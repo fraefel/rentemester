@@ -106,7 +106,11 @@ export const documentMetadataFields = {
       .int()
       .positive()
       .optional()
-      .describe("Required for internal_voucher: the imported bank transaction that is its primary evidence."),
+      .describe("Required for bank_evidenced internal_voucher; forbidden for non_cash_balance_correction."),
+    internalVoucherKind: z
+      .enum(["bank_evidenced", "non_cash_balance_correction"])
+      .optional()
+      .describe("Explicit internal-voucher evidence contract. Omitted legacy vouchers remain bank_evidenced."),
     accountingRationale: z
       .string()
       .min(1)
@@ -187,10 +191,12 @@ export function registerDocumentTools(server: McpServer): void {
                   d.sender_vat_cvr, d.supplier_country_code,
                   d.supplier_identifier_kind, d.supplier_identity_status,
                   ive.bank_transaction_id AS source_bank_transaction_id,
+                  CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
                   ive.accounting_rationale, ive.prepared_by,
                   ive.prepared_by_program
              FROM documents d
              LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
+             LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
             ORDER BY d.id DESC`,
         )
         .all() as Array<{
@@ -207,6 +213,7 @@ export function registerDocumentTools(server: McpServer): void {
           payload_json: string | null;
           sender_vat_cvr: string | null; supplier_country_code: string | null; supplier_identifier_kind: string | null; supplier_identity_status: string | null;
           source_bank_transaction_id: number | null;
+          internal_voucher_kind: "bank_evidenced" | "non_cash_balance_correction" | null;
           accounting_rationale: string | null;
           prepared_by: string | null;
           prepared_by_program: string | null;
@@ -228,6 +235,7 @@ export function registerDocumentTools(server: McpServer): void {
         supplierIdentifierKind: row.supplier_identifier_kind,
         supplierIdentityStatus: row.supplier_identity_status,
         sourceBankTransactionId: row.source_bank_transaction_id,
+        internalVoucherKind: row.internal_voucher_kind,
         accountingRationale: row.accounting_rationale,
         preparedBy: row.prepared_by,
         preparedByProgram: row.prepared_by_program,

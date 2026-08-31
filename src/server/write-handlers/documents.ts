@@ -180,6 +180,7 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     paymentDetails: str("paymentDetails"),
     exemptionCode: (exemptionCode ?? undefined) as DocumentMetadata["exemptionCode"],
     sourceBankTransactionId: num("sourceBankTransactionId"),
+    internalVoucherKind: str("internalVoucherKind") as DocumentMetadata["internalVoucherKind"],
     accountingRationale: str("accountingRationale"),
   };
 }

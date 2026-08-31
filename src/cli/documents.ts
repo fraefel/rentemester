@@ -148,10 +148,12 @@ export function register(dispatch: CommandDispatch): void {
                 d.supplier_country_code, d.supplier_identifier_kind,
                 d.supplier_identity_status, d.payload_json,
                 ive.bank_transaction_id AS source_bank_transaction_id,
+                CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
                 ive.accounting_rationale, ive.prepared_by,
                 ive.prepared_by_program
            FROM documents d
            LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
+           LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
           ORDER BY d.id DESC`,
       )
       .all() as Array<Record<string, unknown>>;
@@ -175,7 +177,7 @@ export function register(dispatch: CommandDispatch): void {
       console.log(`  Bilagsdato: ${row.invoice_date ?? "—"} | Kilde: ${row.source ?? "—"}`);
       if (row.document_type === "internal_voucher") {
         console.log(
-          `  Internt bilag: bankpost #${row.source_bank_transaction_id ?? "—"} | Udarbejdet af: ${row.prepared_by ?? "—"}`,
+          `  Internt bilag: ${row.internal_voucher_kind === "non_cash_balance_correction" ? "balancekorrektion — ingen bankbevægelse" : `bankpost #${row.source_bank_transaction_id ?? "—"}`} | Udarbejdet af: ${row.prepared_by ?? "—"}`,
         );
         console.log(`  Begrundelse: ${row.accounting_rationale ?? "—"}`);
       }

@@ -559,7 +559,9 @@ export function DocumentsView() {
                   <td>
                     <div>
                       {doc.documentType === "internal_voucher"
-                        ? `Bankpost #${doc.sourceBankTransactionId ?? "—"}`
+                        ? doc.internalVoucherKind === "non_cash_balance_correction"
+                          ? "Internt balancekorrektionsbilag — ingen bankbevægelse"
+                          : `Bankpost #${doc.sourceBankTransactionId ?? "—"}`
                         : doc.supplierName ?? "—"}
                     </div>
                     {doc.documentType === "internal_voucher" && doc.accountingRationale ? (

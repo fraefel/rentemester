@@ -73,6 +73,7 @@ export function DocumentIngestModal({
   const [reverseChargeWordingConfirmed, setReverseChargeWordingConfirmed] = useState(false);
   const [purchaseVatLines, setPurchaseVatLines] = useState<EditablePurchaseVatLine[]>([]);
   const [sourceBankTransactionId, setSourceBankTransactionId] = useState("");
+  const [internalVoucherKind, setInternalVoucherKind] = useState<"bank_evidenced" | "non_cash_balance_correction">("bank_evidenced");
   const [accountingRationale, setAccountingRationale] = useState("");
 
   const [busy, setBusy] = useState(false);
@@ -113,6 +114,7 @@ export function DocumentIngestModal({
   // those inputs are only required (and only shown as required) for køb/salg.
   const isPurchaseSale = documentType === "purchase_sale";
   const isInternalVoucher = documentType === "internal_voucher";
+  const isNonCashBalanceCorrection = isInternalVoucher && internalVoucherKind === "non_cash_balance_correction";
 
   async function handleIngest() {
     if (!fileBase64 || !fileName) {
@@ -137,7 +139,7 @@ export function DocumentIngestModal({
       ? Number(sourceBankTransactionId)
       : undefined;
     if (
-      isInternalVoucher &&
+      isInternalVoucher && !isNonCashBalanceCorrection &&
       (!Number.isInteger(bankTransactionId) || Number(bankTransactionId) <= 0)
     ) {
       setError("Angiv den importerede banktransaktions id.");
@@ -189,7 +191,8 @@ export function DocumentIngestModal({
     if (isInternalVoucher) metadata.vatAmount = 0;
     else if (vatNum !== undefined) metadata.vatAmount = vatNum;
     if (isInternalVoucher) {
-      metadata.sourceBankTransactionId = bankTransactionId!;
+      metadata.internalVoucherKind = internalVoucherKind;
+      if (!isNonCashBalanceCorrection) metadata.sourceBankTransactionId = bankTransactionId!;
       metadata.accountingRationale = accountingRationale.trim();
     }
     if (isPurchaseSale && parsedPurchaseVatLines.length > 0) {
@@ -404,6 +407,15 @@ export function DocumentIngestModal({
             {isInternalVoucher && (
               <>
                 <label className="modal-field">
+                  Intern bilagstype
+                  <select value={internalVoucherKind} onChange={(e) => setInternalVoucherKind(e.target.value as "bank_evidenced" | "non_cash_balance_correction")} disabled={busy}>
+                    <option value="bank_evidenced">Bankdokumenteret</option>
+                    <option value="non_cash_balance_correction">Balancekorrektion uden bankbevægelse</option>
+                  </select>
+                </label>
+                {isNonCashBalanceCorrection && <p className="muted">Kun to balancekonti, dato, valuta og beløb skal senere stemme præcist med journalen. Moms er altid 0.</p>}
+                {!isNonCashBalanceCorrection &&
+                <label className="modal-field">
                   Banktransaktions-id
                   <input
                     type="number"
@@ -414,6 +426,7 @@ export function DocumentIngestModal({
                     disabled={busy}
                   />
                 </label>
+                }
                 <label className="modal-field">
                   Regnskabsmæssig begrundelse
                   <textarea

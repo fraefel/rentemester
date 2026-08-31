@@ -262,6 +262,7 @@ export type DataImportSummary = {
 export type DocumentIngestMetadata = {
   source: string;
   documentType?: "purchase_sale" | "cash_register_receipt" | "internal_voucher";
+  internalVoucherKind?: "bank_evidenced" | "non_cash_balance_correction";
   issueDate?: string;
   invoiceNo?: string;
   deliveryDescription?: string;

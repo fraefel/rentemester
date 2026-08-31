@@ -170,7 +170,7 @@ export function DashboardView() {
 function isFreshEmptyCompany(o: CompanyOverview): boolean {
   if (o.archived) return false;
   const noEntries = o.lastPostedDate === null && o.recentEntries.length === 0;
-  const noBank = o.bank.actualBalance === null && o.bank.balance === 0;
+  const noBank = o.bank.actualBalance === null && o.bank.balance === 0 && o.bank.bankStatementStatus !== "ambiguous";
   return noEntries && noBank;
 }
 
@@ -338,6 +338,7 @@ function BankCard({
   to: string;
 }) {
   const { balance, actualBalance, difference } = bank;
+  const ambiguous = bank.bankStatementStatus === "ambiguous";
   // The actual statement balance is the headline figure when it is known —
   // it is what the owner's bank app shows. The booked balance and the gap
   // sit below it, clearly labelled, so a difference is never mistaken.
@@ -345,11 +346,13 @@ function BankCard({
   return (
     <StatusCard title="Bank" to={to}>
       <div className="status-figure">
-        {formatKroner(actualBalance ?? balance, currency)}
+        {actualBalance === null && ambiguous ? "—" : formatKroner(actualBalance ?? balance, currency)}
       </div>
       {actualBalance === null ? (
         <p className="muted status-note">
-          Bogført saldo på bank- og kassekonti — intet kontoudtog importeret
+          {ambiguous
+            ? "Kontoudtogets rækkefølge eller løbende saldo kan ikke bevises. Se Bank og kontrollér eksporten — Rentemester viser ingen gættet saldo."
+            : "Bogført saldo på bank- og kassekonti — intet kontoudtog importeret"}
         </p>
       ) : (
         <p className="muted status-note">

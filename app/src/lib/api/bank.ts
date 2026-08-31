@@ -63,6 +63,7 @@ export const bankApi = {
           csvContent: input.csvContent,
           ...(input.account ? { account: input.account } : {}),
           ...(input.profile ? { profile: input.profile } : {}),
+          ...(input.statementOrder ? { statementOrder: input.statementOrder } : {}),
           confirm: true,
         }),
       },
@@ -74,6 +75,7 @@ export type BankImportInput = {
   csvContent: string;
   account?: string;
   profile?: string;
+  statementOrder?: "ascending" | "descending";
 };
 
 /** The bank-import result the server echoes back. */

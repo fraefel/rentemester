@@ -47,6 +47,7 @@ export function BankImportModal({ slug, onImported, onClose }: BankImportModalPr
   const [csvContent, setCsvContent] = useState<string | null>(null);
   const [account, setAccount] = useState("");
   const [profile, setProfile] = useState("");
+  const [statementOrder, setStatementOrder] = useState<"" | "ascending" | "descending">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export function BankImportModal({ slug, onImported, onClose }: BankImportModalPr
         csvContent,
         account: account.trim() || undefined,
         profile: profile.trim() || undefined,
+        statementOrder: profile.trim() ? undefined : statementOrder || undefined,
       });
       setDone(summary);
       onImported();
@@ -208,6 +210,18 @@ export function BankImportModal({ slug, onImported, onClose }: BankImportModalPr
                 onChange={handleFile}
                 disabled={busy}
               />
+            </label>
+
+            <label className="modal-field">
+              Rækkefølge i kontoudtoget (valgfri)
+              <select aria-label="Rækkefølge i kontoudtoget (valgfri)" value={statementOrder} onChange={(e) => setStatementOrder(e.target.value as "" | "ascending" | "descending")} disabled={busy || Boolean(profile.trim())}>
+                <option value="">Ukendt / ingen løbende saldo</option>
+                <option value="ascending">Ældste række først</option>
+                <option value="descending">Nyeste række først</option>
+              </select>
+              <span className="field-hint">
+                Vælg kun dette for en standard-CSV, når banken dokumenterer rækkefølgen. Det gør samme-dags saldoen verificerbar; ellers vises den som ukendt frem for at blive gættet. En bankprofil angiver selv rækkefølgen.
+              </span>
             </label>
             {fileName && (
               <p className="muted" style={{ margin: 0 }}>

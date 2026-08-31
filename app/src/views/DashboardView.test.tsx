@@ -203,6 +203,12 @@ describe("DashboardView — Overblik", () => {
     ).closest("a")!;
     expect(bankCard).toHaveAttribute("href", "/companies/acme-aps/bank?year=2026");
   });
+
+  test("shows an ambiguous statement as unknown rather than booked liquidity", async () => {
+    mockFetch(overviewRoute({ bank: { balance: 1200, actualBalance: null, difference: null, bankStatementStatus: "ambiguous", bankStatementDiagnostics: ["source collision"] } }));
+    renderDashboard();
+    expect(await screen.findByText(/kan ikke bevises/)).toBeInTheDocument();
+  });
 });
 
 // --------------------------------------------------------------------------

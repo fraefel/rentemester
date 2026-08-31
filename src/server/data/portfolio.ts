@@ -31,7 +31,7 @@ import {
 } from "../../core/workspace";
 import { ApiError } from "../errors";
 import { currentFiscalYear, roundKroner } from "./shared";
-import { actualBankBalanceAsOf, bankStatementStatusAsOf } from "./bank";
+import { resolveActualBankBalanceAsOf } from "./bank";
 import { selectVatPeriod, vatPeriodEffectiveStatus } from "./vat";
 import { groupExceptions, type ExceptionGroup } from "./exceptions";
 
@@ -74,6 +74,7 @@ export type CompanySummary = {
    * importeret" for a company whose import simply lacked a balance column.
    */
   bankStatementStatus: "known" | "no-balance-column" | "none" | "ambiguous";
+  bankStatementDiagnostics: string[];
   /** Current registered VAT-period position + deadline; null when unknown. */
   vat: CompanyVatSummary | null;
   /** Open tasks — open exceptions, grouped into Danish summary lines. */
@@ -110,6 +111,7 @@ function summariseCompany(
       omsaetning: 0,
       actualBankBalance: null,
       bankStatementStatus: "none",
+      bankStatementDiagnostics: [],
       vat: null,
       openTaskCount: 0,
       taskGroups: [],
@@ -139,6 +141,7 @@ function summariseCompany(
       omsaetning: 0,
       actualBankBalance: null,
       bankStatementStatus: "none",
+      bankStatementDiagnostics: [],
       vat: null,
       openTaskCount: 0,
       taskGroups: [],
@@ -163,8 +166,9 @@ function summariseCompany(
     // Actual bank balance from the imported statement (what the bank shows),
     // plus WHY it is (or is not) known so the card never wrongly claims "intet
     // kontoudtog importeret" for a balance-column-less import (EJER-12).
-    const actualBankBalance = actualBankBalanceAsOf(db, yearEnd);
-    const bankStatementStatus = bankStatementStatusAsOf(db, yearEnd);
+    const statementBalance = resolveActualBankBalanceAsOf(db, yearEnd);
+    const actualBankBalance = statementBalance.balance;
+    const bankStatementStatus = statementBalance.status;
 
     // VAT: the booked position for the company's actual VAT period — the
     // period (month / quarter / half-year, per `vatPeriodType`) that is due
@@ -220,6 +224,7 @@ function summariseCompany(
       omsaetning: pl.totalIncome,
       actualBankBalance,
       bankStatementStatus,
+      bankStatementDiagnostics: statementBalance.diagnostics,
       vat,
       openTaskCount: exceptions.count,
       taskGroups,
@@ -252,8 +257,9 @@ export type PortfolioOverview = {
   rollup: {
     /** Combined year-to-date result across all companies, kroner. */
     resultat: number;
-    /** Combined liquidity — actual bank balance across all companies, kroner. */
-    liquidity: number;
+    /** Combined liquidity, null unless every company has a provable balance. */
+    liquidity: number | null;
+    liquidityComplete: boolean;
     /** Combined VAT owed across all companies, kroner. */
     vatPayable: number;
     /** Total open tasks across all companies. */
@@ -328,13 +334,15 @@ export function buildPortfolioOverview(
       netVatPayable: 0,
     },
   );
+  const liquidityComplete = companies.every((company) => company.actualBankBalance !== null);
   return {
     workspace: workspaceRoot,
     asOf: asOfDate,
     companyCount: companies.length,
     rollup: {
       resultat: roundKroner(rollup.resultat),
-      liquidity: roundKroner(rollup.liquidity),
+      liquidity: liquidityComplete ? roundKroner(rollup.liquidity) : null,
+      liquidityComplete,
       vatPayable: roundKroner(rollup.vatPayable),
       openTaskCount: rollup.openTaskCount,
     },

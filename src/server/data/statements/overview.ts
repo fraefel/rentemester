@@ -25,8 +25,7 @@ import {
 } from "../shared";
 import {
   bankBalanceAsOf,
-  actualBankBalanceAsOf,
-  bankStatementStatusAsOf,
+  resolveActualBankBalanceAsOf,
 } from "../bank";
 import { selectVatPeriod, vatPeriodEffectiveStatus } from "../vat";
 import { groupExceptions, type ExceptionGroup } from "../exceptions";
@@ -233,6 +232,7 @@ export function buildCompanyOverview(
           actualBalance: null,
           difference: null,
           bankStatementStatus: "none" as const,
+          bankStatementDiagnostics: [] as string[],
         },
         receivables: { openCount: 0, openTotal: 0 },
         vat: null,
@@ -342,13 +342,14 @@ export function buildCompanyOverview(
     // needs the actual figure — the booked one alone is misleading when the
     // import is not yet reconciled.
     const bookedBalance = bankBalanceAsOf(db, yearEnd);
-    const actualBalance = actualBankBalanceAsOf(db, yearEnd);
+    const statementBalance = resolveActualBankBalanceAsOf(db, yearEnd);
+    const actualBalance = statementBalance.balance;
     const bankDifference =
       actualBalance === null ? null : roundKroner(bookedBalance - actualBalance);
     // EJER-12: WHY the actual balance is null — distinguishes "no statement
     // imported" from "imported without a balance column" so the dashboard
     // never wrongly says "intet kontoudtog importeret".
-    const bankStatementStatus = bankStatementStatusAsOf(db, yearEnd);
+    const bankStatementStatus = statementBalance.status;
 
     // Receivables (debitorer): money owed TO the company — the still-open
     // balance of issued sales invoices as of the year end. `buildInvoiceList`
@@ -419,6 +420,7 @@ export function buildCompanyOverview(
         actualBalance,
         difference: bankDifference,
         bankStatementStatus,
+        bankStatementDiagnostics: statementBalance.diagnostics,
       },
       receivables,
       vat: vatBlock,

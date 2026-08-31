@@ -18,6 +18,8 @@ export function summary(over: Partial<CompanySummary> = {}): CompanySummary {
     resultat: 13234.82,
     omsaetning: 17829.02,
     actualBankBalance: 23654.75,
+    bankStatementStatus: "known",
+    bankStatementDiagnostics: [],
     vat: { payable: 3371.2, deadline: "2026-09-01", daysRemaining: 103 },
     openTaskCount: 0,
     taskGroups: [],

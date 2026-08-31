@@ -20,7 +20,7 @@ function portfolioRoute(companies: ReturnType<typeof summary>[]) {
         workspace: "/ws",
         asOf: "2026-05-20",
         companyCount: companies.length,
-        rollup,
+        rollup: { ...rollup, liquidityComplete: companies.every((c) => c.actualBankBalance !== null) },
         totals: {},
         companies,
       },
@@ -73,6 +73,12 @@ describe("PortfolioView", () => {
     renderAt(<PortfolioView />);
     expect(await screen.findByText(/Samlet resultat/i)).toBeInTheDocument();
     expect(screen.getByText(/Samlet likviditet/i)).toBeInTheDocument();
+  });
+
+  test("marks liquidity incomplete when a company statement is ambiguous", async () => {
+    mockFetch(portfolioRoute([summary({ actualBankBalance: null, bankStatementStatus: "ambiguous", bankStatementDiagnostics: ["source collision"] })]));
+    renderAt(<PortfolioView />);
+    expect(await screen.findByText(/Ufuldstændig/)).toBeInTheDocument();
   });
 
   test("surfaces an API error with a retry affordance", async () => {

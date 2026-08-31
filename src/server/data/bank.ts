@@ -102,10 +102,15 @@ export function resolveActualBankBalanceAsOf(db: Database, asOfDate: string): St
   let totalOre = 0n;
   let knownAccounts = 0;
   let hadBalance = false;
+  let accountsWithoutBalances = 0;
 
   for (const accountRows of accounts.values()) {
     const balanceRows = accountRows.filter((row) => row.balanceAfter !== null);
-    if (balanceRows.length === 0) continue;
+    if (balanceRows.length === 0) {
+      accountsWithoutBalances += 1;
+      diagnostics.push(`bank account ${accountRows[0]!.bankAccountId ?? "legacy"} has no balance_after`);
+      continue;
+    }
     hadBalance = true;
     // A partial running-balance stream cannot prove its movement check.
     if (balanceRows.length !== accountRows.length) {
@@ -164,7 +169,10 @@ export function resolveActualBankBalanceAsOf(db: Database, asOfDate: string): St
     totalOre += previousOre;
     knownAccounts += 1;
   }
-  if (diagnostics.length > 0) return { status: "ambiguous", balance: null, provenance: [], diagnostics };
+  // A portfolio total is meaningful only when every imported account has a
+  // provable statement closing balance. Do not sum the known subset.
+  if (hadBalance && diagnostics.length > 0) return { status: "ambiguous", balance: null, provenance: [], diagnostics };
+  if (!hadBalance && accountsWithoutBalances > 0) return { status: "no-balance-column", balance: null, provenance: [], diagnostics: [] };
   if (!hadBalance || knownAccounts === 0) return { status: "no-balance-column", balance: null, provenance: [], diagnostics: [] };
   return { status: "known", balance: fromOre(totalOre), provenance, diagnostics: [] };
 }

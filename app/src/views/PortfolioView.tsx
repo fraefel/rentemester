@@ -73,8 +73,9 @@ export function PortfolioView() {
           <div className="rollup-cell">
             <span className="rollup-label">Samlet likviditet</span>
             <span className="rollup-value">
-              {formatKroner(rollup.liquidity)}
+              {rollup.liquidity === null ? "—" : formatKroner(rollup.liquidity)}
             </span>
+            {!rollup.liquidityComplete && <span className="rollup-note">Ufuldstændig — kontrollér Bank</span>}
           </div>
           <div className="rollup-cell">
             <span className="rollup-label">Moms at betale</span>

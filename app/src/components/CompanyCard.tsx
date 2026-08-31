@@ -51,7 +51,13 @@ export function CompanyCard({ company }: { company: CompanySummary }) {
                 : formatKroner(company.actualBankBalance)}
             </span>
             {company.actualBankBalance === null && (
-              <span className="m-sub">intet kontoudtog importeret</span>
+              <span className="m-sub">
+                {company.bankStatementStatus === "ambiguous"
+                  ? "kontoudtoget kan ikke verificeres — se Bank"
+                  : company.bankStatementStatus === "no-balance-column"
+                    ? "kontoudtoget har ingen saldo-kolonne"
+                    : "intet kontoudtog importeret"}
+              </span>
             )}
           </div>
           <div className="cc-metric">

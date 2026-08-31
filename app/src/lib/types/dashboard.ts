@@ -162,6 +162,8 @@ export type CompanyOverview = {
     actualBalance: number | null;
     /** balance − actualBalance; the unreconciled gap, kroner; null when unknown. */
     difference: number | null;
+    bankStatementStatus?: "known" | "no-balance-column" | "none" | "ambiguous";
+    bankStatementDiagnostics?: string[];
   };
   /** Money owed TO the company — open issued-invoice balances at year end. */
   receivables: {

@@ -967,7 +967,14 @@ export function importBankCsv(
         // evidence unless an importer/profile says what it means.
         (profile?.statementOrder ?? options.statementOrder) ? sourceRowIndex : null,
         profile?.statementOrder ?? options.statementOrder ?? null,
-        profile?.statementOrder ? `profile:${profile.name}` : options.statementOrder ? "explicit:bank-import" : null,
+        // The source hash binds chronology to this exact immutable export.
+        // A later import on the same date is deliberately a distinct source;
+        // readers fail closed rather than joining two independent sequences.
+        profile?.statementOrder
+          ? `sha256:${sourceFileHash};profile:${profile.name};order:${profile.statementOrder}`
+          : options.statementOrder
+            ? `sha256:${sourceFileHash};explicit:bank-import;order:${options.statementOrder}`
+            : null,
       );
       importedRowIds.push(Number(result.lastInsertRowid));
       imported += 1;

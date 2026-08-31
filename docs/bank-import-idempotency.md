@@ -53,7 +53,9 @@ kan gøre det eksplicit med `--statement-order ascending|descending` (eller
 hver importeret bankrække.
 
 Ved flere rækker på samme dato bruger saldoresolveren denne lagrede kildeorden
-— aldrig SQLite-id eller importtidspunkt. En manglende, modstridende eller
+— aldrig SQLite-id eller importtidspunkt. Proveniensen er bundet til den
+immutable `sourceFileHash` plus den erklærede profil/retning; to forskellige
+eksporter på samme dato kan derfor ikke stiltiende kædes sammen. En manglende, modstridende eller
 inkonsistent saldo-kæde giver status `ambiguous` og ingen faktisk banksaldo.
 Det samme fail-closed resultat og den tilhørende proveniens bruges af
 portefølje, overblik, bank- og likviditetsvisninger samt API'et.

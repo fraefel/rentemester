@@ -9,18 +9,13 @@
 // `server/data.ts` is now a thin re-export barrel over these modules, so every
 // existing `import ... from "./data"` keeps resolving unchanged.
 
-import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
-import { companyPaths } from "../../core/paths";
 import { openDb, migrate } from "../../core/db";
 import { getCompanySettings, type CompanySettings } from "../../core/company";
 import { todayIsoDate } from "../../core/dates";
 import { fiscalYearForDate } from "../../core/fiscal-year";
-import {
-  companyRootForSlug,
-  findWorkspaceCompany,
-  type WorkspaceCompanyEntry,
-} from "../../core/workspace";
+import { type WorkspaceCompanyEntry } from "../../core/workspace";
+import { resolveWorkspaceCompany } from "../../core/workspace-company-resolver";
 import { ApiError } from "../errors";
 
 export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -137,15 +132,16 @@ export function buildCompanyFiscalYears(
   workspaceRoot: string,
   slug: string,
 ): CompanyFiscalYears {
-  const entry = findWorkspaceCompany(workspaceRoot, slug);
-  if (!entry) {
+  const target = resolveWorkspaceCompany(workspaceRoot, slug, {
+    selection: "registered", archived: "allow", ledger: "required",
+  });
+  if (!target.ok && target.reason !== "LEDGER_MISSING") {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
   }
-  const companyRoot = companyRootForSlug(workspaceRoot, slug);
-  const dbPath = companyPaths(companyRoot).db;
-  if (!existsSync(dbPath)) {
+  if (!target.ok) {
     throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);
   }
+  const { entry, ledgerDbPath: dbPath } = target.company;
 
   const db = openDb(dbPath);
   try {
@@ -220,15 +216,16 @@ export function resolveStatementContext(
   selectedLabel: string;
   isArchivedOnly: boolean;
 } {
-  const entry = findWorkspaceCompany(workspaceRoot, slug);
-  if (!entry) {
+  const target = resolveWorkspaceCompany(workspaceRoot, slug, {
+    selection: "registered", archived: "allow", ledger: "required",
+  });
+  if (!target.ok && target.reason !== "LEDGER_MISSING") {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
   }
-  const companyRoot = companyRootForSlug(workspaceRoot, slug);
-  const dbPath = companyPaths(companyRoot).db;
-  if (!existsSync(dbPath)) {
+  if (!target.ok) {
     throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);
   }
+  const { entry, ledgerDbPath: dbPath } = target.company;
 
   const years = buildCompanyFiscalYears(workspaceRoot, slug).years;
   const liveYears = years.filter((y) => y.source === "live");
@@ -274,14 +271,16 @@ export function statementCompanyBlock(
 
 /** Resolve a slug to its ledger db path, asserting the company + ledger exist. */
 export function requireCompanyDbPath(workspaceRoot: string, slug: string): string {
-  if (!findWorkspaceCompany(workspaceRoot, slug)) {
+  const target = resolveWorkspaceCompany(workspaceRoot, slug, {
+    selection: "registered", archived: "allow", ledger: "required",
+  });
+  if (!target.ok && target.reason !== "LEDGER_MISSING") {
     throw ApiError.notFound(`ingen virksomhed med slug '${slug}' findes i workspacet`);
   }
-  const dbPath = companyPaths(companyRootForSlug(workspaceRoot, slug)).db;
-  if (!existsSync(dbPath)) {
+  if (!target.ok) {
     throw ApiError.notFound(`virksomheden '${slug}' har ingen ledger`);
   }
-  return dbPath;
+  return target.company.ledgerDbPath;
 }
 
 /** Danish month abbreviations, jan–dec, used by the monthly breakdown views. */

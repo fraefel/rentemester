@@ -77,7 +77,7 @@ export function register(dispatch: CommandDispatch): void {
     migrate(db);
 
     const company = getCompanySettings(db);
-    const audit = verifyAuditChain(db);
+    const audit = verifyAuditChain(db, { companyRoot });
     const retention = buildRetentionStatusReport(db, asOfDate);
     const backup = getBackupGovernanceStatus(db, companyRoot, asOfDate);
     const gdpr = buildGdprAuditExport(db, { asOf: asOfDate });

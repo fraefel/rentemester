@@ -207,7 +207,7 @@ function summariseCompany(
     const invoices = buildInvoiceList(db, { status: "open", asOfDate: yearEnd });
     const overdue = buildOverdueInvoiceList(db, {});
     const unlinked = listBankTransactions(db, { status: "unmatched" });
-    const audit = verifyAuditChain(db);
+    const audit = verifyAuditChain(db, { companyRoot });
 
     return {
       slug: entry.slug,
@@ -435,7 +435,7 @@ export function buildCompanyDashboardData(
           })();
     const recentActivity = listRecentAuditLog(db, 10);
     const backup = getBackupComplianceStatus(db, companyRoot, asOfDate);
-    const audit = verifyAuditChain(db);
+    const audit = verifyAuditChain(db, { companyRoot });
 
     return {
       slug: entry.slug,

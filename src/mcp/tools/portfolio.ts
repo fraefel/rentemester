@@ -135,7 +135,7 @@ function companyStatusRow(
     const overdue = buildInvoiceList(db, { status: "overdue", asOfDate });
     const exceptions = listExceptions(db, { status: "open" });
     const backup = getBackupComplianceStatus(db, companyRoot, asOfDate);
-    const audit = verifyAuditChain(db);
+    const audit = verifyAuditChain(db, { companyRoot });
     const openReceivables = open.rows.reduce((acc, r) => acc + r.openBalance, 0);
     return {
       ...base,

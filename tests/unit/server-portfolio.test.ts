@@ -16,7 +16,7 @@ import {
 } from "../../src/core/workspace";
 import { companyPaths } from "../../src/core/paths";
 import { openDb, migrate } from "../../src/core/db";
-import { postJournalEntry } from "../../src/core/ledger";
+import { postJournalEntry, verifyAuditChain } from "../../src/core/ledger";
 import { ingestDocument } from "../../src/core/documents";
 import { recordException } from "../../src/core/exceptions";
 
@@ -332,6 +332,65 @@ describe("portfolio aggregation", () => {
       const before = dataDirectoryDigest(companyRoot);
       expect(buildPortfolioOverview(ws, "2026-05-20").companyCount).toBe(1);
       expect(dataDirectoryDigest(companyRoot)).toEqual(before);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("portfolio, dashboard and integrity agree on document-backed audit evidence", async () => {
+    const ws = tmpRoot("pf-audit-evidence");
+    try {
+      initWorkspace(ws);
+      createCompany(ws, { name: "Evidence ApS", cvr: "DK10000018" });
+      seedPnl(ws, "evidence-aps", "2026-03-15", 1000, 0);
+      const companyRoot = companyRootForSlug(ws, "evidence-aps");
+      const before = dataDirectoryDigest(companyRoot);
+
+      const db = openDb(companyPaths(companyRoot).db);
+      expect(verifyAuditChain(db, { companyRoot })).toMatchObject({ ok: true, errors: [] });
+      db.close();
+
+      const portfolio = await handleRequest(
+        new Request("http://localhost/api/portfolio?asOf=2026-05-20"),
+        config(ws),
+      );
+      const portfolioBody = await portfolio.json();
+      expect(portfolioBody.portfolio.companies[0].auditChainOk).toBe(true);
+
+      const dashboard = await handleRequest(
+        new Request("http://localhost/api/companies/evidence-aps/dashboard?asOf=2026-05-20"),
+        config(ws),
+      );
+      const dashboardBody = await dashboard.json();
+      expect(dashboardBody.dashboard.audit.ok).toBe(true);
+
+      const integrity = await handleRequest(
+        new Request("http://localhost/api/companies/evidence-aps/integrity"),
+        config(ws),
+      );
+      const integrityBody = await integrity.json();
+      expect(integrityBody.integrity.auditChain).toMatchObject({ ok: true, errors: [] });
+      expect(before.length).toBeGreaterThan(0);
+
+      const original = readdirSync(join(companyRoot, "documents", "originals"))[0];
+      if (!original) throw new Error("synthetic evidence file missing");
+      rmSync(join(companyRoot, "documents", "originals", original));
+
+      const brokenPortfolio = await handleRequest(
+        new Request("http://localhost/api/portfolio?asOf=2026-05-20"),
+        config(ws),
+      );
+      expect((await brokenPortfolio.json()).portfolio.companies[0].auditChainOk).toBe(false);
+      const brokenIntegrity = await handleRequest(
+        new Request("http://localhost/api/companies/evidence-aps/integrity"),
+        config(ws),
+      );
+      expect((await brokenIntegrity.json()).integrity.auditChain.ok).toBe(false);
+      const brokenDashboard = await handleRequest(
+        new Request("http://localhost/api/companies/evidence-aps/dashboard?asOf=2026-05-20"),
+        config(ws),
+      );
+      expect((await brokenDashboard.json()).dashboard.audit.ok).toBe(false);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

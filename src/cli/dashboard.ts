@@ -330,7 +330,7 @@ export function register(dispatch: CommandDispatch): void {
     const vatDaysRemaining = daysBetween(asOfDate, period.end);
     const recentActivity = listRecentAuditLog(db, 10);
     const backup = getBackupComplianceStatus(db, companyRoot, asOfDate);
-    const auditResult = verifyAuditChain(db);
+    const auditResult = verifyAuditChain(db, { companyRoot });
 
     // Recurring-feature inputs (#islands → control surfaces). The render-engine
     // stays pure; all real-world data is gathered here.

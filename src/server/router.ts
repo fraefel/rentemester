@@ -33,6 +33,7 @@ import { ApiError, toErrorResponse } from "./errors";
 import { assertHostedMutationOriginAllowed } from "./mutations";
 import { jsonResponse } from "./router/_shared";
 import { dispatchAgentDiscoveryRoute } from "./router/agent-discovery-dispatch";
+import { dispatchGroupWorkspaceRoute } from "./router/group-workspace-dispatch";
 import { dispatchSystemRoute } from "./router/system-dispatch";
 import { handleCompanyAccountingDraft, handleCompanyAccountingDrafts } from "./router/accounting-drafts";
 import {
@@ -735,151 +736,18 @@ export async function handleRequest(
     });
     if (systemResponse) return systemResponse;
 
-    if (path === "/api/portfolio") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handlePortfolio(config, url);
-    }
-
-    if (path === "/api/cfo-analytics") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handleCfoAnalytics(config, url);
-    }
-
-    if (path === "/api/me") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handleMe(config);
-    }
-
-    if (path === "/api/workspace/invitations") {
-      if (method === "GET") return handleWorkspaceInvitationList(config);
-      if (method === "POST") return await handleWorkspaceInvitationCreate(config, request);
-      throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
-    }
-
-    if (path === "/api/workspace/invitations/cancel") {
-      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
-      return await handleWorkspaceInvitationCancel(config, request);
-    }
-    if (path === "/api/workspace/service-principals") {
-      if (method === "GET") return handleServicePrincipalList(config);
-      if (method === "POST") return await handleServicePrincipalCreate(config, request);
-      throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
-    }
-    if (path === "/api/workspace/service-principals/rotate") {
-      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
-      return await handleServicePrincipalRotate(config, request);
-    }
-    if (path === "/api/workspace/service-principals/revoke") {
-      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
-      return await handleServicePrincipalRevoke(config, request);
-    }
-    if (path === "/api/workspace/service-principals/recover") {
-      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
-      return await handleServicePrincipalRecover(config, request);
-    }
-
-    if (path === "/api/workspace/members") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handleWorkspaceMemberList(config);
-    }
-
-    if (path === "/api/workspace/members/access") {
-      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
-      return await handleWorkspaceMemberAccessUpdate(config, request);
-    }
-
-    if (path === "/api/workspace/members/company") {
-      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
-      return await handleWorkspaceMemberCompanyUpdate(config, request);
-    }
-
-    if (path === "/api/invitations/claim") {
-      if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");
-      return await handleWorkspaceInvitationClaim(config, request);
-    }
-
-    const workspaceInboxComplete = /^\/api\/companies\/([^/]+)\/workspace-inbox\/([^/]+)\/complete$/.exec(path);
-    if (workspaceInboxComplete) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleWorkspaceInboxComplete(config, request, decodeURIComponent(workspaceInboxComplete[1]!), decodeURIComponent(workspaceInboxComplete[2]!)); }
-    const workspaceInboxAssign = /^\/api\/companies\/([^/]+)\/workspace-inbox\/([^/]+)\/assign$/.exec(path);
-    if (workspaceInboxAssign) { if (method !== "POST") throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleWorkspaceInboxApprove(config, request, decodeURIComponent(workspaceInboxAssign[1]!), decodeURIComponent(workspaceInboxAssign[2]!)); }
-    const workspaceInboxOne = /^\/api\/companies\/([^/]+)\/workspace-inbox\/([^/]+)$/.exec(path);
-    if (workspaceInboxOne) { if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleWorkspaceInboxInspect(config, decodeURIComponent(workspaceInboxOne[1]!), decodeURIComponent(workspaceInboxOne[2]!)); }
-    const workspaceInbox = /^\/api\/companies\/([^/]+)\/workspace-inbox$/.exec(path);
-    if (workspaceInbox) { const slug = decodeURIComponent(workspaceInbox[1]!); if (method === "GET") return handleWorkspaceInboxList(config, slug, url); if (method === "POST") return await handleWorkspaceInboxIngest(config, request, slug); throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute"); }
-
-    const partyCollection = /^\/api\/companies\/([^/]+)\/workspace-parties$/.exec(path);
-    if (partyCollection) {
-      const slug=decodeURIComponent(partyCollection[1]!);
-      if (method === "GET") return handleRegistryParties(config,slug,request);
-      if (method === "POST") return await handleRegistryPartyCreate(config,slug,request);
-      throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute");
-    }
-    const partyRole = /^\/api\/companies\/([^/]+)\/workspace-parties\/([^/]+)\/role$/.exec(path);
-    if (partyRole) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleRegistryPartyRole(config,decodeURIComponent(partyRole[1]!),decodeURIComponent(partyRole[2]!),request); }
-    const partyMerge = /^\/api\/companies\/([^/]+)\/workspace-parties\/merge\/(propose|approve)$/.exec(path);
-    if (partyMerge) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleRegistryPartyMerge(config,decodeURIComponent(partyMerge[1]!),request,partyMerge[2]==="approve"); }
-    const partyOne = /^\/api\/companies\/([^/]+)\/workspace-parties\/([^/]+)$/.exec(path);
-    if (partyOne) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryParty(config,decodeURIComponent(partyOne[1]!),decodeURIComponent(partyOne[2]!)); }
-    const recordCollection = /^\/api\/companies\/([^/]+)\/corporate-records$/.exec(path);
-    if (recordCollection) { const slug=decodeURIComponent(recordCollection[1]!); if(method==="GET")return handleRegistryRecords(config,slug,request); if(method==="POST")return await handleRegistryRecordIngest(config,slug,request); throw ApiError.methodNotAllowed("kun GET eller POST er understøttet på denne rute"); }
-    const recordAction = /^\/api\/companies\/([^/]+)\/corporate-records\/([^/]+)\/(link|enrich|supersede)$/.exec(path);
-    if (recordAction) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleRegistryRecordAction(config,decodeURIComponent(recordAction[1]!),decodeURIComponent(recordAction[2]!),request,recordAction[3]! as "link"|"enrich"|"supersede"); }
-    const recordFile = /^\/api\/companies\/([^/]+)\/corporate-records\/([^/]+)\/file$/.exec(path);
-    if (recordFile) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryRecordDownload(config,decodeURIComponent(recordFile[1]!),decodeURIComponent(recordFile[2]!)); }
-    const recordOne = /^\/api\/companies\/([^/]+)\/corporate-records\/([^/]+)$/.exec(path);
-    if (recordOne) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleRegistryRecord(config,decodeURIComponent(recordOne[1]!),decodeURIComponent(recordOne[2]!)); }
-    const knowledge = /^\/api\/companies\/([^/]+)\/knowledge$/.exec(path);
-    if (knowledge) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleCompanyKnowledge(config,decodeURIComponent(knowledge[1]!),request); }
-    const knowledgeAction = /^\/api\/companies\/([^/]+)\/knowledge\/(propose|review|supersede)$/.exec(path);
-    if (knowledgeAction) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleCompanyKnowledgeAction(config,decodeURIComponent(knowledgeAction[1]!),request,knowledgeAction[2]! as "propose"|"review"|"supersede"); }
-    const ownershipHistory = /^\/api\/companies\/([^/]+)\/ownership\/history$/.exec(path);
-    if (ownershipHistory) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleOwnershipHistory(config,decodeURIComponent(ownershipHistory[1]!),request); }
-    const ownershipAction = /^\/api\/companies\/([^/]+)\/ownership\/(propose|review|apply)$/.exec(path);
-    if (ownershipAction) { if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute"); return await handleOwnershipAction(config,decodeURIComponent(ownershipAction[1]!),request,ownershipAction[2]! as "propose"|"review"|"apply"); }
-    const ownership = /^\/api\/companies\/([^/]+)\/ownership$/.exec(path);
-    if (ownership) { if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute"); return handleOwnershipQuery(config,decodeURIComponent(ownership[1]!),request); }
-
-    if (path === "/api/group-overview") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      const asOfValues = url.searchParams.getAll("asOf");
-      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
-      return handleGroupOverview(config, asOfValues[0]!);
-    }
-
-    if (path === "/api/group-reconciliation") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      const asOfValues = url.searchParams.getAll("asOf");
-      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
-      return handleGroupReconciliation(config, asOfValues[0]!);
-    }
-
-    if (path === "/api/group-eliminations") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      const asOfValues = url.searchParams.getAll("asOf");
-      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
-      return handleGroupEliminations(config, asOfValues[0]!);
-    }
-
-    if (path === "/api/group-consolidated-report") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      const profileIds = url.searchParams.getAll("profileId");
-      const fromValues = url.searchParams.getAll("from");
-      const asOfValues = url.searchParams.getAll("asOf");
-      if (profileIds.length !== 1 || fromValues.length !== 1 || asOfValues.length !== 1) throw ApiError.badRequest("exactly one profileId, from and asOf are required");
-      return handleGroupConsolidatedReport(config, profileIds[0]!, fromValues[0]!, asOfValues[0]!);
-    }
-
-    if (path === "/api/group-report-profiles") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      const asOfValues = url.searchParams.getAll("asOf");
-      if (asOfValues.length !== 1) throw ApiError.badRequest("exactly one asOf is required as YYYY-MM-DD");
-      return handleGroupReportProfiles(config, asOfValues[0]!);
-    }
-
-    const dispositionStatus=/^\/api\/group-dispositions\/([^/]+)$/.exec(path);
-    if(dispositionStatus){if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");return handleGroupDispositionStatus(config,decodeURIComponent(dispositionStatus[1]!),url.searchParams.get("asOf")??undefined);}
-    const dispositionAction=/^\/api\/companies\/([^/]+)\/group-dispositions\/(plan|propose|approve|link|settle|supersede|reopen)$/.exec(path);
-    if(dispositionAction){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleGroupDispositionAction(config,decodeURIComponent(dispositionAction[1]!),request,dispositionAction[2]! as any);}
+    const groupWorkspaceResponse = await dispatchGroupWorkspaceRoute(path, method, url, request, {
+      portfolio: () => handlePortfolio(config, url), cfoAnalytics: () => handleCfoAnalytics(config, url), me: () => handleMe(config),
+      invitationList: () => handleWorkspaceInvitationList(config), invitationCreate: () => handleWorkspaceInvitationCreate(config, request), invitationCancel: () => handleWorkspaceInvitationCancel(config, request),
+      servicePrincipalList: () => handleServicePrincipalList(config), servicePrincipalCreate: () => handleServicePrincipalCreate(config, request), servicePrincipalRotate: () => handleServicePrincipalRotate(config, request), servicePrincipalRevoke: () => handleServicePrincipalRevoke(config, request), servicePrincipalRecover: () => handleServicePrincipalRecover(config, request),
+      workspaceMemberList: () => handleWorkspaceMemberList(config), workspaceMemberAccessUpdate: () => handleWorkspaceMemberAccessUpdate(config, request), workspaceMemberCompanyUpdate: () => handleWorkspaceMemberCompanyUpdate(config, request), invitationClaim: () => handleWorkspaceInvitationClaim(config, request),
+      workspaceInboxComplete: (slug: string, documentId: string) => handleWorkspaceInboxComplete(config, request, slug, documentId), workspaceInboxApprove: (slug: string, documentId: string) => handleWorkspaceInboxApprove(config, request, slug, documentId), workspaceInboxInspect: (slug: string, documentId: string) => handleWorkspaceInboxInspect(config, slug, documentId), workspaceInboxList: (slug: string) => handleWorkspaceInboxList(config, slug, url), workspaceInboxIngest: (slug: string) => handleWorkspaceInboxIngest(config, request, slug),
+      registryParties: (slug: string) => handleRegistryParties(config, slug, request), registryPartyCreate: (slug: string) => handleRegistryPartyCreate(config, slug, request), registryPartyRole: (slug: string, partyId: string) => handleRegistryPartyRole(config, slug, partyId, request), registryPartyMerge: (slug: string, approve: boolean) => handleRegistryPartyMerge(config, slug, request, approve), registryParty: (slug: string, partyId: string) => handleRegistryParty(config, slug, partyId),
+      registryRecords: (slug: string) => handleRegistryRecords(config, slug, request), registryRecordIngest: (slug: string) => handleRegistryRecordIngest(config, slug, request), registryRecordAction: (slug: string, recordId: string, action: "link" | "enrich" | "supersede") => handleRegistryRecordAction(config, slug, recordId, request, action), registryRecordDownload: (slug: string, recordId: string) => handleRegistryRecordDownload(config, slug, recordId), registryRecord: (slug: string, recordId: string) => handleRegistryRecord(config, slug, recordId),
+      companyKnowledge: (slug: string) => handleCompanyKnowledge(config, slug, request), companyKnowledgeAction: (slug: string, action: "propose" | "review" | "supersede") => handleCompanyKnowledgeAction(config, slug, request, action), ownershipHistory: (slug: string) => handleOwnershipHistory(config, slug, request), ownershipAction: (slug: string, action: "propose" | "review" | "apply") => handleOwnershipAction(config, slug, request, action), ownershipQuery: (slug: string) => handleOwnershipQuery(config, slug, request),
+      groupOverview: (asOf: string) => handleGroupOverview(config, asOf), groupReconciliation: (asOf: string) => handleGroupReconciliation(config, asOf), groupEliminations: (asOf: string) => handleGroupEliminations(config, asOf), groupConsolidatedReport: (profileId: string, from: string, asOf: string) => handleGroupConsolidatedReport(config, profileId, from, asOf), groupReportProfiles: (asOf: string) => handleGroupReportProfiles(config, asOf), groupDispositionStatus: (id: string, asOf?: string) => handleGroupDispositionStatus(config, id, asOf), groupDispositionAction: (slug: string, action: any) => handleGroupDispositionAction(config, slug, request, action),
+    });
+    if (groupWorkspaceResponse) return groupWorkspaceResponse;
 
     const agentDiscoveryResponse = dispatchAgentDiscoveryRoute(path, method, {
       rules: () => handleRules(),

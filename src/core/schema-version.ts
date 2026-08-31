@@ -1,6 +1,4 @@
 import type { Database } from "bun:sqlite";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getBuildIdentity } from "./build-identity";
 
@@ -11,9 +9,96 @@ const MIGRATIONS = loadMigrationCatalog(join(import.meta.dir, "migrations"), {
   16: "rentemester-invoice-extraction-actors-v16",
   35: "rentemester-bank-reconciliation-account-role-fallback-v35",
 });
-const artifact = (id: number) => MIGRATIONS[id - 1]!.artifact;
+const migration = (id: number) => MIGRATIONS[id - 1]!;
+const artifact = (id: number) => migration(id).artifact;
 export const BASELINE_MIGRATION_NAME = MIGRATIONS[0]!.name;
 export const BASELINE_MIGRATION_CHECKSUM = MIGRATIONS[0]!.checksum;
+
+// Kept for callers that import a migration's historical named identity.
+// Every value is read from the immutable catalogue above; this is not a
+// second artifact list or migration registration mechanism.
+export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM = migration(2).checksum;
+export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME = migration(2).name;
+export const RECURRING_AUTOMATION_MIGRATION_CHECKSUM = migration(3).checksum;
+export const RECURRING_AUTOMATION_MIGRATION_NAME = migration(3).name;
+export const DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM = migration(4).checksum;
+export const DINERO_IMPORT_PROVENANCE_MIGRATION_NAME = migration(4).name;
+export const MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM = migration(5).checksum;
+export const MIGRATION_OPEN_ITEMS_MIGRATION_NAME = migration(5).name;
+export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM = migration(6).checksum;
+export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME = migration(6).name;
+export const DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM = migration(7).checksum;
+export const DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME = migration(7).name;
+export const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM = migration(8).checksum;
+export const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME = migration(8).name;
+export const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM = migration(9).checksum;
+export const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME = migration(9).name;
+export const INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM = migration(10).checksum;
+export const INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME = migration(10).name;
+export const PURCHASE_VAT_PREFLIGHT_MIGRATION_CHECKSUM = migration(11).checksum;
+export const PURCHASE_VAT_PREFLIGHT_MIGRATION_NAME = migration(11).name;
+export const POSTING_RULES_MIGRATION_CHECKSUM = migration(12).checksum;
+export const POSTING_RULES_MIGRATION_NAME = migration(12).name;
+export const BOOKKEEPING_BATCHES_MIGRATION_CHECKSUM = migration(13).checksum;
+export const BOOKKEEPING_BATCHES_MIGRATION_NAME = migration(13).name;
+export const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM = migration(14).checksum;
+export const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME = migration(14).name;
+export const BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM = migration(15).checksum;
+export const BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME = migration(15).name;
+export const INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM = migration(16).checksum;
+export const INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME = migration(16).name;
+export const DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM = migration(17).checksum;
+export const DOCUMENT_PDF_PARSES_MIGRATION_NAME = migration(17).name;
+export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM = migration(18).checksum;
+export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME = migration(18).name;
+export const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM = migration(19).checksum;
+export const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME = migration(19).name;
+export const MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM = migration(20).checksum;
+export const MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME = migration(20).name;
+export const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_CHECKSUM = migration(21).checksum;
+export const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_NAME = migration(21).name;
+export const PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM = migration(22).checksum;
+export const PERIOD_CLOSE_READINESS_MIGRATION_NAME = migration(22).name;
+export const LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM = migration(23).checksum;
+export const LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME = migration(23).name;
+export const BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM = migration(24).checksum;
+export const BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME = migration(24).name;
+export const PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM = migration(25).checksum;
+export const PERIOD_CLOSE_REVIEWS_MIGRATION_NAME = migration(25).name;
+export const DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM = migration(26).checksum;
+export const DOCUMENT_PARTY_LINKS_MIGRATION_NAME = migration(26).name;
+export const SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM = migration(27).checksum;
+export const SUPPLIER_COMMITMENTS_MIGRATION_NAME = migration(27).name;
+export const ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM = migration(28).checksum;
+export const ACCOUNTING_DIMENSIONS_MIGRATION_NAME = migration(28).name;
+export const DOCUMENT_PARTY_RESOLUTION_MIGRATION_CHECKSUM = migration(29).checksum;
+export const DOCUMENT_PARTY_RESOLUTION_MIGRATION_NAME = migration(29).name;
+export const ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_CHECKSUM = migration(30).checksum;
+export const ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_NAME = migration(30).name;
+export const SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_CHECKSUM = migration(31).checksum;
+export const SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_NAME = migration(31).name;
+export const DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_CHECKSUM = migration(32).checksum;
+export const DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_NAME = migration(32).name;
+export const BANK_RECONCILIATION_CORRECTIONS_MIGRATION_CHECKSUM = migration(33).checksum;
+export const BANK_RECONCILIATION_CORRECTIONS_MIGRATION_NAME = migration(33).name;
+export const DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_CHECKSUM = migration(34).checksum;
+export const DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_NAME = migration(34).name;
+export const BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_CHECKSUM = migration(35).checksum;
+export const BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_NAME = migration(35).name;
+export const IMPORTED_RECEIVABLES_MIGRATION_CHECKSUM = migration(36).checksum;
+export const IMPORTED_RECEIVABLES_MIGRATION_NAME = migration(36).name;
+export const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM = migration(37).checksum;
+export const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME = migration(37).name;
+export const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM = migration(38).checksum;
+export const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME = migration(38).name;
+export const NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM = migration(39).checksum;
+export const NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME = migration(39).name;
+export const BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM = migration(40).checksum;
+export const BANK_STATEMENT_ORDER_MIGRATION_NAME = migration(40).name;
+export const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_CHECKSUM = migration(41).checksum;
+export const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_NAME = migration(41).name;
+export const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_CHECKSUM = migration(42).checksum;
+export const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_NAME = migration(42).name;
 
 export type SupportedSchemaMigration = {
   id: number;

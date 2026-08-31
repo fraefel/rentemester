@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrate, openDb } from "../../src/core/db";
-import { BASELINE_MIGRATION_CHECKSUM, BASELINE_MIGRATION_NAME, BASELINE_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION, readSchemaMigrations, supportedSchemaMigrations, validateSchemaMigrationHistory } from "../../src/core/schema-version";
+import { BASELINE_MIGRATION_CHECKSUM, BASELINE_MIGRATION_NAME, BASELINE_SCHEMA_VERSION, BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM, BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, CURRENT_SCHEMA_VERSION, MIGRATION_OPEN_ITEMS_MIGRATION_NAME, readSchemaMigrations, supportedSchemaMigrations, validateSchemaMigrationHistory } from "../../src/core/schema-version";
 
 function seedV2RecurringLedger(db: Database) {
   db.exec(`
@@ -27,6 +27,14 @@ function seedV2RecurringLedger(db: Database) {
 }
 
 describe("schema version compatibility", () => {
+  test("keeps legacy named migration exports derived from the catalogue", () => {
+    expect(MIGRATION_OPEN_ITEMS_MIGRATION_NAME).toBe(supportedSchemaMigrations()[4]!.name);
+    expect({ name: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM }).toEqual({
+      name: supportedSchemaMigrations()[23]!.name,
+      checksum: supportedSchemaMigrations()[23]!.checksum,
+    });
+  });
+
   test("migrates a v2 recurring template and generation losslessly with foreign keys", () => {
     const root = mkdtempSync(join(tmpdir(), "rentemester-v2-recurring-"));
     const path = join(root, "ledger.sqlite");

@@ -20,13 +20,21 @@ import {
   type ReactNode,
 } from "react";
 import type { FiscalYearEntry } from "../lib/types";
-import {
-  COMPANY_ROUTE_DEFINITIONS,
-  COMPANY_TASK_AREAS,
-  companyRouteForPath,
-  type CompanyTaskAreaId,
-  type CompanyRouteId,
-} from "../company-navigation";
+import { companyRouteForPath } from "../company-route-path";
+import type { CompanyRouteId } from "../company-route-registry";
+
+export type CompanyRouteNavigationProjection = {
+  routes: readonly {
+    id: CompanyRouteId;
+    segment: string;
+    label: string;
+    area: string;
+  }[];
+  areas: readonly {
+    id: string;
+    label: string;
+  }[];
+};
 
 /**
  * The selected fiscal year as a URL query param. `year` is `undefined` until
@@ -65,12 +73,24 @@ export function accountPostingsTo(
   return `/companies/${slug}/posteringer?${params.toString()}`;
 }
 
-const CompanyNavigationShellContext = createContext(false);
+const CompanyNavigationShellContext = createContext<{
+  navigation: CompanyRouteNavigationProjection;
+  rendersNavigation: boolean;
+} | undefined>(undefined);
 
-/** Marks routes that already receive the shared navigation from the app shell. */
-export function CompanyNavigationShell({ children }: { children: ReactNode }) {
+/** Supplies the route registry's navigation projection to company views. */
+export function CompanyNavigationShell({
+  children,
+  navigation,
+  rendersNavigation = false,
+}: {
+  children: ReactNode;
+  navigation: CompanyRouteNavigationProjection;
+  /** App renders the shared navigation above its Routes; isolated hosts do not. */
+  rendersNavigation?: boolean;
+}) {
   return (
-    <CompanyNavigationShellContext.Provider value={true}>
+    <CompanyNavigationShellContext.Provider value={{ navigation, rendersNavigation }}>
       {children}
     </CompanyNavigationShellContext.Provider>
   );
@@ -79,10 +99,15 @@ export function CompanyNavigationShell({ children }: { children: ReactNode }) {
 /** Task navigation shared by every company route, including pages without a year selector. */
 export function CompanyTaskNavigation({
   visibleRouteIds,
+  navigation: navigationOverride,
 }: {
   /** Presentation filter only; the server remains the authorization boundary. */
   visibleRouteIds?: readonly CompanyRouteId[];
+  /** Lets isolated component hosts provide the same projection as the app shell. */
+  navigation?: CompanyRouteNavigationProjection;
 }) {
+  const shellNavigation = useContext(CompanyNavigationShellContext);
+  const navigation = navigationOverride ?? shellNavigation?.navigation;
   const [params] = useSearchParams();
   const location = useLocation();
   // #UI-4: only the fiscal year is a cross-view concern. Threading the WHOLE
@@ -91,18 +116,18 @@ export function CompanyTaskNavigation({
   // each view owns its own filter namespace.
   const year = params.get("year");
   const suffix = year ? `?year=${encodeURIComponent(year)}` : "";
-  const currentRoute = companyRouteForPath(location.pathname);
+  const currentRoute = navigation && companyRouteForPath(location.pathname, navigation.routes);
   const slug = location.pathname.match(/^\/companies\/([^/]+)/)?.[1];
-  const visibleRoutes = COMPANY_ROUTE_DEFINITIONS.filter(
+  const visibleRoutes = navigation?.routes.filter(
     (route) => !visibleRouteIds || visibleRouteIds.includes(route.id),
-  );
-  const visibleAreas = COMPANY_TASK_AREAS.filter((area) =>
+  ) ?? [];
+  const visibleAreas = navigation?.areas.filter((area) =>
     visibleRoutes.some((route) => route.area === area.id),
-  );
+  ) ?? [];
   const defaultArea = visibleAreas.some((area) => area.id === currentRoute?.area)
     ? currentRoute?.area
     : visibleAreas[0]?.id;
-  const [selectedArea, setSelectedArea] = useState<CompanyTaskAreaId | undefined>(
+  const [selectedArea, setSelectedArea] = useState<string | undefined>(
     defaultArea,
   );
   useEffect(() => setSelectedArea(defaultArea), [defaultArea]);
@@ -138,7 +163,7 @@ export function CompanyTaskNavigation({
         <nav
           id="company-area-destinations"
           className="company-destinations"
-          aria-label={`Sider i ${COMPANY_TASK_AREAS.find((area) => area.id === selectedArea)?.label}`}
+          aria-label={`Sider i ${navigation?.areas.find((area) => area.id === selectedArea)?.label}`}
         >
           {currentAreaRoutes.map((route) => (
             <NavLink key={route.id} to={toPath(route.segment)} end>
@@ -162,10 +187,10 @@ export function CompanyNav({
   selectedYear: string;
   onYearChange: (year: string) => void;
 }) {
-  const hasShellNavigation = useContext(CompanyNavigationShellContext);
+  const shellNavigation = useContext(CompanyNavigationShellContext);
   return (
     <>
-      {!hasShellNavigation && <CompanyTaskNavigation />}
+      {!shellNavigation?.rendersNavigation && <CompanyTaskNavigation />}
       <div className="company-year-controls">
         <YearSelector
           years={years}
@@ -176,6 +201,7 @@ export function CompanyNav({
     </>
   );
 }
+
 
 /** The fiscal-year dropdown — shared by every company view. */
 export function YearSelector({

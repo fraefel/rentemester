@@ -21,6 +21,26 @@ function renderApp(route = "/help") {
 }
 
 describe("App topbar", () => {
+  test("renders one deep link from every company task area through the shared registry", async () => {
+    const routes = [
+      ["Overblik", "/companies/acme-aps"],
+      ["Bogføring", "/companies/acme-aps/bank"],
+      ["Salg og debitorer", "/companies/acme-aps/fakturaer"],
+      ["Moms og perioder", "/companies/acme-aps/moms"],
+      ["Rapporter og planlægning", "/companies/acme-aps/resultatopgorelse"],
+      ["Virksomhedsadministration", "/companies/acme-aps/manage"],
+    ] as const;
+
+    for (const [area, route] of routes) {
+      const rendered = renderApp(route);
+      expect(await screen.findByRole("button", { name: area })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      rendered.unmount();
+    }
+  });
+
   test("topbar contains a help/support link reachable from any route", async () => {
     mockFetch({
       "GET /api/companies": { workspace: "/ws", count: 0, companies: [] },

@@ -248,6 +248,8 @@ export function BankView() {
                   ? "Seneste saldo fra kontoudtoget"
                   : b.bankStatementStatus === "no-balance-column"
                     ? "Banksaldo ukendt — kontoudtoget havde ingen saldo-kolonne"
+                    : b.bankStatementStatus === "ambiguous"
+                      ? "Banksaldo ukendt — kontoudtogets rækkefølge eller saldo-kæde kan ikke bevises"
                     : "Intet kontoudtog importeret"}
               </p>
             </div>
@@ -505,11 +507,14 @@ function BankDifferenceBanner({
     // #305: a statement WITH transactions but no balance column is not the
     // same as no statement at all — the wording must reflect which it is.
     const noBalanceColumn = bank.bankStatementStatus === "no-balance-column";
+    const ambiguous = bank.bankStatementStatus === "ambiguous";
     return (
       <div className="card bank-diff-banner neutral">
         <span className="flag">Bank</span>
         <p>
-          {noBalanceColumn ? (
+          {ambiguous ? (
+            <>Kontoudtogets rækkefølge eller løbende saldo kan ikke bevises. Rentemester viser derfor ikke en gættet banksaldo; kontrollér importen og kildeeksporten.</>
+          ) : noBalanceColumn ? (
             <>
               Kontoudtoget for {bank.selectedYear} indeholder ingen
               saldo-kolonne, så den faktiske banksaldo er ukendt — kun den

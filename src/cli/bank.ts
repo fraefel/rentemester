@@ -100,11 +100,17 @@ export function register(dispatch: CommandDispatch): void {
       process.exit(2);
     }
     const root = ctx.companyRoot();
+    const statementOrder = ctx.trimToNull(ctx.arg("--statement-order"));
+    if (statementOrder && statementOrder !== "ascending" && statementOrder !== "descending") {
+      console.error("--statement-order must be 'ascending' or 'descending'");
+      process.exit(2);
+    }
     const db = openDb(companyPaths(root).db);
     migrate(db);
     const result = importBankCsv(db, root, file, {
       account: ctx.trimToNull(ctx.arg("--account")) ?? undefined,
       profile: ctx.trimToNull(ctx.arg("--profile")) ?? undefined,
+      statementOrder: statementOrder as "ascending" | "descending" | undefined,
     });
     const sync = result.ok
       ? syncUnmatchedBankTransactionExceptions(db)

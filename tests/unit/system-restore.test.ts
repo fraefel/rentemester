@@ -91,6 +91,8 @@ import {
   LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME,
   NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM,
   NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME,
+  BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM,
+  BANK_STATEMENT_ORDER_MIGRATION_NAME,
   CURRENT_SCHEMA_VERSION,
   readSchemaMigrations,
 } from "../../src/core/schema-version";
@@ -270,6 +272,7 @@ describe("system restore", () => {
       expect.objectContaining({ id: 37, name: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
       expect.objectContaining({ id: 38, name: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
       expect.objectContaining({ id: 39, name: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME, checksum: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
+      expect.objectContaining({ id: 40, name: BANK_STATEMENT_ORDER_MIGRATION_NAME, checksum: BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM, applied_by_version: expect.any(String) }),
     ]);
     expect(manifest.provenance).toEqual(expect.objectContaining({
       product: expect.objectContaining({ version: expect.any(String) }),

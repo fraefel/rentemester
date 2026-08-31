@@ -6,8 +6,7 @@ import {
 } from "../shared";
 import {
   bankBalanceAsOf,
-  actualBankBalanceAsOf,
-  bankStatementStatusAsOf,
+  resolveActualBankBalanceAsOf,
 } from "../bank";
 
 // --------------------------------------------------------------------------
@@ -76,7 +75,9 @@ export function buildCompanyBank(
            FROM bank_transactions bt
            LEFT JOIN bank_journal_reconciliations br ON br.bank_transaction_id = bt.id
           WHERE bt.transaction_date >= ? AND bt.transaction_date <= ?
-          ORDER BY bt.transaction_date ASC, bt.id ASC`,
+          ORDER BY bt.transaction_date ASC,
+                   CASE WHEN bt.statement_order = 'descending' THEN -bt.statement_row_index ELSE bt.statement_row_index END ASC,
+                   bt.id ASC`,
       )
       .all(yearStart, yearEnd) as Array<{
       id: number;
@@ -106,7 +107,8 @@ export function buildCompanyBank(
     // imported `balance_after`). Their gap is the headline of a bank page —
     // money the owner has on paper but not in the account, or vice versa.
     const bookedBalance = bankBalanceAsOf(ctx.db, yearEnd);
-    const actualBalance = actualBankBalanceAsOf(ctx.db, yearEnd);
+    const statementBalance = resolveActualBankBalanceAsOf(ctx.db, yearEnd);
+    const actualBalance = statementBalance.balance;
     const difference =
       actualBalance === null ? null : roundKroner(bookedBalance - actualBalance);
 
@@ -118,7 +120,7 @@ export function buildCompanyBank(
     // them so the UI can say "banksaldo ukendt — kontoudtoget havde ingen
     // saldo-kolonne" instead. EJER-12: the shared `bankStatementStatusAsOf`
     // helper is used so the portfolio card and dashboard tell the same story.
-    const bankStatementStatus = bankStatementStatusAsOf(ctx.db, yearEnd);
+    const bankStatementStatus = statementBalance.status;
 
     return {
       slug: ctx.entry.slug,
@@ -133,6 +135,8 @@ export function buildCompanyBank(
       actualBalance,
       difference,
       bankStatementStatus,
+      actualBalanceProvenance: statementBalance.provenance,
+      bankStatementDiagnostics: statementBalance.diagnostics,
       transactions,
       matchedCount,
       unmatchedCount: transactions.length - matchedCount,

@@ -356,6 +356,9 @@ export function registerBankTools(server: McpServer): void {
               "the generic CSV parser is used (auto-detected headers). An unknown " +
               "profile aborts the import before parsing.",
           ),
+        statementOrder: z.enum(["ascending", "descending"]).optional().describe(
+          "Explicit source-row chronology for an unprofiled export. Required for a provable same-date closing balance when the source has multiple rows on one date; profile metadata takes precedence.",
+        ),
         // ===== END BANK CLUSTER (#187,#186) =====
         confirm: confirmField,
       },
@@ -365,7 +368,7 @@ export function registerBankTools(server: McpServer): void {
       // agent a retry after a network hiccup is safe.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    withCompanyDbConfirmed<{ company: string; csvPath?: string; csvContent?: string; account?: string; profile?: string; confirm?: boolean }>(
+    withCompanyDbConfirmed<{ company: string; csvPath?: string; csvContent?: string; account?: string; profile?: string; statementOrder?: "ascending" | "descending"; confirm?: boolean }>(
       server,
       "bank_import",
       ({ db, args }) => {
@@ -392,6 +395,7 @@ export function registerBankTools(server: McpServer): void {
           const result = importBankCsv(db, args.company, path, {
             account: args.account && args.account.trim() !== "" ? args.account : undefined,
             profile: args.profile && args.profile.trim() !== "" ? args.profile : undefined,
+            statementOrder: args.statementOrder,
           });
           const sync = result.ok
             ? syncUnmatchedBankTransactionExceptions(db)

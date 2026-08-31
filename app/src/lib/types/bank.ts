@@ -46,7 +46,11 @@ export type CompanyBank = {
    *    no balance column, so the bank saldo is unknown (NOT "not imported");
    *  - `none`              — no bank statement has been imported at all.
    */
-  bankStatementStatus: "known" | "no-balance-column" | "none";
+  bankStatementStatus: "known" | "no-balance-column" | "none" | "ambiguous";
+  /** Source row(s) establishing the exact statement closing balance. */
+  actualBalanceProvenance?: Array<{ bankAccountId: number | null; transactionId: number; transactionDate: string; sourceOrder: "ascending" | "descending" | "single-row" }>;
+  /** Fail-closed explanation when source order or balances cannot be proven. */
+  bankStatementDiagnostics?: string[];
   transactions: BankTransactionRow[];
   matchedCount: number;
   unmatchedCount: number;
@@ -94,6 +98,8 @@ export type CompanyCashflow = {
   openingBalance: number | null;
   /** Actual balance at the year end, kroner; null when unknown. */
   closingBalance: number | null;
+  bankStatementStatus?: "known" | "no-balance-column" | "none" | "ambiguous";
+  bankStatementDiagnostics?: string[];
   /** Total money in across the year, kroner. */
   totalIn: number;
   /** Total money out across the year, kroner. */

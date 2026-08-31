@@ -73,7 +73,7 @@ export type CompanySummary = {
    * its CSV had no balance column" — so it never wrongly says "intet kontoudtog
    * importeret" for a company whose import simply lacked a balance column.
    */
-  bankStatementStatus: "known" | "no-balance-column" | "none";
+  bankStatementStatus: "known" | "no-balance-column" | "none" | "ambiguous";
   /** Current registered VAT-period position + deadline; null when unknown. */
   vat: CompanyVatSummary | null;
   /** Open tasks — open exceptions, grouped into Danish summary lines. */

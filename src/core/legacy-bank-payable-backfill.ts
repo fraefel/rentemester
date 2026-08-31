@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 /** Explicit, one-time adoption of legacy bank and creditor records (#601).
  *
  * This module deliberately has no matching or posting logic. Callers name all
@@ -13,8 +14,8 @@ import { isValidIsoDate } from "./dates";
 import type { StablePrincipal } from "./idempotency";
 import { toOre } from "./money";
 
-const canonical=(v:unknown):string=>v===null||typeof v!=="object"?JSON.stringify(v):Array.isArray(v)?`[${v.map(canonical).join(",")}]`:`{${Object.keys(v as object).sort().map(k=>`${JSON.stringify(k)}:${canonical((v as Record<string,unknown>)[k])}`).join(",")}}`;
-const digest=(v:unknown)=>createHash("sha256").update(canonical(v)).digest("hex");
+const canonical = canonicalJson;
+const digest=(value:unknown)=>createHash("sha256").update(canonical(value)).digest("hex");
 const text=(v:unknown)=>typeof v==="string"?v.trim():"";
 const validHash=(v:unknown)=>/^[a-f0-9]{64}$/i.test(text(v));
 const validId=(v:unknown)=>Number.isInteger(v)&&Number(v)>0;

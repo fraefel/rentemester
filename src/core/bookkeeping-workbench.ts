@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 /**
  * Read-only bookkeeping workbench (#591).
  *
@@ -13,7 +14,7 @@ import { computePeriodCloseReadiness } from "./period-close-readiness";
 export type WorkbenchStatus = "ready" | "suggestedMatch" | "missingDocument" | "partyUnresolved" | "accountingDecisionRequired" | "vatEvidenceRequired" | "dimensionEvidenceRequired" | "stalePlan" | "applyFailed";
 export type WorkbenchFilter = { from: string; to: string; status?: WorkbenchStatus; bankAccountId?: number; partyId?: string; documentQuality?: "matched" | "missing"; account?: string; vatTreatment?: string; dimension?: string; limit?: number; cursor?: number; search?: string };
 export type WorkbenchRow = { bankTransactionId:number; date:string; text:string; amount:number; currency:string; bankAccount:{id:number|null;name:string|null}; document:{id:number;quality:"matched";party:{id:string;name:string}|null;resolutionState:"resolved"|"internal_no_external_party"|"unresolved"}|null; proposed:{account:string|null;vatTreatment:string|null;dimensions:Array<{dimensionId:string;memberId:string;status:"active"|"inactive"|"missing"}>;partyDefaults?:{account:string|null;vat:string|null;advisoryOnly:true}|null}; status:WorkbenchStatus; nextAction:string; drilldown:{documentId?:number;partyId?:string;bankTransactionId:number;bankAccountId?:number;runId?:number;journalEntryId?:number;periodClose:{from:string;to:string}}; sourceHash:string };
-const canonical=(value:unknown):string=>Array.isArray(value)?`[${value.map(canonical).join(",")}]`:value&&typeof value==="object"?`{${Object.keys(value as Record<string,unknown>).sort().map(k=>`${JSON.stringify(k)}:${canonical((value as Record<string,unknown>)[k])}`).join(",")}}`:JSON.stringify(value);
+const canonical = canonicalJson;
 const digest=(value:unknown)=>createHash("sha256").update(canonical(value)).digest("hex");
 const iso=(value:string)=>/^\d{4}-\d{2}-\d{2}$/.test(value);
 function companyId(db:Database){const rows=db.query("SELECT id FROM companies ORDER BY id").all() as Array<{id:number}>;if(rows.length!==1)throw new Error("selected ledger must contain exactly one company");return rows[0]!.id;}

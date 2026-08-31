@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 /** Pure period-close readiness plus explicit, append-only review evidence. */
 import { createHash } from "node:crypto";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
@@ -15,7 +16,7 @@ export type CloseReadinessPacket = { version: 3; periodStart: string; periodEnd:
 export type CloseReviewPrincipal = { kind: "user" | "service-account" | "local-trusted"; subjectId: string };
 export type PeriodCloseReview = { id: number; packet: CloseReadinessPacket; reviewerActor: string; reviewerPrincipal: CloseReviewPrincipal | null; createdAt: string };
 
-export function canonicalCloseReadiness(value: unknown): string { if (Array.isArray(value)) return `[${value.map(canonicalCloseReadiness).join(",")}]`; if (value && typeof value === "object") return `{${Object.keys(value as Record<string, unknown>).sort().map(k => `${JSON.stringify(k)}:${canonicalCloseReadiness((value as Record<string, unknown>)[k])}`).join(",")}}`; return JSON.stringify(value); }
+export const canonicalCloseReadiness = canonicalJson;
 export function closeReadinessDigest(value: unknown): string { return createHash("sha256").update(canonicalCloseReadiness(value)).digest("hex"); }
 function exists(db: Database, name: string): boolean { return db.query("SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=?").get(name) !== null; }
 function has(db: Database, name: string, column: string): boolean { return exists(db,name) && (db.query(`PRAGMA table_info(${name})`).all() as Array<{name:string}>).some(row => row.name === column); }

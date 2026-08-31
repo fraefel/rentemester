@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 /** Durable transaction-owning retry receipts for high-risk local writes (#583). */
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
@@ -27,14 +28,9 @@ export type BusinessRejection = { ok: false; errors?: string[] };
 export class IdempotencyError extends Error {
   constructor(readonly code: "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_OUTCOME_EXPIRED" | "IDEMPOTENCY_AUTH_REQUIRED" | "IDEMPOTENCY_STORAGE_FAILURE", message: string) { super(message); this.name = "IdempotencyError"; }
 }
-function canonical(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`;
-}
+
 export function canonicalPayloadHash(value: unknown): string {
-  const serialized = canonical(value);
+  const serialized = canonicalJson(value);
   if (Buffer.byteLength(serialized, "utf8") > IDEMPOTENCY_PAYLOAD_MAX_BYTES) throw new IdempotencyError("IDEMPOTENCY_STORAGE_FAILURE", "validated idempotency payload exceeds receipt limit");
   return createHash("sha256").update(serialized).digest("hex");
 }

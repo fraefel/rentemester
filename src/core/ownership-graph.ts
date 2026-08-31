@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 /**
  * Reviewable legal ownership/control evidence (#576).
  *

@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { isValidIsoDate } from "./dates";
@@ -15,8 +16,8 @@ export type ImportedReceivableSchedule = {
   }>;
 };
 
-const canonical=(value:unknown):string=>value===null||typeof value!=="object"?JSON.stringify(value):Array.isArray(value)?`[${value.map(canonical).join(",")}]`:`{${Object.keys(value as object).sort().map(key=>`${JSON.stringify(key)}:${canonical((value as Record<string,unknown>)[key])}`).join(",")}}`;
-const sha = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
+const canonical = canonicalJson;
+const sha=(value:unknown)=>createHash("sha256").update(canonical(value)).digest("hex");
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const hash = (value: unknown) => /^[a-f0-9]{64}$/i.test(text(value));
 const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && toOre(value) > 0n;

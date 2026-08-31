@@ -830,7 +830,8 @@ describe("expense booking", () => {
     expect(lines[3]).toMatchObject({ account_no: "1200", credit_amount: 250 });
     const report = buildVatReport(db, "2026-05-01", "2026-05-31");
     expect(report).toMatchObject({ ok: true, outputVat: 250, inputVat: 250, reverseChargePurchaseBase: 0, nonEuServiceReverseChargePurchaseBase: 1000, reverseChargePurchaseOutputVat: 250 });
-    expect(report.rubrikker.rubrikA).toBe(0);
+    expect(report.rubrikker.rubrikAVarer).toBe(0);
+    expect(report.rubrikker.rubrikAYdelser).toBe(0);
     expect(report.rubrikker.momsAfYdelseskobUdland).toBe(250);
     db.close();
     rmSync(root, { recursive: true, force: true });

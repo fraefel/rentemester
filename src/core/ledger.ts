@@ -422,7 +422,7 @@ function validateJournalEntryWithPolicy(
     if(currency!==nonCashEvidence.currency.toUpperCase())errors.push(`non-cash balance correction currency must match document currency ${nonCashEvidence.currency}`);
     if(currency!=="DKK")errors.push("non-cash balance correction currency must be DKK");
     if(debitSum!==toOre(Number(nonCashEvidence.amount))||creditSum!==toOre(Number(nonCashEvidence.amount)))errors.push(`non-cash balance correction journal amount must match document amount ${roundDkk(Number(nonCashEvidence.amount))}`);
-    const forbiddenRoles=new Set((db.query("SELECT account_no FROM account_role_mappings WHERE status='confirmed' AND role IN ('bank','debtors','creditors','output_vat','input_vat','reverse_charge_vat','vat_settlement') UNION SELECT ledger_account_no AS account_no FROM bank_accounts WHERE active=1 AND ledger_account_no IS NOT NULL AND length(trim(ledger_account_no))>0").all() as Array<{account_no:string}>).map(row=>row.account_no));
+    const forbiddenRoles=new Set((db.query("SELECT account_no FROM account_role_mappings WHERE status='confirmed' AND role IN ('bank','debtors','creditors','output_vat','input_vat','reverse_charge_vat','vat_settlement') UNION SELECT ledger_account_no AS account_no FROM bank_accounts WHERE ledger_account_no IS NOT NULL AND length(trim(ledger_account_no))>0").all() as Array<{account_no:string}>).map(row=>row.account_no));
     for(const [idx,line] of lines.entries()){
       const account=accounts.get(line.accountNo);
       if(account&&(!['asset','liability','equity'].includes(account.type)||forbiddenRoles.has(line.accountNo)))errors.push(`lines[${idx}] account ${line.accountNo} is not an eligible non-cash balance account`);

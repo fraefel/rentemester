@@ -227,19 +227,14 @@ export function formatDateDa(iso: string | null | undefined): string {
 
 /**
  * Formats a kroner amount as a raw SKAT TastSelv-compatible number string: NO
- * thousand separator, NO currency suffix (#UI-10). Decimal øre — if any — are
- * emitted with a comma (the convention TastSelv accepts); whole-kroner amounts
- * are bare integers ("4457", not "4457,00").
+ * thousand separator, NO currency suffix. The standard VAT form uses whole
+ * kroner, so this deliberately emits a bare signed integer.
  *
  * Shared because the display formatter's `.`-grouped output ("52.317,00 kr.")
  * must NEVER reach the clipboard — the thousand separator corrupts the field.
  */
 export function tastSelvNumber(kroner: number): string {
-  // Round to 2 decimals to avoid floating-point noise like 4456.9999999.
-  const rounded = Math.round(kroner * 100) / 100;
-  if (Number.isInteger(rounded)) return String(rounded);
-  const [intPart, fracPart = ""] = rounded.toFixed(2).split(".");
-  return `${intPart},${fracPart}`;
+  return String(Number.isFinite(kroner) ? Math.trunc(kroner) : 0);
 }
 
 export type AttentionLevel = "critical" | "warning" | "ok";

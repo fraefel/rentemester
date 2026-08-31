@@ -630,20 +630,20 @@ export function exportVatPdf(
   });
   rows.push({
     kind: "total",
-    label: "Momstilsvar",
-    amount: formatAmountDa(v.rubrikker.momstilsvar),
+    label: "Moms i alt",
+    amount: formatAmountDa(v.rubrikker.momsIAlt),
   });
 
   rows.push({ kind: "section", label: "Yderligere rubrikker" });
   rows.push({
     kind: "line",
-    label: "Rubrik A (varekøb fra udlandet)",
-    amount: formatAmountDa(v.rubrikker.rubrikA),
+    label: "Rubrik A (varer købt i EU)",
+    amount: formatAmountDa(v.rubrikker.rubrikAVarer),
   });
   rows.push({
     kind: "line",
-    label: "Rubrik B (varesalg til udlandet)",
-    amount: formatAmountDa(v.rubrikker.rubrikB),
+    label: "Rubrik A (ydelser købt i EU)",
+    amount: formatAmountDa(v.rubrikker.rubrikAYdelser),
   });
   rows.push({
     kind: "line",

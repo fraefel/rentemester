@@ -21,6 +21,7 @@ import {
 } from "../../core/vat";
 import { buildViesRecapitulativeStatement } from "../../core/vat-vies-list";
 import { buildOssReport } from "../../core/vat-oss";
+import { buildVatFiling } from "../../core/vat-filing";
 import { withActor } from "../actor";
 import { envelopeShape, errorEnvelope, wrapCoreResult, type Envelope } from "../envelope";
 import { withCompanyDb, withCompanyDbConfirmed, confirmField } from "../tool-runtime";
@@ -172,6 +173,26 @@ export function registerVatTools(server: McpServer): void {
       if (refusal) return refusal;
       const result = buildVatReport(db, args.from, args.to);
       return wrapCoreResult(result);
+    }),
+  );
+
+  server.registerTool(
+    "vat_filing",
+    {
+      title: "TastSelv VAT filing form",
+      description: "Builds the exact whole-kroner TastSelv VAT form for a closed period. Read-only; does not submit to Skattestyrelsen.",
+      inputSchema: {
+        company: z.string().min(1).describe("Absolute path to the company directory, or a workspace slug."),
+        from: z.string().min(1).describe("Period start, YYYY-MM-DD (inclusive)."),
+        to: z.string().min(1).describe("Period end, YYYY-MM-DD (inclusive)."),
+      },
+      outputSchema: envelopeShape,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    withCompanyDb<{ company: string; from: string; to: string }>(server, ({ db, args }) => {
+      const refusal = refuseIfNotVatRegistered(db);
+      if (refusal) return refusal;
+      return wrapCoreResult(buildVatFiling(db, args.from, args.to));
     }),
   );
 

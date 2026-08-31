@@ -343,9 +343,9 @@ export function VatView() {
 function rubrikkerCsvRows(
   rubrikker: VatRubrikker,
 ): Array<[string, string]> {
-  const owedPositive = rubrikker.momstilsvar >= 0;
   return [
     ["Salgsmoms", tastSelvNumber(rubrikker.salgsmoms)],
+    ["Købsmoms", tastSelvNumber(rubrikker.kobsmoms)],
     [
       "Moms af varekøb i udlandet",
       tastSelvNumber(rubrikker.momsAfVarekobUdland),
@@ -354,20 +354,19 @@ function rubrikkerCsvRows(
       "Moms af ydelseskøb i udlandet",
       tastSelvNumber(rubrikker.momsAfYdelseskobUdland),
     ],
-    ["Købsmoms", tastSelvNumber(rubrikker.kobsmoms)],
-    [
-      owedPositive ? "Momstilsvar" : "Negativt momstilsvar",
-      tastSelvNumber(rubrikker.momstilsvar),
-    ],
-    [
-      "Rubrik A - varer og ydelser købt i udlandet",
-      tastSelvNumber(rubrikker.rubrikA),
-    ],
-    [
-      "Rubrik B - varer og ydelser solgt til udlandet",
-      tastSelvNumber(rubrikker.rubrikB),
-    ],
+    ["Rubrik A - varer", tastSelvNumber(rubrikker.rubrikAVarer)],
+    ["Rubrik A - ydelser", tastSelvNumber(rubrikker.rubrikAYdelser)],
+    ["Rubrik B - varer / EU-salg uden moms", tastSelvNumber(rubrikker.rubrikBVarerEuSalesList)],
+    ["Rubrik B - varer / ikke EU-salg-listen", tastSelvNumber(rubrikker.rubrikBVarerIkkeEuSalesList)],
+    ["Rubrik B - ydelser", tastSelvNumber(rubrikker.rubrikBYdelser)],
     ["Rubrik C - øvrige momsfrie salg", tastSelvNumber(rubrikker.rubrikC)],
+    ["Olie- og flaskegasafgift", tastSelvNumber(rubrikker.olieOgFlaskegasafgift)],
+    ["Elafgift", tastSelvNumber(rubrikker.elafgift)],
+    ["Naturgas- og bygasafgift", tastSelvNumber(rubrikker.naturgasOgBygasafgift)],
+    ["Kulafgift", tastSelvNumber(rubrikker.kulafgift)],
+    ["CO2-afgift", tastSelvNumber(rubrikker.co2Afgift)],
+    ["Vandafgift", tastSelvNumber(rubrikker.vandafgift)],
+    ["Moms i alt", tastSelvNumber(rubrikker.momsIAlt)],
   ];
 }
 
@@ -434,7 +433,7 @@ function RubrikkerCard({
   currency: string;
   provisional: boolean;
 }) {
-  const owedPositive = rubrikker.momstilsvar >= 0;
+  const owedPositive = rubrikker.momsIAlt >= 0;
   // The label of the row most recently copied — drives the "Kopieret"
   // confirmation, scoped per row so two adjacent buttons don't share state.
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
@@ -504,9 +503,8 @@ function RubrikkerCard({
           </>
         ) : (
           <>
-            Disse felter svarer 1:1 til momsangivelsen på skat.dk (TastSelv
-            Erhverv) — udfyld dem som vist. Perioden er lukket, så tallene er
-            endelige.
+            Feltværdierne følger TastSelv-formens rækkefølge og hele kroner.
+            Perioden er lukket, så tallene er endelige.
           </>
         )}
       </p>
@@ -523,8 +521,8 @@ function RubrikkerCard({
           )}
           {rubrikRow("Købsmoms", rubrikker.kobsmoms)}
           {rubrikRow(
-            owedPositive ? "Momstilsvar" : "Negativt momstilsvar",
-            rubrikker.momstilsvar,
+            owedPositive ? "Moms i alt" : "Moms til gode i alt",
+            rubrikker.momsIAlt,
             `statement-result ${owedPositive ? "positive" : "negative"}`,
           )}
         </tbody>
@@ -532,14 +530,23 @@ function RubrikkerCard({
       <table className="data statement-table">
         <tbody>
           {rubrikRow(
-            "Rubrik A — varer og ydelser købt i udlandet",
-            rubrikker.rubrikA,
+            "Rubrik A — varer købt i EU",
+            rubrikker.rubrikAVarer,
           )}
           {rubrikRow(
-            "Rubrik B — varer og ydelser solgt til udlandet",
-            rubrikker.rubrikB,
+            "Rubrik A — ydelser købt i EU",
+            rubrikker.rubrikAYdelser,
           )}
+          {rubrikRow("Rubrik B — varer / EU-salg uden moms", rubrikker.rubrikBVarerEuSalesList)}
+          {rubrikRow("Rubrik B — varer / ikke EU-salg-listen", rubrikker.rubrikBVarerIkkeEuSalesList)}
+          {rubrikRow("Rubrik B — ydelser", rubrikker.rubrikBYdelser)}
           {rubrikRow("Rubrik C — øvrige momsfrie salg", rubrikker.rubrikC)}
+          {rubrikRow("Olie- og flaskegasafgift", rubrikker.olieOgFlaskegasafgift)}
+          {rubrikRow("Elafgift", rubrikker.elafgift)}
+          {rubrikRow("Naturgas- og bygasafgift", rubrikker.naturgasOgBygasafgift)}
+          {rubrikRow("Kulafgift", rubrikker.kulafgift)}
+          {rubrikRow("CO2-afgift", rubrikker.co2Afgift)}
+          {rubrikRow("Vandafgift", rubrikker.vandafgift)}
         </tbody>
       </table>
     </div>

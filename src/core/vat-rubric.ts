@@ -1,4 +1,4 @@
-import { addDkk, subtractDkk } from "./money";
+import { addDkk, roundDkk, subtractDkk } from "./money";
 import type { VatPeriodReport } from "./vat";
 
 /**
@@ -49,7 +49,7 @@ export function finalizeVatForm(raw: VatFormInput, rawNetVatPayable = 0): VatRub
     + fields.kulafgift + fields.co2Afgift + fields.vandafgift;
   const momsIAlt = fields.salgsmoms + fields.momsAfVarekobUdland + fields.momsAfYdelseskobUdland
     - fields.kobsmoms - refunds;
-  return { ...fields, momsIAlt, wholeKronerDifferenceDkk: momsIAlt - rawNetVatPayable };
+  return { ...fields, momsIAlt, wholeKronerDifferenceDkk: roundDkk(momsIAlt - rawNetVatPayable) };
 }
 
 export function emptyVatRubric(): VatRubric {

@@ -511,6 +511,7 @@ function RubrikkerCard({
       <table className="data statement-table">
         <tbody>
           {rubrikRow("Salgsmoms", rubrikker.salgsmoms)}
+          {rubrikRow("Købsmoms", rubrikker.kobsmoms)}
           {rubrikRow(
             "Moms af varekøb i udlandet (både EU og lande uden for EU)",
             rubrikker.momsAfVarekobUdland,
@@ -519,12 +520,12 @@ function RubrikkerCard({
             "Moms af ydelseskøb i udlandet med omvendt betalingspligt",
             rubrikker.momsAfYdelseskobUdland,
           )}
-          {rubrikRow("Købsmoms", rubrikker.kobsmoms)}
           {rubrikRow(
             owedPositive ? "Moms i alt" : "Moms til gode i alt",
             rubrikker.momsIAlt,
             `statement-result ${owedPositive ? "positive" : "negative"}`,
           )}
+          {rubrikRow("Afrundingsdifference mod rå momsrapport", rubrikker.wholeKronerDifferenceDkk)}
         </tbody>
       </table>
       <table className="data statement-table">

@@ -615,6 +615,11 @@ export function exportVatPdf(
   });
   rows.push({
     kind: "line",
+    label: "Købsmoms",
+    amount: formatAmountDa(v.rubrikker.kobsmoms),
+  });
+  rows.push({
+    kind: "line",
     label: "Moms af varekøb i udlandet",
     amount: formatAmountDa(v.rubrikker.momsAfVarekobUdland),
   });
@@ -622,11 +627,6 @@ export function exportVatPdf(
     kind: "line",
     label: "Moms af ydelseskøb i udlandet",
     amount: formatAmountDa(v.rubrikker.momsAfYdelseskobUdland),
-  });
-  rows.push({
-    kind: "line",
-    label: "Købsmoms",
-    amount: formatAmountDa(v.rubrikker.kobsmoms),
   });
   rows.push({
     kind: "total",
@@ -657,6 +657,7 @@ export function exportVatPdf(
     ["CO2-afgift", v.rubrikker.co2Afgift],
     ["Vandafgift", v.rubrikker.vandafgift],
   ] as const) rows.push({ kind: "line", label, amount: formatAmountDa(amount) });
+  rows.push({ kind: "line", label: "Afrunding mod rå momsrapport", amount: formatAmountDa(v.rubrikker.wholeKronerDifferenceDkk) });
 
   const content = buildStatementPdf({
     title: "Momsangivelse",

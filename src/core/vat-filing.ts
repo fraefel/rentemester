@@ -1,7 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { buildVatReport, type VatPeriodReport } from "./vat";
 import { emptyVatRubric, type VatRubric } from "./vat-rubric";
-import { vatFilingFormForPeriod } from "./vat-filing-evidence";
+import { currentVatFilingEvidence, vatFilingFormForPeriod } from "./vat-filing-evidence";
+import { buildViesRecapitulativeStatement } from "./vat-vies-list";
+import { roundDkk } from "./money";
 import { isValidIsoDate as looksLikeIsoDate } from "./dates";
 import { getCompanySettings } from "./company";
 import {
@@ -175,8 +177,9 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
   }
 
   const rubrikker = vatFilingFormForPeriod(db, vatReport);
-  const classifiedB = rubrikker.rubrikBVarerEuSalesList
-    + rubrikker.rubrikBVarerIkkeEuSalesList + rubrikker.rubrikBYdelser;
+  const evidence = currentVatFilingEvidence(db, periodStart, periodEnd);
+  const classifiedB = roundDkk((evidence.rubrikBVarerEuSalesList ?? 0)
+    + (evidence.rubrikBVarerIkkeEuSalesList ?? 0) + (evidence.rubrikBYdelser ?? 0));
   // A historical aggregate cannot legally select one of TastSelv's three B
   // fields. Do not silently move it: a dedicated evidence classification is
   // required before this return can be filed.
@@ -186,6 +189,23 @@ export function buildVatFiling(db: Database, periodStart: string, periodEnd: str
       periodEnd,
       periodStatus,
       ["foreign VAT-free sales require documented B-field classification before filing; Rentemester will not infer goods/services or EU-sales-list status from an aggregate"],
+      vatReport,
+      vatPeriodType,
+      period.reference,
+    );
+  }
+
+  // The EU sales list is an independent filing surface. Only the two B fields
+  // that are explicitly marked for it may reconcile to its total; the
+  // non-list goods field must never be used to make the check pass.
+  const vies = buildViesRecapitulativeStatement(db, periodStart, periodEnd);
+  const euSalesListB = roundDkk((evidence.rubrikBVarerEuSalesList ?? 0) + (evidence.rubrikBYdelser ?? 0));
+  if (!vies.ok || euSalesListB !== vies.totalValue) {
+    return failure(
+      periodStart,
+      periodEnd,
+      periodStatus,
+      ["EU-sales-list total must reconcile to Rubrik B goods/EU-list plus Rubrik B services; non-list goods cannot satisfy this control"],
       vatReport,
       vatPeriodType,
       period.reference,

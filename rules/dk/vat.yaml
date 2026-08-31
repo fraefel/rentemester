@@ -196,6 +196,7 @@ rules:
         - moms_i_alt_equals_whole_kroner_field_formula
         - eu_goods_and_services_are_split_in_rubrik_a
         - b_fields_have_documented_source_classification
+        - eu_sales_list_reconciles_only_to_applicable_b_fields
         - energy_refunds_have_append_only_evidence
       forbid:
         - momsangivelse_for_open_or_incomplete_vat_period

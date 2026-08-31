@@ -109,9 +109,9 @@ export function renderVatFiling(result: Record<string, unknown>): string {
   lines.push("");
   lines.push("Rubrikker til TastSelv Erhverv:");
   lines.push(`  Salgsmoms:                       ${formatKroner(rubrikker.salgsmoms)}`);
+  lines.push(`  Købsmoms:                        ${formatKroner(rubrikker.kobsmoms)}`);
   lines.push(`  Moms af varekøb i udlandet:      ${formatKroner(rubrikker.momsAfVarekobUdland)}`);
   lines.push(`  Moms af ydelseskøb i udlandet:   ${formatKroner(rubrikker.momsAfYdelseskobUdland)}`);
-  lines.push(`  Købsmoms:                        ${formatKroner(rubrikker.kobsmoms)}`);
   lines.push(`  Moms i alt:                      ${formatKroner(rubrikker.momsIAlt)}`);
   lines.push(`  Rubrik A - varer:                ${formatKroner(rubrikker.rubrikAVarer)}`);
   lines.push(`  Rubrik A - ydelser:              ${formatKroner(rubrikker.rubrikAYdelser)}`);
@@ -125,6 +125,7 @@ export function renderVatFiling(result: Record<string, unknown>): string {
   lines.push(`  Kulafgift:                       ${formatKroner(rubrikker.kulafgift)}`);
   lines.push(`  CO2-afgift:                      ${formatKroner(rubrikker.co2Afgift)}`);
   lines.push(`  Vandafgift:                      ${formatKroner(rubrikker.vandafgift)}`);
+  lines.push(`  Afrunding mod rå momsrapport:    ${formatKroner(rubrikker.wholeKronerDifferenceDkk)}`);
   lines.push("");
 
   const statusDa = result.periodStatus === "reported"

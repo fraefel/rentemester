@@ -77,6 +77,8 @@ ledger- og momsrapportværdier bevarer øre. Tvetydigt B-salg eller en
 refusion uden append-only evidence afviser filing-rapporten. Ingen kommando
 indsender til Skattestyrelsen.
 
+De primære, versionsbundne kilder er [Skattestyrelsens vejledning om angivelse i hele kroner](https://info.skat.dk/data.aspx?oid=2062862) og [TastSelv-dataformatets feltdefinitioner](https://info.skat.dk/data.aspx?oid=1878548). Den lovbundne kildehash står i `DK-VAT-FILING-001` i `rules/dk/vat.yaml`; nye feltfortolkninger må ikke indføres uden fornyet kildekontrol.
+
 CLI'ens `confirm`-konvention er **anderledes** end MCP's og cockpit's, men
 ækvivalent i intention. Slå op i [`docs/confirm-contract.md`](confirm-contract.md)
 for den tabel der pr. business-operation viser hvilke stakke der kræver hvad.

@@ -155,6 +155,28 @@ describe("domestic vs foreign reverse-charge VAT rubrik placement (JUR-2/KODE-2)
     rmSync(root, { recursive: true, force: true });
   });
 
+  test("EU-sales-list evidence cannot be hidden in the non-list B-goods field", () => {
+    const { root, db } = newDb();
+    cacheVies(db);
+    const issued = issueForeign(db, root, "2026-0001", 2000);
+    expect(issued.ok).toBe(true);
+    expect(postIssuedInvoiceToLedger(db, { invoiceDocumentId: issued.documentId! }).ok).toBe(true);
+    closeQuarter(db);
+
+    expect(recordVatFilingEvidence(db, {
+      periodStart: "2026-01-01", periodEnd: "2026-03-31",
+      fieldName: "rubrikBVarerIkkeEuSalesList", amountDkk: 2000,
+      evidenceRef: "synthetic non-list classification", actor: "agent:test", principal: "user:test", confirm: true,
+    }).ok).toBe(true);
+
+    expect(buildVatFiling(db, "2026-01-01", "2026-03-31")).toMatchObject({
+      ok: false,
+      errors: [expect.stringContaining("EU-sales-list total")],
+    });
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("mixed period splits correctly: domestic -> rubrik C, foreign -> rubrik B + VIES; momstilsvar == netVatPayable", () => {
     const { root, db } = newDb();
     cacheVies(db);

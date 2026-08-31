@@ -73,6 +73,8 @@ describe("agent runtime catalogue (#584)", () => {
       expect(searchCapabilities(query, 0, 10).items.map((item) => item.id)).toContain(capabilityId);
     }
     expect(searchCapabilities("submit VAT authority return", 0, 10)).toMatchObject({ total: 0, items: [] });
+    expect(searchCapabilities("correct balance without bank movement", 0, 10).items.map((item) => item.id)).toContain("non-cash-balance-corrections");
+    expect(describeWorkflow("non-cash-balance-correction", { tools: [], commands: [], routes: [] })?.workflow.steps.map((step) => step.operation.name)).toEqual(["documents_ingest", "documents_list", "journal_dry_run", "journal_post", "journal_list"]);
   });
 
   test("is deterministic and paginated for identical build inputs", () => {

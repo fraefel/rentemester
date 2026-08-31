@@ -419,6 +419,9 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
     } else if (internalVoucherKind === "non_cash_balance_correction" && metadata.sourceBankTransactionId !== undefined) {
       errors.push("non-cash balance correction must not reference a bank transaction");
     }
+    if (internalVoucherKind === "non_cash_balance_correction" && (metadata.currency ?? "DKK").trim().toUpperCase() !== "DKK") {
+      errors.push("non-cash balance correction currency must be DKK");
+    }
     if (!hasText(metadata.accountingRationale)) {
       errors.push("internal voucher accountingRationale is required");
     }

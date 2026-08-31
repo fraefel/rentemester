@@ -35,6 +35,7 @@ export type DocumentRow = {
   accountingRationale: string | null;
   preparedBy: string | null;
   preparedByProgram: string | null;
+  preparedAt: string | null;
   supplierName: string | null;
   supplierVatOrCvr: string | null;
   supplierCountryCode: string | null;
@@ -108,9 +109,10 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
                 d.status          AS status,
                 ive.bank_transaction_id AS sourceBankTransactionId,
                 CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internalVoucherKind,
-                ive.accounting_rationale AS accountingRationale,
-                ive.prepared_by AS preparedBy,
-                ive.prepared_by_program AS preparedByProgram,
+                COALESCE(ive.accounting_rationale,ncc.accounting_rationale) AS accountingRationale,
+                COALESCE(ive.prepared_by,ncc.prepared_by) AS preparedBy,
+                COALESCE(ive.prepared_by_program,ncc.prepared_by_program) AS preparedByProgram,
+                COALESCE(ive.created_at,ncc.created_at) AS preparedAt,
                 d.payload_json    AS payloadJson,
                 d.stored_path     AS storedPath,
                 idl.voucher_ref   AS voucherRef,
@@ -153,6 +155,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       accountingRationale: string | null;
       preparedBy: string | null;
       preparedByProgram: string | null;
+      preparedAt: string | null;
       supplierName: string | null;
       supplierVatOrCvr: string | null;
       supplierCountryCode: string | null;
@@ -183,6 +186,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       accountingRationale: r.accountingRationale,
       preparedBy: r.preparedBy,
       preparedByProgram: r.preparedByProgram,
+      preparedAt: r.preparedAt,
       supplierName: r.supplierName,
       supplierVatOrCvr: r.supplierVatOrCvr,
       supplierCountryCode: r.supplierCountryCode,

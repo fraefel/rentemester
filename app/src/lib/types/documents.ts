@@ -13,6 +13,7 @@ export type DocumentRow = {
   accountingRationale: string | null;
   preparedBy: string | null;
   preparedByProgram: string | null;
+  preparedAt?: string | null;
   supplierName: string | null;
   supplierVatOrCvr: string | null;
   supplierCountryCode: string | null;

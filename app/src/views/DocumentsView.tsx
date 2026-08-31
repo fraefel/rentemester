@@ -567,6 +567,7 @@ export function DocumentsView() {
                     {doc.documentType === "internal_voucher" && doc.accountingRationale ? (
                       <div className="muted">{doc.accountingRationale}</div>
                     ) : null}
+                    {doc.documentType === "internal_voucher" && doc.preparedBy ? <div className="muted">Forberedt af {doc.preparedBy}{doc.preparedByProgram ? ` via ${doc.preparedByProgram}` : ""}{doc.preparedAt ? ` · ${doc.preparedAt}` : ""}</div> : null}
                     {(doc.supplierCountryCode || doc.supplierIdentifierKind || doc.supplierIdentityStatus) && (
                       <div className="muted">
                         {doc.supplierCountryCode ?? "—"} · {doc.supplierIdentifierKind ?? "—"} · {doc.supplierIdentityStatus ?? "—"}

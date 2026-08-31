@@ -149,8 +149,10 @@ export function register(dispatch: CommandDispatch): void {
                 d.supplier_identity_status, d.payload_json,
                 ive.bank_transaction_id AS source_bank_transaction_id,
                 CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
-                ive.accounting_rationale, ive.prepared_by,
-                ive.prepared_by_program
+                COALESCE(ive.accounting_rationale,ncc.accounting_rationale) AS accounting_rationale,
+                COALESCE(ive.prepared_by,ncc.prepared_by) AS prepared_by,
+                COALESCE(ive.prepared_by_program,ncc.prepared_by_program) AS prepared_by_program,
+                COALESCE(ive.created_at,ncc.created_at) AS prepared_at
            FROM documents d
            LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
            LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
@@ -177,7 +179,7 @@ export function register(dispatch: CommandDispatch): void {
       console.log(`  Bilagsdato: ${row.invoice_date ?? "—"} | Kilde: ${row.source ?? "—"}`);
       if (row.document_type === "internal_voucher") {
         console.log(
-          `  Internt bilag: ${row.internal_voucher_kind === "non_cash_balance_correction" ? "balancekorrektion — ingen bankbevægelse" : `bankpost #${row.source_bank_transaction_id ?? "—"}`} | Udarbejdet af: ${row.prepared_by ?? "—"}`,
+          `  Internt bilag: ${row.internal_voucher_kind === "non_cash_balance_correction" ? "balancekorrektion — ingen bankbevægelse" : `bankpost #${row.source_bank_transaction_id ?? "—"}`} | Udarbejdet af: ${row.prepared_by ?? "—"} via ${row.prepared_by_program ?? "—"} · ${row.prepared_at ?? "—"}`,
         );
         console.log(`  Begrundelse: ${row.accounting_rationale ?? "—"}`);
       }

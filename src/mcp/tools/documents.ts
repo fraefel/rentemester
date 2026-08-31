@@ -192,8 +192,10 @@ export function registerDocumentTools(server: McpServer): void {
                   d.supplier_identifier_kind, d.supplier_identity_status,
                   ive.bank_transaction_id AS source_bank_transaction_id,
                   CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
-                  ive.accounting_rationale, ive.prepared_by,
-                  ive.prepared_by_program
+                  COALESCE(ive.accounting_rationale,ncc.accounting_rationale) AS accounting_rationale,
+                  COALESCE(ive.prepared_by,ncc.prepared_by) AS prepared_by,
+                  COALESCE(ive.prepared_by_program,ncc.prepared_by_program) AS prepared_by_program,
+                  COALESCE(ive.created_at,ncc.created_at) AS prepared_at
              FROM documents d
              LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
              LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
@@ -217,6 +219,7 @@ export function registerDocumentTools(server: McpServer): void {
           accounting_rationale: string | null;
           prepared_by: string | null;
           prepared_by_program: string | null;
+          prepared_at: string | null;
         }>;
       const mapped = rows.map((row) => ({
         id: row.id,
@@ -239,6 +242,7 @@ export function registerDocumentTools(server: McpServer): void {
         accountingRationale: row.accounting_rationale,
         preparedBy: row.prepared_by,
         preparedByProgram: row.prepared_by_program,
+        preparedAt: row.prepared_at,
       }));
       const { pageRows, meta } = applyPagination(mapped, { limit: args.limit, offset: args.offset });
       return successEnvelope({ documents: pageRows, ...meta });

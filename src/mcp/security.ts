@@ -5,7 +5,8 @@ import { defaultKeyHasher } from "@better-auth/api-key";
 import type { RoutePermission } from "../core/access-permissions";
 import { authorizeWorkspaceRoute } from "../core/workspace-access";
 import { openWorkspaceControlReadOnlyDb } from "../core/workspace-control";
-import { findWorkspaceCompany, isValidSlug, listWorkspaceCompanies } from "../core/workspace";
+import { isValidSlug, listWorkspaceCompanies } from "../core/workspace";
+import { resolveWorkspaceCompany } from "../core/workspace-company-resolver";
 import { WORKSPACE_SERVICE_PRINCIPAL_CONFIG_ID } from "../server/better-auth";
 
 export const MCP_TOOL_PERMISSIONS: Readonly<Record<string, RoutePermission>> = Object.freeze(Object.fromEntries([
@@ -84,14 +85,16 @@ export function createMcpSecurityContextFromEnv(env: NodeJS.ProcessEnv = process
 export function resolveMcpWorkspaceCompany(context: McpSecurityContext, raw: unknown): { slug: string; root: string } | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   const value = raw.trim();
-  const company = isValidSlug(value) ? findWorkspaceCompany(context.workspaceRoot, value) : null;
-  if (company) return { slug: company.slug, root: realpathSync(resolve(context.workspaceRoot, company.slug)) };
+  const bySlug = isValidSlug(value)
+    ? resolveWorkspaceCompany(context.workspaceRoot, value, { selection: "registered", archived: "allow", ledger: "optional" })
+    : null;
+  if (bySlug?.ok) return { slug: bySlug.company.entry.slug, root: realpathSync(bySlug.company.companyRoot) };
   try {
     const candidate = realpathSync(resolve(value));
     const rel = relative(context.workspaceRoot, candidate);
     if (rel === "" || rel.startsWith(`..${sep}`) || rel === ".." || resolve(context.workspaceRoot, rel) !== candidate) return null;
-    const byPath = findWorkspaceCompany(context.workspaceRoot, rel);
-    return byPath ? { slug: byPath.slug, root: candidate } : null;
+    const byPath = resolveWorkspaceCompany(context.workspaceRoot, rel, { selection: "registered", archived: "allow", ledger: "optional" });
+    return byPath.ok ? { slug: byPath.company.entry.slug, root: candidate } : null;
   } catch { return null; }
 }
 

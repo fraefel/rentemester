@@ -66,6 +66,17 @@ Parse-/brugsfejl (`exit 2`) skrives til stderr.
 
 ## 3. Confirm-flag
 
+### TastSelv momsangivelse
+
+`vat momsangivelse` / `vat filing` og MCP `vat_filing` returnerer samme
+read-only form: `salgsmoms`, `kobsmoms`, `momsAfVarekobUdland`,
+`momsAfYdelseskobUdland`, A-varer, A-ydelser, de tre B-felter, C og de seks
+afgiftsrefusionsfelter samt `momsIAlt`. Alle indtastningsfelter er signed
+integer DKK. Hvert råbeløb trunceres mod nul før `momsIAlt` beregnes; rå
+ledger- og momsrapportværdier bevarer øre. Tvetydigt B-salg eller en
+refusion uden append-only evidence afviser filing-rapporten. Ingen kommando
+indsender til Skattestyrelsen.
+
 CLI'ens `confirm`-konvention er **anderledes** end MCP's og cockpit's, men
 ækvivalent i intention. Slå op i [`docs/confirm-contract.md`](confirm-contract.md)
 for den tabel der pr. business-operation viser hvilke stakke der kræver hvad.

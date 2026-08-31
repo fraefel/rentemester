@@ -645,11 +645,18 @@ export function exportVatPdf(
     label: "Rubrik A (ydelser købt i EU)",
     amount: formatAmountDa(v.rubrikker.rubrikAYdelser),
   });
-  rows.push({
-    kind: "line",
-    label: "Rubrik C (momsfritaget salg)",
-    amount: formatAmountDa(v.rubrikker.rubrikC),
-  });
+  for (const [label, amount] of [
+    ["Rubrik B (varer / EU-salg uden moms)", v.rubrikker.rubrikBVarerEuSalesList],
+    ["Rubrik B (varer / ikke EU-salg-listen)", v.rubrikker.rubrikBVarerIkkeEuSalesList],
+    ["Rubrik B (ydelser)", v.rubrikker.rubrikBYdelser],
+    ["Rubrik C (momsfritaget salg)", v.rubrikker.rubrikC],
+    ["Olie- og flaskegasafgift", v.rubrikker.olieOgFlaskegasafgift],
+    ["Elafgift", v.rubrikker.elafgift],
+    ["Naturgas- og bygasafgift", v.rubrikker.naturgasOgBygasafgift],
+    ["Kulafgift", v.rubrikker.kulafgift],
+    ["CO2-afgift", v.rubrikker.co2Afgift],
+    ["Vandafgift", v.rubrikker.vandafgift],
+  ] as const) rows.push({ kind: "line", label, amount: formatAmountDa(amount) });
 
   const content = buildStatementPdf({
     title: "Momsangivelse",

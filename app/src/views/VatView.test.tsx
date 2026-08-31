@@ -58,10 +58,10 @@ describe("VatView — Moms", () => {
     // The foreign-trade rubrics the static figures lacked are now present.
     expect(screen.getByText("Salgsmoms")).toBeInTheDocument();
     expect(
-      screen.getByText(/Rubrik A — varer og ydelser købt i udlandet/),
+      screen.getByText(/Rubrik A — varer købt i EU/),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Rubrik B — varer og ydelser solgt til udlandet/),
+      screen.getByText(/Rubrik B — varer \/ EU-salg uden moms/),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Rubrik C — øvrige momsfrie salg/),
@@ -71,8 +71,8 @@ describe("VatView — Moms", () => {
         /Moms af ydelseskøb i udlandet med omvendt betalingspligt/,
       ),
     ).toBeInTheDocument();
-    // The momstilsvar row carries the filing figure.
-    const tilsvar = screen.getByText("Momstilsvar").closest("tr")!;
+    // The statutory total row carries the filing figure.
+    const tilsvar = screen.getByText("Moms i alt").closest("tr")!;
     expect(
       within(tilsvar as HTMLElement).getByText(/3\.371,00/),
     ).toBeInTheDocument();
@@ -274,8 +274,8 @@ describe("VatView — Moms", () => {
     expect(card.textContent ?? "").not.toMatch(/vat momsangivelse/i);
     expect(card.textContent ?? "").not.toMatch(/i terminalen/i);
     // The replacement text reassures the owner without jargon.
-    expect(card.textContent ?? "").toMatch(/skat\.dk/i);
-    expect(card.textContent ?? "").toMatch(/TastSelv Erhverv/i);
+    expect(card.textContent ?? "").toMatch(/TastSelv-formens rækkefølge/i);
+    expect(card.textContent ?? "").toMatch(/hele kroner/i);
   });
 
   test("rubrics explanation does not leak CLI jargon (open period)", async () => {
@@ -457,7 +457,7 @@ describe("VatView — Moms", () => {
     // Semicolon-separated label;beløb pairs, one per line — no thousand
     // separators, no "kr." suffix in the numeric column.
     expect(pasted).toMatch(/Salgsmoms;/);
-    expect(pasted).toMatch(/Momstilsvar;/);
+    expect(pasted).toMatch(/Moms i alt;/);
     expect(pasted).toMatch(/Rubrik A/);
     // No tusindtalsseparator-punktum and no "kr." anywhere in the CSV.
     expect(pasted).not.toMatch(/\./);

@@ -118,9 +118,9 @@ describe("tastSelvNumber (#UI-10)", () => {
     expect(tastSelvNumber(4457)).toBe("4457");
   });
 
-  test("emits øre with a comma, never a thousand separator", () => {
-    expect(tastSelvNumber(1234.5)).toBe("1234,50");
-    expect(tastSelvNumber(0.05)).toBe("0,05");
+  test("disregards øre by truncating toward zero", () => {
+    expect(tastSelvNumber(1234.5)).toBe("1234");
+    expect(tastSelvNumber(-0.05)).toBe("0");
   });
 });
 

@@ -204,6 +204,8 @@ export const AGENT_WORKFLOWS: readonly AgentWorkflow[] = [
     write("post-reverse-charge", mcp("vat_post_eu_service_purchase"), "Post a supported EU-service reverse charge.", { dependsOn: ["purchase-preflight"], condition: "Reverse-charge branch.", boundary: "irreversible", uncertainOutcomeReadBack: mcp("vat_report"), canonicalRecords: ["reverse-charge journal entries"] }),
     read("vat-report", mcp("vat_report"), "Prepare the VAT period report.", { dependsOn: ["post-domestic-purchase|post-reverse-charge"] }),
     read("eu-sales-list", mcp("vat_eu_sales_list"), "Prepare EU sales evidence.", { dependsOn: ["vat-report"] }),
+    write("record-filing-evidence", mcp("vat_filing_evidence_record"), "Record a reviewed B-field classification or statutory refund only when supported by evidence.", { dependsOn: ["vat-report|eu-sales-list"], condition: "Required only for non-zero B fields or refunds.", expectedIdempotent: true, retryClass: "natural-idempotent", canonicalRecords: ["VAT filing evidence events", "audit log"] }),
+    read("tastselv-form", mcp("vat_filing"), "Read the exact whole-kroner TastSelv form; it never submits to Skattestyrelsen.", { dependsOn: ["vat-report|eu-sales-list|record-filing-evidence"], canonicalRecords: ["VAT filing form", "VAT report"] }),
   ], unsupportedBoundaries: ["This workflow does not file with an authority.", "Only documented taxable lines create input VAT."] }),
   workflow({ id: "exceptions-corrections", capabilityId: "exceptions-corrections", title: "Exceptions, corrections and reversals", intendedOutcome: "Resolve review blockers and correct posted entries through append-only compensating records.", steps: [
     read("list-exceptions", mcp("exceptions_list"), "Read unresolved exceptions."),
@@ -490,7 +492,7 @@ type SurfaceBaseline = { count: number; hash: string };
  */
 export const AGENT_SURFACE_BASELINES: Record<SurfaceName, SurfaceBaseline> = {
   // Public surface changes require an explicit discovery review.
-  mcp: { count: 220, hash: "83d3611bdce3a64a2603173d6f397ba9c2ed377d23ca44026ef9f8ff75d0813d" },
+  mcp: { count: 222, hash: "b9ceaceb820c56c018e19b4ecbd970a8860b580321f49c49d36604d4d766850b" },
   cli: { count: 271, hash: "0c1831648b2964aa2d37ef180c2770891dab2c9642df184ca62a3943468e48e5" },
   http: { count: 215, hash: "1fb7e2fd26fd4e6428d78323ace6dc1878cd314a1a73cb67448835f69cc25b0b" },
 };

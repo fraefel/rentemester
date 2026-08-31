@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { insertAuditLog } from "./actor";
 import { finalizeVatForm, type VatFormInput, type VatRubric } from "./vat-rubric";
 import type { VatPeriodReport } from "./vat";
 
@@ -34,6 +35,14 @@ export function recordVatFilingEvidence(db: Database, input: {
   db.transaction(() => {
     if (current) db.query("INSERT INTO vat_filing_evidence_events(period_start,period_end,field_name,amount_dkk,evidence_ref,event_type,supersedes_event_id,actor,principal,created_at) VALUES(?,?,?,?,?,'superseded',?,?,?,?)").run(input.periodStart,input.periodEnd,input.fieldName,current.amount_dkk,current.evidence_ref,current.id,input.actor.trim(),input.principal.trim(),new Date().toISOString());
     db.query("INSERT INTO vat_filing_evidence_events(period_start,period_end,field_name,amount_dkk,evidence_ref,event_type,actor,principal,created_at) VALUES(?,?,?,?,?,'recorded',?,?,?)").run(input.periodStart,input.periodEnd,input.fieldName,input.amountDkk,input.evidenceRef.trim(),input.actor.trim(),input.principal.trim(),new Date().toISOString());
+    insertAuditLog(db, {
+      eventType: "vat_filing_evidence_recorded",
+      entityType: "vat_filing_evidence",
+      entityId: `${input.periodStart}:${input.periodEnd}:${input.fieldName}`,
+      message: `Recorded evidence-backed VAT filing field ${input.fieldName}`,
+      createdBy: input.actor.trim(),
+      createdByProgram: input.principal.trim(),
+    });
   })();
   const row = db.query("SELECT id FROM current_vat_filing_evidence WHERE period_start=? AND period_end=? AND field_name=?").get(input.periodStart,input.periodEnd,input.fieldName) as {id:number};
   return { ok:true as const,id:row.id,idempotent:false };

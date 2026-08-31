@@ -681,8 +681,8 @@ og `tools/list`):
   `system export-accountant` (håndoff-pakke til bogholder/revisor) og
   `system backup-guide` (HTML-guide).
 - `src/cli/vat.ts` (tvilling: `src/mcp/tools/vat.ts`) —
-  `vat momsangivelse` (alias: `vat filing`) er CLI-only; MCP har kun
-  `vat_report`, `vat_eu_sales_list`, `vat_oss_report` og `vat_post_*`.
+  `vat momsangivelse` (alias: `vat filing`) har MCP-pendanten `vat_filing`.
+  Begge bygger den read-only, hele-kroner TastSelv-form og indsender aldrig til Skattestyrelsen.
 - `src/cli/import.ts` (tvilling: `src/mcp/tools/import.ts`) —
   `import run` (fuld migrering), `import systems` og `import contacts` er
   CLI-only; MCP har kun `import_archive_list`/`import_archive_year`.

@@ -27,7 +27,7 @@ export type DocumentType =
 export type DocumentExemptionCode = "FOREIGN_PHYSICAL_ONLY" | null;
 export type PurchaseVatClassification = "dk_purchase_25" | "exempt";
 export type PurchaseVatLine = { classification: PurchaseVatClassification; netAmount: number; vatAmount?: number };
-export type InternalVoucherKind = "bank_evidenced" | "non_cash_balance_correction";
+export type InternalVoucherKind = "bank_evidenced" | "non_cash_balance_correction" | "legacy_opening_creditor_reclassification";
 
 export type DocumentMetadata = {
   source: string;
@@ -53,6 +53,8 @@ export type DocumentMetadata = {
   sourceBankTransactionId?: number;
   /** Explicit evidence contract. Omitted legacy vouchers remain bank_evidenced. */
   internalVoucherKind?: InternalVoucherKind;
+  legacyOpeningJournalEntryId?: number;
+  legacyOpeningJournalLineId?: number;
   /** Human accounting explanation for why the internal voucher is booked. */
   accountingRationale?: string;
 };
@@ -410,18 +412,20 @@ export function validateDocumentMetadata(metadata: DocumentMetadata): DocumentVa
     if (metadata.vatAmount !== 0) {
       errors.push("internal voucher vatAmount must be exactly 0");
     }
-    if (!['bank_evidenced', 'non_cash_balance_correction'].includes(internalVoucherKind)) {
-      errors.push("internal voucher internalVoucherKind must be bank_evidenced or non_cash_balance_correction");
+    if (!['bank_evidenced', 'non_cash_balance_correction', 'legacy_opening_creditor_reclassification'].includes(internalVoucherKind)) {
+      errors.push("internal voucher internalVoucherKind must be bank_evidenced, non_cash_balance_correction or legacy_opening_creditor_reclassification");
     } else if (internalVoucherKind === "bank_evidenced" && (
       !Number.isInteger(metadata.sourceBankTransactionId) || Number(metadata.sourceBankTransactionId) <= 0
     )) {
       errors.push("internal voucher sourceBankTransactionId must be a positive integer");
-    } else if (internalVoucherKind === "non_cash_balance_correction" && metadata.sourceBankTransactionId !== undefined) {
+    } else if ((internalVoucherKind === "non_cash_balance_correction" || internalVoucherKind === "legacy_opening_creditor_reclassification") && metadata.sourceBankTransactionId !== undefined) {
       errors.push("non-cash balance correction must not reference a bank transaction");
     }
-    if (internalVoucherKind === "non_cash_balance_correction" && (metadata.currency ?? "DKK").trim().toUpperCase() !== "DKK") {
+    if ((internalVoucherKind === "non_cash_balance_correction" || internalVoucherKind === "legacy_opening_creditor_reclassification") && (metadata.currency ?? "DKK").trim().toUpperCase() !== "DKK") {
       errors.push("non-cash balance correction currency must be DKK");
     }
+    if (internalVoucherKind === "legacy_opening_creditor_reclassification" && (!Number.isInteger(metadata.legacyOpeningJournalEntryId) || Number(metadata.legacyOpeningJournalEntryId) <= 0 || !Number.isInteger(metadata.legacyOpeningJournalLineId) || Number(metadata.legacyOpeningJournalLineId) <= 0)) errors.push("legacy opening creditor reclassification requires positive legacyOpeningJournalEntryId and legacyOpeningJournalLineId");
+    if (internalVoucherKind !== "legacy_opening_creditor_reclassification" && (metadata.legacyOpeningJournalEntryId !== undefined || metadata.legacyOpeningJournalLineId !== undefined)) errors.push("legacy opening journal references are only allowed for legacy_opening_creditor_reclassification");
     if (!hasText(metadata.accountingRationale)) {
       errors.push("internal voucher accountingRationale is required");
     }
@@ -918,6 +922,7 @@ function ingestDocumentSnapshot(
                 accounting_rationale, prepared_by, prepared_by_program)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           ).run(inserted.id, sha256, metadata.issueDate!, metadata.amountIncVat!, currency, metadata.accountingRationale!.trim(), actor.createdBy, actor.createdByProgram);
+          if (metadata.internalVoucherKind === "legacy_opening_creditor_reclassification") db.query("INSERT INTO legacy_opening_creditor_reclassification_evidence (document_id,opening_journal_entry_id,opening_journal_line_id) VALUES(?,?,?)").run(inserted.id, metadata.legacyOpeningJournalEntryId!, metadata.legacyOpeningJournalLineId!);
         }
       }
 

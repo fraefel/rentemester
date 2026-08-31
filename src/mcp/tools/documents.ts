@@ -106,11 +106,13 @@ export const documentMetadataFields = {
       .int()
       .positive()
       .optional()
-      .describe("Required for bank_evidenced internal_voucher; forbidden for non_cash_balance_correction."),
+      .describe("Required for bank_evidenced internal_voucher; forbidden for non_cash_balance_correction and legacy_opening_creditor_reclassification."),
     internalVoucherKind: z
-      .enum(["bank_evidenced", "non_cash_balance_correction"])
+      .enum(["bank_evidenced", "non_cash_balance_correction", "legacy_opening_creditor_reclassification"])
       .optional()
       .describe("Explicit internal-voucher evidence contract. Omitted legacy vouchers remain bank_evidenced."),
+    legacyOpeningJournalEntryId: z.number().int().positive().optional().describe("Required only for legacy_opening_creditor_reclassification: immutable primobalance journal entry ID."),
+    legacyOpeningJournalLineId: z.number().int().positive().optional().describe("Required only for legacy_opening_creditor_reclassification: exact creditor line ID in that primobalance."),
     accountingRationale: z
       .string()
       .min(1)
@@ -191,7 +193,8 @@ export function registerDocumentTools(server: McpServer): void {
                   d.sender_vat_cvr, d.supplier_country_code,
                   d.supplier_identifier_kind, d.supplier_identity_status,
                   ive.bank_transaction_id AS source_bank_transaction_id,
-                  CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
+                  CASE WHEN legacy.document_id IS NOT NULL THEN 'legacy_opening_creditor_reclassification' WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
+                  legacy.opening_journal_entry_id AS legacy_opening_journal_entry_id, legacy.opening_journal_line_id AS legacy_opening_journal_line_id,
                   COALESCE(ive.accounting_rationale,ncc.accounting_rationale) AS accounting_rationale,
                   COALESCE(ive.prepared_by,ncc.prepared_by) AS prepared_by,
                   COALESCE(ive.prepared_by_program,ncc.prepared_by_program) AS prepared_by_program,
@@ -199,6 +202,7 @@ export function registerDocumentTools(server: McpServer): void {
              FROM documents d
              LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
              LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
+             LEFT JOIN legacy_opening_creditor_reclassification_evidence legacy ON legacy.document_id = d.id
             ORDER BY d.id DESC`,
         )
         .all() as Array<{
@@ -215,7 +219,8 @@ export function registerDocumentTools(server: McpServer): void {
           payload_json: string | null;
           sender_vat_cvr: string | null; supplier_country_code: string | null; supplier_identifier_kind: string | null; supplier_identity_status: string | null;
           source_bank_transaction_id: number | null;
-          internal_voucher_kind: "bank_evidenced" | "non_cash_balance_correction" | null;
+          internal_voucher_kind: "bank_evidenced" | "non_cash_balance_correction" | "legacy_opening_creditor_reclassification" | null;
+          legacy_opening_journal_entry_id: number | null; legacy_opening_journal_line_id: number | null;
           accounting_rationale: string | null;
           prepared_by: string | null;
           prepared_by_program: string | null;
@@ -238,7 +243,8 @@ export function registerDocumentTools(server: McpServer): void {
         supplierIdentifierKind: row.supplier_identifier_kind,
         supplierIdentityStatus: row.supplier_identity_status,
         sourceBankTransactionId: row.source_bank_transaction_id,
-        internalVoucherKind: row.internal_voucher_kind,
+          internalVoucherKind: row.internal_voucher_kind,
+          legacyOpeningJournalEntryId: row.legacy_opening_journal_entry_id, legacyOpeningJournalLineId: row.legacy_opening_journal_line_id,
         accountingRationale: row.accounting_rationale,
         preparedBy: row.prepared_by,
         preparedByProgram: row.prepared_by_program,

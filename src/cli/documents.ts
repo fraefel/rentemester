@@ -148,7 +148,8 @@ export function register(dispatch: CommandDispatch): void {
                 d.supplier_country_code, d.supplier_identifier_kind,
                 d.supplier_identity_status, d.payload_json,
                 ive.bank_transaction_id AS source_bank_transaction_id,
-                CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
+                CASE WHEN legacy.document_id IS NOT NULL THEN 'legacy_opening_creditor_reclassification' WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internal_voucher_kind,
+                legacy.opening_journal_entry_id AS legacy_opening_journal_entry_id, legacy.opening_journal_line_id AS legacy_opening_journal_line_id,
                 COALESCE(ive.accounting_rationale,ncc.accounting_rationale) AS accounting_rationale,
                 COALESCE(ive.prepared_by,ncc.prepared_by) AS prepared_by,
                 COALESCE(ive.prepared_by_program,ncc.prepared_by_program) AS prepared_by_program,
@@ -156,6 +157,7 @@ export function register(dispatch: CommandDispatch): void {
            FROM documents d
            LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
            LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
+           LEFT JOIN legacy_opening_creditor_reclassification_evidence legacy ON legacy.document_id = d.id
           ORDER BY d.id DESC`,
       )
       .all() as Array<Record<string, unknown>>;
@@ -179,7 +181,7 @@ export function register(dispatch: CommandDispatch): void {
       console.log(`  Bilagsdato: ${row.invoice_date ?? "—"} | Kilde: ${row.source ?? "—"}`);
       if (row.document_type === "internal_voucher") {
         console.log(
-          `  Internt bilag: ${row.internal_voucher_kind === "non_cash_balance_correction" ? "balancekorrektion — ingen bankbevægelse" : `bankpost #${row.source_bank_transaction_id ?? "—"}`} | Udarbejdet af: ${row.prepared_by ?? "—"} via ${row.prepared_by_program ?? "—"} · ${row.prepared_at ?? "—"}`,
+          `  Internt bilag: ${row.internal_voucher_kind === "legacy_opening_creditor_reclassification" ? `legacy kreditor-primobalance #${row.legacy_opening_journal_entry_id ?? "—"}/linje #${row.legacy_opening_journal_line_id ?? "—"}` : row.internal_voucher_kind === "non_cash_balance_correction" ? "balancekorrektion — ingen bankbevægelse" : `bankpost #${row.source_bank_transaction_id ?? "—"}`} | Udarbejdet af: ${row.prepared_by ?? "—"} via ${row.prepared_by_program ?? "—"} · ${row.prepared_at ?? "—"}`,
         );
         console.log(`  Begrundelse: ${row.accounting_rationale ?? "—"}`);
       }

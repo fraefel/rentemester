@@ -327,10 +327,10 @@ function existingCreditNoteJournal(db: Database, documentId: number | undefined)
   ).get(documentId) as { id: number; entry_no: string } | null;
 }
 
-type NonCashBalanceEvidence = { document_id:number; document_sha256:string; issue_date:string; amount:number; currency:string };
+type NonCashBalanceEvidence = { document_id:number; document_sha256:string; issue_date:string; amount:number; currency:string; opening_journal_entry_id:number|null; opening_journal_line_id:number|null };
 function nonCashBalanceEvidence(db:Database,documentId:number|undefined):NonCashBalanceEvidence|null {
   if(documentId==null)return null;
-  return db.query("SELECT document_id,document_sha256,issue_date,amount,currency FROM non_cash_balance_correction_evidence WHERE document_id=?").get(documentId) as NonCashBalanceEvidence|null;
+  return db.query("SELECT e.document_id,e.document_sha256,e.issue_date,e.amount,e.currency,l.opening_journal_entry_id,l.opening_journal_line_id FROM non_cash_balance_correction_evidence e LEFT JOIN legacy_opening_creditor_reclassification_evidence l ON l.document_id=e.document_id WHERE e.document_id=?").get(documentId) as NonCashBalanceEvidence|null;
 }
 function nonCashBalancePayloadHash(payload:JournalEntryInput):string {
   return createHash("sha256").update(JSON.stringify({transactionDate:payload.transactionDate,text:payload.text.trim(),documentId:payload.documentId??null,sourceBankTransactionId:payload.sourceBankTransactionId??null,currency:(payload.currency??"DKK").trim().toUpperCase(),amountForeign:payload.amountForeign??null,amountDkk:payload.amountDkk??null,fxRateToDkk:payload.fxRateToDkk??null,lines:payload.lines.map(line=>({accountNo:line.accountNo,debitAmount:normalizeAmount(line.debitAmount),creditAmount:normalizeAmount(line.creditAmount),vatCode:line.vatCode?.trim()||null,text:line.text??null}))})).digest("hex");
@@ -422,11 +422,29 @@ function validateJournalEntryWithPolicy(
     if(currency!==nonCashEvidence.currency.toUpperCase())errors.push(`non-cash balance correction currency must match document currency ${nonCashEvidence.currency}`);
     if(currency!=="DKK")errors.push("non-cash balance correction currency must be DKK");
     if(debitSum!==toOre(Number(nonCashEvidence.amount))||creditSum!==toOre(Number(nonCashEvidence.amount)))errors.push(`non-cash balance correction journal amount must match document amount ${roundDkk(Number(nonCashEvidence.amount))}`);
-    const forbiddenRoles=new Set((db.query("SELECT account_no FROM account_role_mappings WHERE status='confirmed' AND role IN ('bank','debtors','creditors','output_vat','input_vat','reverse_charge_vat','vat_settlement') UNION SELECT ledger_account_no AS account_no FROM bank_accounts WHERE ledger_account_no IS NOT NULL AND length(trim(ledger_account_no))>0").all() as Array<{account_no:string}>).map(row=>row.account_no));
+    const legacyOpening=nonCashEvidence.opening_journal_entry_id!=null&&nonCashEvidence.opening_journal_line_id!=null;
+    const forbiddenRoles=new Set((db.query(`SELECT account_no FROM account_role_mappings WHERE status='confirmed' AND role IN ('bank','debtors',${legacyOpening ? "'output_vat','input_vat','reverse_charge_vat','vat_settlement'" : "'creditors','output_vat','input_vat','reverse_charge_vat','vat_settlement'"}) UNION SELECT ledger_account_no AS account_no FROM bank_accounts WHERE ledger_account_no IS NOT NULL AND length(trim(ledger_account_no))>0`).all() as Array<{account_no:string}>).map(row=>row.account_no));
     for(const [idx,line] of lines.entries()){
       const account=accounts.get(line.accountNo);
       if(account&&(!['asset','liability','equity'].includes(account.type)||forbiddenRoles.has(line.accountNo)))errors.push(`lines[${idx}] account ${line.accountNo} is not an eligible non-cash balance account`);
       if(typeof line.vatCode==='string'&&line.vatCode.trim())errors.push(`lines[${idx}] vatCode is forbidden for non-cash balance corrections`);
+    }
+    if(legacyOpening){
+      appliedRules.push("DK-BOOKKEEPING-LEGACY-OPENING-CREDITOR-RECLASSIFICATION-001");
+      const opening=db.query("SELECT opening.transaction_date,line.id AS line_id,a.account_no,line.debit_amount,line.credit_amount FROM opening_balances marker JOIN journal_entries opening ON opening.id=marker.journal_entry_id AND opening.status='posted' JOIN journal_lines line ON line.id=? AND line.journal_entry_id=opening.id JOIN accounts a ON a.id=line.account_id JOIN account_role_mappings r ON r.account_no=a.account_no AND r.role='creditors' AND r.status='confirmed' WHERE opening.id=?").get(nonCashEvidence.opening_journal_line_id,nonCashEvidence.opening_journal_entry_id) as {transaction_date:string;line_id:number;account_no:string;debit_amount:number;credit_amount:number}|null;
+      if(!opening)errors.push("legacy opening creditor reclassification must reference an exact posted primobalance creditor line");else{
+        if(Number(opening.debit_amount)!==0||Number(opening.credit_amount)<=0)errors.push("legacy opening creditor line must be a credit balance");
+        if(payload.transactionDate<opening.transaction_date)errors.push(`legacy opening creditor reclassification date must not precede primobalance date ${opening.transaction_date}`);
+        if(lines.length!==2)errors.push("legacy opening creditor reclassification requires exactly two journal lines");
+        const creditor=lines.find(line=>line.accountNo===opening.account_no),counter=lines.find(line=>line.accountNo!==opening.account_no);
+        if(!creditor||normalizeAmount(creditor.debitAmount)!==Number(nonCashEvidence.amount)||normalizeAmount(creditor.creditAmount)!==0)errors.push(`legacy opening creditor account ${opening.account_no} must be debited by the exact document amount`);
+        if(!counter||normalizeAmount(counter.creditAmount)!==Number(nonCashEvidence.amount)||normalizeAmount(counter.debitAmount)!==0)errors.push("legacy opening creditor reclassification counteraccount must be credited by the exact document amount");
+        if(counter){const a=accounts.get(counter.accountNo);if(!a||!['asset','liability','equity'].includes(a.type)||forbiddenRoles.has(counter.accountNo)||counter.accountNo===opening.account_no)errors.push("legacy opening creditor reclassification counteraccount must be an eligible non-cash balance account");}
+        const explained=db.query("SELECT p.id FROM payables p JOIN journal_lines l ON l.journal_entry_id=p.journal_entry_id JOIN accounts a ON a.id=l.account_id JOIN account_role_mappings r ON r.account_no=a.account_no AND r.role='creditors' AND r.status='confirmed' LIMIT 1").get()??db.query("SELECT p.id FROM payable_payments p JOIN journal_lines l ON l.journal_entry_id=p.journal_entry_id JOIN accounts a ON a.id=l.account_id JOIN account_role_mappings r ON r.account_no=a.account_no AND r.role='creditors' AND r.status='confirmed' LIMIT 1").get();
+        if(explained)errors.push("legacy opening creditor reclassification is blocked because canonical payable evidence exists for a creditor account");
+        const used=db.query("SELECT COALESCE(SUM(n.amount),0) AS amount FROM legacy_opening_creditor_reclassification_evidence e JOIN non_cash_balance_correction_evidence n ON n.document_id=e.document_id JOIN non_cash_balance_correction_postings p ON p.document_id=e.document_id WHERE e.opening_journal_line_id=? AND p.payload_hash<>?").get(opening.line_id,nonCashBalancePayloadHash(payload)) as {amount:number};
+        if(toOre(Number(used.amount))+toOre(Number(nonCashEvidence.amount))>toOre(Number(opening.credit_amount)))errors.push("legacy opening creditor reclassification exceeds the documented remaining primobalance creditor balance");
+      }
     }
     const prior=db.query("SELECT journal_entry_id,payload_hash FROM non_cash_balance_correction_postings WHERE document_id=?").get(nonCashEvidence.document_id) as {journal_entry_id:number;payload_hash:string}|null;
     if(prior&&prior.payload_hash!==nonCashBalancePayloadHash(payload))errors.push(`non-cash balance correction document ${nonCashEvidence.document_id} is already linked to a conflicting journal`);

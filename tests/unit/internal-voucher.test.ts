@@ -12,6 +12,7 @@ import { buildVatReport } from "../../src/core/vat";
 import { buildProfitAndLoss } from "../../src/core/financial-statements";
 import { createSystemBackup } from "../../src/core/system-backups";
 import { restoreSystemBackup } from "../../src/core/system-restore";
+import { postOpeningBalance } from "../../src/core/opening-balance";
 
 describe("internal vouchers backed by imported bank evidence (#554)", () => {
   test("books a 417 DKK bank fee without VAT and preserves immutable evidence", () => {
@@ -193,6 +194,24 @@ describe("internal vouchers backed by imported bank evidence (#554)", () => {
       rmSync(root, { recursive: true, force: true });
       rmSync(inbox, { recursive: true, force: true });
     }
+  });
+});
+
+describe("legacy opening creditor reclassification vouchers (#600)",()=>{
+  test("permits only an unexplained, exact and append-only primobalance creditor correction",()=>{
+    const root=mkdtempSync(join(tmpdir(),"rentemester-legacy-creditor-")),inbox=mkdtempSync(join(tmpdir(),"rentemester-legacy-creditor-inbox-"));
+    try{const db=openDb(ensureCompanyDirs(root).db);migrate(db);seedAccounts(db);
+      const opening=postOpeningBalance(db,{cutOverDate:"2026-01-01",lines:[{accountNo:"5000",debitAmount:9630},{accountNo:"7000",creditAmount:9630}],createdBy:"agent:test",createdByProgram:"bun:test"});expect(opening.ok).toBe(true);
+      const line=db.query("SELECT l.id FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.account_no='7000'").get(opening.entryId!) as {id:number};const file=join(inbox,"legacy.txt");writeFileSync(file,"synthetic legacy evidence");
+      const voucher=ingestDocument(db,root,file,{source:"internal",documentType:"internal_voucher",internalVoucherKind:"legacy_opening_creditor_reclassification",issueDate:"2026-08-15",deliveryDescription:"Legacy creditor correction",amountIncVat:9630,vatAmount:0,currency:"DKK",accountingRationale:"Synthetic unexplained primobalance correction without bank, VAT or P&L.",legacyOpeningJournalEntryId:opening.entryId!,legacyOpeningJournalLineId:line.id},{createdBy:"agent:test",createdByProgram:"bun:test"});expect(voucher.ok).toBe(true);
+      const payload={transactionDate:"2026-08-15",text:"Legacy creditor correction",documentId:voucher.documentId!,currency:"DKK",createdBy:"agent:test",createdByProgram:"bun:test",lines:[{accountNo:"7000",debitAmount:9630},{accountNo:"5000",creditAmount:9630}]};const pnl=buildProfitAndLoss(db,"2026-01-01","2026-12-31"),vat=buildVatReport(db,"2026-07-01","2026-09-30");
+      expect(dryRunJournalEntry(db,payload)).toMatchObject({ok:true,accountEffects:expect.arrayContaining([expect.objectContaining({accountNo:"7000",balanceBefore:-9630,balanceAfter:0}),expect.objectContaining({accountNo:"5000",balanceBefore:9630,balanceAfter:0})])});const posted=postJournalEntry(db,payload);expect(posted).toMatchObject({ok:true,idempotent:false});expect(postJournalEntry(db,payload)).toMatchObject({ok:true,idempotent:true,entryId:posted.entryId});expect(buildProfitAndLoss(db,"2026-01-01","2026-12-31")).toEqual(pnl);const afterVat=buildVatReport(db,"2026-07-01","2026-09-30");expect({outputVat:afterVat.outputVat,inputVat:afterVat.inputVat,netVatPayable:afterVat.netVatPayable,rubrikker:afterVat.rubrikker}).toEqual({outputVat:vat.outputVat,inputVat:vat.inputVat,netVatPayable:vat.netVatPayable,rubrikker:vat.rubrikker});
+      expect(()=>db.run("UPDATE legacy_opening_creditor_reclassification_evidence SET opening_journal_line_id=1")).toThrow("append-only");const backup=createSystemBackup(db,root,{createdAt:"2026-08-16T12:00:00.000Z"});expect(backup.ok).toBe(true);db.close();const restoredRoot=join(root,"restored");expect(restoreSystemBackup({backupDir:backup.backupDir!,targetCompanyRoot:restoredRoot})).toMatchObject({ok:true});const restored=openDb(ensureCompanyDirs(restoredRoot).db);expect(restored.query("SELECT document_id FROM legacy_opening_creditor_reclassification_evidence").get()).toEqual({document_id:voucher.documentId});restored.close();
+    }finally{rmSync(root,{recursive:true,force:true});rmSync(inbox,{recursive:true,force:true});}
+  });
+  test("keeps ordinary creditors and canonical payable evidence blocked",()=>{
+    const root=mkdtempSync(join(tmpdir(),"rentemester-legacy-creditor-block-")),inbox=mkdtempSync(join(tmpdir(),"rentemester-legacy-creditor-block-inbox-"));
+    try{const db=openDb(ensureCompanyDirs(root).db);migrate(db);seedAccounts(db);const opening=postOpeningBalance(db,{cutOverDate:"2026-01-01",lines:[{accountNo:"5000",debitAmount:100},{accountNo:"7000",creditAmount:100}]});const line=db.query("SELECT l.id FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.account_no='7000'").get(opening.entryId!) as {id:number};const file=join(inbox,"legacy-block.txt");writeFileSync(file,"synthetic");const voucher=ingestDocument(db,root,file,{source:"internal",documentType:"internal_voucher",internalVoucherKind:"legacy_opening_creditor_reclassification",issueDate:"2026-08-15",deliveryDescription:"Legacy creditor correction",amountIncVat:100,vatAmount:0,currency:"DKK",accountingRationale:"Synthetic",legacyOpeningJournalEntryId:opening.entryId!,legacyOpeningJournalLineId:line.id});const payload={transactionDate:"2026-08-15",text:"legacy",documentId:voucher.documentId!,lines:[{accountNo:"7000",debitAmount:100},{accountNo:"5000",creditAmount:100}]};expect(dryRunJournalEntry(db,{...payload,lines:[{accountNo:"7000",debitAmount:101},{accountNo:"5000",creditAmount:101}]}).ok).toBe(false);db.run("INSERT INTO payables(document_id,bill_date,due_date,gross_amount,net_amount,vat_amount,currency,journal_entry_id) VALUES(?,'2026-01-01','2026-01-02',1,1,0,'DKK',?)",voucher.documentId!,opening.entryId!);expect(dryRunJournalEntry(db,payload).errors.join(" ")).toContain("canonical payable evidence");db.close();}finally{rmSync(root,{recursive:true,force:true});rmSync(inbox,{recursive:true,force:true});}
   });
 });
 

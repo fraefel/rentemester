@@ -30,7 +30,9 @@ export type DocumentRow = {
   source: string;
   filename: string | null;
   documentType: string;
-  internalVoucherKind: "bank_evidenced" | "non_cash_balance_correction" | null;
+  internalVoucherKind: "bank_evidenced" | "non_cash_balance_correction" | "legacy_opening_creditor_reclassification" | null;
+  legacyOpeningJournalEntryId: number | null;
+  legacyOpeningJournalLineId: number | null;
   sourceBankTransactionId: number | null;
   accountingRationale: string | null;
   preparedBy: string | null;
@@ -108,7 +110,8 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
                 d.currency        AS currency,
                 d.status          AS status,
                 ive.bank_transaction_id AS sourceBankTransactionId,
-                CASE WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internalVoucherKind,
+                CASE WHEN legacy.document_id IS NOT NULL THEN 'legacy_opening_creditor_reclassification' WHEN ncc.document_id IS NOT NULL THEN 'non_cash_balance_correction' WHEN ive.document_id IS NOT NULL THEN 'bank_evidenced' ELSE NULL END AS internalVoucherKind,
+                legacy.opening_journal_entry_id AS legacyOpeningJournalEntryId, legacy.opening_journal_line_id AS legacyOpeningJournalLineId,
                 COALESCE(ive.accounting_rationale,ncc.accounting_rationale) AS accountingRationale,
                 COALESCE(ive.prepared_by,ncc.prepared_by) AS preparedBy,
                 COALESCE(ive.prepared_by_program,ncc.prepared_by_program) AS preparedByProgram,
@@ -133,6 +136,7 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
            LEFT JOIN journal_entries je_direct ON je_direct.document_id = d.id
            LEFT JOIN internal_voucher_evidence ive ON ive.document_id = d.id
            LEFT JOIN non_cash_balance_correction_evidence ncc ON ncc.document_id = d.id
+           LEFT JOIN legacy_opening_creditor_reclassification_evidence legacy ON legacy.document_id = d.id
           -- EJER-15: the 'issued_invoice_pdf' row is the invoice's OWN rendered
           -- PDF — an internal artifact Rentemester writes when it issues a sales
           -- invoice, NOT an inbound voucher the owner must process. Including it
@@ -150,7 +154,9 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       source: string;
       filename: string | null;
       documentType: string;
-      internalVoucherKind: "bank_evidenced" | "non_cash_balance_correction" | null;
+      internalVoucherKind: "bank_evidenced" | "non_cash_balance_correction" | "legacy_opening_creditor_reclassification" | null;
+      legacyOpeningJournalEntryId: number | null;
+      legacyOpeningJournalLineId: number | null;
       sourceBankTransactionId: number | null;
       accountingRationale: string | null;
       preparedBy: string | null;
@@ -182,6 +188,8 @@ export function buildCompanyDocuments(workspaceRoot: string, slug: string) {
       filename: r.filename,
       documentType: r.documentType,
       internalVoucherKind: r.internalVoucherKind,
+      legacyOpeningJournalEntryId: r.legacyOpeningJournalEntryId,
+      legacyOpeningJournalLineId: r.legacyOpeningJournalLineId,
       sourceBankTransactionId: r.sourceBankTransactionId,
       accountingRationale: r.accountingRationale,
       preparedBy: r.preparedBy,

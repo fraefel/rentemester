@@ -181,6 +181,8 @@ function parseDocumentMetadata(raw: unknown): DocumentMetadata {
     exemptionCode: (exemptionCode ?? undefined) as DocumentMetadata["exemptionCode"],
     sourceBankTransactionId: num("sourceBankTransactionId"),
     internalVoucherKind: str("internalVoucherKind") as DocumentMetadata["internalVoucherKind"],
+    legacyOpeningJournalEntryId: num("legacyOpeningJournalEntryId"),
+    legacyOpeningJournalLineId: num("legacyOpeningJournalLineId"),
     accountingRationale: str("accountingRationale"),
   };
 }

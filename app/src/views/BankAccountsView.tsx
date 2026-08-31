@@ -14,11 +14,13 @@ import { api, ApiError } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import type { BankAccount, CompanyBankAccounts } from "../lib/types";
 import { ErrorState, Loading } from "../components/Feedback";
+import { LegacyBankBindingModal } from "../components/LegacyBankBindingModal";
 
 export function BankAccountsView() {
   const { slug = "" } = useParams();
   const [refresh, setRefresh] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
+  const [legacyBinding,setLegacyBinding]=useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const state = useAsync<CompanyBankAccounts>(
@@ -51,6 +53,7 @@ export function BankAccountsView() {
           >
             Opret bankkonto …
           </button>
+          <button type="button" className="btn secondary" disabled={!data.accounts.some(account=>account.ledgerAccountNo===null)} onClick={()=>setLegacyBinding(true)}>Bind legacy-konto</button>
           <Link className="btn secondary" to={`/companies/${slug}/manage`}>
             Administrér
           </Link>
@@ -62,6 +65,7 @@ export function BankAccountsView() {
           {error}
         </div>
       )}
+      {legacyBinding&&<LegacyBankBindingModal slug={slug} accounts={data.accounts} onApplied={()=>setRefresh(value=>value+1)} onClose={()=>setLegacyBinding(false)} />}
 
       <section className="card">
         <h3>Registrerede bankkonti ({data.accounts.length})</h3>

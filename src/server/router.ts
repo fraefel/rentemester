@@ -40,7 +40,7 @@ import {
 import {
   handleCompanyBank,
   handleCompanyBankAccounts,
-  handleBankReconciliationCorrectionPlan,
+  handleBankReconciliationCorrectionPlan, handleLegacyBankBindingApply, handleLegacyBankBindingPlan,
 } from "./router/bank";
 import { handleBookkeepingBatchApply, handleBookkeepingBatchApprove, handleBookkeepingBatchDryRun, handleBookkeepingBatchPersistDryRun, handleBookkeepingBatchStatus } from "./router/bookkeeping-batch";
 import { handleBookkeepingWorkbench } from "./router/bookkeeping-workbench";
@@ -183,6 +183,8 @@ import {
   handlePayableRegister,
   handleDirectBankPurchasePayablePlan,
   handleDirectBankPurchasePayableApply,
+  handleLegacyPayableBackfillPlan,
+  handleLegacyPayableBackfillApply,
   handlePeriodCloseReadiness,
   handlePeriodCloseReview,
   handlePeriodCloseStatus,
@@ -357,6 +359,7 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/accounts", summary: "Kontoplan — read-only liste (#344)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bank", summary: "Bank-transaktioner." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/bank/reconciliation-correction-plan", summary: "Read-only plan for bankafstemningskorrektion." },
+  { scope:"company",effect:"read",permission:"company.read",method:"POST",pattern:"/api/companies/:slug/bank/legacy-binding/plan",summary:"Read-only NULL-only plan for legacy bank binding (#601)." },
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/vat", summary: "Momsoplysninger." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents", summary: "Bilagsliste." },
   { scope: "company", effect: "read", permission: "company.documents.read", method: "GET", pattern: "/api/companies/:slug/documents/:id/file", summary: "Henter et bilag." },
@@ -434,6 +437,9 @@ const ROUTE_CATALOG_INPUT: readonly RouteCatalogInput[] = [
   { scope: "company", effect: "read", permission: "company.read", method: "GET", pattern: "/api/companies/:slug/annual-report", summary: "Årsrapport-builder (regnskabsklasse-B) (#338)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bank/import", summary: "Importerer bank-CSV." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/bank/reconciliation-correction", summary: "Anvender reviewet bankafstemningskorrektion." },
+  { scope:"company",effect:"write",permission:"company.ledger.post",method:"POST",pattern:"/api/companies/:slug/bank/legacy-binding/apply",summary:"Applies exact reviewed legacy bank binding (#601)." },
+  { scope:"company",effect:"read",permission:"company.read",method:"POST",pattern:"/api/companies/:slug/payables/legacy-backfill/plan",summary:"Read-only exact-ID payable/payment backfill plan (#601)." },
+  { scope:"company",effect:"write",permission:"company.ledger.post",method:"POST",pattern:"/api/companies/:slug/payables/legacy-backfill/apply",summary:"Applies exact-ID payable/payment backfill (#601)." },
   { scope: "company", effect: "write", permission: "company.ledger.post", method: "POST", pattern: "/api/companies/:slug/import", summary: "Generel data-import." },
   { scope: "company", effect: "write", permission: "company.export", method: "POST", pattern: "/api/companies/:slug/accountant-export", summary: "Revisor-eksport (.tar)." },
   { scope: "company", effect: "write", permission: "company.documents.upload", method: "POST", pattern: "/api/companies/:slug/documents/ingest", summary: "Modtager et bilag." },
@@ -1518,6 +1524,8 @@ export async function handleRequest(
     if(bankCorrectionPlanMatch){if(method!=="GET")throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");return handleBankReconciliationCorrectionPlan(config,decodeURIComponent(bankCorrectionPlanMatch[1]!),url);}
     const bankCorrectionMatch=/^\/api\/companies\/([^/]+)\/bank\/reconciliation-correction$/.exec(path);
     if(bankCorrectionMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleBankReconciliationCorrectionApply(config,request,decodeURIComponent(bankCorrectionMatch[1]!));}
+    const legacyBindingMatch=/^\/api\/companies\/([^/]+)\/bank\/legacy-binding\/(plan|apply)$/.exec(path);
+    if(legacyBindingMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");const slug=decodeURIComponent(legacyBindingMatch[1]!);return legacyBindingMatch[2]==="plan"?await handleLegacyBankBindingPlan(config,slug,request):await handleLegacyBankBindingApply(config,slug,request);}
 
     // Cockpit write route: the generic file-import. Recognises which system
     // an export file came from and routes it to the matching core importer.
@@ -1696,6 +1704,8 @@ export async function handleRequest(
         ? await handleDirectBankPurchasePayablePlan(config, request, slug)
         : await handleDirectBankPurchasePayableApply(config, request, slug);
     }
+    const legacyPayableBackfillMatch=/^\/api\/companies\/([^/]+)\/payables\/legacy-backfill\/(plan|apply)$/.exec(path);
+    if(legacyPayableBackfillMatch){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");const slug=decodeURIComponent(legacyPayableBackfillMatch[1]!);return legacyPayableBackfillMatch[2]==="plan"?await handleLegacyPayableBackfillPlan(config,request,slug):await handleLegacyPayableBackfillApply(config,request,slug);}
     const payablePayMatch =
       /^\/api\/companies\/([^/]+)\/payables\/(\d+)\/pay$/.exec(path);
     if (payablePayMatch) {

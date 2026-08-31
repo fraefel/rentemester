@@ -33,6 +33,7 @@ import { CompanyNav, useCompanyYear } from "../components/CompanyNav";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PayableRegisterModal } from "../components/PayableRegisterModal";
 import { DirectBankPayableCorrectionModal } from "../components/DirectBankPayableCorrectionModal";
+import { LegacyPayableBackfillModal } from "../components/LegacyPayableBackfillModal";
 
 const FILTERS: { value: PayableListStatusFilter; label: string }[] = [
   { value: "open", label: "Åbne" },
@@ -60,6 +61,7 @@ export function PayablesView() {
   const [registering, setRegistering] = useState(false);
   const [paying, setPaying] = useState<CompanyPayableRow | null>(null);
   const [correcting, setCorrecting] = useState(false);
+  const [legacyBackfill,setLegacyBackfill]=useState(false);
 
   if (state.loading && !state.data) {
     return <Loading label="Henter leverandørfakturaer…" />;
@@ -92,6 +94,7 @@ export function PayablesView() {
           <button type="button" className="btn secondary" disabled={view.unregisteredDocuments.length===0} onClick={()=>setCorrecting(true)}>
             Ret direkte bankkøb
           </button>
+          <button type="button" className="btn secondary" onClick={()=>setLegacyBackfill(true)}>Legacy kreditor-backfill</button>
           <Link className="btn secondary" to={`/companies/${slug}/manage`}>
             Administrér
           </Link>
@@ -117,6 +120,7 @@ export function PayablesView() {
       )}
 
       {correcting && <DirectBankPayableCorrectionModal slug={slug} payables={view} onApplied={state.reload} onClose={()=>setCorrecting(false)} />}
+      {legacyBackfill&&<LegacyPayableBackfillModal slug={slug} onApplied={state.reload} onClose={()=>setLegacyBackfill(false)} />}
 
       {paying && (
         <ConfirmDialog

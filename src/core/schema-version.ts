@@ -180,6 +180,9 @@ export const BANK_STATEMENT_ORDER_MIGRATION_NAME = "rentemester-bank-statement-o
 const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0041-legacy-opening-creditor-reclassification.json"));
 export const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_CHECKSUM = createHash("sha256").update(LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT).digest("hex");
 export const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_NAME = "rentemester-legacy-opening-creditor-reclassification-v41";
+const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0042-legacy-bank-payable-backfills.json"));
+export const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_CHECKSUM = createHash("sha256").update(LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT).digest("hex");
+export const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_NAME = "rentemester-legacy-bank-payable-backfills-v42";
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -243,6 +246,7 @@ const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
   { id: 39, name: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME, checksum: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM },
   { id: 40, name: BANK_STATEMENT_ORDER_MIGRATION_NAME, checksum: BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM },
   { id: 41, name: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_NAME, checksum: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_CHECKSUM },
+  { id: 42, name: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_CHECKSUM },
 ];
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
@@ -489,6 +493,7 @@ export function applySchemaMigrations(db: Database): void {
   { id: 39, name: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME, checksum: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM, artifact: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_ARTIFACT },
   { id: 40, name: BANK_STATEMENT_ORDER_MIGRATION_NAME, checksum: BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM, artifact: BANK_STATEMENT_ORDER_MIGRATION_ARTIFACT },
   { id: 41, name: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_NAME, checksum: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_CHECKSUM, artifact: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT },
+  { id: 42, name: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_CHECKSUM, artifact: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT },
   ];
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
@@ -802,6 +807,11 @@ export function applySchemaMigrations(db: Database): void {
   if (db.query("SELECT id FROM schema_migrations WHERE id = 41").get()) {
     const parsed = JSON.parse(LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
+    db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
+  }
+  if (db.query("SELECT id FROM schema_migrations WHERE id = 42").get()) {
+    const parsed = JSON.parse(LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const triggers = parsed.sql.match(/CREATE TRIGGER(?: IF NOT EXISTS)?\s+[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }
 }

@@ -130,3 +130,5 @@ export type DirectBankPayableCorrectionPlan = DirectBankPayableCorrectionInput &
   schemaVersion: string; planHash: string; documentHash: string; originalJournalHash: string;
   originalJournalEntryId: number; bankDate: string; bankAmount: number;
 };
+export type LegacyPayableBackfillInput={purchaseJournalEntryId:number;paymentJournalEntryId:number;documentId:number;bankTransactionId:number};
+export type LegacyPayableBackfillPlan=LegacyPayableBackfillInput&{planHash:string;purchaseJournalHash:string;paymentJournalHash:string;documentHash:string;bankTransactionHash:string};

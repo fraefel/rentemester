@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 /**
  * Workspace-only evidence lifecycle for a two-sided intercompany disposition.
  * It deliberately opens legal ledgers read-only: normal company booking remains
@@ -12,7 +13,7 @@ import { inspectParty } from "./party-registry";
 import { insertWorkspaceAudit } from "./workspace-control";
 
 const sha=(value:string)=>createHash("sha256").update(value).digest("hex");
-const canonical=(value:unknown):string=>value===null||typeof value!=="object"?JSON.stringify(value):Array.isArray(value)?`[${value.map(canonical).join(",")}]`:`{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${canonical((value as any)[k])}`).join(",")}}`;
+const canonical = canonicalJson;
 const text=(value:unknown,name:string,max=160)=>{const result=typeof value==="string"?value.trim().normalize("NFC"):"";if(!result||result.length>max)throw new Error(`${name} is required and bounded`);return result;};
 const date=(value:unknown,name:string)=>{const result=text(value,name,10);if(!/^\d{4}-\d\d-\d\d$/.test(result)||Number.isNaN(Date.parse(`${result}T00:00:00Z`)))throw new Error(`${name} must be YYYY-MM-DD`);return result;};
 const amount=(value:unknown,name:string)=>{if(typeof value!=="number"||!Number.isFinite(value)||value<=0||Math.round(value*100)!==value*100)throw new Error(`${name} must be a positive two-decimal amount`);return value;};

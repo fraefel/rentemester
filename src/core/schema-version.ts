@@ -5,184 +5,15 @@ import { join } from "node:path";
 import { getBuildIdentity } from "./build-identity";
 
 export const BASELINE_SCHEMA_VERSION = 1;
-export const BASELINE_MIGRATION_NAME = "rentemester-schema-baseline-v1";
+import { loadMigrationCatalog } from "./migration-catalog";
 
-// The ledger checksum is derived from an immutable, reviewable migration
-// artifact. Its own tests bind the artifact to the exact schema.sql bytes and
-// baseline-normalization body in db.ts.
-const BASELINE_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0001-baseline.json"),
-);
-export const BASELINE_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(BASELINE_MIGRATION_ARTIFACT)
-  .digest("hex");
-const PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0002-peppol-submission-events.json"),
-);
-export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME = "rentemester-peppol-submission-events-v2";
-const RECURRING_AUTOMATION_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0003-recurring-automation.json"),
-);
-export const RECURRING_AUTOMATION_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(RECURRING_AUTOMATION_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const RECURRING_AUTOMATION_MIGRATION_NAME = "rentemester-recurring-automation-v3";
-const DINERO_IMPORT_PROVENANCE_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0004-dinero-import-provenance.json"),
-);
-export const DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(DINERO_IMPORT_PROVENANCE_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const DINERO_IMPORT_PROVENANCE_MIGRATION_NAME = "rentemester-dinero-import-provenance-v4";
-const MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0005-migration-open-items.json"),
-);
-export const MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const MIGRATION_OPEN_ITEMS_MIGRATION_NAME = "rentemester-migration-open-items-v5";
-const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0006-bank-journal-reconciliation-links.json"),
-);
-export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME = "rentemester-bank-journal-reconciliation-links-v6";
-const DOCUMENT_SCAN_EVIDENCE_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0007-document-scan-evidence.json"),
-);
-export const DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(DOCUMENT_SCAN_EVIDENCE_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME = "rentemester-document-scan-evidence-v7";
-const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0008-issued-invoice-pdf-immutability.json"),
-);
-export const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME = "rentemester-issued-invoice-pdf-immutability-v8";
-const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0009-accounting-draft-workflow.json"),
-);
-export const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME = "rentemester-accounting-draft-workflow-v9";
-const INTERNAL_VOUCHER_EVIDENCE_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0010-internal-voucher-evidence.json"),
-);
-export const INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(INTERNAL_VOUCHER_EVIDENCE_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME = "rentemester-internal-voucher-evidence-v10";
-const PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0011-purchase-vat-preflight.json"),
-);
-export const PURCHASE_VAT_PREFLIGHT_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const PURCHASE_VAT_PREFLIGHT_MIGRATION_NAME = "rentemester-purchase-vat-preflight-v11";
-const POSTING_RULES_MIGRATION_ARTIFACT = readFileSync(
-  join(import.meta.dir, "migrations", "0012-posting-rules.json"),
-);
-export const POSTING_RULES_MIGRATION_CHECKSUM = createHash("sha256")
-  .update(POSTING_RULES_MIGRATION_ARTIFACT)
-  .digest("hex");
-export const POSTING_RULES_MIGRATION_NAME = "rentemester-posting-rules-v12";
-const BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0013-bookkeeping-batches.json"));
-export const BOOKKEEPING_BATCHES_MIGRATION_CHECKSUM = createHash("sha256").update(BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT).digest("hex");
-export const BOOKKEEPING_BATCHES_MIGRATION_NAME = "rentemester-bookkeeping-batches-v13";
-const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0014-invoice-extraction-evidence.json"));
-export const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM = createHash("sha256").update(INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT).digest("hex");
-export const INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME = "rentemester-invoice-extraction-evidence-v14";
-const BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0015-bookkeeping-batch-retries.json"));
-export const BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM = createHash("sha256").update(BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT).digest("hex");
-export const BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME = "rentemester-bookkeeping-batch-retries-v15";
-const INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0016-invoice-extraction-actors.json"));
-export const INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM = createHash("sha256").update(INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT).digest("hex");
-export const INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME = "rentemester-invoice-extraction-actors-v16";
-const DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0017-document-pdf-parses.json"));
-export const DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT).digest("hex");
-export const DOCUMENT_PDF_PARSES_MIGRATION_NAME = "rentemester-document-pdf-parses-v17";
-const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0018-document-metadata-enrichments.json"));
-export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT).digest("hex");
-export const DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME = "rentemester-document-metadata-enrichments-v18";
-const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0019-document-company-contexts.json"));
-export const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT).digest("hex");
-export const DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME = "rentemester-document-company-contexts-v19";
-const MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0020-mutation-idempotency-receipts.json"));
-export const MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM = createHash("sha256").update(MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_ARTIFACT).digest("hex");
-export const MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME = "rentemester-mutation-idempotency-foundation-v20";
-const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0021-bookkeeping-batch-revisions.json"));
-export const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_CHECKSUM = createHash("sha256").update(BOOKKEEPING_BATCH_REVISIONS_MIGRATION_ARTIFACT).digest("hex");
-export const BOOKKEEPING_BATCH_REVISIONS_MIGRATION_NAME = "rentemester-bookkeeping-batch-revisions-v21";
-const PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0022-period-close-readiness.json"));
-export const PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM = createHash("sha256").update(PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT).digest("hex");
-export const PERIOD_CLOSE_READINESS_MIGRATION_NAME = "rentemester-period-close-readiness-v22";
-const LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0023-local-idempotency-tombstones.json"));
-export const LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM = createHash("sha256").update(LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_ARTIFACT).digest("hex");
-export const LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME = "rentemester-local-idempotency-tombstones-v23";
-const BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0024-bookkeeping-batch-principals.json"));
-export const BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM = createHash("sha256").update(BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_ARTIFACT).digest("hex");
-export const BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME = "rentemester-bookkeeping-batch-principals-v24";
-const PERIOD_CLOSE_REVIEWS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0025-period-close-reviews.json"));
-export const PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM = createHash("sha256").update(PERIOD_CLOSE_REVIEWS_MIGRATION_ARTIFACT).digest("hex");
-export const PERIOD_CLOSE_REVIEWS_MIGRATION_NAME = "rentemester-period-close-reviews-v25";
-const DOCUMENT_PARTY_LINKS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0026-document-party-links.json"));
-export const DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_PARTY_LINKS_MIGRATION_ARTIFACT).digest("hex");
-export const DOCUMENT_PARTY_LINKS_MIGRATION_NAME = "rentemester-document-party-links-v26";
-const SUPPLIER_COMMITMENTS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0027-supplier-commitments.json"));
-export const SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM = createHash("sha256").update(SUPPLIER_COMMITMENTS_MIGRATION_ARTIFACT).digest("hex");
-export const SUPPLIER_COMMITMENTS_MIGRATION_NAME = "rentemester-supplier-commitments-v27";
-const ACCOUNTING_DIMENSIONS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0028-accounting-dimensions.json"));
-export const ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM = createHash("sha256").update(ACCOUNTING_DIMENSIONS_MIGRATION_ARTIFACT).digest("hex");
-export const ACCOUNTING_DIMENSIONS_MIGRATION_NAME = "rentemester-accounting-dimensions-v28";
-const DOCUMENT_PARTY_RESOLUTION_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0029-document-party-resolution.json"));
-export const DOCUMENT_PARTY_RESOLUTION_MIGRATION_CHECKSUM = createHash("sha256").update(DOCUMENT_PARTY_RESOLUTION_MIGRATION_ARTIFACT).digest("hex");
-export const DOCUMENT_PARTY_RESOLUTION_MIGRATION_NAME = "rentemester-document-party-resolution-v29";
-const ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0030-accounting-dimension-lifecycle.json"));
-export const ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_CHECKSUM = createHash("sha256").update(ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_ARTIFACT).digest("hex");
-export const ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_NAME = "rentemester-accounting-dimension-lifecycle-v30";
-const SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0031-supplier-commitment-occurrence-matches.json"));
-export const SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_CHECKSUM = createHash("sha256").update(SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_ARTIFACT).digest("hex");
-export const SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_NAME = "rentemester-supplier-commitment-occurrence-matches-v31";
-const DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0032-dimension-budget-and-provenance.json"));
-export const DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_CHECKSUM = createHash("sha256").update(DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_ARTIFACT).digest("hex");
-export const DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_NAME = "rentemester-dimension-budget-and-provenance-v32";
-const BANK_RECONCILIATION_CORRECTIONS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0033-bank-reconciliation-corrections.json"));
-export const BANK_RECONCILIATION_CORRECTIONS_MIGRATION_CHECKSUM = createHash("sha256").update(BANK_RECONCILIATION_CORRECTIONS_MIGRATION_ARTIFACT).digest("hex");
-export const BANK_RECONCILIATION_CORRECTIONS_MIGRATION_NAME = "rentemester-bank-reconciliation-corrections-v33";
-const DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0034-direct-bank-purchase-payable-corrections.json"));
-export const DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_CHECKSUM = createHash("sha256").update(DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_ARTIFACT).digest("hex");
-export const DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_NAME = "rentemester-direct-bank-purchase-payable-corrections-v34";
-const BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0035-bank-reconciliation-account-role-fallback.json"));
-export const BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_CHECKSUM = createHash("sha256").update(BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_ARTIFACT).digest("hex");
-export const BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_NAME = "rentemester-bank-reconciliation-account-role-fallback-v35";
-const IMPORTED_RECEIVABLES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0036-imported-receivables.json"));
-export const IMPORTED_RECEIVABLES_MIGRATION_CHECKSUM = createHash("sha256").update(IMPORTED_RECEIVABLES_MIGRATION_ARTIFACT).digest("hex");
-export const IMPORTED_RECEIVABLES_MIGRATION_NAME = "rentemester-imported-receivables-v36";
-const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0037-imported-receivable-boundaries.json"));
-export const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM = createHash("sha256").update(IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT).digest("hex");
-export const IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME = "rentemester-imported-receivable-boundaries-v37";
-const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0038-legacy-imported-receivable-backfills.json"));
-export const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM = createHash("sha256").update(LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT).digest("hex");
-export const LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME = "rentemester-legacy-imported-receivable-backfills-v38";
-const NON_CASH_BALANCE_CORRECTIONS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0039-non-cash-balance-corrections.json"));
-export const NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM = createHash("sha256").update(NON_CASH_BALANCE_CORRECTIONS_MIGRATION_ARTIFACT).digest("hex");
-export const NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME = "rentemester-non-cash-balance-corrections-v39";
-const BANK_STATEMENT_ORDER_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0040-bank-statement-order.json"));
-export const BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM = createHash("sha256").update(BANK_STATEMENT_ORDER_MIGRATION_ARTIFACT).digest("hex");
-export const BANK_STATEMENT_ORDER_MIGRATION_NAME = "rentemester-bank-statement-order-v40";
-const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0041-legacy-opening-creditor-reclassification.json"));
-export const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_CHECKSUM = createHash("sha256").update(LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT).digest("hex");
-export const LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_NAME = "rentemester-legacy-opening-creditor-reclassification-v41";
-const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT = readFileSync(join(import.meta.dir, "migrations", "0042-legacy-bank-payable-backfills.json"));
-export const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_CHECKSUM = createHash("sha256").update(LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT).digest("hex");
-export const LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_NAME = "rentemester-legacy-bank-payable-backfills-v42";
+const MIGRATIONS = loadMigrationCatalog(join(import.meta.dir, "migrations"), {
+  16: "rentemester-invoice-extraction-actors-v16",
+  35: "rentemester-bank-reconciliation-account-role-fallback-v35",
+});
+const artifact = (id: number) => MIGRATIONS[id - 1]!.artifact;
+export const BASELINE_MIGRATION_NAME = MIGRATIONS[0]!.name;
+export const BASELINE_MIGRATION_CHECKSUM = MIGRATIONS[0]!.checksum;
 
 export type SupportedSchemaMigration = {
   id: number;
@@ -196,58 +27,9 @@ export type SchemaMigrationIdentity = {
   checksum?: string | null;
 };
 
-const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = [
-  {
-    id: BASELINE_SCHEMA_VERSION,
-    name: BASELINE_MIGRATION_NAME,
-    checksum: BASELINE_MIGRATION_CHECKSUM,
-  },
-  {
-    id: 2,
-    name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME,
-    checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM,
-  },
-  { id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM },
-  { id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM },
-  { id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM },
-  { id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM },
-  { id: 7, name: DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME, checksum: DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM },
-  { id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM },
-  { id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM },
-  { id: 10, name: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME, checksum: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM },
-  { id: 11, name: PURCHASE_VAT_PREFLIGHT_MIGRATION_NAME, checksum: PURCHASE_VAT_PREFLIGHT_MIGRATION_CHECKSUM },
-  { id: 12, name: POSTING_RULES_MIGRATION_NAME, checksum: POSTING_RULES_MIGRATION_CHECKSUM },
-  { id: 13, name: BOOKKEEPING_BATCHES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCHES_MIGRATION_CHECKSUM },
-  { id: 14, name: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM },
-  { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM },
-  { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM },
-  { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM },
-  { id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM },
-  { id: 19, name: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME, checksum: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM },
-  { id: 20, name: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME, checksum: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM },
-  { id: 21, name: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_CHECKSUM },
-  { id: 22, name: PERIOD_CLOSE_READINESS_MIGRATION_NAME, checksum: PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM },
-  { id: 23, name: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME, checksum: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM },
-  { id: 24, name: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM },
-  { id: 25, name: PERIOD_CLOSE_REVIEWS_MIGRATION_NAME, checksum: PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM },
-  { id: 26, name: DOCUMENT_PARTY_LINKS_MIGRATION_NAME, checksum: DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM },
-  { id: 27, name: SUPPLIER_COMMITMENTS_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM },
-  { id: 28, name: ACCOUNTING_DIMENSIONS_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM },
-  { id: 29, name: DOCUMENT_PARTY_RESOLUTION_MIGRATION_NAME, checksum: DOCUMENT_PARTY_RESOLUTION_MIGRATION_CHECKSUM },
-  { id: 30, name: ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_CHECKSUM },
-  { id: 31, name: SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_CHECKSUM },
-  { id: 32, name: DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_NAME, checksum: DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_CHECKSUM },
-  { id: 33, name: BANK_RECONCILIATION_CORRECTIONS_MIGRATION_NAME, checksum: BANK_RECONCILIATION_CORRECTIONS_MIGRATION_CHECKSUM },
-  { id: 34, name: DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_NAME, checksum: DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_CHECKSUM },
-  { id: 35, name: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_NAME, checksum: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_CHECKSUM },
-  { id: 36, name: IMPORTED_RECEIVABLES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLES_MIGRATION_CHECKSUM },
-  { id: 37, name: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM },
-  { id: 38, name: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM },
-  { id: 39, name: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME, checksum: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM },
-  { id: 40, name: BANK_STATEMENT_ORDER_MIGRATION_NAME, checksum: BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM },
-  { id: 41, name: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_NAME, checksum: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_CHECKSUM },
-  { id: 42, name: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_CHECKSUM },
-];
+const SUPPORTED_SCHEMA_MIGRATIONS: readonly SupportedSchemaMigration[] = MIGRATIONS.map(({ id, name, checksum }) => ({ id, name, checksum }));
+/* legacy registration removed: artifacts are the source of identity. */
+
 export const CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_MIGRATIONS.at(-1)!.id;
 
 /** Immutable migration catalogue for read-only compatibility inspection. */
@@ -452,49 +234,8 @@ export function schemaHistoryIsCurrent(db: Database): boolean {
 /** Apply migrations after the immutable v1 normalization has completed. */
 export function applySchemaMigrations(db: Database): void {
   const build = getBuildIdentity();
-  const migrations = [
-    { id: 2, name: PEPPOL_SUBMISSION_EVENTS_MIGRATION_NAME, checksum: PEPPOL_SUBMISSION_EVENTS_MIGRATION_CHECKSUM, artifact: PEPPOL_SUBMISSION_EVENTS_MIGRATION_ARTIFACT },
-    { id: 3, name: RECURRING_AUTOMATION_MIGRATION_NAME, checksum: RECURRING_AUTOMATION_MIGRATION_CHECKSUM, artifact: RECURRING_AUTOMATION_MIGRATION_ARTIFACT },
-    { id: 4, name: DINERO_IMPORT_PROVENANCE_MIGRATION_NAME, checksum: DINERO_IMPORT_PROVENANCE_MIGRATION_CHECKSUM, artifact: DINERO_IMPORT_PROVENANCE_MIGRATION_ARTIFACT },
-    { id: 5, name: MIGRATION_OPEN_ITEMS_MIGRATION_NAME, checksum: MIGRATION_OPEN_ITEMS_MIGRATION_CHECKSUM, artifact: MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT },
-    { id: 6, name: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_NAME, checksum: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_CHECKSUM, artifact: BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT },
-    { id: 7, name: DOCUMENT_SCAN_EVIDENCE_MIGRATION_NAME, checksum: DOCUMENT_SCAN_EVIDENCE_MIGRATION_CHECKSUM, artifact: DOCUMENT_SCAN_EVIDENCE_MIGRATION_ARTIFACT },
-    { id: 8, name: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_NAME, checksum: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_CHECKSUM, artifact: ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT },
-    { id: 9, name: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_NAME, checksum: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_CHECKSUM, artifact: ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT },
-    { id: 10, name: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_NAME, checksum: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_CHECKSUM, artifact: INTERNAL_VOUCHER_EVIDENCE_MIGRATION_ARTIFACT },
-    { id: 11, name: PURCHASE_VAT_PREFLIGHT_MIGRATION_NAME, checksum: PURCHASE_VAT_PREFLIGHT_MIGRATION_CHECKSUM, artifact: PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT },
-    { id: 12, name: POSTING_RULES_MIGRATION_NAME, checksum: POSTING_RULES_MIGRATION_CHECKSUM, artifact: POSTING_RULES_MIGRATION_ARTIFACT },
-    { id: 13, name: BOOKKEEPING_BATCHES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCHES_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT },
-    { id: 14, name: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT },
-    { id: 15, name: BOOKKEEPING_BATCH_RETRIES_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_RETRIES_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_RETRIES_MIGRATION_ARTIFACT },
-    { id: 16, name: INVOICE_EXTRACTION_ACTORS_MIGRATION_NAME, checksum: INVOICE_EXTRACTION_ACTORS_MIGRATION_CHECKSUM, artifact: INVOICE_EXTRACTION_ACTORS_MIGRATION_ARTIFACT },
-    { id: 17, name: DOCUMENT_PDF_PARSES_MIGRATION_NAME, checksum: DOCUMENT_PDF_PARSES_MIGRATION_CHECKSUM, artifact: DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT },
-    { id: 18, name: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_NAME, checksum: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_CHECKSUM, artifact: DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT },
-    { id: 19, name: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_NAME, checksum: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_CHECKSUM, artifact: DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT },
-    { id: 20, name: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_NAME, checksum: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_CHECKSUM, artifact: MUTATION_IDEMPOTENCY_RECEIPTS_MIGRATION_ARTIFACT },
-    { id: 21, name: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_REVISIONS_MIGRATION_ARTIFACT },
-    { id: 22, name: PERIOD_CLOSE_READINESS_MIGRATION_NAME, checksum: PERIOD_CLOSE_READINESS_MIGRATION_CHECKSUM, artifact: PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT },
-    { id: 23, name: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_NAME, checksum: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_CHECKSUM, artifact: LOCAL_IDEMPOTENCY_TOMBSTONES_MIGRATION_ARTIFACT },
-    { id: 24, name: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_NAME, checksum: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_CHECKSUM, artifact: BOOKKEEPING_BATCH_PRINCIPALS_MIGRATION_ARTIFACT },
-    { id: 25, name: PERIOD_CLOSE_REVIEWS_MIGRATION_NAME, checksum: PERIOD_CLOSE_REVIEWS_MIGRATION_CHECKSUM, artifact: PERIOD_CLOSE_REVIEWS_MIGRATION_ARTIFACT },
-    { id: 26, name: DOCUMENT_PARTY_LINKS_MIGRATION_NAME, checksum: DOCUMENT_PARTY_LINKS_MIGRATION_CHECKSUM, artifact: DOCUMENT_PARTY_LINKS_MIGRATION_ARTIFACT },
-    { id: 27, name: SUPPLIER_COMMITMENTS_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENTS_MIGRATION_CHECKSUM, artifact: SUPPLIER_COMMITMENTS_MIGRATION_ARTIFACT },
-    { id: 28, name: ACCOUNTING_DIMENSIONS_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSIONS_MIGRATION_CHECKSUM, artifact: ACCOUNTING_DIMENSIONS_MIGRATION_ARTIFACT },
-    { id: 29, name: DOCUMENT_PARTY_RESOLUTION_MIGRATION_NAME, checksum: DOCUMENT_PARTY_RESOLUTION_MIGRATION_CHECKSUM, artifact: DOCUMENT_PARTY_RESOLUTION_MIGRATION_ARTIFACT },
-    { id: 30, name: ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_NAME, checksum: ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_CHECKSUM, artifact: ACCOUNTING_DIMENSION_LIFECYCLE_MIGRATION_ARTIFACT },
-    { id: 31, name: SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_NAME, checksum: SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_CHECKSUM, artifact: SUPPLIER_COMMITMENT_OCCURRENCE_MATCHES_MIGRATION_ARTIFACT },
-    { id: 32, name: DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_NAME, checksum: DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_CHECKSUM, artifact: DIMENSION_BUDGET_AND_PROVENANCE_MIGRATION_ARTIFACT },
-    { id: 33, name: BANK_RECONCILIATION_CORRECTIONS_MIGRATION_NAME, checksum: BANK_RECONCILIATION_CORRECTIONS_MIGRATION_CHECKSUM, artifact: BANK_RECONCILIATION_CORRECTIONS_MIGRATION_ARTIFACT },
-  { id: 34, name: DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_NAME, checksum: DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_CHECKSUM, artifact: DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_ARTIFACT },
-  { id: 35, name: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_NAME, checksum: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_CHECKSUM, artifact: BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_ARTIFACT },
-  { id: 36, name: IMPORTED_RECEIVABLES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLES_MIGRATION_CHECKSUM, artifact: IMPORTED_RECEIVABLES_MIGRATION_ARTIFACT },
-  { id: 37, name: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_NAME, checksum: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_CHECKSUM, artifact: IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT },
-  { id: 38, name: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_CHECKSUM, artifact: LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT },
-  { id: 39, name: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_NAME, checksum: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_CHECKSUM, artifact: NON_CASH_BALANCE_CORRECTIONS_MIGRATION_ARTIFACT },
-  { id: 40, name: BANK_STATEMENT_ORDER_MIGRATION_NAME, checksum: BANK_STATEMENT_ORDER_MIGRATION_CHECKSUM, artifact: BANK_STATEMENT_ORDER_MIGRATION_ARTIFACT },
-  { id: 41, name: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_NAME, checksum: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_CHECKSUM, artifact: LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT },
-  { id: 42, name: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_NAME, checksum: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_CHECKSUM, artifact: LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT },
-  ];
+  const migrations = MIGRATIONS.slice(1);
+
   for (const migration of migrations) {
     if (db.query("SELECT id FROM schema_migrations WHERE id = ?").get(migration.id)) continue;
     const parsed = JSON.parse(migration.artifact.toString("utf8")) as { sql: string };
@@ -625,7 +366,7 @@ export function applySchemaMigrations(db: Database): void {
   // append-only guards therefore need the same drop+create reassertion on
   // every open as baseline triggers, including after a privileged tamper.
   if (db.query("SELECT id FROM schema_migrations WHERE id = 4").get()) {
-    const parsed = JSON.parse(DINERO_IMPORT_PROVENANCE_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(4).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -644,7 +385,7 @@ export function applySchemaMigrations(db: Database): void {
   }
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 5").get()) {
-    const parsed = JSON.parse(MIGRATION_OPEN_ITEMS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(5).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -657,7 +398,7 @@ export function applySchemaMigrations(db: Database): void {
   }
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 6").get()) {
-    const parsed = JSON.parse(BANK_JOURNAL_RECONCILIATION_LINKS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(6).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -670,7 +411,7 @@ export function applySchemaMigrations(db: Database): void {
   }
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 8").get()) {
-    const parsed = JSON.parse(ISSUED_INVOICE_PDF_IMMUTABILITY_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(8).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -683,7 +424,7 @@ export function applySchemaMigrations(db: Database): void {
   }
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 9").get()) {
-    const parsed = JSON.parse(ACCOUNTING_DRAFT_WORKFLOW_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(9).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -696,7 +437,7 @@ export function applySchemaMigrations(db: Database): void {
   }
 
   if (db.query("SELECT id FROM schema_migrations WHERE id = 10").get()) {
-    const parsed = JSON.parse(INTERNAL_VOUCHER_EVIDENCE_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(10).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -708,7 +449,7 @@ export function applySchemaMigrations(db: Database): void {
     }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 11").get()) {
-    const parsed = JSON.parse(PURCHASE_VAT_PREFLIGHT_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(11).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -720,7 +461,7 @@ export function applySchemaMigrations(db: Database): void {
     }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 12").get()) {
-    const parsed = JSON.parse(POSTING_RULES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(12).toString("utf8")) as { sql: string };
     const triggerStatements = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggerStatements) {
@@ -732,37 +473,37 @@ export function applySchemaMigrations(db: Database): void {
     }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 13").get()) {
-    const parsed = JSON.parse(BOOKKEEPING_BATCHES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(13).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 14").get()) {
-    const parsed = JSON.parse(INVOICE_EXTRACTION_EVIDENCE_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(14).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 17").get()) {
-    const parsed = JSON.parse(DOCUMENT_PDF_PARSES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(17).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 18").get()) {
-    const parsed = JSON.parse(DOCUMENT_METADATA_ENRICHMENTS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(18).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 19").get()) {
-    const parsed = JSON.parse(DOCUMENT_COMPANY_CONTEXTS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(19).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 22").get()) {
-    const parsed = JSON.parse(PERIOD_CLOSE_READINESS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(22).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 34").get()) {
-    const parsed = JSON.parse(DIRECT_BANK_PURCHASE_PAYABLE_CORRECTIONS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(34).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => {
       for (const statement of triggers) {
@@ -775,42 +516,42 @@ export function applySchemaMigrations(db: Database): void {
     }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 35").get()) {
-    const parsed = JSON.parse(BANK_RECONCILIATION_ACCOUNT_ROLE_FALLBACK_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(35).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 36").get()) {
-    const parsed = JSON.parse(IMPORTED_RECEIVABLES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(36).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 37").get()) {
-    const parsed = JSON.parse(IMPORTED_RECEIVABLE_BOUNDARIES_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(37).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 38").get()) {
-    const parsed = JSON.parse(LEGACY_IMPORTED_RECEIVABLE_BACKFILLS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(38).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 39").get()) {
-    const parsed = JSON.parse(NON_CASH_BALANCE_CORRECTIONS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(39).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 40").get()) {
-    const parsed = JSON.parse(BANK_STATEMENT_ORDER_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(40).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 41").get()) {
-    const parsed = JSON.parse(LEGACY_OPENING_CREDITOR_RECLASSIFICATION_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(41).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }
   if (db.query("SELECT id FROM schema_migrations WHERE id = 42").get()) {
-    const parsed = JSON.parse(LEGACY_BANK_PAYABLE_BACKFILLS_MIGRATION_ARTIFACT.toString("utf8")) as { sql: string };
+    const parsed = JSON.parse(artifact(42).toString("utf8")) as { sql: string };
     const triggers = parsed.sql.match(/CREATE TRIGGER(?: IF NOT EXISTS)?\s+[\s\S]*?END;/gi) ?? [];
     db.transaction(() => { for (const statement of triggers) { const name = /CREATE TRIGGER(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement)?.[1]; if (name) { db.exec(`DROP TRIGGER IF EXISTS ${name};`); db.exec(statement.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")); } } }).immediate();
   }

@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonical-json";
 /** Canonical, append-only document-to-party evidence.  Party identity remains
  * in the workspace registry; a company ledger stores only its immutable
  * snapshot at the moment a reviewed link is made. */

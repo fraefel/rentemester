@@ -32,6 +32,8 @@ import { recordHostedDocumentAccess } from "./document-access-audit";
 import { ApiError, toErrorResponse } from "./errors";
 import { assertHostedMutationOriginAllowed } from "./mutations";
 import { jsonResponse } from "./router/_shared";
+import { dispatchAgentDiscoveryRoute } from "./router/agent-discovery-dispatch";
+import { dispatchSystemRoute } from "./router/system-dispatch";
 import { handleCompanyAccountingDraft, handleCompanyAccountingDrafts } from "./router/accounting-drafts";
 import {
   handleAssetNextDepreciation,
@@ -726,23 +728,12 @@ export async function handleRequest(
     // (2) Imperative route dispatch. `route` above ensures every handler
     // reached by a catalogued request was authorized first.
 
-    if (path === "/api" || path === "/api/health") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handleHealth(config, ROUTE_CATALOG);
-    }
-
-    if (path === "/api/ready") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handleReadiness(config);
-    }
-
-    // #402 — CVR-login status, so the cockpit can offer a friendly path
-    // through "Hent fra CVR" instead of letting the owner click a button
-    // that fails silently when the credentials are missing.
-    if (path === "/api/system/cvr-status") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handleSystemCvrStatus();
-    }
+    const systemResponse = dispatchSystemRoute(path, method, {
+      health: () => handleHealth(config, ROUTE_CATALOG),
+      readiness: () => handleReadiness(config),
+      cvrStatus: () => handleSystemCvrStatus(),
+    });
+    if (systemResponse) return systemResponse;
 
     if (path === "/api/portfolio") {
       if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
@@ -890,37 +881,21 @@ export async function handleRequest(
     const dispositionAction=/^\/api\/companies\/([^/]+)\/group-dispositions\/(plan|propose|approve|link|settle|supersede|reopen)$/.exec(path);
     if(dispositionAction){if(method!=="POST")throw ApiError.methodNotAllowed("kun POST er understøttet på denne rute");return await handleGroupDispositionAction(config,decodeURIComponent(dispositionAction[1]!),request,dispositionAction[2]! as any);}
 
-    if (path === "/api/rules") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      return handleRules();
-    }
-
-    if (path === "/api/agent-capabilities") {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      const cursor = Number(url.searchParams.get("cursor") ?? "0");
-      const limit = Number(url.searchParams.get("limit") ?? "10");
-      if (!Number.isInteger(cursor) || cursor < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) {
-        throw ApiError.badRequest("cursor must be >= 0 and limit must be between 1 and 50");
-      }
-      return jsonResponse({ ok: true, ...searchCapabilities(url.searchParams.get("query") ?? undefined, cursor, limit, {
-        commands: COMMAND_SPECS.map((command) => ({
-          key: command.key,
-          allowedFlags: command.allowedFlags,
-          mutating: MUTATING_COMMANDS.has(command.key),
-          sideEffecting: SIDE_EFFECTING_COMMANDS.has(command.key),
-        })),
-        routes: ROUTE_CATALOG,
-        unavailableSurfaces: ["mcp"],
-      }) });
-    }
-
-    const agentWorkflowMatch = /^\/api\/agent-workflows\/([^/]+)$/.exec(path);
-    if (agentWorkflowMatch) {
-      if (method !== "GET") throw ApiError.methodNotAllowed("kun GET er understøttet på denne rute");
-      const description = describeWorkflow(decodeURIComponent(agentWorkflowMatch[1]!), { commands: COMMAND_SPECS, routes: ROUTE_CATALOG, unavailableSurfaces: ["mcp"] });
-      if (!description) throw ApiError.notFound("ukendt agent-workflow");
-      return jsonResponse({ ok: true, ...description });
-    }
+    const agentDiscoveryResponse = dispatchAgentDiscoveryRoute(path, method, {
+      rules: () => handleRules(),
+      capabilities: () => {
+        const cursor = Number(url.searchParams.get("cursor") ?? "0");
+        const limit = Number(url.searchParams.get("limit") ?? "10");
+        if (!Number.isInteger(cursor) || cursor < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) throw ApiError.badRequest("cursor must be >= 0 and limit must be between 1 and 50");
+        return jsonResponse({ ok: true, ...searchCapabilities(url.searchParams.get("query") ?? undefined, cursor, limit, { commands: COMMAND_SPECS.map((command) => ({ key: command.key, allowedFlags: command.allowedFlags, mutating: MUTATING_COMMANDS.has(command.key), sideEffecting: SIDE_EFFECTING_COMMANDS.has(command.key) })), routes: ROUTE_CATALOG, unavailableSurfaces: ["mcp"] }) });
+      },
+      workflow: (id) => {
+        const description = describeWorkflow(id, { commands: COMMAND_SPECS, routes: ROUTE_CATALOG, unavailableSurfaces: ["mcp"] });
+        if (!description) throw ApiError.notFound("ukendt agent-workflow");
+        return jsonResponse({ ok: true, ...description });
+      },
+    });
+    if (agentDiscoveryResponse) return agentDiscoveryResponse;
 
     if (path === "/api/companies") {
       if (method === "GET") return handleCompanyList(config);
